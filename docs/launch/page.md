@@ -30,13 +30,18 @@ Everyone welcome. Even the weird ones. 💖
 Search words it carries: hospital, pet, vet, doctor, clinic, creatures, cute. No links (Roblox rule for this audience).
 
 ## Images
+AI-made in Higgsfield (GPT Image 2.6, 2026-11-16) from real Studio captures of the game as references, so they show
+the actual cast and clinic in the stylised 3D look the top games use. Exported at Roblox's sizes.
+
 | File | Use | Size |
 |---|---|---|
-| `images/icon-512.png` | Icon | 512 × 512 |
-| `images/thumb-1-cure.png` | Thumbnail 1 (first) | 1920 × 1080 |
-| `images/thumb-2-town.png` | Thumbnail 2 | 1920 × 1080 |
-| `images/thumb-3-night.png` | Thumbnail 3 | 1920 × 1080 |
-| `images/thumb-4-upgrade.png` | Thumbnail 4 | 1920 × 1080 |
+| `images/icon-jelly-512.png` | Icon (pick one): Jelly Bun close-up with a red-cross badge | 512 × 512 |
+| `images/icon-cure-512.png` | Icon (pick one): doctor hugging Jelly Bun and Toast Pup, "CURE!" | 512 × 512 |
+| `images/thumb-1-hero.jpg` | Thumbnail 1: "CURE A CREATURE!", doctor with potion and sick creatures | 1920 × 1080 |
+| `images/thumb-2-closeup.jpg` | Thumbnail 2: "CURE A CREATURE!", crying Jelly Bun up close | 1920 × 1080 |
+| `images/thumb-3-night.jpg` | Thumbnail 3: "NIGHT SHIFT! Glowing patients" | 1920 × 1080 |
+| `images/thumb-4-friends.jpg` | Thumbnail 4: "PLAY WITH FRIENDS!" | 1920 × 1080 |
 
-Remake them after the tutorial/declutter lands if the look changes: the composer script takes Studio captures, crops
-to 16:9, and adds the LuckiestGuy banners (Roblox's own font file).
+Roblox wants thumbnails to reflect the real game: these show real creatures, the clinic stand, beds, the bath room
+and night patients, all in the game today. Roblox lets you test icons and thumbnails against each other
+(thumbnail personalization), so upload all four and let the data pick the order.
