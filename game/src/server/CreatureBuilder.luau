@@ -33,6 +33,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Config = require(Shared.Config)
 local Ailments = require(Shared.Data.Ailments)
 local Items = require(Shared.Data.Items)
 local Palette = require(Shared.Palette)
@@ -618,7 +619,7 @@ local function placeholder(look: Look, night: boolean): (Model, { BasePart })
 	buildTop(b, look, top)
 	buildExtra(b, look, shape)
 
-	local scale = if type(look.Scale) == "number" then math.clamp(look.Scale, 0.5, 2) else 1
+	local scale = (if type(look.Scale) == "number" then math.clamp(look.Scale, 0.5, 2) else 1) * Config.CreatureSize
 	if scale ~= 1 then
 		model:ScaleTo(scale) -- every part is still anchored, so this is a plain resize around the origin
 	end
@@ -670,7 +671,7 @@ local function fromKit(patientId: string, look: Look): (Model?, { BasePart }?)
 	model:PivotTo(CFrame.identity)
 	local _, size = model:GetBoundingBox()
 	if size.Y < 1 or size.Y > 9 then -- far off the placeholder size: bring it near 3 studs tall
-		model:ScaleTo(model:GetScale() * (3 * look.Scale / math.max(size.Y, 0.05)))
+		model:ScaleTo(model:GetScale() * (3 * look.Scale * Config.CreatureSize / math.max(size.Y, 0.05)))
 	end
 	return model, tint
 end

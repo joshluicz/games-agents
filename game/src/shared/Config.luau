@@ -22,8 +22,10 @@ Config.FrostyMultiplier = 1.5
 Config.PatienceSeconds = 60 -- how long a patient waits at the counter before leaving (no penalty)
 Config.ChairsPatienceBonus = 10 -- extra seconds of patience per Comfy Chairs level
 Config.MaxQueue = 4 -- patients waiting at one clinic at once
-Config.QueueSpacing = 4 -- studs between patients in the queue
-Config.SpawnEverySeconds = 7
+Config.QueueSpacing = 7 -- studs between patients in the queue (creatures are player-sized)
+Config.QueueDepth = 7 -- studs the line runs straight back from the counter before it turns sideways
+Config.CreatureSize = 1.6 -- every creature's size multiplier (about a player's height)
+Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7)
 Config.RecoverSeconds = 4 -- time in bed (or in place) before the cure lands
 Config.QueuePatienceRate = 0.5 -- patience drains at this speed behind the front of the line (1 = full speed)
 Config.GuestPatienceMultiplier = 1.5 -- regulars and Today's Visitor wait this much longer
