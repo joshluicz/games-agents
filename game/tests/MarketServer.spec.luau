@@ -139,9 +139,11 @@ function PlayerData.saveNow(player)
 end
 local afterLog: { string } = {}
 local afterLeaveOut = {} -- the leaveOut function of each writeAfter, in order
-function PlayerData.writeAfter(first, second, leaveOut)
+local afterKey = {} -- and its key (the nurse id)
+function PlayerData.writeAfter(first, second, leaveOut, key)
 	table.insert(afterLog, first.Name .. ">" .. second.Name)
 	table.insert(afterLeaveOut, leaveOut)
+	table.insert(afterKey, key)
 end
 
 -- Nurses: take/give/setListed/isListed as §B8 says (ONE update each).
@@ -274,9 +276,10 @@ local modules = {
 	Nurses = Nurses,
 	PlayerData = PlayerData,
 }
+local kiosk = nil -- Workspace.PlayerMarket, once a spec builds one (the real builder needs Roblox)
 local Workspace = {
-	FindFirstChild = function()
-		return nil
+	FindFirstChild = function(_, name)
+		return if name == "PlayerMarket" then kiosk else nil
 	end,
 }
 local ServerStorage = {
@@ -488,6 +491,21 @@ T.describe("Market.Pure (server)", function()
 			Job = "",
 		})
 		expect(SP.entryCopy(nil)).toEqual({ Level = 1, XP = 0, Copies = 1, Job = "" })
+	end)
+
+	test("near: within the reach in studs; junk is never near", function()
+		local kioskAt = { X = -11, Y = 2, Z = 12 }
+		expect(SP.near({ X = -11, Y = 3, Z = 12 }, kioskAt, 15)).toBe(true)
+		expect(SP.near({ X = 4, Y = 2, Z = 12 }, kioskAt, 15)).toBe(true) -- exactly 15
+		expect(SP.near({ X = 4.1, Y = 2, Z = 12 }, kioskAt, 15)).toBe(false)
+		expect(SP.near({ X = -11, Y = 2, Z = 212 }, kioskAt, 15)).toBe(false)
+		expect(SP.near({ X = -2, Y = 14, Z = 12 }, kioskAt, 15)).toBe(true) -- 9 across, 12 up: 15
+		for _, junk in { 0, "here", true, {}, { X = 0 / 0, Y = 0, Z = 0 }, { X = 1, Y = 2 } } do
+			expect(SP.near(junk, kioskAt, 15)).toBe(false)
+			expect(SP.near(kioskAt, junk, 15)).toBe(false)
+		end
+		expect(SP.near(nil, kioskAt, 15)).toBe(false)
+		expect(SP.near(kioskAt, kioskAt, 0 / 0)).toBe(false)
 	end)
 
 	test("messages stay at 6 words or fewer", function()
@@ -898,17 +916,67 @@ T.describe("Market server (mocked)", function()
 		expect((BuyListing(buyer, id, 300))).toBe(true)
 		local leaveOut = afterLeaveOut[1]
 		expect(type(leaveOut)).toBe("function")
+		expect(afterKey[1]).toBe("PuffPup") -- the key: only this nurse sold on waits for this sale
 		local copy = clone(saves[buyer])
 		leaveOut(copy)
 		expect(copy.Nurses.PuffPup).toBeNil()
 		expect(copy.Cash).toBe(saves[buyer].Cash + 300)
 		expect(saves[buyer].Nurses.PuffPup ~= nil).toBe(true) -- the live save is untouched
-		-- the pure helper on its own: junk is ignored
+		-- the pure helper on its own: junk is ignored, and a save without that nurse gets nothing back
 		local fn = SP.leaveOut("MintMouse", 50)
 		fn(nil)
 		local bare = {}
 		fn(bare)
-		expect(bare.Cash).toBe(50)
+		expect(bare.Cash).toBeNil()
+	end)
+
+	test("leaveOut after the buyer sold the nurse to the Agency or rebirthed: nothing comes back", function()
+		local _, buyer, id = market(300)
+		afterLeaveOut = {}
+		expect((BuyListing(buyer, id, 300))).toBe(true)
+		local leaveOut = afterLeaveOut[1]
+		-- the Agency paid for it (Nurses.take "Sold"): a refund on top would be cash from nowhere
+		local sold = clone(saves[buyer])
+		sold.Nurses.PuffPup = nil
+		sold.Cash += 30
+		local before = clone(sold)
+		leaveOut(sold)
+		expect(sold).toEqual(before)
+		-- a rebirth: the roster and the cash start over
+		local reborn = clone(saves[buyer])
+		reborn.Nurses = {}
+		reborn.Cash = 0
+		leaveOut(reborn)
+		expect(reborn.Cash).toBe(0)
+		expect(next(reborn.Nurses)).toBeNil()
+	end)
+
+	test("leaveOut after a copy was hired: only the bought copies go, the hired one stays", function()
+		local _, buyer, id = market(300) -- the listed PuffPup has 2 copies
+		afterLeaveOut = {}
+		expect((BuyListing(buyer, id, 300))).toBe(true)
+		local leaveOut = afterLeaveOut[1]
+		local grown = clone(saves[buyer])
+		grown.Nurses.PuffPup.Copies = 3 -- a belt copy the buyer paid for since
+		leaveOut(grown)
+		expect(grown.Nurses.PuffPup.Copies).toBe(1)
+		expect(grown.Cash).toBe(saves[buyer].Cash + 300)
+		-- sold and hired again from the belt (fewer copies than were bought): not this sale's nurse
+		local fresh = clone(saves[buyer])
+		fresh.Nurses.PuffPup = nurse(1, 0, 1)
+		local before = clone(fresh)
+		leaveOut(fresh)
+		expect(fresh).toEqual(before)
+		-- untouched: the whole entry goes and the price comes back (as before)
+		local same = clone(saves[buyer])
+		leaveOut(same)
+		expect(same.Nurses.PuffPup).toBeNil()
+		expect(same.Cash).toBe(saves[buyer].Cash + 300)
+		-- without `copies` (an older caller) the entry goes whatever it holds
+		local old = { Cash = 0, Nurses = { PuffPup = nurse(1, 0, 5) } }
+		SP.leaveOut("PuffPup", 40)(old)
+		expect(old.Nurses.PuffPup).toBeNil()
+		expect(old.Cash).toBe(40)
 	end)
 
 	test("a take that errors after its update still completes the sale (no lost nurse, no free cash)", function()
@@ -1002,6 +1070,92 @@ T.describe("Market server (mocked)", function()
 		expect(newsAll).toBe(0)
 		flush()
 		expect(newsAll).toBe(1)
+	end)
+
+	test("the kiosk check: ListNurse and BuyListing only answer near the kiosk, wherever it stands", function()
+		-- A kiosk in the world: the part that holds its prompt is where you stand.
+		local counter = {
+			Position = { X = -11, Y = 2, Z = 12 },
+			IsA = function(_, class)
+				return class == "BasePart"
+			end,
+		}
+		local prompt = {
+			Parent = counter,
+			IsA = function(_, class)
+				return class == "ProximityPrompt"
+			end,
+		}
+		local function stand(player, x, z)
+			local root = {
+				Position = { X = x, Y = 3, Z = z },
+				IsA = function(_, class)
+					return class == "BasePart"
+				end,
+			}
+			player.Character = {
+				FindFirstChild = function(_, name)
+					return if name == "HumanoidRootPart" then root else nil
+				end,
+			}
+		end
+		local seller, buyer, id = market(100)
+		local second = newPlayer("FarSeller")
+		save(second, { Nurses = { MintMouse = nurse(1) } })
+		kiosk = {
+			GetDescendants = function()
+				return { counter, prompt }
+			end,
+			IsA = function()
+				return false
+			end,
+		}
+		local reach = Config.KioskReach
+		expect(reach).toBe(0) -- shipped off: the 👩‍⚕️ panel opens the Market from anywhere
+
+		-- Off: far away (or with no character at all) still works, as it always did.
+		stand(second, 500, 500)
+		later()
+		expect((ListNurse(second, "MintMouse", 100))).toBe(true)
+		expect((Unlist(second, listingsOf(second.UserId)[1].Id))).toBe(true)
+
+		Config.KioskReach = 15
+		local sellerBefore, buyerBefore = clone(saves[seller]), clone(saves[buyer])
+		-- Far away, and with no character: a friendly no, and nothing changes.
+		stand(buyer, 200, 12)
+		local ok, message = BuyListing(buyer, id, 100)
+		expect(ok).toBe(false)
+		expect(message).toBe("🚶 Come closer!")
+		expect(words(message) <= 6).toBe(true)
+		buyer.Character = nil
+		ok, message = BuyListing(buyer, id, 100)
+		expect(ok).toBe(false)
+		expect(message).toBe("🚶 Come closer!")
+		later()
+		ok, message = ListNurse(second, "MintMouse", 100)
+		expect(ok).toBe(false)
+		expect(message).toBe("🚶 Come closer!")
+		expect(saves[seller]).toEqual(sellerBefore)
+		expect(saves[buyer]).toEqual(buyerBefore)
+		expect(#listingsOf(seller.UserId)).toBe(1)
+		expect(#listingsOf(second.UserId)).toBe(0)
+
+		-- The kiosk moved (another build): the check follows the model, not a fixed spot.
+		counter.Position = { X = 200, Y = 2, Z = 12 }
+		stand(buyer, 190, 12)
+		stand(second, 205, 20)
+		later()
+		expect((ListNurse(second, "MintMouse", 100))).toBe(true)
+		expect((BuyListing(buyer, id, 100))).toBe(true)
+		expect(saves[buyer].Nurses.PuffPup ~= nil).toBe(true)
+
+		-- No kiosk in the world: nothing to stand near, so nothing is refused for it.
+		kiosk = nil
+		stand(second, 9000, 9000)
+		expect((Unlist(second, listingsOf(second.UserId)[1].Id))).toBe(true)
+		later()
+		expect((ListNurse(second, "MintMouse", 100))).toBe(true)
+		Config.KioskReach = reach
 	end)
 
 	test("a buyer leaving changes nothing for the seller's other listings", function()
