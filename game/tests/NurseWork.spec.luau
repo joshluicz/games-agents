@@ -251,6 +251,24 @@ T.describe("Abilities.Pure", function()
 		expect(AP.ready(slot, 190, 0)).toBe(true)
 	end)
 
+	test("prune: an owner who left keeps only what a rejoin must not reset", function()
+		local ready = AP.newSlot("CalmSong", "PauseLine", false, 90, 0)
+		local cooling = AP.newSlot("BusyPaws", "FastMake", false, 90, 0)
+		AP.startCooldown(cooling, 90, 0, 0, nil)
+		local banked = AP.newSlot("GoldenTouch", "AutoPerfect", false, 90, 0)
+		banked.Charges = 2
+		local miracle = AP.newSlot("Miracle", "CureLine", true, 240, 0)
+		AP.startCooldown(miracle, 240, 0, 3, 500)
+		local slots = { A = ready, B = cooling, C = banked, D = miracle }
+		expect(AP.prune(slots, 10, 3)).toBe(false)
+		expect(slots.A).toBeNil() -- a fresh slot would equal it
+		expect(slots.B ~= nil and slots.C ~= nil and slots.D ~= nil).toBe(true)
+		expect(AP.prune(slots, 100, 3)).toBe(false) -- B ready now; C still banked; D used today
+		expect(slots.B).toBeNil()
+		slots.C.Charges = 0
+		expect(AP.prune(slots, 100, 4)).toBe(true) -- a new in-game day: Miracle is ready again
+	end)
+
 	test("cooldowns shrink at Lv 5 and 10 and with Second Wind, never under the floor", function()
 		expect(strength("CalmSong", 5).Cooldown).toBeCloseTo(76.5)
 		expect(strength("CalmSong", 10).Cooldown).toBeCloseTo(65.025)
@@ -825,7 +843,7 @@ T.describe("Server/Nurses (mocked): give and the Market's undo", function()
 		local bought = Nurses.give(b, "PuffPup", taken, price)
 		expect(bought).toBe(false)
 		local newsBefore = #sentTo(s, "NurseNews", "Bought")
-		local undone = Nurses.give(s, "PuffPup", taken, payout)
+		local undone = Nurses.give(s, "PuffPup", taken, payout, true)
 		expect(undone).toBe(true)
 		expect(sd.Nurses.PuffPup).toEqual(entry(6, "Healer", 12, 3)) -- its job too
 		expect(bd.Nurses.PuffPup).toBeNil()
@@ -844,17 +862,52 @@ T.describe("Server/Nurses (mocked): give and the Market's undo", function()
 		}, 0)
 		local ok, _, taken = Nurses.take(s, "PuffPup", 100, "Market")
 		expect(ok).toBe(true)
-		expect(Nurses.give(s, "PuffPup", taken, 100)).toBe(true) -- same frame: the undo, no roster check
+		expect(Nurses.give(s, "PuffPup", taken, 100, true)).toBe(true) -- the explicit undo: no roster check
 		expect(sd.Nurses.PuffPup).toEqual(entry(3, "Rest", 5))
 		expect(sd.Cash).toBe(0)
 		ok, _, taken = Nurses.take(s, "PuffPup", 100, "Market")
 		expect(ok).toBe(true)
-		task.wait() -- a frame later the undo token is gone
+		Nurses.endUndo(s, "PuffPup") -- the Market's sale is over: the token goes at once
 		local why
+		ok, why = Nurses.give(s, "PuffPup", taken, 100, true)
+		expect(ok).toBe(false)
+		expect(why).toBe(Remotes.OOPS) -- no token, no undo
 		ok, why = Nurses.give(s, "PuffPup", taken, 100)
 		expect(ok).toBe(false)
 		expect(why).toBe("Roster full: sell or list one")
 		expect(sd.Cash).toBe(100)
+		-- and without endUndo, a frame later the deferred backstop has cleared it too
+		sd.Nurses.PuffPup = entry(3, "Rest", 5)
+		sd.Cash = 0
+		ok, _, taken = Nurses.take(s, "PuffPup", 100, "Market")
+		expect(ok).toBe(true)
+		task.wait()
+		ok, why = Nurses.give(s, "PuffPup", taken, 100, true)
+		expect(ok).toBe(false)
+		expect(why).toBe(Remotes.OOPS)
+	end)
+
+	test("a normal give in the same frame as a Market take is never an undo (no nurse doubled, none lost)", function()
+		-- A lists PuffPup and C lists a PuffPup too. B buys A's (take A) and, in the same frame, A buys C's.
+		local a, b, c = newPlayer("RaceA"), newPlayer("RaceB"), newPlayer("RaceC")
+		local ad = newSave(a, { PuffPup = entry(6, "Healer", 12, 3) }, 1000)
+		local bd = newSave(b, {}, 1000)
+		local cd = newSave(c, { PuffPup = entry(2, "Maker", 4, 1) }, 0)
+		Nurses.setListed(a, "PuffPup", 1)
+		Nurses.setListed(c, "PuffPup", 2)
+		local ok, _, fromA = Nurses.take(a, "PuffPup", 270, "Market")
+		expect(ok).toBe(true)
+		expect(Nurses.give(b, "PuffPup", fromA, 300)).toBe(true)
+		local fromC
+		ok, _, fromC = Nurses.take(c, "PuffPup", 90, "Market")
+		expect(ok).toBe(true)
+		expect(Nurses.give(a, "PuffPup", fromC, 100)).toBe(true) -- a normal buy: A's old token is never read
+		expect(ad.Nurses.PuffPup).toEqual(entry(2, "", 4, 1)) -- C's nurse, working its role for A
+		expect(bd.Nurses.PuffPup).toEqual(entry(6, "", 12, 3)) -- A's old nurse, only in B's save
+		expect(cd.Nurses.PuffPup).toBeNil()
+		expect(#sentTo(a, "NurseNews", "Bought")).toBe(1)
+		Nurses.endUndo(a, "PuffPup")
+		Nurses.endUndo(c, "PuffPup")
 	end)
 
 	test("one nurse, two buyers in one frame: only the first gets it", function()

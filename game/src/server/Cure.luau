@@ -157,6 +157,9 @@ local function sanitize(ctx: any): Types.CureCtx?
 		Plot = if type(plot) == "table" and typeof(plot.Model) == "Instance" then plot else nil,
 		Dept = shortId(ctx.Dept),
 		Wing = shortId(ctx.Wing),
+		-- Already paid inside Extra; carried on so the Cured payload's 🛗 / 🛁 bonus lines show.
+		Escorted = ctx.Escorted == true,
+		Soaked = ctx.Soaked == true,
 	}
 end
 

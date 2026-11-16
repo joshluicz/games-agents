@@ -181,9 +181,11 @@ function Pure.confirmText(kind: string, icon: string, name: string, level: numbe
 	return string.format("Hire %s %s for 💰%s?", icon, name, Pure.commas(price))
 end
 
--- Selling an Epic or rarer is a hold (Kit.holdButton), not a tap.
-function Pure.needsHold(rarity: any): boolean
-	return Pure.rank(rarity) >= 3
+-- Selling an Epic or rarer is a hold (Kit.holdButton), not a tap; so is selling any nurse you've levelled (Lv 2+):
+-- the sell-back is never level-scaled, so a tap must never throw away hours of levels.
+Pure.HOLD_LEVEL = 2
+function Pure.needsHold(rarity: any, level: any): boolean
+	return Pure.rank(rarity) >= 3 or (finite(level) and level >= Pure.HOLD_LEVEL)
 end
 
 -- Your nurses listed on the Market (a MarketView), by NurseId.
@@ -1060,7 +1062,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		ask(
 			nurse,
 			Pure.confirmText("Sell", nurse.Icon, nurse.Name, level, price),
-			Pure.needsHold(nurse.Rarity),
+			Pure.needsHold(nurse.Rarity, level),
 			function()
 				sell(nurseId, price)
 			end

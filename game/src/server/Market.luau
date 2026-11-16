@@ -27,9 +27,12 @@
 --     an Agency sale) can run in between. If the buyer update fails, the seller update is undone with
 --     Nurses.give(seller, entry, payout). A Nurses call that errors counts as a refusal (Nurses changes a save only
 --     inside one PlayerData.update).
---   · Then PlayerData.saveNow(seller) and, only once that write landed, saveNow(buyer): a crash between the two
---     writes can lose a nurse but never duplicate one. PlayerData.writeAfter(seller, buyer) holds the buyer's
---     autosave and leave-save back the same way (bounded at 10 s), so the autosave loop can't reorder them.
+--   · The undo (step 12) is explicit: Nurses.give(seller, .., true) uses the token of THIS call's take only, and
+--     Nurses.endUndo ends it before buy returns, so another sale landing in the same frame is never taken for one.
+--   · Then PlayerData.saveNow(seller) and, only once that write landed, saveNow(buyer). PlayerData.writeAfter(seller,
+--     buyer, Pure.leaveOut(nurse, price)) leaves the sale out of every buyer write (autosave, leave-save, a rebirth's)
+--     until the seller's write has landed, so no write order, crash or failed seller save can put the nurse in two
+--     saves: a crash can lose a sale, never duplicate one.
 --   · The price the client sends is only ever compared with the listing's (never used), and every argument is
 --     type-checked first. Every rejection changes nothing (a stale or vanished listing is only tidied away).
 --   · A seller who leaves takes their listings with them (PlayerRemoving, before their leave-save writes). A seller
@@ -70,6 +73,7 @@ local PROMPT_NAME = "Prompt"
 local KIOSK_ATTRIBUTE = "Kiosk" -- on the prompt: the client opens the panel when a prompt with "Market" fires
 local FALLBACK_GROUND_TOP = 0.5 -- PlotBuilder's street top above Config.Town.Origin.Y (if ClinicTown is missing)
 local STALE = "Price changed! Look again"
+local RELIST = "🏷️ It grew! List it again" -- a copy raised a listed nurse's lowest price: the listing ended
 
 ------------------------------------------------------------------------------------------------------------------
 -- Pure helpers (no Roblox services, no upvalues: tests/MarketServer.spec loads this block on its own)
@@ -149,6 +153,21 @@ function Pure.find(listings: { [number]: any }, userId: number, nurseId: string)
 		end
 	end
 	return nil
+end
+
+-- What PlayerData.writeAfter(seller, buyer, ..) applies to a COPY of the buyer's save while the seller's write
+-- hasn't landed: the sale taken back out (the nurse goes, the price comes back), so the buyer's stored save can never
+-- hold the nurse while the seller's stored save still does.
+function Pure.leaveOut(nurseId: string, price: number): (any) -> ()
+	return function(snapshot: any)
+		if type(snapshot) ~= "table" then
+			return
+		end
+		if type(snapshot.Nurses) == "table" then
+			snapshot.Nurses[nurseId] = nil
+		end
+		snapshot.Cash = (if type(snapshot.Cash) == "number" then snapshot.Cash else 0) + price
+	end
 end
 
 -- A clean copy of a save's nurse entry: what moves to the buyer (its Job resets there).
@@ -310,9 +329,10 @@ function Market.list(player: Player, nurseId: any, price: any): (boolean, string
 	if Pure.find(listings, player.UserId, nurseId) ~= nil or isLocked(player, nurseId) then
 		return false, "Already listed!"
 	end
-	-- 3. The price is a whole number inside the band for its level now.
+	-- 3. The price is a whole number inside the band for its level now, never below what the Agency pays for all its
+	-- copies after the fee (Logic/Market.floor): no seller short-changed, no buy-and-sell-back profit.
 	local entry = data.Nurses[nurseId]
-	local min, max = MarketLogic.band(Config, nurse.Rarity, entry.Level)
+	local min, max = MarketLogic.band(Config, nurse.Rarity, entry.Level, entry.Copies)
 	if not MarketLogic.valid(price, min, max) then
 		return false, Pure.bandText(min, max)
 	end
@@ -403,6 +423,12 @@ function Market.buy(buyer: Player, id: any, price: any): (boolean, string)
 		newsTo(buyer)
 		return false, STALE
 	end
+	-- It gained copies while listed (a belt or Agency copy): the old price may now be below the Agency's sell-back.
+	if record.Price < MarketLogic.floor(Config, record.Rarity, held.Copies) then
+		drop(id)
+		newsTo(buyer)
+		return false, STALE
+	end
 	-- 5-7. The buyer's gates (as the belt's), no copy already, roster room, cash.
 	local buyerData = PlayerData.get(buyer)
 	if not buyerData then
@@ -443,8 +469,10 @@ function Market.buy(buyer: Player, id: any, price: any): (boolean, string)
 	-- that errored after its update DID hand the nurse over, and undoing it then would make two.
 	local gave = guarded("Nurses.give", Nurses.give, buyer, nurseId, entry, price)
 	if not gave and not hasNurse(buyer, nurseId) then
-		-- 12. Undo step 10 in one update: the nurse goes back, the payout comes back out.
-		local back = guarded("Nurses.give (undo)", Nurses.give, seller, nurseId, entry, payout)
+		-- 12. Undo step 10 in one update: the nurse goes back, the payout comes back out. The undo is explicit (`true`):
+		-- only this call's own take can be undone, never by a give that merely lands in the same frame.
+		local back = guarded("Nurses.give (undo)", Nurses.give, seller, nurseId, entry, payout, true)
+		pcall(Nurses.endUndo, seller, nurseId)
 		if not back then
 			warn(
 				string.format(
@@ -460,10 +488,12 @@ function Market.buy(buyer: Player, id: any, price: any): (boolean, string)
 		newsTo(buyer)
 		return false, Remotes.OOPS
 	end
+	pcall(Nurses.endUndo, seller, nurseId) -- sold: nothing can undo this take any more
 
-	-- 13. Seller first, then the buyer, and the buyer only once the seller's write landed. writeAfter holds the
-	-- buyer's autosave and leave-save back too (bounded), so no write order can put the nurse in both saves.
-	pcall(PlayerData.writeAfter, seller, buyer)
+	-- 13. Seller first, then the buyer, and the buyer only once the seller's write landed. writeAfter also leaves this
+	-- sale out of every buyer write until the seller's write has landed (the nurse and the price), so no write order,
+	-- crash or failed seller save can put the nurse in both saves.
+	pcall(PlayerData.writeAfter, seller, buyer, Pure.leaveOut(nurseId, price))
 	task.spawn(function()
 		local ok1, sellerSaved = pcall(PlayerData.saveNow, seller)
 		if ok1 and sellerSaved then
@@ -719,6 +749,11 @@ function Market.start()
 					else nil
 				if type(entry) ~= "table" then
 					drop(id)
+				elseif record.Price < MarketLogic.floor(Config, record.Rarity, entry.Copies) then
+					-- A copy came while listed: the price is now below what the Agency pays for it (Logic/Market.floor).
+					-- The listing ends; the seller lists it again at a fair price.
+					drop(id)
+					Remotes.toast(player, RELIST)
 				elseif type(entry.Level) == "number" and entry.Level ~= record.Level then
 					record.Level = entry.Level
 					newsSoon()

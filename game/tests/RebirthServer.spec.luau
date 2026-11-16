@@ -993,6 +993,13 @@ T.describe("Server/Rebirth tree and themes", function()
 			expect(served.SetTheme(p, junk)).toBe(false)
 		end
 		expect(saves[p]).toEqual(before)
+		-- Each change rebuilds the building for everyone: 3 s per player between changes (a no-op is always fine).
+		ok, why = served.SetTheme(p, "Candy")
+		expect(ok).toBe(false)
+		expect(why).toBe("Too fast! Try again.")
+		expect(saves[p].Rebirth.Theme).toBe("Jungle")
+		expect(served.SetTheme(p, "Jungle")).toBe(true)
+		now += 3
 		expect(served.SetTheme(p, "Candy")).toBe(true)
 		expect(saves[p].Rebirth.Theme).toBe("Candy")
 	end)

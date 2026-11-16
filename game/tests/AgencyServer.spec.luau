@@ -553,9 +553,14 @@ T.describe("AgencyPanel.Pure", function()
 			expect(words(PP.confirmText("Sell", nurse.Icon, nurse.Name, 15, 1234567)) <= 6).toBe(true)
 		end
 		expect(PP.needsHold("Rare")).toBe(false)
+		expect(PP.needsHold("Rare", 1)).toBe(false)
 		expect(PP.needsHold("Epic")).toBe(true)
 		expect(PP.needsHold("Secret")).toBe(true)
 		expect(PP.needsHold("Junk")).toBe(false)
+		-- a levelled Common or Rare is a hold too: its levels go for the flat sell-back
+		expect(PP.needsHold("Common", 2)).toBe(true)
+		expect(PP.needsHold("Common", 9)).toBe(true)
+		expect(PP.needsHold("Rare", 0 / 0)).toBe(false)
 	end)
 
 	test("the Sell tab: your nurses in the Journal's order; listed, rebirth-only, priced", function()

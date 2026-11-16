@@ -18,7 +18,9 @@
 -- (Kit.breathing) and closes it; so does a tap anywhere after a moment, ButtonB, or Theme.Juice.CelebrateSeconds
 -- passing (no countdown: it just gets out of the way). On closing, a Journal group's cash flies into 💰 and a new
 -- nurse's icon into the 👩‍⚕️ button. One at a time (a short queue), never while the first-session tutorial runs
--- (it waits for the tutorial to end). Calm (Kit.reducedMotion()): the rays hold still, no confetti, no bounce.
+-- (it waits for the tutorial to end). A treat card stays playable: one nobody tapped for (Words.PASSIVE: NurseLevel,
+-- a lone Unlock) waits for an open card to close, and a card opening (bus TreatStart) closes whatever is up.
+-- Calm (Kit.reducedMotion()): the rays hold still, no confetti, no bounce.
 -- Sounds (Feel/Sounds over the bus): LevelUp, Celebrate (nurses, Journal sets, unlocks), Fanfare (rooms), and
 -- Progression v2's Rebirth, Perk and LevelNurse.
 -- Display only: the server already granted whatever this shows.
@@ -36,6 +38,7 @@ local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutoria
 local RebirthLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Rebirth"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
+local MiniGames = require(script.Parent.MiniGames)
 local Theme = require(script.Parent.Theme)
 
 ------------------------------------------------------------------------------------------------------------------
@@ -75,6 +78,9 @@ local KINDS = {
 	Unlock = "Celebrate",
 }
 Words.KINDS = KINDS
+-- Kinds nobody tapped for just now (a nurse levelling from cures, an unlock on its own): they wait for an open treat
+-- card to close before they show (UI/Celebrate's queue).
+Words.PASSIVE = { NurseLevel = true, Unlock = true } :: { [string]: boolean }
 -- The same role icons as the belt and the Journal (UI/BeltView Pure.ROLE_ICONS; tests/Juice checks they match). Never
 -- an item's icon (🧪 Potion, 🩹 Plaster): a pre-reader would read a Healer as a plaster.
 local ROLE_ICONS = { Maker = "🛠️", Healer = "🩺", Cheerer = "🎉" }
@@ -858,6 +864,13 @@ function Celebrate.init(ctx: Types.Ctx)
 				while TutorialLogic.active(ctx.State.Tutorial) do
 					task.wait(1)
 				end
+				-- One nobody tapped for (a nurse levelling from cures, a lone unlock) never covers a treat card: its dim
+				-- would catch the mini-game's taps. It waits for the card to close.
+				local head: CelebrateWords? = queue[1]
+				while head and Words.PASSIVE[head.Kind] and MiniGames.isOpen() do
+					task.wait(0.25)
+					head = queue[1]
+				end
 				local words = table.remove(queue, 1) :: CelebrateWords
 				local ok, err = pcall(show, words)
 				if not ok then
@@ -907,6 +920,13 @@ function Celebrate.init(ctx: Types.Ctx)
 
 	yay.Activated:Connect(function()
 		closeNow(true)
+	end)
+	-- A treat card opening must stay playable: whatever celebration is up closes (its dim sits above the card and
+	-- would catch the mini-game's taps). The server already granted what it showed.
+	ctx.on("TreatStart", function()
+		if current then
+			closeNow(false)
+		end
 	end)
 	dim.Activated:Connect(function()
 		if os.clock() - openedAt >= TAP_GUARD then

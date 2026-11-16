@@ -132,6 +132,37 @@ T.describe("BranchPanel (pure): the keep/reset screen", function()
 			assert(found, "no perk of kind " .. kind)
 		end
 	end)
+	test("the cash row says ALL cash starts fresh, with the real numbers (not the cost taken off)", function()
+		local rich = snap({ Level = 5, Cash = 180000 })
+		eq(texts(Pure.resetRows(rich, Perks, Config))[1], "💰 Cash: 💰180,000 → 💰0")
+		local seeded = snap({ Level = 5, Cash = 1.3e6, Rebirth = { Perks = { "SeedMoney" } } })
+		local seed = RebirthLogic.startCash(seeded, Config, Perks)
+		eq(seed, rawget(Perks, "SeedMoney").Value)
+		eq(
+			texts(Pure.resetRows(seeded, Perks, Config))[1],
+			"💰 Cash: 💰1.3M → 💰" .. Pure.short(seed) .. " · 💰 Seed Money"
+		)
+		-- the other rows are unchanged
+		eq(Pure.resetRows(rich, Perks, Config)[2].Text, RebirthLogic.RESET[2].Text)
+		for count = 0, 12 do
+			for _, perks in { {}, table.clone(Perks.Order) } do
+				local state = snap({ Level = 5, Cash = 1e7, Rebirth = { Count = count, Perks = perks } })
+				for _, row in Pure.resetRows(state, Perks, Config) do
+					assertWords(Pure.rowText(row), "reset with cash")
+				end
+			end
+		end
+	end)
+	test("an offer whose cards were renamed or removed shows the Fallback card (never a dead end)", function()
+		local stale = snap({ Rebirth = { Count = 1, Offer = { "GoneCard", "OldName" } } })
+		local cards = Pure.offerCards(stale, Perks)
+		eq(#cards, 1)
+		eq(cards[1].Id, RebirthLogic.FALLBACK)
+		local mixed = snap({ Rebirth = { Count = 1, Offer = { "GoneCard", "BigHands" } } })
+		eq(#Pure.offerCards(mixed, Perks), 1)
+		eq(Pure.offerCards(mixed, Perks)[1].Id, "BigHands")
+		eq(#Pure.offerCards(snap({ Rebirth = { Count = 1, Offer = {} } }), Perks), 0)
+	end)
 	test("get rows at R0: Logic/Rebirth.GET's numbers from Config, the Arctic look, the R1 unlocks", function()
 		local rows = Pure.getRows(snap(), Config, Themes)
 		eq(texts(rows), {
@@ -193,19 +224,19 @@ T.describe("BranchPanel (pure): the keep/reset screen", function()
 		eq(low.Message, "Need 🏙️ Lv 5")
 		eq(low.LevelOk, false)
 		eq(low.CashOk, true)
-		eq(low.Line, "🏙️ Lv 5  ·  💰50,000 ✅")
+		eq(low.Line, "Need 🏙️ Lv 5  ·  💰50,000 ✅")
 		local poor = Pure.status(snap({ Level = 5, Cash = 49999 }), Config)
 		eq(poor.Ok, false)
 		eq(poor.Message, "Need 💰50,000")
-		eq(poor.Line, "🏙️ Lv 5 ✅  ·  💰50,000")
+		eq(poor.Line, "Need 🏙️ Lv 5 ✅  ·  💰50,000")
 		local ready = Pure.status(snap({ Level = 5, Cash = 50000 }), Config)
 		eq(ready.Ok, true)
 		eq(ready.Next, 1)
-		eq(ready.Line, "🏙️ Lv 5 ✅  ·  💰50,000 ✅")
+		eq(ready.Line, "Need 🏙️ Lv 5 ✅  ·  💰50,000 ✅")
 		local second = Pure.status(snap({ Level = 5, Cash = 0, Rebirth = { Count = 1 } }), Config)
 		eq(second.Cost, 75000)
 		eq(second.Next, 2)
-		eq(Pure.status(snap({ Rebirth = { Count = 8 } }), Config).Line, "🏙️ Lv 5  ·  💰1.3M")
+		eq(Pure.status(snap({ Rebirth = { Count = 8 } }), Config).Line, "Need 🏙️ Lv 5  ·  💰1.3M")
 		for count = 0, 25 do
 			local status = Pure.status(snap({ Level = 5, Rebirth = { Count = count } }), Config)
 			eq(status.Cost, RebirthLogic.cost(count, Config))
@@ -441,13 +472,13 @@ T.describe("Shop (pure): the 🏥 tab's branch card, gates and levels", function
 		eq(top, {
 			Show = true,
 			Title = "🏢 New branch",
-			Sub = "💰50,000",
+			Sub = "Need 💰50,000",
 			Look = true,
 			Links = false,
 			Lines = {},
 		})
 		local second = ShopPure.branchCard(snap({ Level = 5, Rebirth = { Count = 2 } }), Config, Tree)
-		eq(second.Sub, "💰110,000  ·  🏢 R2")
+		eq(second.Sub, "Need 💰110,000  ·  🏢 R2")
 		eq(second.Links, true)
 	end)
 	test("after a rebirth: the way to cards, tree and themes, and a line per reward waiting", function()

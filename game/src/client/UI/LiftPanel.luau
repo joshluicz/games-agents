@@ -14,6 +14,10 @@
 --     · Every other ride (a patient, a porter, another player): each Building's Lift Model (tag "HospitalLift",
 --       PlotBuilder.LIFT_TAG) carries a Ride attribute ("<from>,<to>,<seconds>,<serverTime>"); a car near the camera
 --       slides on this client, a far one just moves. The server never moves a car.
+--     · Patients and porters ride IN the car: Server/Lift.carry tags them LiftRider (LiftRideAt = the ride's time,
+--       LiftRideSlot = their place) for the ride, and a car near the camera steps them in, slides them along and steps
+--       them out at the far landing (their roots move on this client only; the server's PivotTo at the end lands them
+--       on the same spots). Riding with one (an escort), it rides beside you. Calm or far: the car just moves.
 -- Nothing runs every frame: tweens only, while a car moves; the picker's distance check runs only while it's open.
 
 local CollectionService = game:GetService("CollectionService")
@@ -103,6 +107,22 @@ end
 -- How long is left of a ride that started at server time `at` (never below a short beat).
 function Pure.remaining(seconds: number, at: number, now: number): number
 	return math.max(0.15, seconds - math.max(0, now - at))
+end
+
+-- Where the i-th rider steps out, sideways from the landing's centre: Server/Lift's Pure.spread (0, +2.8, -2.8, +5.6,
+-- ...; Hospital.spec checks they agree), so the server's PivotTo at the end lands on the same spot.
+Pure.SPREAD = 2.8
+function Pure.spread(index: number): number
+	if index <= 1 then
+		return 0
+	end
+	local step = math.floor(index / 2)
+	return (if index % 2 == 0 then 1 else -1) * step * Pure.SPREAD
+end
+
+-- A rider's offset inside the car, across it: riders stand side by side, at most `half` studs from its middle.
+function Pure.inCar(index: number, half: number): number
+	return math.clamp(Pure.spread(index) * 0.6, -math.max(0, half), math.max(0, half))
 end
 -- PURE-END
 
@@ -211,6 +231,92 @@ local function slideCar(car: BasePart, from: BasePart?, to: BasePart, seconds: n
 	end)
 end
 
+-- The patients and porters riding in this building's car on the ride at server time `at` (Server/Lift tags them).
+local RIDER_TAG = "LiftRider"
+type RiderPath = { Root: BasePart, InFrom: CFrame, InTo: CFrame, Out: CFrame }
+local function ridersOf(building: Instance, at: number): { Model }
+	local out: { Model } = {}
+	local plotModel = building.Parent
+	if not plotModel then
+		return out
+	end
+	for _, instance in CollectionService:GetTagged(RIDER_TAG) do
+		local rideAt = instance:GetAttribute("LiftRideAt")
+		if
+			instance:IsA("Model")
+			and instance:IsDescendantOf(plotModel)
+			and type(rideAt) == "number"
+			and math.abs(rideAt - at) < 0.01
+		then
+			table.insert(out, instance)
+		end
+	end
+	return out
+end
+
+-- Where each rider goes: into the car at `from` (side by side), up (or down) with it, out at its Pure.spread spot.
+local function riderPaths(car: BasePart, from: BasePart, to: BasePart, riders: { Model }): { RiderPath }
+	local facing = to.CFrame.Rotation -- out of the lift
+	local across = car.CFrame.RightVector
+	local half = math.max(0, car.Size.X / 2 - 1)
+	local paths: { RiderPath } = {}
+	for _, model in riders do
+		local root = model.PrimaryPart
+		if root then
+			local slot = model:GetAttribute("LiftRideSlot")
+			local index = if type(slot) == "number" then slot else 1
+			local lift = math.clamp(root.Position.Y - floorY(from), -1, 6) -- its root over the floor (about 0)
+			local inside = across * Pure.inCar(index, half)
+			table.insert(paths, {
+				Root = root,
+				InFrom = CFrame.new(car.Position.X + inside.X, floorY(from) + lift, car.Position.Z + inside.Z) * facing,
+				InTo = CFrame.new(car.Position.X + inside.X, floorY(to) + lift, car.Position.Z + inside.Z) * facing,
+				Out = to.CFrame * CFrame.new(Pure.spread(index), -to.Size.Y / 2 + lift, 0),
+			})
+		end
+	end
+	return paths
+end
+
+local function movePaths(paths: { RiderPath }, seconds: number, leg: string)
+	for _, path in paths do
+		if path.Root.Parent then
+			local goal = if leg == "In" then path.InFrom elseif leg == "Up" then path.InTo else path.Out
+			tween(path.Root, seconds, { CFrame = goal })
+		end
+	end
+end
+
+-- A ride with patients or porters in it, near the camera: like your own ride, they step into the car with its doors
+-- open, ride with it (doors shut) and step out at the far landing, where the server's PivotTo puts them as it ends.
+-- Their roots move on this client only (as CreatureMotion draws hops); the server moved nobody yet.
+local function slideWithRiders(car: BasePart, from: BasePart, to: BasePart, seconds: number, riders: { Model })
+	local token = (cars[car] or 0) + 1
+	cars[car] = token
+	local stepIn, stepOut = seconds * Pure.IN, seconds * Pure.OUT
+	local move = seconds - stepIn - stepOut
+	local doorTime = math.min(0.2, move * 0.2)
+	local paths = riderPaths(car, from, to, riders)
+	car.CFrame = carAt(car, from)
+	doors(car, true, 0)
+	movePaths(paths, stepIn, "In")
+	task.delay(stepIn, function()
+		if cars[car] ~= token then
+			return
+		end
+		doors(car, false, doorTime)
+		tween(car, move, { CFrame = carAt(car, to) })
+		movePaths(paths, move, "Up")
+		task.delay(move, function()
+			if cars[car] ~= token then
+				return
+			end
+			doors(car, true, doorTime)
+			movePaths(paths, stepOut, "Out")
+		end)
+	end)
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- Your own ride
 ------------------------------------------------------------------------------------------------------------------
@@ -263,19 +369,31 @@ local function rideMe(ctx: Types.Ctx, info: Ride)
 	local out = to.CFrame * CFrame.new(0, -to.Size.Y / 2 + lift, 0)
 	cars[car] = (cars[car] or 0) + 1 -- this ride owns the car now
 	local mine = info.At
+	-- Escorting a patient: it rides in the car with you, beside you (you are the second rider, as Server/Lift sets
+	-- you down: Pure.spread(2) at the far landing).
+	local paths = riderPaths(car, from, to, ridersOf(building, info.At))
+	if #paths > 0 then
+		local beside = car.CFrame.RightVector * Pure.inCar(2, math.max(0, car.Size.X / 2 - 1))
+		inFrom += beside
+		inTo += beside
+		out *= CFrame.new(Pure.spread(2), 0, 0)
+	end
 	pcall(function()
 		root.Anchored = true -- on this client only: the camera follows the root along the shaft
 		car.CFrame = carAt(car, from)
 		doors(car, true, 0)
 		tween(root, stepIn, { CFrame = inFrom })
+		movePaths(paths, stepIn, "In")
 		task.wait(stepIn)
 		local doorTime = math.min(0.2, move * 0.2)
 		doors(car, false, doorTime)
 		tween(root, move, { CFrame = inTo })
 		tween(car, move, { CFrame = carAt(car, to) })
+		movePaths(paths, move, "Up")
 		task.wait(move)
 		doors(car, true, doorTime)
 		tween(root, stepOut, { CFrame = out })
+		movePaths(paths, stepOut, "Out")
 		task.wait(stepOut)
 		if riding.At == mine then
 			root.CFrame = out
@@ -444,12 +562,23 @@ function LiftPanel.init(ctx: Types.Ctx)
 			local carPart = instance:FindFirstChild("Car")
 			local to = landingOf(building, info.To)
 			if carPart and carPart:IsA("BasePart") and to then
-				slideCar(
-					carPart,
-					landingOf(building, info.From),
-					to,
-					Pure.remaining(info.Seconds, info.At, Workspace:GetServerTimeNow())
-				)
+				local from = landingOf(building, info.From)
+				local seconds = Pure.remaining(info.Seconds, info.At, Workspace:GetServerTimeNow())
+				local camera = Workspace.CurrentCamera
+				local near = camera ~= nil and (camera.CFrame.Position - carPart.Position).Magnitude <= Pure.SLIDE_STUDS
+				-- Patients or porters inside: they ride in the car (calm or far: the car just moves, as before).
+				local riders = if near
+						and from
+						and building:IsA("Model")
+						and not Kit.reducedMotion()
+						and seconds >= 0.3
+					then ridersOf(building, info.At)
+					else {}
+				if from and #riders > 0 then
+					slideWithRiders(carPart, from, to, seconds, riders)
+				else
+					slideCar(carPart, from, to, seconds)
+				end
 			end
 		end)
 	end

@@ -84,6 +84,26 @@ T.describe("Hospital patients: triage", function()
 		expect(P.triageMode({ "Wards" }, false, true)).toBe("None")
 	end)
 
+	test("it only asks when the patient really goes to its department's floor; Simple mode never asks", function()
+		local options = Hospital.triageOptions(3, Levels)
+		-- routed: a Hydro patient into a tub, a Wards patient up to a ward bed
+		expect(P.routed("Hydro", "Tub")).toBe(true)
+		expect(P.routed("Wards", "Upstairs")).toBe(true)
+		-- not routed: a ground bed, in place, or a Hydro patient in a ward bed because the tubs are full
+		expect(P.routed("Wards", "Ground")).toBe(false)
+		expect(P.routed("Hydro", "Ground")).toBe(false)
+		expect(P.routed("Hydro", "Upstairs")).toBe(false)
+		expect(P.routed("Wards", "Place")).toBe(false)
+		expect(P.triageMode(options, false, true, true)).toBe("Ask")
+		expect(P.triageMode(options, false, true, false)).toBe("None") -- no question, no bonus
+		expect(P.triageMode(options, true, true, false)).toBe("Instant") -- a Receptionist still sends it, as before
+		-- Simple mode: no timed decision; it goes at once with the bonus, as a Receptionist sends it
+		expect(P.triageMode(options, false, true, true, true)).toBe("Instant")
+		expect(P.triageMode(options, false, true, false, true)).toBe("None")
+		expect(P.triageMode(options, false, false, true, true)).toBe("None") -- a nurse's finish asks nobody
+		expect(P.triageMode(nil, false, true, true, true)).toBe("None") -- below Lv 3
+	end)
+
 	test("right earns +10%; wrong and no pick (timeout) earn nothing (it goes the right way regardless)", function()
 		expect(P.triageBonus("Hydro", "Hydro")).toBe(true)
 		expect(P.triageBonus("Wards", "Hydro")).toBe(false)

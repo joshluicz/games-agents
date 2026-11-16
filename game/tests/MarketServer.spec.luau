@@ -138,8 +138,10 @@ function PlayerData.saveNow(player)
 	return not saveFails[player]
 end
 local afterLog: { string } = {}
-function PlayerData.writeAfter(first, second)
+local afterLeaveOut = {} -- the leaveOut function of each writeAfter, in order
+function PlayerData.writeAfter(first, second, leaveOut)
 	table.insert(afterLog, first.Name .. ">" .. second.Name)
+	table.insert(afterLeaveOut, leaveOut)
 end
 
 -- Nurses: take/give/setListed/isListed as §B8 says (ONE update each).
@@ -189,7 +191,15 @@ function Nurses.take(player, nurseId, cash, reason)
 	end
 	return true, "", removed
 end
-function Nurses.give(player, nurseId, entry, price)
+local undoCalls = {} -- every give with undo = true: { Player, NurseId }
+local endedUndo = {} -- every endUndo: { Player, NurseId }
+function Nurses.endUndo(player, nurseId)
+	table.insert(endedUndo, { Player = player, NurseId = nurseId })
+end
+function Nurses.give(player, nurseId, entry, price, undo)
+	if undo == true then
+		table.insert(undoCalls, { Player = player, NurseId = nurseId })
+	end
 	local data = saves[player]
 	if failGive[player] or not data or data.Cash < price or data.Nurses[nurseId] ~= nil then
 		return false, "Oops! Try again."
@@ -867,6 +877,38 @@ T.describe("Market server (mocked)", function()
 		expect(#saveLog).toBe(0)
 		expect(#listingsOf(seller.UserId)).toBe(0) -- the listing ended; the seller can list it again
 		expect(Nurses.isListed(seller, "PuffPup")).toBe(false)
+		-- the undo is explicit (give's undo = true, to the seller only), and its token ends before buy returns
+		expect(undoCalls[#undoCalls].Player).toBe(seller)
+		expect(undoCalls[#undoCalls].NurseId).toBe("PuffPup")
+		expect(endedUndo[#endedUndo].Player).toBe(seller)
+	end)
+
+	test("a sale: the buyer's give is never an undo, and the take's undo token ends at once", function()
+		local seller, buyer, id = market(300)
+		local undosBefore, endedBefore = #undoCalls, #endedUndo
+		expect((BuyListing(buyer, id, 300))).toBe(true)
+		expect(#undoCalls).toBe(undosBefore)
+		expect(#endedUndo).toBe(endedBefore + 1)
+		expect(endedUndo[#endedUndo].Player).toBe(seller)
+	end)
+
+	test("writeAfter gets the sale's leaveOut: the nurse out and the price back, on a copy only", function()
+		local _, buyer, id = market(300)
+		afterLeaveOut = {}
+		expect((BuyListing(buyer, id, 300))).toBe(true)
+		local leaveOut = afterLeaveOut[1]
+		expect(type(leaveOut)).toBe("function")
+		local copy = clone(saves[buyer])
+		leaveOut(copy)
+		expect(copy.Nurses.PuffPup).toBeNil()
+		expect(copy.Cash).toBe(saves[buyer].Cash + 300)
+		expect(saves[buyer].Nurses.PuffPup ~= nil).toBe(true) -- the live save is untouched
+		-- the pure helper on its own: junk is ignored
+		local fn = SP.leaveOut("MintMouse", 50)
+		fn(nil)
+		local bare = {}
+		fn(bare)
+		expect(bare.Cash).toBe(50)
 	end)
 
 	test("a take that errors after its update still completes the sale (no lost nurse, no free cash)", function()
@@ -926,6 +968,26 @@ T.describe("Market server (mocked)", function()
 		end)
 		expect(listingsOf(seller.UserId)[1].Level).toBe(4)
 	end)
+
+	test(
+		"copies raise the lowest price: never listed below what the Agency pays, and a copy while listed ends it",
+		function()
+			local seller = newPlayer("CopySeller")
+			save(seller, { Nurses = { MintMouse = nurse(10, 0, 10) } }) -- a Common Lv 10 with 10 copies: Agency pays 💰300
+			later()
+			local ok, message = ListNurse(seller, "MintMouse", 190) -- the old level-only default
+			expect(ok).toBe(false)
+			expect(message).toBe(SP.bandText(MarketLogic.band(Config, "Common", 10, 10)))
+			expect((ListNurse(seller, "MintMouse", 340))).toBe(true)
+			local before = #toasts
+			PlayerData.update(seller, function(d)
+				d.Nurses.MintMouse.Copies = 12 -- a belt copy while listed: 💰360 now pays less than the Agency
+			end)
+			expect(#listingsOf(seller.UserId)).toBe(0)
+			expect(Nurses.isListed(seller, "MintMouse")).toBe(false)
+			expect(toasts[before + 1].Text).toBe("🏷️ It grew! List it again")
+		end
+	)
 
 	test("MarketNews is debounced: a burst of changes sends one view", function()
 		flush()

@@ -29,15 +29,17 @@
 --                                               clears the listed lock) and a rebirth-only one. Then NurseNews Sold /
 --                                               Gone, the Removed signal, and the worker poofs off the plot. `entry` is a
 --                                               copy of what left (the Market gives it to the buyer)
---   Nurses.give(p, nurseId, entry, price): (ok, message)
+--   Nurses.give(p, nurseId, entry, price, undo?): (ok, message)
 --                                               the Market's buyer side and its undo: the charge and the seller's exact
 --                                               Level / XP / Copies (Job ""), "Hired" and any set due. Refuses a nurse you
 --                                               own ("You have one!"), a full roster, a level above your cap ("🏢 R3
 --                                               first!") and a rebirth-only one. Then NurseNews Bought, Celebrate
---                                               NewNurse, the Hired signal. Giving a nurse back to the player it was
---                                               taken from with reason "Market" in the same frame (the Market's undo,
---                                               §B3.2 step 12) restores the exact entry, Job included, with no roster
---                                               check (nothing is ever lost) and no news
+--                                               NewNurse, the Hired signal. `undo = true` (the Market's §B3.2 step 12
+--                                               ONLY) gives a nurse back to the player a Market take just took it from:
+--                                               the exact entry that left, Job included, with no roster check (nothing
+--                                               is ever lost) and no news; without that player's undo token it refuses.
+--                                               A give without `undo` never reads a token
+--   Nurses.endUndo(p, nurseId)                  the Market's sale is over: that take's undo token goes at once
 --   Nurses.setListed(p, nurseId, listingId?) · Nurses.isListed(p, nurseId): boolean
 --                                               the Market's in-memory lock (nil clears it; NurseNews Listed On/Off).
 --                                               Cleared on PlayerRemoving
@@ -1910,13 +1912,16 @@ function Nurses.take(player: Player, nurseId: string, cash: number, reason: stri
 		if map then
 			map[nurseId] = nil
 		end
-		-- The Market's undo (give back to this player in this same frame) restores exactly this.
+		-- The Market's undo token: ONLY an explicit give(.., undo = true) for this player and nurse uses it, and it
+		-- restores exactly this. A normal give never looks at it (another sale landing in the same frame must not
+		-- turn into an undo). The Market ends it at once (endUndo); this deferred clear is only a backstop.
 		local tokens = restoring[player] or {}
 		restoring[player] = tokens
-		tokens[nurseId] = table.clone(entry)
+		local token = table.clone(entry)
+		tokens[nurseId] = token
 		task.defer(function()
 			local current = restoring[player]
-			if current then
+			if current and current[nurseId] == token then
 				current[nurseId] = nil
 				if next(current) == nil then
 					restoring[player] = nil
@@ -1935,7 +1940,7 @@ function Nurses.take(player: Player, nurseId: string, cash: number, reason: stri
 	return true, "💰 +" .. Pure.cash(amount), table.clone(entry)
 end
 
-function Nurses.give(player: Player, nurseId: string, entry: any, price: number): (boolean, string)
+function Nurses.give(player: Player, nurseId: string, entry: any, price: number, isUndo: boolean?): (boolean, string)
 	local cost = Pure.amount(price)
 	if not isPlayer(player) or not knownNurse(nurseId) or type(entry) ~= "table" or not cost then
 		return false, Remotes.OOPS
@@ -1944,8 +1949,13 @@ function Nurses.give(player: Player, nurseId: string, entry: any, price: number)
 	if not data then
 		return false, Remotes.OOPS
 	end
-	local tokens = restoring[player]
+	-- The undo is explicit (the Market's §B3.2 step 12 only): it needs this player's token for this nurse, from a
+	-- Market take that this same call made. A normal give never reads a token, whatever was taken this frame.
+	local tokens = if isUndo == true then restoring[player] else nil
 	local undo = if tokens then tokens[nurseId] else nil
+	if isUndo == true and not undo then
+		return false, Remotes.OOPS
+	end
 	local rebirthOnly = NurseLogic.isRebirthOnly(NursesData, nurseId)
 	local source = if undo then undo else entry
 	local ok, why = Pure.canGive(data, nurseId, source, cost, Config, knownNurse, rebirthOnly, undo ~= nil)
@@ -1987,6 +1997,17 @@ function Nurses.give(player: Player, nurseId: string, entry: any, price: number)
 	Nurses.Hired:Fire(player, nurseId, level)
 	sync(player)
 	return true, "🎉 " .. nurse.Name .. "!"
+end
+
+-- The Market's sale is over (sold, or undone): its undo token for this player's nurse goes now, synchronously.
+function Nurses.endUndo(player: Player, nurseId: string)
+	local tokens = restoring[player]
+	if tokens and type(nurseId) == "string" then
+		tokens[nurseId] = nil
+		if next(tokens) == nil then
+			restoring[player] = nil
+		end
+	end
 end
 
 function Nurses.setListed(player: Player, nurseId: string, listingId: number?)

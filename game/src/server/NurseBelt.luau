@@ -9,8 +9,10 @@
 -- one"); the price takes 🏷️ Bargain off (Pure.bargainPrice; UI/BeltView shows the same number). 🔭 Belt Scout: while
 -- a perk owner is in the server, the next arrival's rarity is rolled one arrival early (right after an arrival, or
 -- when an owner joins or picks the perk), with the odds on the sign at that moment (its Event says which), and sent
--- with the BeltScout remote to the perk owners only; the arrival then uses that roll. The sign's gate line says
--- "🏥 Epic+ from Lv 3 · 🏢 Mythic/Secret from R1". The nurse house's NextLamp part glows brighter on the client as
+-- with the BeltScout remote to the perk owners only; the arrival then uses that roll, but only while the sign still
+-- shows those odds: when Night Rush or Golden Hour starts or ends in between, the early roll is thrown away, rolled
+-- again with the new odds and sent again (every arrival has exactly the sign's odds, for everyone). The sign's gate
+-- line says "🏥 Epic+ from Lv 3 · 🏢 Mythic/Secret from R1". The nurse house's NextLamp part glows brighter on the client as
 -- the next nurse nears (the belt model's NextArrivalAt attribute: a GetServerTimeNow time; never a number on
 -- screen, §E9).
 --
@@ -979,9 +981,24 @@ local function scoutAhead(only: Player?)
 	end
 end
 
+-- The odds changed (Night Rush or Golden Hour started or ended) since the early roll: it was made with odds the sign no
+-- longer shows, so it goes. Every arrival rolls with the odds on the sign at that moment, for everyone, whoever has
+-- 🔭 Belt Scout (§E5: one player's perk never changes anyone's odds). The scouts get the fresh roll at once.
+local function rescout()
+	local ahead = upcoming
+	if ahead and ahead.Event ~= Pure.event(nightRush(), golden.Active) then
+		upcoming = nil
+		if next(scouts) ~= nil then
+			scoutAhead(nil)
+		end
+	end
+end
+
 local function arrive(now: number, startAt: number)
 	local b = belt :: Belt
-	-- A roll made one arrival early (🔭 Belt Scout) is used as it was told; otherwise roll with the odds now.
+	-- A roll made one arrival early (🔭 Belt Scout) is used as it was told, but only while the odds it was rolled with
+	-- are still the sign's; otherwise roll with the odds now.
+	rescout()
 	local roll = upcoming or rollRarity()
 	upcoming = nil
 	local rarity = roll.Rarity
@@ -1101,6 +1118,7 @@ local function syncNight()
 	if Workspace:GetAttribute("NightRush") ~= night then
 		Workspace:SetAttribute("NightRush", night)
 		refreshSign()
+		rescout()
 	end
 end
 
@@ -1127,6 +1145,7 @@ local function updateGolden(now: number)
 			EndsAt = if active then endsAt else was.EndsAt,
 		})
 		refreshSign()
+		rescout()
 	end
 end
 

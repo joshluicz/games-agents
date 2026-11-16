@@ -27,11 +27,17 @@
 --           Rebirth.Tree, Rebirth.Told or anything else in Decor.Owned
 --       Returns { Count, Theme, Unlocks (Rebirth.unlocks(Count)), Pending (nurses added), Trophies (decor added),
 --       RoomsReset }
+--   Rebirth.startCash(data, cfg, perks): number   the cash a new branch starts with: Seed Money's Value when owned,
+--                                            else cfg.Rebirth.StartCash. A rebirth sets ALL cash to this (it isn't
+--                                            the cost taken off), and the keep/reset screen shows it
 --   Rebirth.offer(owned, pool, r01s, size?): { PerkId }
 --       up to `size` (default 3; at most #r01s) distinct cards not in `owned`, each pick even among those left (r01s
 --       in [0, 1)); { "TreePoints" } (the Fallback) when none are left. `pool` is Data/Perks
+--   Rebirth.liveOffer(offer, perks): { PerkId }
+--       the waiting cards that can be chosen: known ones (Data/Perks or the Fallback), in order. A waiting offer with
+--       no known card left (a card renamed or removed since) is { "TreePoints" }, so a branch can always open again
 --   Rebirth.choose(data, perkId, perks, cfg?): (ok, message)
---       MUTATES: perkId must be in Rebirth.Offer and not in Rebirth.Perks ("Oops! Try again."). It's added to Perks
+--       MUTATES: perkId must be in liveOffer(Rebirth.Offer) and not in Rebirth.Perks ("Oops! Try again."). It's added to Perks
 --       (the Fallback "TreePoints" adds its Value to Points instead), Offer clears, and a start-of-branch card applies
 --       now (you choose at the start of a branch): BathReady owns the BathRoom, SeedMoney adds its Value -
 --       StartCash, WarmUp raises Faster Hands to 2 and Tip Jar to 1, ClinicStart raises Level to its Value
@@ -323,6 +329,12 @@ local function cleanOffer(offer: any, owned: { string }): { string }
 	return out
 end
 
+function Rebirth.startCash(data: any, cfg: any, perks: any): number
+	local rebirth = if type(data) == "table" and type(data.Rebirth) == "table" then data.Rebirth else {}
+	local owned = if type(rebirth.Perks) == "table" then rebirth.Perks else {}
+	return startOf(owned, perks).Cash or whole(settings(cfg).StartCash)
+end
+
 function Rebirth.apply(data: any, cfg: any, offer: { string }, content: any): ApplyResult
 	local s = settings(cfg)
 	local c = if type(content) == "table" then content else {}
@@ -423,12 +435,34 @@ function Rebirth.offer(owned: { string }, pool: any, r01s: { number }, size: num
 	return out
 end
 
+function Rebirth.liveOffer(offer: any, perks: any): { string }
+	local out: { string } = {}
+	if type(offer) ~= "table" then
+		return out
+	end
+	local waiting = false
+	for _, perkId in ipairs(offer) do
+		if type(perkId) == "string" then
+			waiting = true
+			local known = perkId == Rebirth.FALLBACK or row(perks, perkId) ~= nil
+			if known and not table.find(out, perkId) then
+				table.insert(out, perkId)
+			end
+		end
+	end
+	if waiting and #out == 0 then
+		return { Rebirth.FALLBACK }
+	end
+	return out
+end
+
 function Rebirth.choose(data: any, perkId: string, perks: any, cfg: any?): (boolean, string)
 	if type(data) ~= "table" or type(data.Rebirth) ~= "table" or type(perkId) ~= "string" then
 		return false, OOPS
 	end
 	local rebirth = data.Rebirth
-	if not table.find(rebirth.Offer, perkId) or table.find(rebirth.Perks, perkId) then
+	local offer = Rebirth.liveOffer(rebirth.Offer, perks)
+	if not table.find(offer, perkId) or table.find(rebirth.Perks, perkId) then
 		return false, OOPS
 	end
 	if perkId == Rebirth.FALLBACK then

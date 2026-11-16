@@ -17,7 +17,12 @@
 --   Lift.carry(plot, models, floor): boolean     Patients and porters: yields the ride (RideSeconds x the plot
 --                                                owner's Express Lift), then one PivotTo per model at the landing, side
 --                                                by side (a character stands on it; a creature or nurse's pivot is the
---                                                ground under it). false: no such floor, junk, or the building lost it
+--                                                ground under it). false: no such floor, junk, or the building lost it.
+--                                                For the ride, each creature (not a character) carries the tag
+--                                                LiftRider and the attributes LiftRideAt (the ride's server time, as in
+--                                                the Lift's Ride) and LiftRideSlot (its Pure.spread place): every client
+--                                                near the lift steps it into the car and slides it up with the car
+--                                                (UI/LiftPanel), so it never waits outside and pops up
 --   Lift.landing(plot, floor): CFrame?           that floor's landing (Building.Landing_0, Floor_<n>.Landing): the
 --                                                floor point under the marker, facing out of the lift. nil: no lift
 --   Lift.waitEscort(plot, seconds): Player?      enables the ground landing's EscortPrompt ("Ride with patient") and
@@ -35,6 +40,7 @@
 --                     Feel/HospitalFX dings someone else's ride nearby (your own ride's Ding is UI/LiftPanel's)
 -- Requires Plots (and PlayerData for the rider's tree); never Patients or Nurses.
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
@@ -147,6 +153,9 @@ Lift.Pure = Pure
 
 local riding: { [Player]: boolean } = {}
 local lastRide: { [Player]: number } = {}
+local RIDER_TAG = "LiftRider" -- a patient or porter in the car right now (UI/LiftPanel carries it along)
+local RIDE_AT = "LiftRideAt" -- on it: the ride's server time (the Lift's Ride attribute has the same)
+local RIDE_SLOT = "LiftRideSlot" -- on it: its place among the riders (Pure.spread), where it steps out
 
 type Waiter = { Thread: thread, Done: boolean }
 local waiters: { [Plot]: { Waiter } } = {}
@@ -221,19 +230,20 @@ local function setDown(model: Model, landing: CFrame, offset: number): CFrame
 	return at -- creatures and nurses: their pivot is the ground under them
 end
 
--- Every client slides this building's car; riders' own clients carry their characters along.
-local function announce(plot: Plot, from: number, to: number, seconds: number, riders: { Player })
-	local at = Workspace:GetServerTimeNow()
+-- Every client slides this building's car; riders' own clients carry their characters along. `at` = the ride's server
+-- time (now when nil).
+local function announce(plot: Plot, from: number, to: number, seconds: number, riders: { Player }, at: number?)
+	local rideAt = at or Workspace:GetServerTimeNow()
 	local building = buildingOf(plot)
 	local liftModel = building and building:FindFirstChild("Lift")
 	if liftModel then
-		liftModel:SetAttribute("Ride", Pure.encodeRide(from, to, seconds, at))
+		liftModel:SetAttribute("Ride", Pure.encodeRide(from, to, seconds, rideAt))
 		-- Feel/HospitalFX dings others' rides nearby: who rode (0 = a patient alone), then when (it listens to this).
 		liftModel:SetAttribute("Rider", if riders[1] then riders[1].UserId else 0)
-		liftModel:SetAttribute("RideAt", at)
+		liftModel:SetAttribute("RideAt", rideAt)
 	end
 	for _, rider in riders do
-		rider:SetAttribute("LiftRide", Pure.encodeRide(from, to, seconds, at, plot.Index))
+		rider:SetAttribute("LiftRide", Pure.encodeRide(from, to, seconds, rideAt, plot.Index))
 	end
 end
 
@@ -348,12 +358,15 @@ function Lift.carry(plot: any, models: any, floor: any): boolean
 	end
 	local riders: { Model } = {}
 	local players: { Player } = {}
+	local creatures: { Model } = {}
 	for _, model in models do
 		if typeof(model) == "Instance" and model:IsA("Model") and model:IsDescendantOf(Workspace) then
 			table.insert(riders, model)
 			local player = Players:GetPlayerFromCharacter(model)
 			if player then
 				table.insert(players, player)
+			else
+				table.insert(creatures, model)
 			end
 		end
 	end
@@ -362,18 +375,28 @@ function Lift.carry(plot: any, models: any, floor: any): boolean
 	end
 	local from = floorAt(plot, riders[1]:GetPivot().Position)
 	local seconds = Pure.rideSeconds(Config.Lift.RideSeconds, liftFactor(plot.Owner))
-	announce(plot, from, target, seconds, players)
+	-- The patients and porters riding: every client near the lift steps them into the car and slides them up with it
+	-- (UI/LiftPanel), so they never stand outside while the car leaves. Set before the Ride, so it finds them.
+	local at = Workspace:GetServerTimeNow()
+	for index, model in riders do
+		if table.find(creatures, model) then
+			model:SetAttribute(RIDE_AT, at)
+			model:SetAttribute(RIDE_SLOT, index)
+			CollectionService:AddTag(model, RIDER_TAG)
+		end
+	end
+	announce(plot, from, target, seconds, players, at)
 	task.wait(seconds)
 	local landing = Lift.landing(plot, target) -- re-found: the building may have been rebuilt meanwhile
-	if not landing then
-		return false
-	end
 	for index, model in riders do
-		if model:IsDescendantOf(Workspace) then
+		if landing and model:IsDescendantOf(Workspace) then
 			model:PivotTo(setDown(model, landing, Pure.spread(index)))
 		end
 	end
-	return true
+	for _, model in creatures do
+		CollectionService:RemoveTag(model, RIDER_TAG)
+	end
+	return landing ~= nil
 end
 
 ------------------------------------------------------------------------------------------------------------------

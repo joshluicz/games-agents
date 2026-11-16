@@ -2546,6 +2546,11 @@ local function start(ctx: Types.Ctx, raw: any)
 	end
 end
 
+-- A treat card is open now (UI/Celebrate holds the celebrations nobody tapped for until it closes).
+function MiniGames.isOpen(): boolean
+	return current ~= nil
+end
+
 function MiniGames.init(ctx: Types.Ctx)
 	busFire = ctx.fire
 	ctx.on("TreatStart", function(raw: any)

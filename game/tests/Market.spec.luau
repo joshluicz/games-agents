@@ -45,6 +45,33 @@ T.describe("Market bands and the fee (the B6.1 table)", function()
 		expect({ Market.band(Config, "Common", 0 / 0) }).toEqual({ 50, 300 })
 	end)
 
+	test("copies raise the floor: the payout is never below the Agency's sell-back (no flip profit)", function()
+		local Agency = require("../src/shared/Logic/Agency")
+		-- the review's examples: a Common Lv 10 with 10 copies, an Epic Lv 10 with 10 copies
+		expect(Market.floor(Config, "Common", 10)).toBe(340)
+		expect({ Market.band(Config, "Common", 10, 10) }).toEqual({ 340, 570 })
+		local epicMin = Market.band(Config, "Epic", 10, 10)
+		expect(epicMin >= 4500).toBe(true)
+		-- one copy changes no Lv 1 band (the B6.1 table stands)
+		for _, rarity in Belt.RARITIES do
+			expect({ Market.band(Config, rarity, 1, 1) }).toEqual({ Market.band(Config, rarity, 1) })
+		end
+		-- every rarity, level and copy count: min <= max, and at min the seller gets at least what the Agency pays
+		-- and a buyer can't sell it straight back for more than they paid
+		for _, rarity in Belt.RARITIES do
+			for _, level in { 1, 5, 10, 15 } do
+				for _, copies in { 1, 2, 5, 10, 15, 40 } do
+					local min, max = Market.band(Config, rarity, level, copies)
+					local back = Agency.sellBack({ Copies = copies }, rarity, Config)
+					expect(min <= max).toBe(true)
+					expect(min - Market.fee(min, Config) >= back).toBe(true)
+					expect(min >= back).toBe(true)
+					expect(min % Config.Market.Round).toBe(0)
+				end
+			end
+		end
+	end)
+
 	test("valid: a whole number inside the band", function()
 		expect(Market.valid(50, 50, 300)).toBe(true)
 		expect(Market.valid(300, 50, 300)).toBe(true)

@@ -293,6 +293,33 @@ T.describe("Rebirth offer and choose", function()
 		expect(data.Rebirth.Perks).toEqual({ "BigHands" })
 		expect(data.Rebirth.Offer).toEqual({})
 	end)
+
+	test("a waiting offer whose cards were all renamed or removed becomes the Fallback (never a dead end)", function()
+		expect(Rebirth.liveOffer({ "GoneCard", "OldName" }, Perks)).toEqual({ "TreePoints" })
+		expect(Rebirth.liveOffer({ "GoneCard", "SeedMoney" }, Perks)).toEqual({ "SeedMoney" })
+		expect(Rebirth.liveOffer({ "Order", "Fallback" }, Perks)).toEqual({ "TreePoints" }) -- never a Data key
+		expect(Rebirth.liveOffer({}, Perks)).toEqual({})
+		expect(Rebirth.liveOffer(nil, Perks)).toEqual({})
+		local data = richSave()
+		data.Rebirth.Offer = { "GoneCard" }
+		expect((Rebirth.choose(data, "GoneCard", Perks, Config))).toBe(false)
+		expect((Rebirth.choose(data, "TreePoints", Perks, Config))).toBe(true)
+		expect(data.Rebirth.Offer).toEqual({})
+		expect(data.Rebirth.Points).toBe(3)
+		-- with a known card still waiting, only the waiting cards can be chosen (not the Fallback)
+		data.Rebirth.Offer = { "GoneCard", "NightOwl" }
+		expect((Rebirth.choose(data, "TreePoints", Perks, Config))).toBe(false)
+		expect((Rebirth.choose(data, "NightOwl", Perks, Config))).toBe(true)
+	end)
+
+	test("startCash: what ALL cash becomes on a rebirth (Seed Money's amount, else StartCash)", function()
+		local data = richSave()
+		data.Rebirth.Perks = {}
+		expect(Rebirth.startCash(data, Config, Perks)).toBe(Config.Rebirth.StartCash)
+		data.Rebirth.Perks = { "SeedMoney" }
+		expect(Rebirth.startCash(data, Config, Perks)).toBe(rawget(Perks, "SeedMoney").Value)
+		expect(Rebirth.startCash(nil, Config, Perks)).toBe(Config.Rebirth.StartCash)
+	end)
 end)
 
 T.describe("Rebirth unlocks, themes and effects", function()

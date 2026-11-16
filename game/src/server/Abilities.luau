@@ -79,6 +79,7 @@ local FAST_MAKE = Config.Abilities.FastMake -- Busy Paws: station holds x this (
 local INSTANT_MAKE = 0 -- Time Bubble: the shortest hold (Stations clamps it to Config.BoostMinMakeSeconds)
 local CASH_NEXT = Config.Abilities.CashNext -- Double Dose: a cure pays x this (design §7: "a cure pays x2")
 local MAX_GAMES = 8 -- a treat session has at most this many games (more is junk)
+local PRUNE_SECONDS = 60 -- how often the clinics of owners who left drop the slots a fresh one would equal
 
 ------------------------------------------------------------------------------------------------------------------
 -- Pure helpers (no Roblox services, no upvalues: a Lune harness loads this block on its own)
@@ -189,6 +190,18 @@ function Pure.cooling(slots: { [string]: Slot }, except: string, now: number, da
 		end
 	end
 	return n
+end
+
+-- An owner who left: drops every slot a fresh one would equal (ready now, nothing banked), so the memory a server
+-- keeps per UserId stays bounded. A slot still cooling down, banked, or a once-a-day one used today stays, so a
+-- rejoin can never recharge anything. Returns true when no slot is left (the whole clinic can go).
+function Pure.prune(slots: { [string]: Slot }, now: number, day: number): boolean
+	for nurseId, slot in slots do
+		if slot.Charges == 0 and Pure.ready(slot, now, day) then
+			slots[nurseId] = nil
+		end
+	end
+	return next(slots) == nil
 end
 
 -- Team Spirit: every OTHER ability is ready now (never a once-a-day one: Miracle stays once a day).
@@ -752,17 +765,40 @@ function Abilities.start()
 	for _, plot in Plots.all() do
 		resetPlot(plot)
 	end
-	-- The plot's running effects end with it (its nurses are gone); the cooldowns stay with the owner's UserId.
+	-- The plot's running effects end with it (its nurses are gone); the cooldowns stay with the owner's UserId, but
+	-- only the ones still running (Pure.prune), so a long-running server's memory stays bounded.
 	Plots.PlotReleased:Connect(function(owner: Player, plot: Plot)
-		local clinic = if typeof(owner) == "Instance" then clinics[owner.UserId] else nil
-		if clinic then
+		local userId = if typeof(owner) == "Instance" then owner.UserId else nil
+		local clinic = if userId then clinics[userId] else nil
+		if clinic and userId then
 			clinic.Rush = {}
 			clinic.PausedUntil = 0
 			clinic.Shown = {}
 			clinic.Models = {}
+			if Pure.prune(clinic.Slots, now(), day) then
+				clinics[userId] = nil
+			end
 		end
 		resetPlot(plot)
 	end)
+
+	-- Owners who left: their cooldowns run out by themselves; drop each slot once it equals a fresh one, and the
+	-- clinic once nothing is left (a rejoin before then still finds every cooldown where it was).
+	local function pruneAway()
+		local here: { [number]: boolean } = {}
+		for _, plot in Plots.all() do
+			local owner = plot.Owner
+			if owner then
+				here[owner.UserId] = true
+			end
+		end
+		local at = now()
+		for userId, clinic in clinics do
+			if not here[userId] and Pure.prune(clinic.Slots, at, day) then
+				clinics[userId] = nil
+			end
+		end
+	end
 
 	-- Miracle: a new in-game day starts each morning (IsNight true -> false).
 	local wasNight = Workspace:GetAttribute("IsNight") == true
@@ -783,12 +819,20 @@ function Abilities.start()
 	end)
 
 	task.spawn(function()
+		local lastPrune = os.clock()
 		while true do
 			task.wait(TICK)
 			for _, plot in Plots.all() do
 				local ok, err = pcall(tick, plot)
 				if not ok then
 					report("a tick", err)
+				end
+			end
+			if os.clock() - lastPrune >= PRUNE_SECONDS then
+				lastPrune = os.clock()
+				local ok, err = pcall(pruneAway)
+				if not ok then
+					report("the prune", err)
 				end
 			end
 		end

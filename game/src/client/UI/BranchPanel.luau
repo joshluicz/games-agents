@@ -237,7 +237,9 @@ function Pure.status(state: any, cfg: any): Status
 	if ok and cardWaits then
 		ok, message = false, Pure.TEXT.PickCardFirst
 	end
-	local line = "🏙️ Lv "
+	-- "Need": a requirement, not a price. A rebirth doesn't take the cost off: ALL cash starts fresh (resetRows says
+	-- how much).
+	local line = "Need 🏙️ Lv "
 		.. minLevel
 		.. (if levelOk then " ✅" else "")
 		.. "  ·  💰"
@@ -267,8 +269,9 @@ function Pure.keepRows(): { Row }
 end
 
 -- 🔄 What starts fresh: Logic/Rebirth.RESET, each with the start-of-branch perk you own beside it ("🏠 Rooms ·
--- 🛁 Bath Ready").
-function Pure.resetRows(state: any, perks: any): { Row }
+-- 🛁 Bath Ready"). With `cfg`, the cash row says exactly what happens to your cash: ALL of it starts fresh, not the
+-- cost taken off ("💰 Cash: 💰180,000 → 💰0", or → Seed Money's amount).
+function Pure.resetRows(state: any, perks: any, cfg: any?): { Row }
 	local owned = listOf(rebirthOf(state).Perks)
 	local out: { Row } = {}
 	for _, r in RebirthLogic.RESET do
@@ -280,7 +283,13 @@ function Pure.resetRows(state: any, perks: any): { Row }
 				note = perk.Icon .. " " .. perk.Name
 			end
 		end
-		table.insert(out, { Icon = r.Icon, Text = r.Text, Note = note })
+		local text = r.Text
+		if kind == "StartCash" and cfg ~= nil then
+			local cash = if type(state) == "table" then state.Cash else 0
+			local start = RebirthLogic.startCash(state, cfg, perks)
+			text ..= ": 💰" .. Pure.short(cash) .. " → 💰" .. Pure.short(start)
+		end
+		table.insert(out, { Icon = r.Icon, Text = text, Note = note })
 	end
 	return out
 end
@@ -346,10 +355,11 @@ function Pure.rowText(r: Row): string
 	return text
 end
 
--- The cards waiting to be chosen (the Fallback "TreePoints" card too); unknown ids are skipped.
+-- The cards waiting to be chosen (the Fallback "TreePoints" card too); unknown ids are skipped, and an offer with no
+-- known card left shows the Fallback (Logic/Rebirth.liveOffer: the server takes it), so it's never a dead end.
 function Pure.offerCards(state: any, perks: any): { PerkCard }
 	local out: { PerkCard } = {}
-	for _, perkId in ipairs(listOf(rebirthOf(state).Offer)) do
+	for _, perkId in ipairs(RebirthLogic.liveOffer(rebirthOf(state).Offer, perks)) do
 		if perkId == RebirthLogic.FALLBACK then
 			local fallback = if type(perks) == "table" then perks.Fallback else nil
 			if type(fallback) == "table" then
@@ -1041,27 +1051,27 @@ function BranchPanel.init(ctx: Types.Ctx)
 		Hud.shake(openButton)
 	end)
 
-	local openKey = ""
+	-- One key per column: the cash row changes with every cure, and only its column needs redrawing then.
+	local openKeys: { [Column]: string } = {}
 	local function renderOpen(state: Types.Snapshot)
 		local status = Pure.status(state, cfg)
 		headStatus.Text = "🏢 " .. status.Next .. "  ·  " .. status.Line
 		paint(openButton, if status.Ok then Theme.Colors.Purple else Theme.Colors.Disabled, false)
-		local keep = Pure.keepRows()
-		local reset = Pure.resetRows(state, data.Perks)
-		local get = Pure.getRows(state, cfg, data.Themes)
-		local parts = {}
-		for _, list in { keep, reset, get } do
-			for _, r in list do
+		local columnRows: { { Column: Column, Rows: { Row } } } = {
+			{ Column = keepColumn, Rows = Pure.keepRows() },
+			{ Column = resetColumn, Rows = Pure.resetRows(state, data.Perks, cfg) },
+			{ Column = getColumn, Rows = Pure.getRows(state, cfg, data.Themes) },
+		}
+		for _, entry in columnRows do
+			local parts = {}
+			for _, r in entry.Rows do
 				table.insert(parts, Pure.rowText(r))
 			end
-			table.insert(parts, "|")
-		end
-		local key = table.concat(parts, ";")
-		if key ~= openKey then
-			openKey = key
-			fillRows(keepColumn, keep)
-			fillRows(resetColumn, reset)
-			fillRows(getColumn, get)
+			local key = table.concat(parts, ";")
+			if key ~= openKeys[entry.Column] then
+				openKeys[entry.Column] = key
+				fillRows(entry.Column, entry.Rows)
+			end
 		end
 	end
 

@@ -5,11 +5,17 @@
 -- No free text, no swaps, no haggling: a listing is a nurse, its level, a price inside the band and the seller's
 -- DisplayName.
 --
---   Market.band(cfg, rarity, level): (min, max)
+--   Market.band(cfg, rarity, level, copies?): (min, max)
 --       the belt's base price x BandMin / BandMax x (1 + LevelStep x (level - 1)), each rounded to the nearest
 --       Round (10). Lv 1: Common 50-300 · Rare 200-1,200 · Epic 750-4,500 · Legendary 3,000-18,000 · Mythic
 --       10,000-60,000 · Secret 25,000-150,000; Lv 10 x1.9, Lv 15 x2.4. The floor stops "your Legendary for 💰1"
---       scams; the ceiling stops cash passing between friends through a Common and a kid being overcharged
+--       scams; the ceiling stops cash passing between friends through a Common and a kid being overcharged. The
+--       floor is also never below Market.floor(cfg, rarity, copies) (copies default 1), and max >= min
+--   Market.floor(cfg, rarity, copies?): number
+--       the lowest price whose payout (price - fee) is at least the Agency's sell-back for that many copies
+--       (Logic/Agency.sellBack: 30% of the base price for EVERY copy), rounded UP to Round. So a seller never gets
+--       less than the Agency would pay, and nothing bought on the Market can be sold back for a profit (§E14). A
+--       copy is a whole level, so a levelled nurse has many copies: Common Lv 10 with 10 copies -> 💰340
 --   Market.valid(price, min, max): boolean   a whole number inside [min, max]
 --   Market.fee(price, cfg): number           floor(price x Fee): the cash sink; the seller gets price - fee
 --   Market.canList(data, nurseId, mine, total, cfg, roster): (ok, message)
@@ -68,12 +74,37 @@ local function nurseRow(roster: any, nurseId: any): any
 	return if type(value) == "table" then value else nil
 end
 
-function Market.band(cfg: any, rarity: string, level: number): (number, number)
+function Market.fee(price: number, cfg: any): number
+	local share = math.clamp(num(section(cfg, "Market").Fee, 0.1), 0, 1)
+	return math.floor(math.max(0, num(price, 0)) * share)
+end
+
+-- What the Agency pays for this nurse (Logic/Agency.sellBack, repeated: no requires): 30% of the belt's base price
+-- for EVERY copy.
+local function sellBack(cfg: any, rarity: string, copies: any): number
+	local share = math.clamp(num(section(cfg, "Agency").SellBack, 0.3), 0, 1)
+	return math.floor(basePrice(cfg, rarity) * share) * math.max(1, whole(copies, 1))
+end
+
+function Market.floor(cfg: any, rarity: string, copies: number?): number
+	local m = section(cfg, "Market")
+	local step = math.max(1, whole(m.Round, 10))
+	local back = sellBack(cfg, rarity, copies)
+	local keep = 1 - math.clamp(num(m.Fee, 0.1), 0, 1)
+	local need = if keep > 0 then math.max(0, math.ceil(back / keep - 1e-9)) else back
+	while need - Market.fee(need, cfg) < back do -- exact with the real fee's rounding
+		need += 1
+	end
+	return math.ceil(need / step) * step
+end
+
+function Market.band(cfg: any, rarity: string, level: number, copies: number?): (number, number)
 	local m = section(cfg, "Market")
 	local step = math.max(1, whole(m.Round, 10))
 	local scale = 1 + math.max(0, num(m.LevelStep, 0.1)) * math.max(0, whole(level, 1) - 1)
 	local base = basePrice(cfg, rarity) * scale
-	local low = math.max(step, roundTo(base * math.max(0, num(m.BandMin, 0.5)), step))
+	local low =
+		math.max(step, roundTo(base * math.max(0, num(m.BandMin, 0.5)), step), Market.floor(cfg, rarity, copies))
 	local high = math.max(low, roundTo(base * math.max(0, num(m.BandMax, 3)), step))
 	return low, high
 end
@@ -84,11 +115,6 @@ function Market.valid(price: any, min: number, max: number): boolean
 		and price % 1 == 0
 		and price >= num(min, math.huge)
 		and price <= num(max, -math.huge)
-end
-
-function Market.fee(price: number, cfg: any): number
-	local share = math.clamp(num(section(cfg, "Market").Fee, 0.1), 0, 1)
-	return math.floor(math.max(0, num(price, 0)) * share)
 end
 
 function Market.canList(

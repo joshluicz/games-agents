@@ -116,7 +116,8 @@ function Pure.branchCard(state: any, cfg: any, treeData: any): BranchCard
 	if spendable then
 		table.insert(lines, "🌳 " .. points .. (if points == 1 then " point" else " points") .. " to spend")
 	end
-	local sub = if atTop then "💰" .. Pure.short(RebirthLogic.cost(branches, cfg)) else ""
+	-- "Need": what a branch asks for, not a price (a rebirth starts ALL cash fresh; the Branch panel shows how much).
+	local sub = if atTop then "Need 💰" .. Pure.short(RebirthLogic.cost(branches, cfg)) else ""
 	if branches > 0 then
 		sub = (if sub ~= "" then sub .. "  ·  " else "") .. "🏢 R" .. branches
 	end

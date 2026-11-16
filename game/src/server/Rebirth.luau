@@ -36,7 +36,8 @@
 --                        now; Bath Ready then Plots.syncRooms), Celebrate Perk
 --       BuyNode          a Data/Tree node, Logic/Tree.canBuy (points, max rank, a capstone's 6 points in its branch)
 --       ResetTree        2 s per player; every rank refunded (Logic/Tree.refund: free, any time)
---       SetTheme         a Data/Themes id unlocked at your Rebirth.Count (Server/Levels redraws the building)
+--       SetTheme         a Data/Themes id unlocked at your Rebirth.Count (Server/Levels redraws the building); 3 s per
+--                        player between changes (each one rebuilds the building for everyone)
 --       ClaimBranchNurse the first rebirth-only nurse in Rebirth.Pending, through Nurses.grant (roster room; it takes
 --                        it out of Pending in the same update)
 --   Rebirth.Reborn: Signal (p, count)
@@ -281,6 +282,9 @@ Rebirth.Pure = Pure
 
 local OPEN_COOLDOWN = 5 -- seconds per player between rebirths (§B3)
 local RESET_COOLDOWN = 2 -- seconds per player between tree resets (§B3)
+-- Seconds per player between theme changes: each change rebuilds the whole hospital building for every client (a
+-- client flicking through themes, or a junk one, must not force rebuilds 10 times a second).
+local THEME_COOLDOWN = 3
 local MAX_ID_LENGTH = 40 -- longer than any id in Shared/Data
 local BADGE_NAME = "BranchBadge" -- a TextLabel in the plot's Sign.SignGui (PlotBuilder makes it; added if missing)
 local BRANCHES_ATTRIBUTE = "Branches"
@@ -321,6 +325,7 @@ local rng = Random.new()
 local opening: { [Player]: boolean } = {}
 local lastOpen: { [Player]: number } = {}
 local lastReset: { [Player]: number } = {}
+local lastTheme: { [Player]: number } = {}
 local mascots: { [Plot]: Mascot } = {}
 
 ------------------------------------------------------------------------------------------------------------------
@@ -746,7 +751,9 @@ function Rebirth.choose(player: Player, perkId: any): (boolean, string)
 	if not data then
 		return false, MSG.Loading
 	end
-	if not table.find(data.Rebirth.Offer, perkId) or table.find(data.Rebirth.Perks, perkId) then
+	-- liveOffer: an offer whose cards were all renamed or removed since becomes the Fallback card, never a dead end.
+	local offer = RebirthLogic.liveOffer(data.Rebirth.Offer, PerksData)
+	if not table.find(offer, perkId) or table.find(data.Rebirth.Perks, perkId) then
 		return false, MSG.NotOffered
 	end
 	local chosen = false
@@ -860,6 +867,11 @@ function Rebirth.setTheme(player: Player, themeId: any): (boolean, string)
 	if RebirthLogic.theme(data, ThemesData) == themeId then
 		return true, reply
 	end
+	local now = os.clock()
+	local last = lastTheme[player]
+	if last and now - last < THEME_COOLDOWN then
+		return false, Remotes.TOO_FAST
+	end
 	local set = false
 	PlayerData.update(player, function(d)
 		if d.Rebirth.Count >= needs then
@@ -870,6 +882,7 @@ function Rebirth.setTheme(player: Player, themeId: any): (boolean, string)
 	if not set then
 		return false, MSG.Oops
 	end
+	lastTheme[player] = now
 	return true, reply
 end
 
@@ -1008,6 +1021,7 @@ function Rebirth.start()
 		opening[player] = nil
 		lastOpen[player] = nil
 		lastReset[player] = nil
+		lastTheme[player] = nil
 	end)
 end
 

@@ -245,6 +245,17 @@ T.describe("Hospital (lift rules)", function()
 
 	test("riders are set down side by side", function()
 		expect({ Lift.spread(1), Lift.spread(2), Lift.spread(3), Lift.spread(4) }).toEqual({ 0, 2.8, -2.8, 5.6 })
+		-- UI/LiftPanel steps patients and porters out where Server/Lift sets them down
+		for index = 1, 6 do
+			expect(Panel.spread(index)).toBe(Lift.spread(index))
+		end
+		-- inside the car they stand side by side, never past its walls
+		expect(Panel.inCar(1, 2)).toBe(0)
+		expect(Panel.inCar(2, 2) > 0 and Panel.inCar(3, 2) < 0).toBe(true)
+		for index = 1, 6 do
+			expect(math.abs(Panel.inCar(index, 2)) <= 2).toBe(true)
+		end
+		expect(Panel.inCar(4, -1)).toBe(0)
 	end)
 
 	test("the ride attributes: Server/Lift writes what UI/LiftPanel reads", function()

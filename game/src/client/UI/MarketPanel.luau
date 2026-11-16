@@ -1044,7 +1044,10 @@ function MarketPanel.init(ctx: Types.Ctx)
 			return
 		end
 		local level = if type(entry.Level) == "number" then entry.Level else 1
-		local min, max = MarketLogic.band(cfg, nurse.Rarity, level)
+		-- Its copies too: never below what the Agency pays for them after the fee (the server's check). The picker
+		-- starts at the fair price snapped into this band, so never below that either.
+		local copies = if type(entry.Copies) == "number" then entry.Copies else 1
+		local min, max = MarketLogic.band(cfg, nurse.Rarity, level, copies)
 		local changed = min ~= band.Min or max ~= band.Max
 		band.Min, band.Max = min, max
 		band.Step = Pure.step(min, max, round)

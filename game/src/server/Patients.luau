@@ -25,16 +25,19 @@
 --     later a Sky-wing patient steps out on the roof, rides the lift down (Lift.carry) and joins the line at the
 --     front. Urgent = "VIP": x4 + 3 ⭐. Sky-wing patients come no other way.
 --   · After the recipe is complete: its department (Logic/Hospital.route: 🛁 Hydro for a Bath-wing patient once
---     Hydro is open, else 🛏️ Wards; the badge's chip from Lv 3, CreatureBuilder.setDept). From Lv 3 the helper
---     picks the floor (Treatment.waitTriage, at most Config.Triage.Seconds: a right pick is +10%; a wrong one says
---     "Oops, not this floor!" and it goes the right way anyway; no pick: it goes by itself). A Receptionist on duty
---     (Nurses.reception) sends it at once, with the bonus. Then where it rests (Pure.destination): a Hydro patient
---     takes a free hot-tub spot first; otherwise a free bed on the ground (the Stand's, a room's), else a ward bed
---     upstairs, else it rests in place at the front of the line, as before.
+--     Hydro is open, else 🛏️ Wards; the badge's chip from Lv 3, CreatureBuilder.setDept). Where it rests
+--     (Pure.destination): a Hydro patient takes a free hot-tub spot first; otherwise a free bed on the ground (the
+--     Stand's, a room's), else a ward bed upstairs, else it rests in place at the front of the line, as before. From
+--     Lv 3, when it really goes to its department's floor (Pure.routed: a Hydro patient to a tub, a Wards patient up
+--     to a ward bed), the helper picks the floor (Treatment.waitTriage, at most Config.Triage.Seconds: a right pick
+--     is +10%; a wrong one says "Oops, not this floor!" and it goes the right way anyway; no pick: it goes by itself)
+--     while it stands aside and the line moves up. A Receptionist on duty (Nurses.reception) sends it at once, with
+--     the bonus; so does Simple mode (no timed decision). A ground bed: no question, no bonus.
 --   · Upstairs (a ward bed or the tub): it waits at the ground landing ("ToLift") for a Porter (Nurses.claimPorter,
---     who walks over: Nurses.escort) or a player (Lift.waitEscort: the landing's EscortPrompt, Config.Lift.EscortWait
---     s); either rides with it (Escorted: +20% cash, rest x0.5); nobody: it rides alone. Lift.carry moves everyone
---     with one PivotTo each at the far landing (one ride at a time per plot). After the cure it rides down again.
+--     who walks over: Nurses.escort) or, only when someone who can work here stands near the landing, a player
+--     (Lift.waitEscort: the landing's EscortPrompt, Config.Lift.EscortWait s); either rides with it (Escorted: +20%
+--     cash, rest x0.5); nobody: it rides alone. Then its turn on the lift (held for the ride only). Lift.carry moves
+--     everyone with one PivotTo each at the far landing (one ride at a time per plot). After the cure it rides down.
 --   · 🛁 Hydro: in a tub spot it is "Soaking" (+25% cash, rest x0.5) and the tub's SoakPrompt opens ONE 🫧 Scrub game
 --     for it (Treatment.open Kind "Soak": a tip only, sharing the patient's TipCapPerCure). It soaks a little longer
 --     (SOAK_LINGER) after its cure while nobody has played it, so the game can be reached.
@@ -232,6 +235,8 @@ local POLL = 0.1 -- waiting on another system (the lift, a porter) looks this of
 local PORTER_SECONDS = 15 -- the most a patient waits for a Porter to walk over
 local CARRY_SECONDS = 8 -- the most a lift ride may take before the patient is put there anyway
 local ESCORT_SLACK = 2 -- seconds on top of Config.Lift.EscortWait before giving up on Lift.waitEscort
+local TRIAGE_STEP = 2.5 -- studs a patient steps aside while its floor is picked (the next one takes its place)
+local ESCORT_NEAR = 24 -- studs from the ground landing a worker must be for an upstairs patient to wait for an escort
 local SOAK_LINGER = 6 -- a Hydro patient soaks this much longer after its cure while its 🫧 game is unplayed
 local SOAK_DISTANCE = 14 -- studs from the SoakPrompt the server accepts (its own check, beside the prompt's)
 local MAX_SLOWER = 4 -- a sanity cap on how much slower an urgent patient's patience may drain
@@ -664,12 +669,31 @@ function Pure.destination(dept: string, free: { Tub: boolean?, Ground: boolean?,
 	return "Place"
 end
 
--- The floor pick once the recipe is complete. "None": fewer than two places to send it (below Lv 3), or nobody to
--- ask (a nurse finished it); "Instant": a Receptionist sends it at once, with the bonus; "Ask": the helper picks.
-function Pure.triageMode(options: { string }?, receptionist: boolean, byPlayer: boolean): string
+-- The patient really goes to its department's own floor: a Hydro patient into a 🛁 tub spot, a Wards patient up to a
+-- ward bed. Only then is "Which floor?" a true question (a ground bed, or a Hydro patient in a ward bed because the
+-- tubs are full, would make the right answer look wrong).
+function Pure.routed(dept: string?, kind: string?): boolean
+	return (dept == "Hydro" and kind == "Tub") or (dept == "Wards" and kind == "Upstairs")
+end
+
+-- The floor pick once the recipe is complete. "None": fewer than two places to send it (below Lv 3), it isn't going
+-- to its department's floor (`routed` false: no question, no bonus), or nobody to ask (a nurse finished it);
+-- "Instant": a Receptionist sends it at once, with the bonus, and so does Simple mode (`simple`: no timed decision for
+-- the youngest players); "Ask": the helper picks.
+function Pure.triageMode(
+	options: { string }?,
+	receptionist: boolean,
+	byPlayer: boolean,
+	routed: boolean?,
+	simple: boolean?
+): string
 	if type(options) ~= "table" or #options < 2 then
 		return "None"
 	elseif receptionist then
+		return "Instant"
+	elseif routed == false then
+		return "None"
+	elseif simple == true and byPlayer then
 		return "Instant"
 	elseif byPlayer then
 		return "Ask"
@@ -1060,6 +1084,14 @@ local function freeSpots(state: PlotState): Spots
 		return reachable[floor]
 	end
 	local tubSpots = math.max(0, math.floor(tonumber(Config.Hydro.Spots) or 2))
+	-- A theme change or a level-up rebuilds the Building, and its TubSpot parts are new ones (ward beds move across,
+	-- tub spots don't): a patient soaking on the old TubSpot_1 still holds TubSpot_1, so go by name for those.
+	local tubsHeld: { [string]: boolean } = {}
+	for spot in state.Beds do
+		if string.match(spot.Name, "^TubSpot_%d+$") then
+			tubsHeld[spot.Name] = true
+		end
+	end
 	for _, holderName in { "Rooms", "Building" } do
 		local holder = plot.Model:FindFirstChild(holderName)
 		if holder then
@@ -1077,8 +1109,13 @@ local function freeSpots(state: PlotState): Spots
 						end
 					elseif holderName == "Building" and not spots.Tub then
 						local n = tonumber(string.match(descendant.Name, "^TubSpot_(%d+)$"))
-						local floor = floorOf(descendant, plot.Model)
-						if n and n <= tubSpots and (floor == 0 or canReach(floor)) then
+						local floor = if n then floorOf(descendant, plot.Model) else 0
+						if
+							n
+							and n <= tubSpots
+							and not tubsHeld[descendant.Name]
+							and (floor == 0 or canReach(floor))
+						then
 							spots.Tub = descendant
 						end
 					end
@@ -1627,6 +1664,26 @@ local function porterModel(plot: Plot, nurseId: string): Model?
 	return if model and model:IsA("Model") then model else nil
 end
 
+-- A model stands within `studs` of `at` (a landing point): across the ground, and not a whole storey above or below.
+local function modelNear(model: Model, at: Vector3, studs: number): boolean
+	if not model:IsDescendantOf(Workspace) then
+		return false
+	end
+	local offset = model:GetPivot().Position - at
+	return Vector3.new(offset.X, 0, offset.Z).Magnitude <= studs and math.abs(offset.Y) <= 6
+end
+
+-- Someone who can work this plot (Plots.canWork) stands near `at`: only then is an escort worth waiting for.
+local function workerNear(plot: Plot, at: Vector3, studs: number): boolean
+	for _, player in Players:GetPlayers() do
+		local character = player.Character
+		if character and modelNear(character, at, studs) and Plots.canWork(player, plot) then
+			return true
+		end
+	end
+	return false
+end
+
 -- Up the lift to `floor` for its rest (a ward bed or the hot tub). At the ground landing it waits ("ToLift") for a
 -- free Porter (Nurses.claimPorter; the porter walks over: Nurses.escort) or, with none, a player who can work here
 -- (Lift.waitEscort: the landing's EscortPrompt for Config.Lift.EscortWait s). Whoever comes rides with it (Escorted:
@@ -1643,9 +1700,8 @@ local function goUp(p: Patient, floor: number): boolean
 	if not walk(p, bedRoute(state, p.Pivot.Position, groundStand.Position)) then
 		return false
 	end
-	if not liftTurn(p) then
-		return false
-	end
+	-- Its escort first, then the lift: the lift is held only for the ride itself (§E7: the escort is a bonus that
+	-- never slows anything; cured patients riding down and the next one up don't queue behind an escort wait).
 	setState(p, "ToLift")
 	local others: { Model } = {}
 	local okPorter, porter = pcall(Nurses.claimPorter, plot)
@@ -1664,7 +1720,9 @@ local function goUp(p: Patient, floor: number): boolean
 			releasePorter(p) -- it couldn't come: the patient asks a player instead
 		end
 	end
-	if #others == 0 then
+	-- A player's escort is only waited for when someone who can work here stands near the ground landing; nobody
+	-- near (the usual case: the kid is at the Counter): it rides at once.
+	if #others == 0 and workerNear(plot, ground.Position, ESCORT_NEAR) then
 		local seconds = math.clamp(tonumber(Config.Lift.EscortWait) or 6, 0, 30)
 		local finished, rider = within(seconds + ESCORT_SLACK, "Lift.waitEscort", Lift.waitEscort, plot, seconds)
 		if not alive(p) then
@@ -1681,6 +1739,16 @@ local function goUp(p: Patient, floor: number): boolean
 			if character then
 				table.insert(others, character)
 			end
+		end
+	end
+	if not liftTurn(p) then
+		return false
+	end
+	-- A player who walked off while the lift was busy stays behind (never pulled up from afar); a porter waits by it.
+	for index = #others, 1, -1 do
+		local model = others[index]
+		if Players:GetPlayerFromCharacter(model) and not modelNear(model, ground.Position, ESCORT_NEAR) then
+			table.remove(others, index)
 		end
 	end
 	p.Escorted = #others > 0
@@ -1833,7 +1901,15 @@ local function treatAndRecover(p: Patient)
 	if not hop(p, p.Pivot, p.HopHeight * 0.9, 0.3) then -- a happy little bounce
 		return
 	end
-	triage(p) -- Lv 3+: which floor? (it waits at the Counter meanwhile, so the line waits too)
+	if p.Triage and p.Bed then
+		-- Lv 3+: which floor? It only asks when it goes to its department's floor, so it has a spot to go to: the line
+		-- moves up now, and it steps aside for the next patient while the helper picks.
+		removeFromQueue(state, p)
+		if not hop(p, p.Pivot * CFrame.new(TRIAGE_STEP, 0, 0), p.HopHeight * 0.6, 0.3) then
+			return
+		end
+	end
+	triage(p)
 	if not alive(p) then
 		return
 	end
@@ -2763,7 +2839,14 @@ local function beginTreatment(state: PlotState, p: Patient, helper: Player, sess
 		p.SpotKind = "Place" -- every spot taken: it rests where it stands, as before
 	end
 	local options = Hospital.triageOptions(state.Level, LevelsData)
-	local mode = Pure.triageMode(options, state.Receptionist.Triage, session ~= nil)
+	local okSimple, simple = pcall(Treatment.simple, helper)
+	local mode = Pure.triageMode(
+		options,
+		state.Receptionist.Triage,
+		session ~= nil,
+		Pure.routed(p.Dept, p.SpotKind),
+		okSimple and simple == true
+	)
 	local ask: Treatment.TriageAsk? = nil
 	if mode == "Instant" then
 		p.TriageBonus = true -- a Receptionist sent it the right way
