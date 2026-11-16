@@ -1,22 +1,19 @@
--- Server entry point. Starts every system in order.
+-- Server entry point: collision groups, then every system's start() in the plan's order (build plan Task 0).
+-- A system whose start() errors is reported and skipped, so one broken module never stops the clinic opening.
 
 local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 
 require(game:GetService("ReplicatedStorage").Shared.Remotes) -- creates the remotes first
 
-local PlayerData = require(script.Parent.PlayerData)
-local ShopWorld = require(script.Parent.ShopWorld)
-local Economy = require(script.Parent.Economy)
-local Kitchen = require(script.Parent.Kitchen)
-local Customers = require(script.Parent.Customers)
-local DayNight = require(script.Parent.DayNight)
+local Server = script.Parent
 
--- Customers walk through each other and through players, so nobody blocks the queue.
-PhysicsService:RegisterCollisionGroup("Customers")
+-- Patients walk through each other and through players, so nobody blocks the queue.
+-- Put every creature part in the "Patients" group (CreatureBuilder does).
+PhysicsService:RegisterCollisionGroup("Patients")
 PhysicsService:RegisterCollisionGroup("Players")
-PhysicsService:CollisionGroupSetCollidable("Customers", "Customers", false)
-PhysicsService:CollisionGroupSetCollidable("Customers", "Players", false)
+PhysicsService:CollisionGroupSetCollidable("Patients", "Patients", false)
+PhysicsService:CollisionGroupSetCollidable("Patients", "Players", false)
 
 local function onCharacter(character: Model)
 	for _, descendant in character:GetDescendants() do
@@ -41,11 +38,37 @@ for _, player in Players:GetPlayers() do
 	onPlayer(player)
 end
 
-local shop = ShopWorld.get()
-PlayerData.start()
-Economy.start()
-Kitchen.start(shop.Station)
-Customers.start(shop)
-DayNight.start()
+local START_ORDER = {
+	"PlayerData",
+	"State",
+	"Events",
+	"Plots",
+	"Carry",
+	"Economy",
+	"Progress",
+	"Book",
+	"Story",
+	"Daily",
+	"DayReport",
+	"Stations",
+	"Patients",
+	"Visits",
+	"DayNight",
+}
 
-print("[Main] Shop is open.")
+for _, name in START_ORDER do
+	local moduleScript = Server:FindFirstChild(name)
+	if not (moduleScript and moduleScript:IsA("ModuleScript")) then
+		warn("[Main] Missing system " .. name)
+		continue
+	end
+	local ok, err = xpcall(function()
+		local system = require(moduleScript) :: any
+		system.start()
+	end, debug.traceback)
+	if not ok then
+		warn("[Main] " .. name .. ".start() failed:\n" .. tostring(err))
+	end
+end
+
+print("[Main] Clinic is open.")
