@@ -208,11 +208,33 @@ Each source has its own job, so the belt stays the exciting one:
   - Transfers are atomic on one server (both saves on that server, one update each, the listing locked), so there's
     no duplication. Cross-server markets are out of scope (dupe risk).
   - Never Robux.
-- **Caps:**
-  - The roster holds 30 nurses at first, +5 per hospital level, +10 per rebirth, up to 100 (never sold for Robux).
-  - Equipped slots stay 1–5 by level, plus one Branch Tree node.
-  - A full roster blocks hiring with "Roster full: sell, list or release one" (and its buttons).
-  - The Journal keeps every nurse ever owned, so selling never removes an entry.
+- **Caps (`memory-20261116-019`; nurses must feel precious):**
+  - The roster is **3 nurses to start, +1 per rebirth.** Every owned nurse works (no bench, no separate equip
+    slots), so a better nurse means selling or listing one.
+  - A full roster blocks hiring with "Roster full: sell or list one" (and its buttons).
+  - The Journal keeps every nurse ever owned.
+
+### Rebirth features (`memory-20261116-019`)
+Every rebirth gives all of these:
+1. **Perk cards:** choose 1 of 3 random permanent perks (no duplicates), e.g.:
+   - patients arrive 15% faster
+   - start every branch with the Bath Room
+   - nurses gain 2× XP
+   - night lasts 30% longer
+   - +1 tray slot
+   - the belt shows the next arrival's rarity
+2. **Branch Ability Tree points:** Care / Speed / Fortune, with capstones like Twin Counters.
+3. **+25% cash and Stars,** permanent.
+4. **+1 roster slot.**
+5. **Unlocks:**
+   - **R1:** Mythic/Secret on the belt, a new creature wing
+   - **R2:** A&E helicopter, Pharmacy tier 2
+   - **R3:** golden shiny patients, nurse level cap +5
+   - **R4:** the Night Clinic upgrade
+   - **R5:** a rebirth-only Legendary nurse and a mascot pet
+   - **R6+:** a new perk card, points and a cosmetic each time
+6. **A branch theme:** a cosmetic hospital skin per rebirth (Candy, Arctic, Jungle, Space, …).
+7. **Status:** a Branches badge (tiers by rebirth count) and a 🏢 Most Rebirths leaderboard (admins excluded).
 
 ## Kids' rules (red line 3)
 The belt is cash only; you see what you buy; the odds are shown and there's a pity guarantee. There are no fail states, no timers against the
