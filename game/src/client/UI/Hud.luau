@@ -9,20 +9,25 @@
 --                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion),
 --                 plus 🛠️ Admin (opens UI/AdminPanel) only while the server has set the player attribute IsAdmin
 --   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty) above
---                 the 🛒 📖 📬 🎯 🏆 buttons, each of the first four with a dot when something waits there (a room you
---                 can buy or decor to place · new pages · mail · a goal); 🏆 Top opens the leaderboards (UI/Boards)
+--                 the 🛒 📖 📬 🎯 🏅 🏆 buttons, each of the first four with a dot when something waits there (a
+--                 room you can buy or decor to place · new pages · mail · a goal); 🏅 Badges opens UI/BadgeBook (no
+--                 dot: its tier-ups celebrate by themselves) and 🏆 Top the leaderboards (UI/Boards)
+--   under the wallet  🎁 the daily play gifts (UI/PlayGifts): a ring of 12 dots fills toward the next gift, the caption
+--                 says how much play is left ("3m"), "Open!" with a dot when one is ready, ✅ when all are opened
+--   beside the clock  a chip per timed boost running (icon + play time left, Data/Boosts); it only counts down while
+--                 you play (the PlayTotal attribute), so it never runs out while you're away
 -- It reveals itself to a new player (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A3),
 -- driven by the Snapshot's Tutorial step: at first only 💰; ⭐ after the first cure; 🛒 at the shop step and 📖 at
--- the Book step (its pointer needs it), each with a bounce; 📬 🎯, the clock and the visitor chip when the tutorial
--- ends. A player who's done sees everything at once, as before. Until the first snapshot arrives (Tutorial 0, "not
--- known yet") it stays at 💰 only. ⚙️, ⚠️ and 🏠 always show when they apply.
+-- the Book step (its pointer needs it), each with a bounce; 📬 🎯 🏅 🏆 🎁, the clock and the visitor chip when
+-- the tutorial ends. A player who's done sees everything at once, as before. Until the first snapshot arrives
+-- (Tutorial 0, "not known yet") it stays at 💰 only. ⚙️, ⚠️ and 🏠 always show when they apply.
 -- Everything is drawn from the Snapshot, player attributes and Workspace attributes. The client never decides
 -- anything: buttons only open panels, and panels only ask the server.
 --
 -- The look is candy pop (memory-20261116-007): every chip is its own bright colour with a glossy top, a thick dark
 -- outline and big outlined display-font numbers. 💰 Cash yellow · ⭐ star-to-orange with a candy bar · the clock
 -- orange by day and purple by night · Today's Visitor pink (lime once cured) · 🛒 pink · 📖 purple · 📬 blue ·
--- 🎯 lime. The numbers bump when they change; every motion honours Hud.calm().
+-- 🎯 lime · 🏅 orange · 🏆 yellow · 🎁 pink. The numbers bump when they change; every motion honours Hud.calm().
 --
 -- Shared helpers (the other UI modules require this module for them; none of them needs Hud.init to have run):
 --   Hud.modal(ctx, spec): Modal        a panel or popup shell: dim, paper card with a dark drop shadow, a coloured
@@ -41,13 +46,19 @@
 --   Hud.sound(name, volume?)           a Feel/Sounds cue over the bus
 --   Hud.format(n): string              1,234 · 1.2M past a million
 --   Hud.target(name): GuiObject?       a HUD piece by name ("Cash", "Stars", "Shop", "Book", "Mailbox", "Goals",
---                                      "Boards", "Settings", "Hands"), for pointers (UI/Tutorial) and flying icons
+--                                      "Badges", "Boards", "Gifts", "Settings", "Hands"), for pointers (UI/Tutorial)
+--                                      and flying icons
 --   Hud.isOpen(name?): boolean         a modal is open (that one, or any)
+--   Hud.livePlay(state): (save, day, pending)   Data.Playtime as it is right now: the Snapshot's saved part plus
+--                                      the live PlayToday/PlayTotal attributes (Server/Playtime), on today's UTC
+--                                      day (yesterday's opened gifts don't count); pending = seconds not saved yet
+--   Hud.liveBoosts(state): { { Id, Left } }   the timed boosts still running, with their live play time left
+--   Hud.boostLine(data, state): string the "Your boosts" summary: timed ones first, then permanent percents
 --
 -- Client bus (ctx.on / ctx.fire):
 --   listens  "BookNew" (count)                      BookPanel: unseen new pages, for the 📖 dot
---   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Boards" |
---                                                   "Admin"
+--   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Badges" |
+--                                                   "Boards" | "Gifts" | "Admin"
 --   fires    "ModalOpened" (name) · "ModalClosed" (name)
 --   fires    "Sound" (name, volume?)                Whoosh on open, Nope on a shake, Pop when icons land
 
@@ -65,6 +76,8 @@ local Palette = require(Shared:WaitForChild("Palette"))
 local PatientsData = require(Shared:WaitForChild("Data"):WaitForChild("Patients")) :: any
 local RegularsData = require(Shared:WaitForChild("Data"):WaitForChild("Regulars")) :: any
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
+local PlaytimeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Playtime"))
+local BoostsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Boosts"))
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -116,8 +129,10 @@ local TABS: { Tab } = {
 	{ Name = "Book", Icon = "📖", Caption = "Book", Kind = "Purple", Color = Theme.Colors.Purple },
 	{ Name = "Mailbox", Icon = "📭", Caption = "Mail", Kind = "Secondary", Color = Theme.Colors.Secondary },
 	{ Name = "Goals", Icon = "🎯", Caption = "Goals", Kind = "Good", Color = Theme.Colors.Good },
+	{ Name = "Badges", Icon = "🏅", Caption = "Badges", Kind = "Primary", Color = Theme.Colors.Primary }, -- UI/BadgeBook
 	{ Name = "Boards", Icon = "🏆", Caption = "Top", Kind = "Cash", Color = Theme.Colors.Cash }, -- UI/Boards
 }
+local GIFTS_COLOR = Theme.Colors.Pink -- the 🎁 button and its panel's header
 
 local function tabColor(name: string): Color3?
 	for _, tab in TABS do
@@ -125,7 +140,7 @@ local function tabColor(name: string): Color3?
 			return tab.Color
 		end
 	end
-	return nil
+	return if name == "Gifts" then GIFTS_COLOR else nil
 end
 
 local function commas(n: number): string
@@ -1112,6 +1127,70 @@ function Hud.ask(remote: RemoteFunction, ...: any): (boolean, string)
 	return coroutine.yield()
 end
 
+------------------------------------------------------------------------------------------------------------------
+-- Time played and boosts, live (the Snapshot holds the saved part; Server/Playtime's attributes the rest)
+------------------------------------------------------------------------------------------------------------------
+
+local function numberAttribute(instance: Instance, name: string): number?
+	local value = instance:GetAttribute(name)
+	return if type(value) == "number" and value == value then value else nil
+end
+
+function Hud.livePlay(state: Types.Snapshot): (PlaytimeLogic.Save, number, number)
+	local saved: any = state.Playtime
+	if type(saved) ~= "table" then
+		saved = { Day = 0, TodaySeconds = 0, TotalSeconds = 0, Claimed = {}, Rank = 0 }
+	end
+	local player = Players.LocalPlayer
+	local day = numberAttribute(Workspace, "UtcDay") or saved.Day
+	local total = numberAttribute(player, "PlayTotal") or saved.TotalSeconds or 0
+	local liveToday = numberAttribute(player, "PlayToday")
+	local sameDay = saved.Day == day
+	local save: PlaytimeLogic.Save = {
+		Day = day,
+		TodaySeconds = liveToday or (if sameDay then saved.TodaySeconds or 0 else 0),
+		TotalSeconds = math.max(total, saved.TotalSeconds or 0),
+		Claimed = if sameDay and type(saved.Claimed) == "table" then saved.Claimed else {},
+		Rank = saved.Rank or 0,
+	}
+	return save, day, math.max(0, total - (saved.TotalSeconds or 0))
+end
+
+function Hud.liveBoosts(state: Types.Snapshot): { { Id: string, Left: number } }
+	local _, _, pending = Hud.livePlay(state)
+	local out = {}
+	local list = state.Boosts and state.Boosts.Timed
+	if type(list) == "table" then
+		for _, entry in list do
+			local left = (if type(entry.Left) == "number" then entry.Left else 0) - pending
+			if type(entry.Id) == "string" and left > 0 then
+				table.insert(out, { Id = entry.Id, Left = left })
+			end
+		end
+	end
+	return out
+end
+
+function Hud.boostLine(data: any, state: Types.Snapshot): string
+	local parts = {}
+	for _, entry in Hud.liveBoosts(state) do
+		local def = rawget(data.Boosts, entry.Id)
+		if def then
+			table.insert(parts, def.Icon .. " " .. PlaytimeLogic.clock(entry.Left))
+		end
+	end
+	local permanent = state.Boosts and state.Boosts.Permanent
+	if type(permanent) == "table" then
+		for _, kind in BoostsLogic.KINDS do
+			local percent = permanent[kind]
+			if type(percent) == "number" and percent > 0 then
+				table.insert(parts, (BoostsLogic.ICONS :: any)[kind] .. " +" .. math.floor(percent + 0.5) .. "%")
+			end
+		end
+	end
+	return if #parts > 0 then "✨ " .. table.concat(parts, "  ") else "✨ No boosts yet: earn badges!"
+end
+
 local function goalReady(data: any, state: Types.Snapshot): boolean
 	local goals = state.Daily and state.Daily.Goals
 	if type(goals) ~= "table" then
@@ -1216,7 +1295,7 @@ function Hud.init(ctx: Types.Ctx)
 	wallet.Name = "Wallet"
 	wallet.BackgroundTransparency = 1
 	wallet.Position = UDim2.fromOffset(margin, margin)
-	wallet.Size = UDim2.fromOffset(210, 214) -- cash, stars, and the rare status chips under them
+	wallet.Size = UDim2.fromOffset(210, 312) -- cash, stars, the rare status chips, then the 🎁 play gifts
 	wallet.Parent = gui
 	local walletList = Kit.list(wallet, Enum.FillDirection.Vertical, 8)
 	walletList.HorizontalAlignment = Enum.HorizontalAlignment.Left
@@ -1289,17 +1368,36 @@ function Hud.init(ctx: Types.Ctx)
 	side.AnchorPoint = Vector2.new(1, 0)
 	side.BackgroundTransparency = 1
 	side.Position = UDim2.new(1, -margin, 0, margin)
-	side.Size = UDim2.fromOffset(200, 220)
+	side.Size = UDim2.fromOffset(420, 220) -- the boost chips sit left of the clock, so the column stays short
 	side.Parent = gui
 	local sideList = Kit.list(side, Enum.FillDirection.Vertical, 8)
 	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	sideList.VerticalAlignment = Enum.VerticalAlignment.Top
 
+	-- The top row: the timed boost chips (renderBoosts), then the clock at the right edge.
+	local topRow = Instance.new("Frame")
+	topRow.Name = "TopRow"
+	topRow.BackgroundTransparency = 1
+	topRow.LayoutOrder = 1
+	topRow.Size = UDim2.fromOffset(420, 52)
+	topRow.Parent = side
+	local topList = Kit.list(topRow, Enum.FillDirection.Horizontal, 8)
+	topList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	local boostRow = Instance.new("Frame")
+	boostRow.Name = "Boosts"
+	boostRow.BackgroundTransparency = 1
+	boostRow.LayoutOrder = 1
+	boostRow.Size = UDim2.fromOffset(0, 40)
+	boostRow.AutomaticSize = Enum.AutomaticSize.X
+	boostRow.Visible = false
+	boostRow.Parent = topRow
+	Kit.list(boostRow, Enum.FillDirection.Horizontal, 6)
+
 	-- Orange by day, purple by night (renderPhase).
 	local timerPill = pill({
 		Name = "Timer",
-		Parent = side,
-		LayoutOrder = 1,
+		Parent = topRow,
+		LayoutOrder = 2,
 		Color = Theme.Colors.Primary,
 		Size = UDim2.fromOffset(136, 52),
 	})
@@ -1380,6 +1478,46 @@ function Hud.init(ctx: Types.Ctx)
 	local savingChip = chip("NotSaving", "⚠️ Not saving", Theme.Colors.Danger, 3)
 	local noPlotChip = chip("NoClinic", "🏠 Clinics full", Theme.Colors.Secondary, 4)
 
+	-- 🎁 The daily play gifts (UI/PlayGifts opens on "Open" "Gifts"). A ring of 12 candy dots around the button fills
+	-- toward the next gift (renderGifts); it isn't a countdown to anything you could miss.
+	local RING_DOTS = 12
+	local giftHolder = Instance.new("Frame")
+	giftHolder.Name = "GiftsHolder"
+	giftHolder.BackgroundTransparency = 1
+	giftHolder.LayoutOrder = 5
+	giftHolder.Size = UDim2.fromOffset(86, 86)
+	giftHolder.Parent = wallet
+	local ringDots: { Frame } = {}
+	for i = 1, RING_DOTS do
+		local angle = (i - 1) / RING_DOTS * math.pi * 2
+		local ringDot = Instance.new("Frame")
+		ringDot.Name = "RingDot" .. i
+		ringDot.AnchorPoint = Vector2.new(0.5, 0.5)
+		ringDot.Position = UDim2.new(0.5, math.sin(angle) * 37, 0.5, -math.cos(angle) * 37)
+		ringDot.Size = UDim2.fromOffset(10, 10)
+		ringDot.BackgroundColor3 = Palette.White
+		ringDot.BorderSizePixel = 0
+		Kit.corner(ringDot, 5)
+		Kit.stroke(ringDot, Theme.Colors.Outline, 2)
+		ringDot.Parent = giftHolder
+		ringDots[i] = ringDot
+	end
+	local giftButton = Kit.iconButton({
+		Name = "Gifts",
+		Icon = "🎁",
+		Caption = "",
+		Kind = "Pink",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(62, 62),
+		ZIndex = 2,
+		Parent = giftHolder,
+	})
+	targets.Gifts = giftButton
+	giftButton.Activated:Connect(function()
+		ctx.fire("Open", "Gifts")
+	end)
+
 	--------------------------------------------------------------------------------------------------------------
 	-- Bottom centre: hands, then the big buttons (clear of the thumbstick and the jump button)
 	--------------------------------------------------------------------------------------------------------------
@@ -1390,7 +1528,7 @@ function Hud.init(ctx: Types.Ctx)
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.BackgroundTransparency = 1
 	bar.Position = UDim2.new(0.5, 0, 1, -margin)
-	local barWidth = size * #TABS + gap * (#TABS - 1)
+	local barWidth = size * #TABS + gap * (#TABS - 1) -- 6 tabs: 6 x 76 + 5 x 10 = 506 px at full size
 	bar.Size = UDim2.fromOffset(barWidth, size)
 	bar.Parent = gui
 	Kit.list(bar, Enum.FillDirection.Horizontal, gap)
@@ -1443,7 +1581,9 @@ function Hud.init(ctx: Types.Ctx)
 	targets.Book = buttons.Book
 	targets.Mailbox = buttons.Mailbox
 	targets.Goals = buttons.Goals
+	targets.Badges = buttons.Badges
 	targets.Boards = buttons.Boards
+	badge(giftButton)
 
 	local hands = Instance.new("Frame")
 	hands.Name = "Hands"
@@ -1663,13 +1803,16 @@ function Hud.init(ctx: Types.Ctx)
 		settings.toggle()
 	end)
 
-	-- Small screens: scale the bottom cluster down so it keeps 100 px clear on each side (the touch jump button sits
-	-- 95 px in from the right on a phone), never below the 56 px tap target (0.74 x 76).
+	-- Small screens: scale the bottom cluster down so it keeps 100 px clear on each side (a phone's touch jump button
+	-- sits 95 px in from the right edge, its thumbstick as far in from the left), never below the 56 px tap target
+	-- (minScale = 56 / 76 ≈ 0.737). Six tabs: full size from 706 px wide (506 + 200), the floor (373 px of bar)
+	-- below 573 px; a 667 px phone gets 0.92 (70 px buttons).
 	local bottomScale = Instance.new("UIScale")
 	bottomScale.Parent = bar
+	local minScale = Theme.Size.ButtonHeight / size
 	local function fit()
 		local width = gui.AbsoluteSize.X
-		bottomScale.Scale = math.clamp((width - 200) / barWidth, 0.74, 1)
+		bottomScale.Scale = math.clamp((width - 200) / barWidth, minScale, 1)
 	end
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 	fit()
@@ -1734,6 +1877,111 @@ function Hud.init(ctx: Types.Ctx)
 		Kit.setDot(buttons.Book, type(count) == "number" and count > 0)
 	end)
 
+	--------------------------------------------------------------------------------------------------------------
+	-- Play gifts and timed boosts, live: the server's PlayToday/PlayTotal attributes move every second of play
+	--------------------------------------------------------------------------------------------------------------
+	local gifts = data.Playtime.Gifts
+	local giftCaption = giftButton:FindFirstChild("Caption") :: TextLabel?
+	local giftsWereReady = false
+	local giftsShown = false -- the first render after the save loads never shakes
+	local function renderGifts()
+		local state = ctx.State
+		if type(state.Playtime) ~= "table" then
+			return
+		end
+		local save, day = Hud.livePlay(state)
+		local ready = #PlaytimeLogic.ready(save, day, gifts) > 0
+		local nextIndex, left = PlaytimeLogic.nextGift(save, day, gifts)
+		local ratio = 1
+		if nextIndex then
+			local goal = PlaytimeLogic.giftSeconds(gifts[nextIndex])
+			local from = if nextIndex > 1 then PlaytimeLogic.giftSeconds(gifts[nextIndex - 1]) else 0
+			ratio = math.clamp((save.TodaySeconds - from) / math.max(1, goal - from), 0, 1)
+		end
+		local lit = if ready or not nextIndex then #ringDots else math.floor(ratio * #ringDots)
+		for i, ringDot in ringDots do
+			ringDot.BackgroundColor3 = if i <= lit then Kit.lighten(Theme.Colors.Cash, 0.05) else Palette.White
+			ringDot.BackgroundTransparency = if i <= lit then 0 else 0.35
+		end
+		if giftCaption then
+			giftCaption.Text = if ready
+				then "Open!"
+				elseif nextIndex then PlaytimeLogic.duration(math.max(60, left))
+				else "✅"
+		end
+		Kit.setDot(giftButton, ready)
+		if ready and not giftsWereReady and giftsShown and giftHolder.Visible then
+			Hud.shake(giftButton)
+		end
+		giftsWereReady = ready
+		giftsShown = state ~= initial
+	end
+
+	-- A chip per timed boost: its icon and the play time it has left, in its kind's colour.
+	local BOOST_COLORS: { [string]: Color3 } = {
+		MakeSpeed = Theme.Colors.Cyan,
+		Tips = Theme.Colors.Good,
+		Stars = Theme.Colors.Purple,
+		Cash = Theme.Colors.Cash,
+		Patience = Theme.Colors.Secondary,
+	}
+	local boostChips: { [string]: Frame } = {}
+	local function renderBoosts()
+		local live = Hud.liveBoosts(ctx.State)
+		local seen: { [string]: boolean } = {}
+		for index, entry in live do
+			local def = rawget(data.Boosts, entry.Id)
+			if not def then
+				continue
+			end
+			seen[entry.Id] = true
+			local chipFrame = boostChips[entry.Id]
+			if not chipFrame then
+				chipFrame = pill({
+					Name = entry.Id,
+					Parent = boostRow,
+					Color = BOOST_COLORS[def.Kind] or Theme.Colors.Secondary,
+					Size = UDim2.fromOffset(92, 40),
+				})
+				Kit.label({
+					Name = "Text",
+					Text = "",
+					Outlined = true,
+					TextScaled = true,
+					TextWrapped = false,
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.5),
+					Size = UDim2.new(1, -16, 0, 26),
+					Parent = chipFrame,
+				})
+				boostChips[entry.Id] = chipFrame
+				Hud.pop(chipFrame, 1.3)
+			end
+			local chipFrame2 = chipFrame :: Frame
+			chipFrame2.LayoutOrder = index
+			local text = chipFrame2:FindFirstChild("Text") :: TextLabel?
+			if text then
+				text.Text = def.Icon .. " " .. PlaytimeLogic.clock(entry.Left)
+			end
+		end
+		for id, chipFrame in boostChips do
+			if not seen[id] then
+				chipFrame:Destroy()
+				boostChips[id] = nil
+			end
+		end
+		boostRow.Visible = next(boostChips) ~= nil
+	end
+
+	local function renderPlay()
+		renderGifts()
+		renderBoosts()
+	end
+	for _, attribute in { "PlayToday", "PlayTotal" } do
+		player:GetAttributeChangedSignal(attribute):Connect(renderPlay)
+	end
+	Workspace:GetAttributeChangedSignal("UtcDay"):Connect(renderPlay)
+
 	-- No clinic for a while after loading (all six taken): say so, but don't flash it during the normal assign.
 	local plotToken = 0
 	local function watchPlot(state: Types.Snapshot)
@@ -1789,9 +2037,10 @@ function Hud.init(ctx: Types.Ctx)
 		local appeared = showPiece(starsPill, reveal.Stars, animate, 1.25)
 		appeared = showPiece(buttons.Shop, reveal.Shop, animate, 1.45) or appeared -- the shop step's bounce
 		appeared = showPiece(buttons.Book, reveal.Book, animate, 1.45) or appeared -- the Book step's
-		for _, name in { "Mailbox", "Goals", "Boards" } do
+		for _, name in { "Mailbox", "Goals", "Badges", "Boards" } do
 			appeared = showPiece(buttons[name], reveal.Rest, animate, 1.3) or appeared
 		end
+		appeared = showPiece(giftHolder, reveal.Rest, animate, 1.3) or appeared
 		appeared = showPiece(side, reveal.Rest, animate, 1.12) or appeared
 		placeHands()
 		if appeared and animate then
@@ -1865,6 +2114,7 @@ function Hud.init(ctx: Types.Ctx)
 		if isServerState then
 			watchPlot(state)
 		end
+		renderPlay()
 	end)
 end
 

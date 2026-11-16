@@ -47,6 +47,7 @@ local EARNED_HOW: { [string]: string } = {
 	Book = "📖 Finish a Book set",
 	Story = "💌 A friend's thank-you",
 	Referral = "🤝 Friend gift",
+	Playtime = "🩺 A Doctor rank",
 }
 
 type Row = {

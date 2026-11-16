@@ -51,6 +51,9 @@ local START_ORDER = {
 	"Daily",
 	"DayReport",
 	"Tutorial", -- before Stations and Patients: the quiet toasts and its listeners are set before patients come
+	"Boosts",
+	"Badges", -- seeds old saves' counters on load, levels badges up on every save change
+	"Playtime", -- after Plots and Daily: counts active play, the play gifts and Doctor ranks
 	"Stations",
 	"Patients",
 	"Visits",

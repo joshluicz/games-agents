@@ -118,6 +118,33 @@ T.describe("Pay.reward", function()
 		expect(Pay.reward(args({ BasePay = math.huge })).Cash).toBe(1)
 	end)
 
+	test("a Cash boost multiplies the whole pay", function()
+		-- 18 x 1.2 = 21.6
+		expect(Pay.reward(args({ CashBoost = 1.2 })).Cash).toBe(22)
+		-- 36 (night) x 1.5 = 54
+		expect(Pay.reward(args({ Night = true, CashBoost = 1.5 })).Cash).toBe(54)
+	end)
+
+	test("a Tips boost adds onto the Tip Jar factor, even with no Tip Jar", function()
+		-- 12 x 1.5 x (1 + 0.5) = 27
+		expect(Pay.reward(args({ TipsBoost = 0.5 })).Cash).toBe(27)
+		-- 12 x 1.5 x (1 + 0.4 + 0.5) = 34.2
+		expect(Pay.reward(args({ Tips = 2, TipsBoost = 0.5 })).Cash).toBe(34)
+	end)
+
+	test("a Stars boost multiplies the stars", function()
+		expect(Pay.reward(args({ StarsBoost = 2 })).Stars).toBe(2)
+		expect(Pay.reward(args({ Visitor = true, StarsBoost = 2 })).Stars).toBe(6)
+		expect(Pay.reward(args({ StarsBoost = 1.2 })).Stars).toBe(1)
+	end)
+
+	test("junk or negative boosts are neutral", function()
+		for _, junk in { 0 / 0, math.huge, -3, 0, "2" } :: { any } do
+			local reward = Pay.reward(args({ CashBoost = junk, TipsBoost = junk, StarsBoost = junk }))
+			expect(reward).toEqual({ Cash = 18, Stars = 1 })
+		end
+	end)
+
 	test("a missing Cfg field is neutral, never an error", function()
 		local reward = Pay.reward(args({ Night = true, Variant = "Sparkly", Cfg = {} }))
 		expect(reward).toEqual({ Cash = 12, Stars = 2 })

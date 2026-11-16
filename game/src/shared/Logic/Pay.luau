@@ -8,8 +8,11 @@
 --      x NightPayMultiplier                     night patients
 --      x SparklyMultiplier / FrostyMultiplier   a rare variant
 --      x VisitorMultiplier                      Today's Visitor
--- rounded to a whole number, and never below 1.
+--      x CashBoost                              Logic/Boosts: the helper's Cash boosts (1 = none)
+-- where the Tip Jar factor also takes TipsBoost (the helper's Tips boosts, as a fraction: 0.5 = +50%) on top, so a
+-- Tips boost works without a Tip Jar too. Rounded to a whole number, and never below 1.
 -- Stars = 3 for a regular or Today's Visitor, 2 at night, otherwise 1. The best reason wins; they don't add up.
+-- Then x StarsBoost (the owner's Stars boosts, 1 = none), rounded, never below the unboosted stars.
 --
 -- Every input is untrusted: a junk number falls back to its neutral value (patience 0, tips 0) and a missing
 -- Cfg field counts as "no bonus", so a bad call pays a little instead of erroring mid-cure.
@@ -32,6 +35,9 @@ export type RewardArgs = {
 	Visitor: boolean,
 	Regular: boolean,
 	Cfg: Cfg, -- Shared/Config
+	CashBoost: number?, -- a multiplier >= 1 (Server/Boosts); nil or junk = 1
+	TipsBoost: number?, -- a fraction >= 0 added to the Tip Jar factor; nil or junk = 0
+	StarsBoost: number?, -- a multiplier >= 1; nil or junk = 1
 }
 
 export type Reward = { Cash: number, Stars: number }
@@ -80,9 +86,13 @@ function Pay.reward(args: RewardArgs): Reward
 	local patience = fraction(args.PatienceLeft)
 	local tips = math.max(0, math.floor(numberOr(args.Tips, 0)))
 
+	local cashBoost = math.max(1, numberOr(args.CashBoost, 1))
+	local tipsBoost = math.max(0, numberOr(args.TipsBoost, 0))
+	local starsBoost = math.max(1, numberOr(args.StarsBoost, 1))
+
 	local cash = math.max(0, numberOr(args.BasePay, 0))
 	cash *= 1 + bonus(cfg, "QuickServeBonus") * patience
-	cash *= 1 + bonus(cfg, "TipsPerLevel") * tips
+	cash *= 1 + bonus(cfg, "TipsPerLevel") * tips + tipsBoost
 	if args.Night == true then
 		cash *= multiplier(cfg, "NightPayMultiplier")
 	end
@@ -93,6 +103,7 @@ function Pay.reward(args: RewardArgs): Reward
 	if args.Visitor == true then
 		cash *= multiplier(cfg, "VisitorMultiplier")
 	end
+	cash *= cashBoost
 
 	local stars = Pay.STARS_DAY
 	if args.Regular == true or args.Visitor == true then
@@ -103,7 +114,7 @@ function Pay.reward(args: RewardArgs): Reward
 
 	return {
 		Cash = math.max(1, math.floor(cash + 0.5)),
-		Stars = stars,
+		Stars = math.max(stars, math.floor(stars * starsBoost + 0.5)),
 	}
 end
 

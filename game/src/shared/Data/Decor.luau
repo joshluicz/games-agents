@@ -1,6 +1,7 @@
 --!strict
 -- Decor: preset items for the decor slots in your rooms (build plan §B2). Lune-safe (no Roblox types).
--- Price = nil means earned only, and EarnedBy says how: "Book" (a wing's set), "Story" (a regular) or "Referral".
+-- Price = nil means earned only, and EarnedBy says how: "Book" (a wing's set), "Story" (a regular), "Referral" or
+-- "Playtime" (a Doctor rank from time played, Data/Playtime.Ranks).
 -- Nothing here is random or paid with Robux.
 --
 -- Look: the DecorBuilder recipe (Task 7). A model at ServerStorage.ClinicKit.Decor.<DecorId> replaces it.
@@ -122,6 +123,44 @@ local ENTRIES: { [DecorId]: Decor } = {
 		EarnedBy = "Referral",
 		Look = { Kind = "Bench", Color = "#8FD3B6", Accent = "#FFFFFF" },
 	},
+
+	-- Earned: Doctor ranks from time played, one each (Data/Playtime.Ranks, Server/Playtime)
+	InternRug = {
+		Name = "Intern Rug",
+		Icon = "🩹",
+		EarnedBy = "Playtime",
+		Look = { Kind = "Rug", Color = "#7FDCC0", Accent = "#FFFFFF" },
+	},
+	ResidentFern = {
+		Name = "Resident Fern",
+		Icon = "🪴",
+		EarnedBy = "Playtime",
+		Look = { Kind = "Plant", Color = "#62C98A", Accent = "#8FB8FF" },
+	},
+	DoctorLantern = {
+		Name = "Doctor Lantern",
+		Icon = "🏮",
+		EarnedBy = "Playtime",
+		Look = { Kind = "Lantern", Color = "#FF9FB4", Accent = "#FFFFFF", Glow = true },
+	},
+	SeniorBench = {
+		Name = "Senior Bench",
+		Icon = "🪑",
+		EarnedBy = "Playtime",
+		Look = { Kind = "Bench", Color = "#9AB4FF", Accent = "#FFE27A" },
+	},
+	ChiefArch = {
+		Name = "Chief's Arch",
+		Icon = "🌟",
+		EarnedBy = "Playtime",
+		Look = { Kind = "Arch", Color = "#FFE27A", Accent = "#C9A7FF" },
+	},
+	LegendStatue = {
+		Name = "Legend Statue",
+		Icon = "🏆",
+		EarnedBy = "Playtime",
+		Look = { Kind = "Statue", Color = "#FFD84D", Accent = "#B9A7E8" },
+	},
 }
 
 local ORDER = {
@@ -140,6 +179,12 @@ local ORDER = {
 	"LuckyKettle",
 	"CometLantern",
 	"FriendBench",
+	"InternRug",
+	"ResidentFern",
+	"DoctorLantern",
+	"SeniorBench",
+	"ChiefArch",
+	"LegendStatue",
 }
 
 local function freeze(t: any): any

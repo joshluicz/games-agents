@@ -83,6 +83,10 @@ T.describe("Schema.reconcile", function()
 		saved.VisitorDay = 20500
 		saved.HeartsReceived = 7
 		saved.WeekCures = { Week = 2968, Count = 11 }
+		saved.Playtime = { Day = 20500, TodaySeconds = 610, TotalSeconds = 9000, Claimed = { 1, 2, 3 }, Rank = 2 }
+		saved.Boosts = { StarRush = 420 }
+		saved.Stats = { Seeded = 1, Cures = 40, ["Made:Remedy"] = 22 }
+		saved.Badges = { Healer = 1 }
 		expect(Schema.reconcile(saved)).toEqual(saved)
 		expect(Schema.reconcile(saved, 20500)).toEqual(saved) -- nothing is in the future
 	end)
@@ -98,6 +102,62 @@ T.describe("Schema.reconcile", function()
 		local data = Schema.reconcile({ Version = 2, WeekCures = { Week = "x", Count = -3 } })
 		expect(data.WeekCures).toEqual({ Week = 0, Count = 0 })
 		expect(Schema.reconcile({ Version = 2, WeekCures = 5 }).WeekCures).toEqual({ Week = 0, Count = 0 })
+	end)
+
+	test("a fresh save starts play time at 0, no boosts, no badges, counters already seeded", function()
+		local data = Schema.default()
+		expect(data.Playtime).toEqual({ Day = 0, TodaySeconds = 0, TotalSeconds = 0, Claimed = {}, Rank = 0 })
+		expect(data.Boosts).toEqual({})
+		expect(data.Stats).toEqual({ Seeded = 1 })
+		expect(data.Badges).toEqual({})
+	end)
+
+	test("an older save starts play time at 0 on today, with unseeded counters", function()
+		local data = Schema.reconcile({ Version = 2, Cash = 5, Cured = 30 }, 20500)
+		expect(data.Playtime).toEqual({ Day = 20500, TodaySeconds = 0, TotalSeconds = 0, Claimed = {}, Rank = 0 })
+		expect(data.Boosts).toEqual({})
+		expect(data.Stats).toEqual({}) -- Server/Badges seeds it once from Cured and the Book
+		expect(data.Badges).toEqual({})
+		expect(Schema.reconcile({ Version = 2 }).Playtime.Day).toBe(0) -- no today: day 0, rolled over on the first tick
+	end)
+
+	test("repairs play time: whole seconds, claimed gifts once each and sorted, total at least today", function()
+		local data = Schema.reconcile({
+			Playtime = {
+				Day = 20500.7,
+				TodaySeconds = 300.9,
+				TotalSeconds = 100,
+				Claimed = { 3, 1, 3, "2", 0, 99, 2.5, 2 },
+				Rank = -4,
+			},
+		})
+		expect(data.Playtime).toEqual({
+			Day = 20500,
+			TodaySeconds = 300,
+			TotalSeconds = 300,
+			Claimed = { 1, 2, 3 },
+			Rank = 0,
+		})
+		expect(Schema.reconcile({ Playtime = "junk" }).Playtime.TotalSeconds).toBe(0)
+		expect(Schema.reconcile({ Playtime = { TotalSeconds = 0 / 0 } }).Playtime.TotalSeconds).toBe(0)
+	end)
+
+	test("repairs boosts, stats and badges: string keys, finite numbers, nothing negative", function()
+		local data = Schema.reconcile({
+			Boosts = { StarRush = 300, QuickHands = 0, LuckyTips = -5, [5] = 100, Junk = "x", Long = 1e12 },
+			Stats = { Cures = 12.9, Night = -3, [1] = 5, Bad = 0 / 0 },
+			Badges = { Healer = 2, Potions = 0, Visitor = 1e9 },
+		})
+		expect(data.Boosts).toEqual({ StarRush = 300, Long = Schema.MAX_BOOST_SECONDS })
+		expect(data.Stats).toEqual({ Cures = 12, Night = 0 })
+		expect(data.Badges).toEqual({ Healer = 2, Visitor = Schema.MAX_TIER })
+	end)
+
+	test("pulls a future play day back to today", function()
+		local saved = Schema.default()
+		saved.Playtime = { Day = 103, TodaySeconds = 50, TotalSeconds = 50, Claimed = { 1 }, Rank = 0 }
+		expect(Schema.reconcile(saved, 100).Playtime.Day).toBe(100)
+		expect(Schema.reconcile(saved, 104).Playtime.Day).toBe(103)
 	end)
 
 	test("pulls saved days later than today back to today", function()
