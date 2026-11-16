@@ -36,6 +36,23 @@
 -- Playtime branch: the hold time is Server/Boosts.makeSeconds(maker, stationId): Faster Hands, then the maker's
 -- MakeSpeed boosts (Quick Hands, the station's badge, Dedication). The Snapshot's MakeSeconds carries the same number
 -- per station, so the client's ring matches (Guide). After every make, Badges.onMade counts it for the station badge.
+--
+-- Progression v2 (build plan §B8, T6):
+--   · Stations inside the hospital Building (the 💊 Station_Pharmacy Model on Floor_3 from Lv 4) are found by their
+--     tag (PlotBuilder.STATION_TAG) and wired like a room's: the same hold prompt, refusals and sparkles. A rebuilt
+--     building brings a new one, wired as it arrives.
+--   · Every hold time is Boosts.makeSeconds x the plot's team (Nurses.team(plot).Make[station]: Hydro and Pharmacy
+--     specialists, 1 = none) x its ability rush (Abilities.makeFactor(plot): Busy Paws 0.5, Time Bubble 0 = the
+--     shortest), never under Config.BoostMinMakeSeconds (Pure.holdSeconds). The shorter of the time when the hold
+--     began and when it ends counts, so a rush that runs out mid-hold never makes a kid hold again. Guide (T8) draws
+--     the same factors from the plot's TeamMake / MakeRushUntil / MakeRushFactor; a client that shows a longer hold
+--     only ever waits a little more.
+--   · The 💊 Pharmacy crafts (Data/Stations Craft): it takes two carried ingredients and gives one medicine
+--     (Logic/Recipe.craft over Data/Items; tier 2 medicines once the clinic's owner has opened 2 branches, the
+--     Pharmacy2 unlock). Nothing to craft from your hands: "💊 Bring two ingredients!" when the hold begins. The
+--     two go and the medicine comes in one step (no yield), and a "🍵 Warm Tonic!" toast says what you made. Its hold
+--     is Boosts.makeSeconds(p, "Pharmacy") (Config.Pharmacy.HoldSeconds, x Tier2Factor from the maker's R2, then
+--     MakeSpeed) x the same factors.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -49,12 +66,17 @@ local ItemData = require(Shared.Data.Items)
 local StationData = require(Shared.Data.Stations)
 local Prices = require(Shared.Logic.Prices)
 local Recipe = require(Shared.Logic.Recipe)
+local RebirthLogic = require(Shared.Logic.Rebirth)
 local Carry = require(script.Parent.Carry)
 local Daily = require(script.Parent.Daily)
 local Plots = require(script.Parent.Plots)
+local PlotBuilder = require(script.Parent.PlotBuilder)
+local PlayerData = require(script.Parent.PlayerData)
 local Tutorial = require(script.Parent.Tutorial)
 local Boosts = require(script.Parent.Boosts) -- playtime branch: MakeSpeed boosts
 local Badges = require(script.Parent.Badges) -- playtime branch: station badges
+local Nurses = require(script.Parent.Nurses) -- Progression v2: team bonuses (Make)
+local Abilities = require(script.Parent.Abilities) -- Progression v2: Busy Paws / Time Bubble
 
 type Plot = Types.Plot
 
@@ -73,11 +95,13 @@ local TOAST_COOLDOWN = 1.5
 local TRAY_FULL = "🙌 Tray full! Treat a patient."
 local NOT_YOURS = "🔒 Not your clinic!"
 local HOLD_LONGER = "✋ Hold a little longer!"
+local NO_INGREDIENTS = "💊 Bring two ingredients!"
 local SWAP_ICON = "🔄"
 local SWAP_ARROW = "➜"
 
--- Told: the refusal already toasted when this hold began (not repeated when it completes).
-type Hold = { Prompt: ProximityPrompt, Started: number, Ended: number?, Told: string? }
+-- Told: the refusal already toasted when this hold began (not repeated when it completes). Needed: the hold time
+-- when it began (a rush that ends mid-hold doesn't make it longer).
+type Hold = { Prompt: ProximityPrompt, Started: number, Ended: number?, Told: string?, Needed: number }
 
 local holds: { [Player]: Hold } = {}
 local lastToast: { [Player]: { [string]: number } } = {}
@@ -131,6 +155,47 @@ function Pure.swapOut(carried: { string }, itemId: string, needs: { string }): s
 	end
 	return oldest
 end
+
+-- A number from another system that scales a hold: finite and >= 0, junk -> 1 (no change).
+local function factor(value: any): number
+	if type(value) ~= "number" or value ~= value or value == math.huge or value < 0 then
+		return 1
+	end
+	return value
+end
+
+-- Progression v2: the hold time at a station. `base` = Boosts.makeSeconds (Faster Hands and MakeSpeed boosts),
+-- x `team` (Nurses.team(plot).Make[station]: 1 = no team) x `rush` (Abilities.makeFactor: 1, 0.5, or 0 = the
+-- shortest hold), never under `floor` (Config.BoostMinMakeSeconds) and never longer than `base`.
+function Pure.holdSeconds(base: number, team: any, rush: any, floor: number): number
+	local b = if type(base) == "number" and base == base and base > 0 then base else floor
+	local low = math.min(b, math.max(0, floor))
+	return math.clamp(b * math.min(factor(team), 1) * math.min(factor(rush), 1), low, b)
+end
+
+-- Progression v2: the Pharmacy's tier for a clinic whose owner has opened `rebirths` branches: 2 with the Pharmacy2
+-- unlock (`has` = Logic/Rebirth.has), else 1.
+function Pure.pharmacyTier(rebirths: any, has: (number, string) -> boolean): number
+	local count = if type(rebirths) == "number" and rebirths == rebirths then rebirths else 0
+	return if has(count, "Pharmacy2") then 2 else 1
+end
+
+-- Progression v2: what the 💊 Pharmacy makes from the carried `have` (oldest first): the medicine (`craft` =
+-- Logic/Recipe.craft over Data/Items, up to `tier`) and the two ingredients it takes. nil when nothing fits.
+function Pure.pharmacy(
+	have: { string },
+	items: any,
+	tier: number,
+	craft: (any, any, number) -> string?
+): (string?, { string })
+	local medicine = craft(have, items, tier)
+	local row = if medicine and type(items) == "table" then rawget(items, medicine) else nil
+	local pair = if type(row) == "table" then row.Medicine else nil
+	if not medicine or type(pair) ~= "table" or type(pair[1]) ~= "string" or type(pair[2]) ~= "string" then
+		return nil, {}
+	end
+	return medicine, { pair[1], pair[2] }
+end
 -- PURE-END
 
 -- What everyone in this clinic's line still needs (Patients keeps the plot's QueueNeeds attribute).
@@ -147,10 +212,28 @@ local function swapOut(player: Player, itemId: string, plot: Plot?): string?
 	return Pure.swapOut(Carry.items(player), itemId, lineNeeds(plot))
 end
 
--- Why this player can't make `itemId` here right now, or nil if they can.
-local function refusal(player: Player, plot: Plot, itemId: string): string?
+-- The Pharmacy's tier at this clinic: its owner's branches (the Pharmacy2 unlock).
+local function pharmacyTier(plot: Plot): number
+	local owner = plot.Owner
+	local data = if owner then PlayerData.get(owner) else nil
+	local rebirths = if data and type(data.Rebirth) == "table" then data.Rebirth.Count else 0
+	return Pure.pharmacyTier(rebirths, RebirthLogic.has)
+end
+
+-- What the 💊 Pharmacy would make from this player's hands right now, and the two ingredients it takes.
+local function pharmacyMake(player: Player, plot: Plot): (string?, { string })
+	return Pure.pharmacy(Carry.items(player), ItemData, pharmacyTier(plot), Recipe.craft)
+end
+
+-- Why this player can't make `itemId` here right now, or nil if they can. A crafting station (`craft`) needs two
+-- ingredients in hand instead of tray room.
+local function refusal(player: Player, plot: Plot, itemId: string, craft: boolean?): string?
 	if not plot.Owner or not Plots.canWork(player, plot) then
 		return NOT_YOURS
+	end
+	if craft then
+		local medicine = pharmacyMake(player, plot)
+		return if medicine then nil else NO_INGREDIENTS
 	end
 	if Carry.isFull(player) and swapOut(player, itemId, plot) == nil then
 		return TRAY_FULL -- full of this very item already
@@ -174,13 +257,16 @@ local function isNear(player: Player, part: BasePart): boolean
 	return (root.Position - part.Position).Magnitude <= ACTIVATION_DISTANCE + DISTANCE_SLACK
 end
 
--- Playtime branch: Faster Hands, then the maker's MakeSpeed boosts at this station (Server/Boosts).
-local function makeSeconds(player: Player, stationId: string): number
+-- Playtime branch: Faster Hands, then the maker's MakeSpeed boosts at this station (Server/Boosts). Progression v2:
+-- then the plot's team and ability rush (Pure.holdSeconds). Other systems are asked in a pcall: a bug there only
+-- means no bonus here.
+local function makeSeconds(player: Player, stationId: string, plot: Plot): number
 	local ok, seconds = pcall(Boosts.makeSeconds, player, stationId)
-	if ok and type(seconds) == "number" and seconds > 0 then
-		return seconds
-	end
-	return Prices.makeSeconds(0, Config) -- never shorter than it should be
+	local base = if ok and type(seconds) == "number" and seconds > 0 then seconds else Prices.makeSeconds(0, Config)
+	local teamOk, team = pcall(Nurses.team, plot)
+	local make = if teamOk and type(team) == "table" and type(team.Make) == "table" then team.Make[stationId] else nil
+	local rushOk, rush = pcall(Abilities.makeFactor, plot)
+	return Pure.holdSeconds(base, make, if rushOk then rush else 1, Config.BoostMinMakeSeconds)
 end
 
 -- A Station_<id> is a Part by contract; a kit might use a Model, so fall back to its main part.
@@ -227,6 +313,32 @@ end
 -- Wiring one station
 ------------------------------------------------------------------------------------------------------------------
 
+-- The 💊 Pharmacy's make: the two ingredients go and the medicine comes, with no yield in between. Returns the
+-- medicine, or nil (and puts back anything it took) when the hands changed since the check.
+local function craftNow(player: Player, plot: Plot): string?
+	local medicine, ingredients = pharmacyMake(player, plot)
+	if not medicine then
+		return nil
+	end
+	local taken: { string } = {}
+	for _, ingredient in ingredients do
+		if not Carry.take(player, ingredient) then
+			for _, back in taken do
+				Carry.add(player, back)
+			end
+			return nil
+		end
+		table.insert(taken, ingredient)
+	end
+	if not Carry.add(player, medicine) then
+		for _, back in taken do
+			Carry.add(player, back)
+		end
+		return nil
+	end
+	return medicine
+end
+
 local function wireStation(plot: Plot, part: BasePart, stationId: string)
 	local station = StationData[stationId]
 	if not station or wired[part] then
@@ -234,12 +346,16 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 	end
 	wired[part] = true
 	local itemId = station.Item
+	local craft = station.Craft == true -- the 💊 Pharmacy: two carried ingredients -> one medicine
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = Stations.PROMPT_NAME
 	prompt.ActionText = ACTION_TEXT
 	prompt.ObjectText = station.Icon
-	prompt.HoldDuration = Prices.makeSeconds(0, Config) -- the slowest; clients shorten their own copy
+	-- The slowest; clients shorten their own copy.
+	prompt.HoldDuration = if craft
+		then math.max(Prices.makeSeconds(0, Config), tonumber(Config.Pharmacy.HoldSeconds) or 0)
+		else Prices.makeSeconds(0, Config)
 	prompt.MaxActivationDistance = ACTIVATION_DISTANCE
 	prompt.RequiresLineOfSight = false
 	prompt.Enabled = plot.Owner ~= nil
@@ -250,8 +366,14 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 	local sparkles = sparkleEmitter(part, station.Color)
 
 	prompt.PromptButtonHoldBegan:Connect(function(player: Player)
-		local why = refusal(player, plot, itemId)
-		holds[player] = { Prompt = prompt, Started = os.clock(), Ended = nil, Told = why }
+		local why = refusal(player, plot, itemId, craft)
+		holds[player] = {
+			Prompt = prompt,
+			Started = os.clock(),
+			Ended = nil,
+			Told = why,
+			Needed = makeSeconds(player, stationId, plot),
+		}
 		if why then
 			toast(player, why) -- say it now, not after a hold that can't work
 		end
@@ -271,7 +393,8 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 			return -- no hold on THIS prompt: a spoofed or overlapping trigger
 		end
 		local now = os.clock()
-		local needed = makeSeconds(player, stationId)
+		-- The shorter of the time when the hold began and now: a rush ending mid-hold never costs a kid a redo.
+		local needed = math.min(hold.Needed, makeSeconds(player, stationId, plot))
 		if now - hold.Started > needed + STALE_AFTER then
 			return
 		end
@@ -282,27 +405,42 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 		if not isNear(player, part) then
 			return
 		end
-		local why = refusal(player, plot, itemId)
+		local why = refusal(player, plot, itemId, craft)
 		if why then
 			if why ~= hold.Told then
 				toast(player, why)
 			end
 			return
 		end
-		-- A full tray swaps its oldest different item for this one (treatments are free, so nothing is lost).
-		local swapped = swapOut(player, itemId, plot)
-		if swapped then
-			Carry.take(player, swapped)
-		end
-		if not Carry.add(player, itemId) then
-			if swapped then
-				Carry.add(player, swapped) -- couldn't make it after all: put the old one back
+		local made = itemId
+		if craft then
+			local medicine = craftNow(player, plot)
+			if not medicine then
+				toast(player, NO_INGREDIENTS)
+				return
 			end
-			toast(player, TRAY_FULL)
-			return
-		end
-		if swapped then
-			toast(player, SWAP_ICON .. " " .. iconOf(swapped) .. " " .. SWAP_ARROW .. " " .. iconOf(itemId))
+			made = medicine
+			local row = rawget(ItemData :: any, medicine)
+			toast(
+				player,
+				iconOf(medicine) .. " " .. (if row and type(row.Name) == "string" then row.Name else "") .. "!"
+			)
+		else
+			-- A full tray swaps its oldest different item for this one (treatments are free, so nothing is lost).
+			local swapped = swapOut(player, itemId, plot)
+			if swapped then
+				Carry.take(player, swapped)
+			end
+			if not Carry.add(player, itemId) then
+				if swapped then
+					Carry.add(player, swapped) -- couldn't make it after all: put the old one back
+				end
+				toast(player, TRAY_FULL)
+				return
+			end
+			if swapped then
+				toast(player, SWAP_ICON .. " " .. iconOf(swapped) .. " " .. SWAP_ARROW .. " " .. iconOf(itemId))
+			end
 		end
 
 		-- Emit() on the server never reaches players, so switch the emitter on for a moment instead (the
@@ -312,7 +450,7 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 		task.delay(0.16, function()
 			sparkles.Enabled = false
 		end)
-		local ok, err = pcall(Daily.onMake, player, itemId)
+		local ok, err = pcall(Daily.onMake, player, made)
 		if not ok then
 			warn("[Stations] Daily.onMake failed:", err)
 		end
@@ -320,7 +458,7 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 		if not badgeOk then
 			warn("[Stations] Badges.onMade failed:", badgeErr)
 		end
-		local tutorialOk, tutorialErr = pcall(Tutorial.onMade, player, itemId, plot)
+		local tutorialOk, tutorialErr = pcall(Tutorial.onMade, player, made, plot)
 		if not tutorialOk then
 			warn("[Stations] Tutorial.onMade failed:", tutorialErr)
 		end
@@ -334,21 +472,35 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 	prompt.Parent = part -- parent last: it replicates once, fully set up
 end
 
+-- One Station_<id> (a room's Part, or a Model: a kit's, or the Building's 💊 Pharmacy).
+local function wireOne(plot: Plot, instance: Instance)
+	local stationId = string.match(instance.Name, "^Station_(%w+)$")
+	if not stationId then
+		return
+	end
+	if not rawget(StationData :: any, stationId) then
+		warn("[Stations] Unknown station", instance:GetFullName())
+		return
+	end
+	local part = stationPart(instance)
+	if part then
+		wireStation(plot, part, stationId)
+	else
+		warn("[Stations] No part to hold the prompt in", instance:GetFullName())
+	end
+end
+
 local function wireRoom(plot: Plot, roomModel: Model)
 	for _, descendant in roomModel:GetDescendants() do
-		local stationId = string.match(descendant.Name, "^Station_(%w+)$")
-		if stationId then
-			if not StationData[stationId] then
-				warn("[Stations] Unknown station", descendant:GetFullName())
-				continue
-			end
-			local part = stationPart(descendant)
-			if part then
-				wireStation(plot, part, stationId)
-			else
-				warn("[Stations] No part to hold the prompt in", descendant:GetFullName())
-			end
-		end
+		wireOne(plot, descendant)
+	end
+end
+
+-- A station inside the hospital Building (PlotBuilder.STATION_TAG), as it arrives (a level-up builds a new one).
+local function wireTagged(instance: Instance)
+	local plot = Plots.fromInstance(instance)
+	if plot then
+		wireOne(plot, instance)
 	end
 end
 
@@ -380,6 +532,11 @@ function Stations.start()
 	Plots.observeRooms(function(plot: Plot, _roomId: string, roomModel: Model)
 		wireRoom(plot, roomModel)
 	end)
+	-- Progression v2: stations in the hospital Building (the 💊 Pharmacy), now and whenever a building is rebuilt.
+	CollectionService:GetInstanceAddedSignal(PlotBuilder.STATION_TAG):Connect(wireTagged)
+	for _, instance in CollectionService:GetTagged(PlotBuilder.STATION_TAG) do
+		task.spawn(wireTagged, instance)
+	end
 	Remotes.serve("Discard", discard)
 
 	-- PlotReleased runs before the plot is cleared; the Stand stays, so switch its prompts off.

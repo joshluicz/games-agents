@@ -181,3 +181,54 @@ T.describe("Pay.reward", function()
 		expect(reward).toEqual({ Cash = 12, Stars = 2 })
 	end)
 end)
+
+T.describe("Pay.reward Progression v2 args (build plan §B7)", function()
+	local V2 = table.clone(CFG) :: any
+	V2.AE = { CashMultiplier = 3 }
+	V2.VIP = { CashMultiplier = 4 }
+	V2.NightClinicPerLevel = 0.25
+	V2.GoldenMultiplier = 5
+
+	local function v2(overrides: { [string]: any }?): Pay.RewardArgs
+		local out = args(overrides) :: any
+		out.Cfg = V2
+		return out
+	end
+
+	test("urgent patients pay x3 (A&E) and x4 (VIP)", function()
+		local plain = Pay.reward(v2()).Cash
+		expect(Pay.reward(v2({ Urgent = "AE" })).Cash).toBe(plain * 3)
+		expect(Pay.reward(v2({ Urgent = "VIP" })).Cash).toBe(plain * 4)
+		expect(Pay.reward(v2({ Urgent = "Nope" })).Cash).toBe(plain)
+	end)
+
+	test("Night Clinic pays more at night only, x(1 + 0.25 L)", function()
+		local night = Pay.reward(v2({ Night = true })).Cash
+		expect(Pay.reward(v2({ Night = true, NightClinic = 2 })).Cash).toBe(math.floor(night * 1.5 + 0.5))
+		expect(Pay.reward(v2({ NightClinic = 3 })).Cash).toBe(Pay.reward(v2()).Cash)
+	end)
+
+	test("a Golden patient pays x5", function()
+		expect(Pay.reward(v2({ Variant = "Golden" })).Cash).toBe(Pay.reward(v2()).Cash * 5)
+	end)
+
+	test("Extra multiplies, at least 1 and at most MAX_EXTRA", function()
+		local plain = Pay.reward(v2()).Cash
+		expect(Pay.reward(v2({ Extra = 1.2 })).Cash).toBe(math.floor(plain * 1.2 + 0.5))
+		expect(Pay.reward(v2({ Extra = 0.5 })).Cash).toBe(plain)
+		expect(Pay.reward(v2({ Extra = 99 })).Cash).toBe(plain * Pay.MAX_EXTRA)
+		expect(Pay.reward(v2({ Extra = 0 / 0 })).Cash).toBe(plain)
+	end)
+
+	test("BonusStars are added before the Stars boost, at most MAX_BONUS_STARS", function()
+		expect(Pay.reward(v2({ BonusStars = 2 })).Stars).toBe(3)
+		expect(Pay.reward(v2({ BonusStars = 2, StarsBoost = 2 })).Stars).toBe(6)
+		expect(Pay.reward(v2({ BonusStars = 999 })).Stars).toBe(1 + Pay.MAX_BONUS_STARS)
+		expect(Pay.reward(v2({ BonusStars = -5 })).Stars).toBe(1)
+	end)
+
+	test("every factor multiplies once, with one rounding at the end", function()
+		-- 12 x 1.5 (patience) x 3 (A&E) x 1.2 (Extra) = 64.8 -> 65; stars 1 + 2 = 3
+		expect(Pay.reward(v2({ Urgent = "AE", Extra = 1.2, BonusStars = 2 }))).toEqual({ Cash = 65, Stars = 3 })
+	end)
+end)

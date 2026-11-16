@@ -1,8 +1,9 @@
 --!nocheck
--- The Nurses client's pure helpers (depth update T4): the PURE-BEGIN..PURE-END blocks of UI/BeltView and
--- UI/NursePanel, loaded on their own (the rest of those modules needs Roblox) and tested against the real
--- Logic/Belt, Logic/Nurse, Logic/Levels, Logic/Tutorial and Data/Nurses, Rarities and Levels. Run from game/ with
--- the rest:  lune run tests/run
+-- The Nurses client's pure helpers (depth update T4; Progression v2 T5): the PURE-BEGIN..PURE-END blocks of
+-- UI/BeltView and UI/NursePanel, loaded on their own (the rest of those modules needs Roblox) and tested against the
+-- real Logic/Belt, Logic/Nurse, Logic/Jobs, Logic/Abilities, Logic/Levels, Logic/Tutorial, the shipped Config
+-- (tests/config) and Data/Nurses, Rarities, Levels, Jobs, Departments and Abilities. Run from game/ with the rest:
+--   lune run tests/run
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
@@ -17,6 +18,11 @@ local TutorialLogic = require("../src/shared/Logic/Tutorial")
 local Nurses = require("../src/shared/Data/Nurses")
 local Rarities = require("../src/shared/Data/Rarities")
 local Levels = require("../src/shared/Data/Levels")
+local JobsLogic = require("../src/shared/Logic/Jobs")
+local AbilitiesLogic = require("../src/shared/Logic/Abilities")
+local Jobs = require("../src/shared/Data/Jobs")
+local Departments = require("../src/shared/Data/Departments")
+local Abilities = require("../src/shared/Data/Abilities")
 
 local function source(path: string): string
 	for _, prefix in { "", "game/" } do
@@ -42,8 +48,10 @@ local BeltPure = pureBlock("src/client/UI/BeltView.luau", {
 	TutorialLogic = TutorialLogic,
 })
 local PanelPure = pureBlock("src/client/UI/NursePanel.luau", {
-	LevelsLogic = LevelsLogic,
 	BeltPure = BeltPure,
+	NurseLogic = NurseLogic,
+	JobsLogic = JobsLogic,
+	AbilitiesLogic = AbilitiesLogic,
 })
 
 -- Config's numbers: the belt is the real Config's (tests/config.luau), so the odds the popup shows are tested on what
@@ -231,7 +239,46 @@ T.describe("BeltView (pure)", function()
 	end)
 end)
 
-T.describe("NursePanel (pure)", function()
+-- A Snapshot with only what the panel reads.
+local function snap(fields: { [string]: any }?): any
+	local f = fields or {}
+	local rebirth = f.Rebirth or {}
+	return {
+		Level = f.Level or 1,
+		Nurses = f.Nurses or {},
+		NurseIndex = f.NurseIndex or {},
+		Rebirth = {
+			Count = rebirth.Count or 0,
+			Points = 0,
+			Tree = {},
+			Perks = {},
+			Offer = {},
+			Theme = "",
+			Pending = rebirth.Pending or {},
+			Told = false,
+		},
+	}
+end
+
+local function own(ids: { string }, job: string?): { [string]: any }
+	local out = {}
+	for _, id in ids do
+		out[id] = { Level = 1, XP = 0, Copies = 1, Job = job or "" }
+	end
+	return out
+end
+
+local STATION_ICONS = { Remedy = "🧪", Plaster = "🩹", Bath = "🛁", Cocoa = "☕", Pharmacy = "💊" }
+
+local function assertWords(text: string, where: string)
+	assert(PanelPure.words(text) <= 6, where .. ": more than 6 words: " .. text)
+end
+
+local function isKnown(id: string): boolean
+	return rawget(Nurses, id) ~= nil
+end
+
+T.describe("NursePanel (pure): the Journal", function()
 	test("mark: Hired, Seen, Unseen (junk too)", function()
 		local index = { PuffPup = "Hired", MintMouse = "Seen", BeanBear = "Maybe" }
 		eq(PanelPure.mark(index, "PuffPup"), "Hired")
@@ -240,44 +287,31 @@ T.describe("NursePanel (pure)", function()
 		eq(PanelPure.mark(index, "DewDuck"), "Unseen")
 		eq(PanelPure.mark(nil, "PuffPup"), "Unseen")
 	end)
-	test("noteNews: Seen and Hired only, Seen never replaces Hired", function()
+	test("noteNews: Seen, Hired and Level; a stronger kind replaces a weaker one, never back", function()
 		local fresh = {}
 		eq(PanelPure.noteNews(fresh, { Kind = "Seen", NurseId = "PuffPup" }), true)
 		eq(PanelPure.noteNews(fresh, { Kind = "Seen", NurseId = "PuffPup" }), false)
 		eq(PanelPure.noteNews(fresh, { Kind = "Hired", NurseId = "PuffPup", Level = 1, New = true }), true)
 		eq(PanelPure.noteNews(fresh, { Kind = "Seen", NurseId = "PuffPup" }), false)
+		eq(PanelPure.noteNews(fresh, { Kind = "Level", NurseId = "PuffPup", Level = 2 }), false)
 		eq(fresh.PuffPup, "Hired")
-		eq(PanelPure.noteNews(fresh, { Kind = "Equipped", NurseId = "MintMouse", On = true }), false)
+		eq(PanelPure.noteNews(fresh, { Kind = "Level", NurseId = "MintMouse", Level = 3 }), true)
+		eq(PanelPure.noteNews(fresh, { Kind = "Level", NurseId = "MintMouse", Level = 4 }), false)
+		eq(PanelPure.noteNews(fresh, { Kind = "Hired", NurseId = "MintMouse", Level = 4 }), true)
+		eq(fresh.MintMouse, "Hired")
+		for _, kind in { "Job", "Sold", "Bought", "Gone", "Listed", "Resting", "Equipped" } do
+			eq(PanelPure.noteNews(fresh, { Kind = kind, NurseId = "BeanBear" }), false)
+		end
 		eq(PanelPure.noteNews(fresh, { Kind = "Seen", NurseId = 5 }), false)
 		eq(PanelPure.noteNews(fresh, "junk"), false)
-		eq(PanelPure.count(fresh), 1)
+		eq(PanelPure.count(fresh), 2)
 		eq(PanelPure.count({}), 0)
 	end)
-	test("levelText", function()
-		eq(PanelPure.levelText({ Level = 2, Copies = 2 }, 5), "Lv 2")
-		eq(PanelPure.levelText({ Level = 5, Copies = 9 }, 5), "Lv 5 MAX")
-		eq(PanelPure.levelText(nil, 5), "Lv 1")
-	end)
-	test("slotChips: slots at your level, then the next level's lock", function()
-		eq(PanelPure.slotChips({}, 1, Levels), { { Kind = "Empty" }, { Kind = "Locked", Level = 2 } })
-		eq(PanelPure.slotChips({ "PuffPup" }, 1, Levels), {
-			{ Kind = "Filled", NurseId = "PuffPup" },
-			{ Kind = "Locked", Level = 2 },
-		})
-		eq(PanelPure.slotChips({ "PuffPup" }, 3, Levels), {
-			{ Kind = "Filled", NurseId = "PuffPup" },
-			{ Kind = "Empty" },
-			{ Kind = "Empty" },
-			{ Kind = "Locked", Level = 4 },
-		})
-		local top = PanelPure.slotChips({ "A", "B", "C", "D", "E" }, 5, Levels)
-		eq(#top, 5) -- no lock at the top
-		eq(top[5], { Kind = "Filled", NurseId = "E" })
-		-- An over-full list (an old save) shows only the slots there are.
-		eq(#PanelPure.slotChips({ "A", "B", "C" }, 1, Levels), 2)
-		-- Junk levels clamp like the server's.
-		eq(PanelPure.slotChips({}, 0, Levels)[2], { Kind = "Locked", Level = 2 })
-		eq(#PanelPure.slotChips({}, 99, Levels), 5)
+	test("levelText at the level cap", function()
+		eq(PanelPure.levelText({ Level = 2, Copies = 2 }, 10), "Lv 2")
+		eq(PanelPure.levelText({ Level = 10, Copies = 9 }, 10), "Lv 10 MAX")
+		eq(PanelPure.levelText({ Level = 10 }, 15), "Lv 10")
+		eq(PanelPure.levelText(nil, 10), "Lv 1")
 	end)
 	test("rewardText for every rarity's journal reward", function()
 		eq(PanelPure.rewardText(rawget(Rarities, "Common"), "🩹"), "💰300 + 🩹")
@@ -296,15 +330,25 @@ T.describe("NursePanel (pure)", function()
 		eq(PanelPure.eventNote(rawget(Rarities, "Secret")), "👑 Golden Hour only")
 		eq(PanelPure.eventNote(rawget(Rarities, "Legendary")), "")
 	end)
-	test("firstPage: the lowest rarity with news, else where you were, else the first", function()
-		eq(PanelPure.firstPage({ JamJelly = "Seen", AuroraOtter = "Hired" }, Nurses, Rarities.Order, "Common"), "Epic")
-		eq(PanelPure.firstPage({}, Nurses, Rarities.Order, "Rare"), "Rare")
-		eq(PanelPure.firstPage({}, Nurses, Rarities.Order, "Nope"), "Common")
-		eq(PanelPure.firstPage({}, Nurses, Rarities.Order, nil), "Common")
-		eq(PanelPure.firstPage({ Unknown = "Seen" }, Nurses, Rarities.Order, nil), "Common")
+	test("openView: asked for, else journal news, else 🏢 news, else level news, else where you were", function()
+		local order = Rarities.Order
+		eq(PanelPure.openView("Team", {}, Nurses, order, nil), "Team")
+		eq(PanelPure.openView("Branch", {}, Nurses, order, nil), "Branch")
+		eq(PanelPure.openView("Rare", { PuffPup = "Seen" }, Nurses, order, nil), "Rare")
+		eq(PanelPure.openView(nil, { JamJelly = "Seen", AuroraOtter = "Hired" }, Nurses, order, "Common"), "Epic")
+		eq(PanelPure.openView(nil, { FounderFennec = "Hired" }, Nurses, order, "Common"), "Branch")
+		eq(PanelPure.openView(nil, { PuffPup = "Level" }, Nurses, order, "Common"), "Team")
+		eq(PanelPure.openView(nil, { PuffPup = "Level", MintMouse = "Seen" }, Nurses, order, nil), "Common")
+		-- FounderFennec is Legendary but never opens the Legendary page
+		eq(PanelPure.openView(nil, { FounderFennec = "Seen" }, Nurses, order, nil), "Branch")
+		eq(PanelPure.openView(nil, {}, Nurses, order, "Rare"), "Rare")
+		eq(PanelPure.openView(nil, {}, Nurses, order, "Team"), "Team")
+		eq(PanelPure.openView(nil, {}, Nurses, order, "Nope"), "Common")
+		eq(PanelPure.openView(nil, {}, Nurses, order, nil), "Common")
+		eq(PanelPure.openView(nil, { Unknown = "Seen", Order = "Level" }, Nurses, order, nil), "Common")
 	end)
-	test("the journal's completion % matches Logic/Nurse.journal", function()
-		local index = {}
+	test("the journal's completion % leaves the rebirth-only nurse out", function()
+		local index = { FounderFennec = "Hired" }
 		for _, id in Nurses.Order do
 			local nurse = rawget(Nurses, id)
 			if nurse.Rarity == "Common" then
@@ -314,5 +358,297 @@ T.describe("NursePanel (pure)", function()
 		local journal = NurseLogic.journal(index, Nurses, Rarities)
 		eq(journal.Percent, 31) -- 5 of 16
 		eq(journal.Groups.Common.Complete, true)
+		eq(PanelPure.branchNurses(Nurses), { "FounderFennec" })
+	end)
+	test("the 🏢 page's cards: Owned, Pending (Claim), Locked", function()
+		eq(PanelPure.branchCard("FounderFennec", snap()), "Locked")
+		eq(PanelPure.branchCard("FounderFennec", snap({ Rebirth = { Pending = { "FounderFennec" } } })), "Pending")
+		eq(PanelPure.branchCard("FounderFennec", snap({ Nurses = own({ "FounderFennec" }) })), "Owned")
+	end)
+end)
+
+T.describe("NursePanel (pure): the Team page", function()
+	test("roster: 0/3 fresh, then working by NurseId, resting the rest, unknown ids ignored", function()
+		local fresh = PanelPure.roster({}, 0, Config, Nurses)
+		eq(fresh.Text, "👩‍⚕️ 0/3")
+		eq(fresh.RestText, "")
+		eq(fresh.Full, false)
+		-- an Update 1 save: 5 nurses, 2 resting (Logic/Schema put them there)
+		local nurses = own({ "PuffPup", "MintMouse", "BeanBear" })
+		nurses.DewDuck = { Level = 3, XP = 0, Copies = 3, Job = "Rest" }
+		nurses.CuddleCub = { Level = 1, XP = 0, Copies = 1, Job = "Rest" }
+		nurses.Ghost = { Level = 1, XP = 0, Copies = 1, Job = "" }
+		local legacy = PanelPure.roster(nurses, 0, Config, Nurses)
+		eq(legacy.Working, { "BeanBear", "MintMouse", "PuffPup" })
+		eq(legacy.Resting, { "CuddleCub", "DewDuck" })
+		eq(legacy.Text, "👩‍⚕️ 5/3")
+		eq(legacy.RestText, "💤 2 resting")
+		eq(legacy.Full, true)
+		-- the same rule as the server: Logic/Nurse.canAdd refuses a new nurse at owned >= cap
+		local canAdd, message =
+			NurseLogic.canAdd({ Nurses = nurses, Rebirth = { Count = 0 } }, "JamJelly", Config, isKnown)
+		eq(canAdd, false)
+		eq(message, "Roster full: sell or list one")
+		eq(PanelPure.roster({}, 2, Config, Nurses).Cap, 5)
+		eq(PanelPure.roster({}, 9, Config, Nurses).Cap, 8)
+	end)
+	test("team chips: 2 and 3+ working specialists of a department, 'Any' counting for each", function()
+		local function chips(ids: { string }): { string }
+			local out = {}
+			for _, chip in PanelPure.teamChips(ids, Nurses, Departments, STATION_ICONS) do
+				table.insert(out, chip.Text)
+			end
+			return out
+		end
+		eq(chips({ "PuffPup" }), {})
+		eq(chips({ "PuffPup", "HumHamster" }), { "🛎️ ×2  +10% 💰" })
+		eq(chips({ "PuffPup", "HumHamster", "StarlightLamb" }), { "🛎️ ×3  +20% 💰" })
+		eq(chips({ "DewDuck", "PebblePenguin", "JamJelly" }), { "🛁 ×3  🛁 40% faster" })
+		eq(chips({ "MintMouse", "SunnySnail" }), { "🛏️ ×2  rest 25% faster" })
+		eq(chips({ "CuddleCub", "ToffeeFox" }), { "🚑 ×2  🚑 wait +25%" })
+		eq(chips({ "BeanBear", "BerryBat" }), { "💊 ×2  ☕💊 20% faster" })
+		-- FounderFennec ("Any") makes a pair with anyone, and alone with none
+		eq(chips({ "FounderFennec" }), {})
+		eq(chips({ "FounderFennec", "MintMouse" }), { "🛏️ ×2  rest 25% faster" })
+		-- the same counts as the server's Logic/Jobs.teams
+		local counts = JobsLogic.teams({ "Reception", "Reception", "Hydro" }, Departments)
+		eq(counts.Reception, 2)
+		eq(counts.Hydro, 1)
+	end)
+	test("specialty, ability and boost texts", function()
+		eq(PanelPure.specialtyText("Reception", Departments), "🛎️ Reception")
+		eq(PanelPure.specialtyText("AE", Departments), "🚑 A&E")
+		eq(PanelPure.specialtyText("Any", Departments), "🌟 Any")
+		eq(PanelPure.specialtyText("Nope", Departments), "")
+		eq(PanelPure.abilityText("CalmSong", 1, Abilities, Config), "🎵 Calm Song")
+		eq(PanelPure.abilityText("CalmSong", 5, Abilities, Config), "🎵 Calm Song ★")
+		eq(PanelPure.abilityText("CalmSong", 10, Abilities, Config), "🎵 Calm Song ★★")
+		eq(PanelPure.abilityText("Nope", 1, Abilities, Config), "")
+		eq(PanelPure.boostText(Config), "⭐ +40% at its specialty")
+	end)
+	test("the XP bar: toward the next level, full and MAX at the cap", function()
+		local start = PanelPure.xp({ Level = 1, XP = 5 }, 10)
+		eq(start.Need, 20)
+		eq(start.Fraction, 0.25)
+		eq(PanelPure.xpText(start), "5/20")
+		local top = PanelPure.xp({ Level = 10, XP = 0 }, 10)
+		eq(top.Max, true)
+		eq(top.Fraction, 1)
+		eq(PanelPure.xpText(top), "⭐ MAX")
+		eq(PanelPure.xp({ Level = 10, XP = 7 }, 15).Max, false) -- R3 lifts the cap
+		eq(PanelPure.xpText(PanelPure.xp("junk", 10)), "0/20")
+		eq(PanelPure.xp({ Level = 4, XP = 999 }, 10).Fraction, 1) -- clamped, never past full
+		for level = 1, 14 do
+			eq(PanelPure.xp({ Level = level, XP = 0 }, 15).Need, NurseLogic.xpToNext(level))
+		end
+	end)
+	test("the ability ring: ready when no time is known or it has passed, else the part recharged", function()
+		eq(PanelPure.ringFraction(nil, 60, 100), 1)
+		eq(PanelPure.ringFraction(0 / 0, 60, 100), 1)
+		eq(PanelPure.ringFraction(90, 60, 100), 1)
+		eq(PanelPure.ringFraction(130, 60, 100), 0.5)
+		eq(PanelPure.ringFraction(160, 60, 100), 0)
+		eq(PanelPure.ringFraction(130, 0, 100), 0)
+		eq(PanelPure.ringFraction(1000, 60, 100), 0)
+	end)
+	test("boosted: the job's department is the nurse's specialty (a Maker's: any department with a station)", function()
+		local stations = Departments.Stations
+		eq(PanelPure.boosted("Healer", "Reception", Jobs, stations), true)
+		eq(PanelPure.boosted("Healer", "Wards", Jobs, stations), false)
+		eq(PanelPure.boosted("Porter", "Wards", Jobs, stations), true)
+		eq(PanelPure.boosted("Medic", "AE", Jobs, stations), true)
+		eq(PanelPure.boosted("Maker", "Hydro", Jobs, stations), true)
+		eq(PanelPure.boosted("Maker", "Pharmacy", Jobs, stations), true)
+		eq(PanelPure.boosted("Maker", "Wards", Jobs, stations), false)
+		eq(PanelPure.boosted("Maker", "AE", Jobs, stations), false)
+		for _, jobId in Jobs.Order do
+			eq(PanelPure.boosted(jobId, "Any", Jobs, stations), true)
+		end
+		eq(PanelPure.boosted("Nope", "Reception", Jobs, stations), false)
+	end)
+end)
+
+T.describe("NursePanel (pure): the job picker's states", function()
+	local stations = Departments.Stations
+	local function states(options: { any }): { string }
+		local out = {}
+		for _, option in options do
+			table.insert(out, option.Id .. ":" .. option.State .. ":" .. option.Caption)
+		end
+		return out
+	end
+	local puff = rawget(Nurses, "PuffPup") -- a Maker, Reception specialty
+	test("a working nurse at Lv 1: its job ✅, the Lv 2 jobs closed, ⭐ where its specialty helps", function()
+		local entry = { Level = 1, XP = 0, Copies = 1, Job = "" }
+		local options = PanelPure.jobOptions(entry, puff, 1, Jobs, false, 1, 3, stations)
+		eq(states(options), {
+			"Maker:Current:✅",
+			"Healer:Open:",
+			"Cheerer:Open:",
+			"Receptionist:Open:",
+			"Porter:Closed:🏥 Lv 2",
+			"Medic:Closed:🏥 Lv 2",
+		})
+		local boosts = {}
+		for _, option in options do
+			table.insert(boosts, option.Boost)
+		end
+		eq(boosts, { true, true, true, true, false, false })
+	end)
+	test("a Porter after a rebirth works its role until Lv 2 (nothing is lost)", function()
+		local porter = { Level = 4, XP = 0, Copies = 1, Job = "Porter" }
+		eq(states(PanelPure.jobOptions(porter, puff, 1, Jobs, false, 1, 3, stations))[1], "Maker:Current:✅")
+		eq(PanelPure.jobButton(porter, puff, 1, Jobs, false), "🧪 Maker (🛗 at 🏥 Lv 2)")
+		local atTwo = states(PanelPure.jobOptions(porter, puff, 2, Jobs, false, 1, 3, stations))
+		eq(atTwo[1], "Maker:Open:")
+		eq(atTwo[5], "Porter:Current:✅")
+		eq(PanelPure.jobButton(porter, puff, 2, Jobs, false), "🛗 Porter")
+	end)
+	test("a resting nurse: 💤 while the roster is full, open jobs when it has room, never a ✅", function()
+		local entry = { Level = 3, XP = 0, Copies = 3, Job = "Rest" }
+		eq(states(PanelPure.jobOptions(entry, puff, 2, Jobs, true, 3, 3, stations)), {
+			"Maker:Full:💤",
+			"Healer:Full:💤",
+			"Cheerer:Full:💤",
+			"Receptionist:Full:💤",
+			"Porter:Full:💤",
+			"Medic:Full:💤",
+		})
+		eq(states(PanelPure.jobOptions(entry, puff, 1, Jobs, true, 2, 3, stations)), {
+			"Maker:Open:",
+			"Healer:Open:",
+			"Cheerer:Open:",
+			"Receptionist:Open:",
+			"Porter:Closed:🏥 Lv 2",
+			"Medic:Closed:🏥 Lv 2",
+		})
+		eq(PanelPure.jobButton(entry, puff, 1, Jobs, true), "💤 Resting")
+	end)
+	test("what a refused row says is what the server says (Logic/Nurse.setJob)", function()
+		local nurses = own({ "PuffPup", "MintMouse", "BeanBear" })
+		nurses.DewDuck = { Level = 1, XP = 0, Copies = 1, Job = "Rest" }
+		local closed = PanelPure.jobOptions(nurses.PuffPup, puff, 1, Jobs, false, 3, 3, stations)[5]
+		local _, serverClosed = NurseLogic.setJob(nurses, "PuffPup", "Porter", 1, 3, Jobs, "Maker")
+		eq(PanelPure.jobMessage(closed), serverClosed)
+		local dew = rawget(Nurses, "DewDuck")
+		local full = PanelPure.jobOptions(nurses.DewDuck, dew, 1, Jobs, true, 3, 3, stations)[2]
+		local _, serverFull = NurseLogic.setJob(nurses, "DewDuck", "Healer", 1, 3, Jobs, "Healer")
+		eq(PanelPure.jobMessage(full), serverFull)
+		eq(PanelPure.jobMessage({ State = "Open", Caption = "" }), nil)
+		eq(PanelPure.jobMessage({ State = "Current", Caption = "✅" }), nil)
+	end)
+	test("the job button names the job it works", function()
+		eq(PanelPure.jobButton({ Job = "" }, puff, 1, Jobs, false), "🧪 Maker")
+		eq(PanelPure.jobButton({ Job = "Healer" }, puff, 1, Jobs, false), "🩺 Healer")
+		eq(PanelPure.jobButton({ Job = "Nope" }, puff, 1, Jobs, false), "🧪 Maker")
+	end)
+end)
+
+T.describe("NursePanel (pure): selling, listing and gifts", function()
+	test("actions: Sell and List, 🏷️ Listed on the Market, and a rebirth-only nurse stays", function()
+		eq(PanelPure.actions("PuffPup", Nurses, {}), { Sell = true, List = true, Listed = false, Stays = false })
+		eq(
+			PanelPure.actions("PuffPup", Nurses, { PuffPup = true }),
+			{ Sell = true, List = true, Listed = true, Stays = false }
+		)
+		eq(PanelPure.actions("FounderFennec", Nurses, {}), { Sell = false, List = false, Listed = false, Stays = true })
+		eq(PanelPure.actions("PuffPup", Nurses, nil).Listed, false)
+	end)
+	test("listedSet: only your listings", function()
+		local view = {
+			Listings = {
+				{
+					Id = 1,
+					Seller = 7,
+					SellerName = "Me",
+					NurseId = "PuffPup",
+					Rarity = "Common",
+					Level = 2,
+					Price = 100,
+				},
+				{
+					Id = 2,
+					Seller = 9,
+					SellerName = "Pal",
+					NurseId = "MintMouse",
+					Rarity = "Common",
+					Level = 1,
+					Price = 90,
+				},
+				{
+					Id = 3,
+					Seller = 7,
+					SellerName = "Me",
+					NurseId = "JamJelly",
+					Rarity = "Epic",
+					Level = 1,
+					Price = 900,
+				},
+				"junk",
+			},
+			FeePercent = 10,
+			MaxPerSeller = 3,
+		}
+		eq(PanelPure.listedSet(view, 7), { PuffPup = true, JamJelly = true })
+		eq(PanelPure.listedSet(view, 1), {})
+		eq(PanelPure.listedSet(nil, 7), {})
+		eq(PanelPure.listedSet({ Listings = "x" }, 7), {})
+	end)
+	test("the gift: a waiting rebirth-only nurse, and whether the roster has room", function()
+		eq(PanelPure.gift(snap(), Nurses, Config), nil)
+		local waiting = snap({ Rebirth = { Count = 5, Pending = { "FounderFennec" } } })
+		eq(PanelPure.gift(waiting, Nurses, Config), { NurseId = "FounderFennec", Room = true })
+		local eight = own({
+			"PuffPup",
+			"MintMouse",
+			"BeanBear",
+			"DewDuck",
+			"HumHamster",
+			"CuddleCub",
+			"PebblePenguin",
+			"BerryBat",
+		})
+		local full = snap({ Nurses = eight, Rebirth = { Count = 5, Pending = { "FounderFennec" } } })
+		eq(PanelPure.gift(full, Nurses, Config), { NurseId = "FounderFennec", Room = false })
+	end)
+	test("≤ 6 words on every label: fixed texts, rosters, chips, jobs, abilities, specialties", function()
+		for key, text in PanelPure.TEXT do
+			assertWords(text, "TEXT." .. key)
+		end
+		assertWords(PanelPure.boostText(Config), "boost")
+		for _, count in { 0, 3, 8, 16 } do
+			local ids = {}
+			for index = 1, count do
+				table.insert(ids, Nurses.Order[index])
+			end
+			local roster = PanelPure.roster(own(ids, "Rest"), 0, Config, Nurses)
+			assertWords(roster.Text, "roster")
+			assertWords(roster.RestText, "resting")
+		end
+		for _, deptId in Departments.Order do
+			local dept = rawget(Departments, deptId)
+			for _, effect in { dept.Team2, dept.Team3 } do
+				assertWords(dept.Icon .. " ×3  " .. PanelPure.effectText(effect, STATION_ICONS), "team " .. deptId)
+			end
+			assertWords(PanelPure.specialtyText(deptId, Departments), "specialty")
+		end
+		for _, nurseId in Nurses.Order do
+			local nurse = rawget(Nurses, nurseId)
+			for _, level in { 1, 2, 5 } do
+				for _, jobId in Jobs.Order do
+					local entry = { Level = 1, XP = 0, Copies = 1, Job = jobId }
+					assertWords(PanelPure.jobButton(entry, nurse, level, Jobs, false), "job button")
+					for _, option in PanelPure.jobOptions(entry, nurse, level, Jobs, false, 1, 3, Departments.Stations) do
+						assertWords(option.Name .. " ⭐", "job name")
+						assertWords(option.Text, "job text")
+						assertWords(option.Caption, "job caption")
+						assertWords(PanelPure.jobMessage(option) or "", "job message")
+					end
+				end
+			end
+			for _, level in { 1, 5, 10, 15 } do
+				assertWords(PanelPure.abilityText(nurse.Ability, level, Abilities, Config), "ability")
+			end
+		end
 	end)
 end)

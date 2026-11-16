@@ -75,6 +75,9 @@ T.describe("Data/Badges", function()
 
 	test("a badge for every wing and every station", function()
 		for _, wingId in Wings.Order do
+			if Wings[wingId].Rebirths ~= nil then
+				continue -- Progression v2's wings (Sunny, Sky) count toward 🏢 Branches, not a badge of their own
+			end
 			local found = false
 			for _, badge in DEFS do
 				found = found or badge.Stat == "Cures:" .. wingId
@@ -181,6 +184,21 @@ T.describe("Badges stats", function()
 		expect(Badges.statValue(data, "PlayHours")).toBe(5)
 		expect(Badges.statValue(data, "Beats")).toBe(5)
 		expect(Badges.statValue(data, "Builder")).toBe(4) -- 2 rooms (the Stand doesn't count) + 2 decor
+	end)
+
+	test("Progression v2: Builder keeps the rooms rebirths reset; Rebirths is the rebirth count", function()
+		local data = Schema.default()
+		data.Rooms = { Stand = true, BathRoom = true }
+		data.Decor.Owned = { PottedFern = true }
+		data.Stats.RoomsBefore = 4
+		expect(Badges.statValue(data, "Builder")).toBe(6) -- 1 room + 4 reset + 1 decor
+		expect(Badges.statValue(data, "Rebirths")).toBe(0)
+		data.Rebirth.Count = 5
+		expect(Badges.statValue(data, "Rebirths")).toBe(5)
+		expect(Badges.DERIVED.Rebirths).toBe(true)
+		expect(Badges.statValue({ Rebirth = "junk" }, "Rebirths")).toBe(0)
+		-- a derived stat is never written as a counter by maxed()
+		expect(Badges.maxed({}, { { Id = "Branches", Stat = "Rebirths", Thresholds = { 1, 12 } } } :: any)).toEqual({})
 	end)
 
 	test("add counts whole positive amounts and copies", function()

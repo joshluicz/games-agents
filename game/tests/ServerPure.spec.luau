@@ -1,7 +1,8 @@
 --!nocheck
 -- The server's pure helpers for the treat flow (depth update T1): the PURE-BEGIN..PURE-END blocks of
 -- Server/Patients, Server/Treatment and Server/Stations, loaded on their own (the rest of those modules needs
--- Roblox) and tested against the real Logic/Recipe and Logic/MiniGame. Run from game/ with the rest:
+-- Roblox) and tested against the real Logic/Recipe, Logic/MiniGame and (Progression v2) Logic/Hospital. The
+-- Hospital v2 rules of the Patients block have their own spec, HospitalPatients.spec. Run from game/ with the rest:
 --   lune run tests/run
 
 local fs = require("@lune/fs")
@@ -12,6 +13,8 @@ local expect, test = T.expect, T.test
 
 local Recipe = require("../src/shared/Logic/Recipe")
 local MiniGame = require("../src/shared/Logic/MiniGame")
+local Hospital = require("../src/shared/Logic/Hospital")
+local Items = require("../src/shared/Data/Items")
 
 local function source(path: string): string
 	for _, prefix in { "", "game/" } do
@@ -45,7 +48,7 @@ local Config = {
 	},
 }
 
-local P = loadPure("src/server/Patients.luau", { Recipe = Recipe })
+local P = loadPure("src/server/Patients.luau", { Recipe = Recipe, Hospital = Hospital })
 local Tr = loadPure("src/server/Treatment.luau", { MiniGame = MiniGame })
 local S = loadPure("src/server/Stations.luau", {})
 
@@ -72,6 +75,24 @@ T.describe("Patients (pure)", function()
 		expect(#carry + #tray).toBe(0)
 		local carry2, tray2 = P.plan({ "Potion" }, { true }, { "Potion" }, { "Potion" })
 		expect(#carry2 + #tray2).toBe(0) -- complete: nothing more is taken
+	end)
+
+	test("plan: what each side spends (one game each), and no medicine without Data/Items", function()
+		local carry, tray, carryUsed, trayUsed = P.plan(
+			{ "Bubbles", "Potion" },
+			{ false, false },
+			{ "Potion", "Cocoa" },
+			{ "Bubbles" }
+		)
+		expect(carry).toEqual({ 2 })
+		expect(tray).toEqual({ 1 })
+		expect(carryUsed).toEqual({ "Potion" })
+		expect(trayUsed).toEqual({ "Bubbles" })
+		local none = P.plan({ "Cocoa", "Potion" }, { false, false }, { "WarmTonic" }, {})
+		expect(none).toEqual({}) -- without the medicines table a medicine is just an unknown item
+		local both, _, used = P.plan({ "Cocoa", "Potion" }, { false, false }, { "WarmTonic" }, {}, Items)
+		expect(both).toEqual({ 1, 2 })
+		expect(used).toEqual({ "WarmTonic" })
 	end)
 
 	test("firstMissing", function()
@@ -189,6 +210,77 @@ T.describe("Treatment (pure)", function()
 	test("all", function()
 		expect(Tr.all("OK", 3)).toEqual({ "OK", "OK", "OK" })
 		expect(Tr.all("Good", 0)).toEqual({})
+	end)
+
+	-- Progression v2 (T7)
+	test("auto games are Perfect on every path: a report, too soon, far away, a timeout, Simple", function()
+		local auto = { true, false }
+		expect(Tr.ratings("Report", { "OK", "Good" }, games, 1.0, false, true, Config, auto)).toEqual({
+			"Perfect",
+			"Good",
+		})
+		expect(Tr.ratings("Report", { "Perfect", "Perfect" }, games, 0.1, false, true, Config, auto)).toEqual({
+			"Perfect",
+			"OK",
+		})
+		expect(Tr.ratings("Report", { "Perfect", "Perfect" }, games, 5, false, false, Config, auto)).toEqual({
+			"Perfect",
+			"OK",
+		})
+		expect(Tr.ratings("Timeout", nil, games, 99, false, true, Config, auto)).toEqual({ "Perfect", "OK" })
+		expect(Tr.ratings("Report", nil, games, 0.1, true, true, Config, auto)).toEqual({ "Perfect", "Good" })
+		expect(Tr.ratings("Timeout", nil, games, 99, false, true, Config, nil)).toEqual({ "OK", "OK" })
+	end)
+
+	test("autoFlags: exactly one boolean per game, junk -> false", function()
+		expect(Tr.autoFlags({ true, false, true }, 2)).toEqual({ true, false })
+		expect(Tr.autoFlags({ true }, 3)).toEqual({ true, false, false })
+		expect(Tr.autoFlags("yes", 2)).toEqual({ false, false })
+		expect(Tr.autoFlags({ 1, "true" }, 2)).toEqual({ false, false })
+		expect(Tr.autoFlags(nil, 0)).toEqual({})
+	end)
+
+	test("ease: 1..1.3, junk -> 1", function()
+		expect(Tr.ease(1.2)).toBe(1.2)
+		expect(Tr.ease(9)).toBe(1.3)
+		expect(Tr.ease(0.5)).toBe(1)
+		expect(Tr.ease(0 / 0)).toBe(1)
+		expect(Tr.ease("1.3")).toBe(1)
+	end)
+
+	test("medicines are one Pour game each; the Soak is one Scrub", function()
+		expect(Tr.games({ "WarmTonic", "Plaster" })).toEqual({ "Pour", "Patch" })
+		expect(Tr.games({ "SoapyPatch" })).toEqual({ "Pour" })
+		expect(Tr.soakGames()).toEqual({ "Scrub" })
+	end)
+
+	test("triageAsk: two or more distinct string options and a Right among them", function()
+		expect(Tr.triageAsk({ Options = { "Wards", "Hydro" }, Right = "Hydro" })).toEqual({
+			Options = { "Wards", "Hydro" },
+			Right = "Hydro",
+		})
+		expect(Tr.triageAsk({ Options = { "Wards", "Wards", 3, "Hydro" }, Right = "Wards" })).toEqual({
+			Options = { "Wards", "Hydro" },
+			Right = "Wards",
+		})
+		expect(Tr.triageAsk({ Options = { "Wards" }, Right = "Wards" })).toBe(nil)
+		expect(Tr.triageAsk({ Options = { "Wards", "Hydro" }, Right = "Roof" })).toBe(nil)
+		expect(Tr.triageAsk({ Options = "Wards", Right = "Wards" })).toBe(nil)
+		expect(Tr.triageAsk(nil)).toBe(nil)
+	end)
+
+	test("triageCheck: your pending pick only, an option, in the window, once", function()
+		local entry = { Session = 5, Options = { "Wards", "Hydro" }, Right = "Hydro", Ends = 10, Pick = nil }
+		expect(Tr.triageCheck(entry, 5, "Hydro", 9)).toBe(true)
+		expect(Tr.triageCheck(entry, 5, "Wards", 9)).toBe(false) -- wrong, but a real pick
+		expect(Tr.triageCheck(entry, 5, "Roof", 9)).toBe(nil)
+		expect(Tr.triageCheck(entry, 5, 1, 9)).toBe(nil)
+		expect(Tr.triageCheck(entry, 6, "Hydro", 9)).toBe(nil)
+		expect(Tr.triageCheck(entry, nil, "Hydro", 9)).toBe(nil)
+		expect(Tr.triageCheck(entry, 5, "Hydro", 10.5)).toBe(nil) -- too late
+		expect(Tr.triageCheck(nil, 5, "Hydro", 9)).toBe(nil)
+		entry.Pick = "Hydro"
+		expect(Tr.triageCheck(entry, 5, "Hydro", 9)).toBe(nil) -- once
 	end)
 end)
 

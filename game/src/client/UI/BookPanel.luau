@@ -13,6 +13,10 @@
 -- another; the progress bars fill up and the counts roll (Kit.countUp) while it's open; the NEW! stickers breathe
 -- and each new page's card bursts with confetti when you open the Book on it; a set finished this session throws
 -- confetti from its reward badge the first time you see it. Calm (Kit.reducedMotion()): all of it simply appears.
+-- Progression v2 (build plan §C T8): a wing that comes with rebirths says so calmly on its page and its unmet cards
+-- ("🏢 R1" for the 🌻 Sunny wing; "🏢 R2 · 🚁" for the Sky wing, whose patients only come by air ambulance; just
+-- "🚁" once your branch has it): no lock icon, no "hurry". A page stamped Golden 🌟 (R3+) gets a gold outline, and
+-- the 🌟 leads its stickers. The rules are the pure GATE block (tests/Juice).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -69,9 +73,55 @@ type Page = {
 	JustCompleted: boolean, -- finished this session, not yet celebrated on screen
 	Cards: { [string]: Card },
 	Ids: { string },
+	Title: TextLabel?, -- the page's name (a wing's gets its 🏢 / 🚁 chip)
+	Wing: any?, -- its Data/Wings row
 }
 
-type Header = { Count: TextLabel, Fill: Frame, Reward: TextLabel?, Badge: Frame? }
+type Header = { Count: TextLabel, Fill: Frame, Reward: TextLabel?, Badge: Frame?, Name: TextLabel }
+
+-- BEGIN GATE
+local Gate = {}
+
+local function wholeNumber(value: any): number
+	if type(value) == "number" and value == value and value > 0 and value ~= math.huge then
+		return math.floor(value)
+	end
+	return 0
+end
+
+-- The calm chip for a wing (Data/Wings Rebirths, Only) at your rebirth count: "" (it comes to everyone), "🏢 R1" (from
+-- your first branch), "🏢 R2 · 🚁" (from your second, and only by air ambulance), or "🚁" (open, but only by air).
+function Gate.wing(wing: any, rebirths: any): string
+	if type(wing) ~= "table" then
+		return ""
+	end
+	local need = wholeNumber(wing.Rebirths)
+	local byAir = wing.Only == "Helicopter"
+	if need > 0 and wholeNumber(rebirths) < need then
+		return "🏢 R" .. need .. (if byAir then " · 🚁" else "")
+	end
+	return if byAir then "🚁" else ""
+end
+
+-- A page's stickers: each variant stamped (Book.Variants), Golden 🌟 first (the rare one), then Data/Variants order.
+function Gate.stickers(stamped: any, variants: any): (string, boolean)
+	if type(stamped) ~= "table" or type(variants) ~= "table" or type(variants.Order) ~= "table" then
+		return "", false
+	end
+	local golden = stamped.Golden == true and type(rawget(variants, "Golden")) == "table"
+	local out = {}
+	if golden then
+		table.insert(out, rawget(variants, "Golden").Icon)
+	end
+	for _, id in variants.Order do
+		local row = rawget(variants, id)
+		if id ~= "Golden" and stamped[id] == true and type(row) == "table" then
+			table.insert(out, row.Icon)
+		end
+	end
+	return table.concat(out, ""), golden
+end
+-- END GATE
 
 local function textLimit(label: TextLabel, max: number)
 	local limit = Instance.new("UITextSizeConstraint")
@@ -489,7 +539,7 @@ function BookPanel.init(ctx: Types.Ctx)
 			badge = circle
 		end
 		frame.Parent = parent
-		return { Count = count, Fill = fill, Reward = reward, Badge = badge }
+		return { Count = count, Fill = fill, Reward = reward, Badge = badge, Name = nameLabel }
 	end
 
 	local function pageFrame(id: string): (Frame, ScrollingFrame)
@@ -535,6 +585,8 @@ function BookPanel.init(ctx: Types.Ctx)
 			JustCompleted = false,
 			Cards = cards,
 			Ids = ids,
+			Title = top.Name,
+			Wing = wing,
 		}
 		table.insert(pageOrder, wingId)
 	end
@@ -628,6 +680,11 @@ function BookPanel.init(ctx: Types.Ctx)
 	local function renderWing(wingId: string, state: Types.Snapshot): (number, number)
 		local p = pages[wingId]
 		local met = 0
+		local rebirth = (state :: any).Rebirth
+		local gate = Gate.wing(p.Wing, if type(rebirth) == "table" then rebirth.Count else 0)
+		if p.Title and p.Wing then
+			p.Title.Text = tostring(p.Wing.Name) .. (if gate ~= "" then "  " .. gate else "")
+		end
 		for _, patientId in p.Ids do
 			local patient = data.Patients[patientId]
 			local card = p.Cards[patientId]
@@ -647,18 +704,16 @@ function BookPanel.init(ctx: Types.Ctx)
 					.. (if station then station.Icon else "")
 					.. "  ×"
 					.. cured
-				local stickers = {}
-				local variants = (state.Book[patientId] or {}).Variants or {}
-				for _, variantId in data.Variants.Order do
-					if variants[variantId] then
-						table.insert(stickers, data.Variants[variantId].Icon)
-					end
-				end
-				card.Stickers.Text = table.concat(stickers, "")
+				local stickers, golden = Gate.stickers((state.Book[patientId] or {}).Variants, data.Variants)
+				card.Stickers.Text = stickers
+				-- A Golden 🌟 page: a gold outline round the card.
+				card.Stroke.Color = if golden then Theme.Colors.Cash else Theme.Colors.Outline
+				card.Stroke.Thickness = if golden then SEEN_STROKE + 1.5 else SEEN_STROKE
 			else
 				card.Name.Text = "???"
-				card.Info.Text = ""
+				card.Info.Text = gate -- "🏢 R1": calm, no lock
 				card.Stickers.Text = ""
+				card.Stroke.Color = Theme.Colors.Outline
 			end
 		end
 		setProgress(p, met, #p.Ids)

@@ -11,7 +11,8 @@
 --   Stat        what it counts. A Data.Stats counter ("Cures", "NightCures", "Visitors", "Friendly",
 --               "Cures:<WingId>", "Made:<StationId>"), or one worked out from the save (Logic/Badges.DERIVED):
 --               "PlayHours" (Data.Playtime.TotalSeconds in whole hours), "Beats" (story beats told, all regulars),
---               "Builder" (rooms bought + decor owned)
+--               "Builder" (rooms owned + Stats.RoomsBefore, the rooms rebirths reset, + decor owned), "Rebirths"
+--               (Data.Rebirth.Count, Progression v2)
 --   Goal        what to do, 6 words or fewer (the card's subtitle)
 --   Thresholds  the Stat value for each tier (6 numbers, rising)
 --   Boost       a permanent boost per tier reached: { Kind, Scope?, Percent }. Kind as in Logic/Boosts; Scope limits it
@@ -95,6 +96,16 @@ local LIST: { Badge } = {
 		Goal = "Buy rooms and decor",
 		Thresholds = { 1, 3, 6, 10, 16, 22 },
 		Boost = { Kind = "Tips", Percent = 4 },
+	},
+	{
+		Id = "Branches",
+		Name = "Branches",
+		Icon = "🏢",
+		Category = "Clinic",
+		Stat = "Rebirths",
+		Goal = "Open new branches",
+		Thresholds = { 1, 2, 3, 5, 8, 12 },
+		Boost = { Kind = "Stars", Percent = 2 }, -- +12% at Mythic, inside Config.BoostCaps.Stars (50)
 	},
 	{
 		Id = "Dedication",

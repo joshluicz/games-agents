@@ -1,9 +1,9 @@
 --!strict
--- Save schema v3 (build plan §B3; depth-update build plan §B1). Pure: no Roblox services, no requires, so Lune
--- can test it.
+-- Save schema v4 (build plan §B3; depth-update build plan §B1; Progression v2 build plan §B1). Pure: no Roblox
+-- services, no requires, so Lune can test it.
 --   Schema.default(): Data            a fresh save
 --   Schema.reconcile(saved: any, today: number?): Data  repairs anything loaded from a DataStore into a valid
---   v3 save:
+--   v4 save:
 --     · v1 shop-sim saves { Cash, Served, Upgrades } migrate: Served -> Cured; Speed, Tray and Tips are kept
 --     · unknown fields are dropped, and bad types or non-finite numbers are replaced by defaults
 --     · with `today` (the real UTC day), every saved day field later than today is pulled back to today, so a
@@ -11,18 +11,35 @@
 --     · the result never shares a table with `saved`
 --   Schema.isNewer(saved: any): boolean  the save was written by a newer schema (never write it back down)
 --   Schema.levelFromRooms(rooms): number  the hospital level a save's rooms imply (for saves from before levels)
+--   Schema.xpToNext(level): number       XP from `level` to the next: 10 + 5 x level x (level + 1)
+--   Schema.rosterCap(count): number      nurses that may work after `count` rebirths: 3 + count, at most 8
+--   Schema.levelCap(count): number       the nurse level cap: 10, or 15 from 3 rebirths
 --   Schema.TUTORIAL_FIRST / TUTORIAL_DONE   the Tutorial values for the welcome and for done
 --
--- v3 (the depth update) adds Level, Nurses, Equipped, NurseIndex, JournalSets and Simple. The version went up so an
--- older server, still running while the update rolls out, loads a v3 save read-only (isNewer) instead of saving it
--- back without its nurses. Every v2 save migrates: Level from its rooms (levelFromRooms), no nurses, an empty
--- journal, Simple off.
+-- v4 (Progression v2) adds Rebirth, gives every nurse XP and a Job, drops Equipped, and adds the upgrades WardComfort,
+-- AESpeed and NightClinic and the counter Stats.RoomsBefore (the numberMap rules, like every counter). The version went
+-- up so a v3 server, still running while the update rolls out, loads a v4 save read-only (isNewer) instead of saving
+-- it back without its rebirths. Every v2 and v3 save migrates:
+--   Nurses       { [NurseId]: { Level, XP, Copies, Job } }, every entry repaired: Copies a whole number >= 1 (junk ->
+--                1); Level whole in 1..levelCap(Rebirth.Count) (junk -> 1; a v3 save's 1..5 is kept); XP whole in
+--                0..xpToNext(Level) - 1 (junk -> 0; 0 at the cap); Job a string of 1-20 letters or "" (junk -> ""):
+--                "" = the nurse's own Role, a Data/Jobs id, or "Rest" (not working). A v3 save's nurses get XP 0 and
+--                Job "" (each works its role). NOTHING IS EVER DELETED, and unknown ids are kept (servers ignore them).
+--   Who works    on EVERY load, at most rosterCap(Rebirth.Count) entries have Job ~= "Rest". A v3 save fills those
+--                places in its old Equipped order (owned ids, once each), then the rest by NurseId; a v4 save by
+--                NurseId. The others get "Rest" (build plan §E2: until you sell or list one, or a rebirth adds a slot).
+--   Rebirth      { Count, Points, Tree, Perks, Offer, Theme, Pending, Told }: Count 0..MAX_REBIRTHS and Points
+--                0..MAX_POINTS (whole); Tree { [NodeId]: rank 1..MAX_RANK } (numberMap rules; unknown nodes kept, and
+--                refunded by ResetTree); Perks (<= MAX_PERKS), Offer (<= MAX_OFFER, none already in Perks) and
+--                Pending (<= MAX_PENDING) are arrays of short unique strings; Theme a short string ("" = Candy, junk ->
+--                ""); Told only when exactly true.
+--   Equipped     gone: read once (a v3 save's working order) and never written again.
+--
+-- v3 (the depth update) added Level, Nurses, NurseIndex, JournalSets and Simple. A v2 save migrates: Level from its
+-- rooms (levelFromRooms), no nurses, an empty journal, Simple off.
 --   Level        1..MAX_LEVEL. Missing or junk: the level the rooms imply. ROOM_LEVELS gives, for each room, the
 --                highest level whose ⭐ gate is at or below the room's own ⭐ gate (Logic/Levels.impliedByRoom
 --                computes the same from Data; Levels.spec checks they match). No rooms: 1.
---   Nurses       { [NurseId]: { Level, Copies } }: Copies an integer >= 1 (junk -> 1), Level an integer in
---                1..min(MAX_NURSE_LEVEL, Copies) (junk -> that top). Unknown ids are kept, like Book pages.
---   Equipped     { NurseId } in order: strings, no repeats, each one owned (in Nurses), at most Level of them.
 --   NurseIndex   { [NurseId]: "Seen" | "Hired" }: anything else dropped; every owned nurse is "Hired".
 --   JournalSets  { [Rarity]: true }: the journal rarity groups whose reward was granted.
 --   Simple       Simple mode (true only when saved exactly true).
@@ -49,7 +66,17 @@ export type BookPage = { Cured: number, Variants: { [string]: boolean } }
 export type StoryEntry = { Beat: number, LastBeatDay: number }
 export type Goal = { Id: string, Progress: number, Day: number }
 export type Playtime = { Day: number, TodaySeconds: number, TotalSeconds: number, Claimed: { number }, Rank: number }
-export type NurseEntry = { Level: number, Copies: number }
+export type NurseEntry = { Level: number, XP: number, Copies: number, Job: string }
+export type RebirthData = {
+	Count: number,
+	Points: number,
+	Tree: { [string]: number },
+	Perks: { string },
+	Offer: { string },
+	Theme: string,
+	Pending: { string },
+	Told: boolean,
+}
 export type Data = {
 	Version: number,
 	Cash: number,
@@ -74,31 +101,47 @@ export type Data = {
 	Badges: { [string]: number },
 	Level: number,
 	Nurses: { [string]: NurseEntry },
-	Equipped: { string },
 	NurseIndex: { [string]: string },
 	JournalSets: { [string]: boolean },
 	Simple: boolean,
+	Rebirth: RebirthData,
 }
 
 local Schema = {}
 
-Schema.VERSION = 3
-Schema.UPGRADES = table.freeze({ "Speed", "Tray", "Chairs", "Tips" })
+Schema.VERSION = 4
+Schema.UPGRADES = table.freeze({ "Speed", "Tray", "Chairs", "Tips", "WardComfort", "AESpeed", "NightClinic" })
 Schema.MAX_GOALS = 10 -- a safety cap on banked goals in a save; the real cap is Config.MaxBankedGoals
 Schema.MAX_GIFTS = 32 -- a safety cap on play gift indexes; the real list is Data/Playtime.Gifts
 Schema.MAX_RANK = 32 -- likewise for Doctor ranks (Data/Playtime.Ranks)
 Schema.MAX_TIER = 32 -- likewise for badge tiers (Data/Badges.Tiers)
 Schema.MAX_BOOST_SECONDS = 86400 -- a safety cap; the real cap is Config.BoostMaxMinutes
-Schema.MAX_KEYS = 128 -- a safety cap on the entries in Stats, Badges and Boosts
+Schema.MAX_KEYS = 128 -- a safety cap on the entries in Stats, Badges, Boosts and Rebirth.Tree
 Schema.MAX_KEY_LENGTH = 40
 -- Logic/Tutorial's WELCOME and DONE, repeated because Schema has no requires (Tutorial.spec checks they match).
 Schema.TUTORIAL_FIRST = 1
 Schema.TUTORIAL_DONE = 9
--- Data/Levels and Config.Nurses values, repeated because Schema has no requires (Levels.spec checks they match).
+-- Data/Levels, Config.Nurses and Config.Roster values, repeated because Schema has no requires (Levels.spec and
+-- Nurse.spec check they match).
 Schema.MAX_LEVEL = 5
-Schema.MAX_NURSE_LEVEL = 5
-Schema.MAX_NURSES = 64 -- a safety cap on nurse entries in a save (the roster has 16)
+Schema.MAX_NURSE_LEVEL = 15 -- the highest any cap goes (Lv 15 from R3)
+Schema.NURSE_LEVEL_CAP = 10 -- Config.Nurses.MaxLevel
+Schema.NURSE_LEVEL_CAP_R3 = 15 -- Config.Nurses.MaxLevel + LevelCapBonus, from LevelCapRebirths
+Schema.LEVEL_CAP_REBIRTHS = 3 -- Config.Nurses.LevelCapRebirths
+Schema.ROSTER_BASE = 3 -- Config.Roster.Base
+Schema.ROSTER_PER_REBIRTH = 1 -- Config.Roster.PerRebirth
+Schema.ROSTER_MAX = 8 -- Config.Roster.Max
+Schema.MAX_NURSES = 64 -- a safety cap on nurse entries in a save (Data/Nurses has 17)
+Schema.MAX_JOB_LENGTH = 20
+Schema.REST = "Rest" -- the Job of a nurse that isn't working (Logic/Jobs.REST)
 Schema.ROOM_LEVELS = table.freeze({ BathRoom = 1, Ward = 2, WinterWing = 2, Garden = 3 })
+-- Rebirth safety caps (the real rules are in Config and Data)
+Schema.MAX_REBIRTHS = 1000
+Schema.MAX_POINTS = 1000
+Schema.MAX_NODE_RANK = 10
+Schema.MAX_PERKS = 32
+Schema.MAX_OFFER = 3
+Schema.MAX_PENDING = 4
 
 function Schema.default(): Data
 	local upgrades: { [string]: number } = {}
@@ -129,10 +172,19 @@ function Schema.default(): Data
 		Badges = {},
 		Level = 1,
 		Nurses = {},
-		Equipped = {},
 		NurseIndex = {},
 		JournalSets = {},
 		Simple = false,
+		Rebirth = {
+			Count = 0,
+			Points = 0,
+			Tree = {},
+			Perks = {},
+			Offer = {},
+			Theme = "",
+			Pending = {},
+			Told = false,
+		},
 	}
 end
 
@@ -154,6 +206,21 @@ end
 
 local function isTable(value: any): boolean
 	return type(value) == "table"
+end
+
+function Schema.xpToNext(level: number): number
+	local l = count(level, 1) or 1
+	return 10 + 5 * l * (l + 1)
+end
+
+function Schema.rosterCap(rebirths: number): number
+	local n = math.min(Schema.MAX_REBIRTHS, count(rebirths, 0) or 0)
+	return math.min(Schema.ROSTER_MAX, Schema.ROSTER_BASE + Schema.ROSTER_PER_REBIRTH * n)
+end
+
+function Schema.levelCap(rebirths: number): number
+	local n = count(rebirths, 0) or 0
+	return if n >= Schema.LEVEL_CAP_REBIRTHS then Schema.NURSE_LEVEL_CAP_R3 else Schema.NURSE_LEVEL_CAP
 end
 
 -- { [string]: true } maps: keep string keys whose value is exactly true.
@@ -233,8 +300,8 @@ local function reconcileGoals(value: any): { Goal }
 	return out
 end
 
--- { [string]: number } maps (Stats, Badges, Boosts): short string keys, finite numbers floored into min..max,
--- entries at `min` dropped when `dropMin`, at most MAX_KEYS entries.
+-- { [string]: number } maps (Stats, Badges, Boosts, Rebirth.Tree): short string keys, finite numbers floored into
+-- min..max, entries at `min` dropped when `dropMin`, at most MAX_KEYS entries.
 local function numberMap(value: any, min: number, max: number, dropMin: boolean): { [string]: number }
 	local out: { [string]: number } = {}
 	if not isTable(value) then
@@ -306,7 +373,13 @@ local function isInteger(value: any): boolean
 	return type(value) == "number" and value == value and value % 1 == 0 and math.abs(value) < 1e9
 end
 
-local function reconcileNurses(value: any): { [string]: NurseEntry }
+local function isJob(value: any): boolean
+	return type(value) == "string"
+		and (value == "" or (#value <= Schema.MAX_JOB_LENGTH and string.match(value, "^%a+$") ~= nil))
+end
+
+-- Every nurse entry repaired (see the header); who works is applyRoster's.
+local function reconcileNurses(value: any, cap: number): { [string]: NurseEntry }
 	local out: { [string]: NurseEntry } = {}
 	if not isTable(value) then
 		return out
@@ -318,30 +391,97 @@ local function reconcileNurses(value: any): { [string]: NurseEntry }
 		end
 		if type(nurseId) == "string" and #nurseId > 0 and #nurseId <= 40 and isTable(entry) then
 			local copies = count(entry.Copies, 1) or 1
-			local top = math.min(Schema.MAX_NURSE_LEVEL, copies)
-			local level = if isInteger(entry.Level) then math.clamp(entry.Level, 1, top) else top
-			out[nurseId] = { Level = level, Copies = copies }
+			local level = if isInteger(entry.Level) then math.clamp(entry.Level, 1, cap) else 1
+			local xp = 0
+			if level < cap and isInteger(entry.XP) then
+				xp = math.clamp(entry.XP, 0, Schema.xpToNext(level) - 1)
+			end
+			out[nurseId] = {
+				Level = level,
+				XP = xp,
+				Copies = copies,
+				Job = if isJob(entry.Job) then entry.Job else "",
+			}
 			kept += 1
 		end
 	end
 	return out
 end
 
-local function reconcileEquipped(value: any, nurses: { [string]: NurseEntry }, slots: number): { string }
+-- At most `cap` entries keep working (Job ~= "Rest"); the others rest. The working places go to `equipped` first (a
+-- v3 save's old Equipped list: in order, owned ids, once each), then to the rest by NurseId. A v3 save comes in with
+-- Job "" everywhere, so it keeps exactly its first `cap` equipped nurses on duty. Mutates `nurses`.
+local function applyRoster(nurses: { [string]: NurseEntry }, cap: number, equipped: any)
+	local order: { string } = {}
+	local seen: { [string]: boolean } = {}
+	if isTable(equipped) then
+		for _, nurseId in ipairs(equipped) do
+			if type(nurseId) == "string" and nurses[nurseId] and not seen[nurseId] then
+				seen[nurseId] = true
+				table.insert(order, nurseId)
+			end
+		end
+	end
+	local others: { string } = {}
+	for nurseId in nurses do
+		if not seen[nurseId] then
+			table.insert(others, nurseId)
+		end
+	end
+	table.sort(others)
+	for _, nurseId in others do
+		table.insert(order, nurseId)
+	end
+	local working = 0
+	for _, nurseId in order do
+		local entry = nurses[nurseId]
+		if entry.Job ~= Schema.REST then
+			if working < cap then
+				working += 1
+			else
+				entry.Job = Schema.REST
+			end
+		end
+	end
+end
+
+-- An array of short unique strings: at most `max`, none of them in `skip`.
+local function stringList(value: any, max: number, skip: { string }?): { string }
 	local out: { string } = {}
 	if not isTable(value) then
 		return out
 	end
-	local seen: { [string]: boolean } = {}
-	for _, nurseId in ipairs(value) do
-		if #out >= slots then
+	for _, item in ipairs(value) do
+		if #out >= max then
 			break
 		end
-		if type(nurseId) == "string" and nurses[nurseId] and not seen[nurseId] then
-			seen[nurseId] = true
-			table.insert(out, nurseId)
+		if
+			type(item) == "string"
+			and #item > 0
+			and #item <= Schema.MAX_KEY_LENGTH
+			and not table.find(out, item)
+			and not (skip and table.find(skip, item))
+		then
+			table.insert(out, item)
 		end
 	end
+	return out
+end
+
+local function reconcileRebirth(value: any): RebirthData
+	local out = Schema.default().Rebirth
+	if not isTable(value) then
+		return out
+	end
+	out.Count = math.min(Schema.MAX_REBIRTHS, countOr(value.Count, 0))
+	out.Points = math.min(Schema.MAX_POINTS, countOr(value.Points, 0))
+	out.Tree = numberMap(value.Tree, 0, Schema.MAX_NODE_RANK, true)
+	out.Perks = stringList(value.Perks, Schema.MAX_PERKS)
+	out.Offer = stringList(value.Offer, Schema.MAX_OFFER, out.Perks)
+	local theme = value.Theme
+	out.Theme = if type(theme) == "string" and #theme <= Schema.MAX_KEY_LENGTH then theme else ""
+	out.Pending = stringList(value.Pending, Schema.MAX_PENDING)
+	out.Told = value.Told == true
 	return out
 end
 
@@ -456,11 +596,16 @@ function Schema.reconcile(saved: any, today: number?): Data
 	data.Level = if isInteger(level) and level >= 1
 		then math.min(level, Schema.MAX_LEVEL)
 		else Schema.levelFromRooms(data.Rooms)
-	data.Nurses = reconcileNurses(saved.Nurses)
-	data.Equipped = reconcileEquipped(saved.Equipped, data.Nurses, data.Level)
-	data.NurseIndex = reconcileIndex(saved.NurseIndex, data.Nurses)
 	data.JournalSets = trueSet(saved.JournalSets)
 	data.Simple = saved.Simple == true
+
+	-- Progression v2 (v4). Rebirth first: the level cap and the roster follow its Count. A save written before v4
+	-- (v3, or a v2 with no nurses) fills the working places in its old Equipped order.
+	data.Rebirth = reconcileRebirth(saved.Rebirth)
+	data.Nurses = reconcileNurses(saved.Nurses, Schema.levelCap(data.Rebirth.Count))
+	local before4 = not (type(saved.Version) == "number" and saved.Version >= 4)
+	applyRoster(data.Nurses, Schema.rosterCap(data.Rebirth.Count), if before4 then saved.Equipped else nil)
+	data.NurseIndex = reconcileIndex(saved.NurseIndex, data.Nurses)
 
 	local realDay = count(today, 0)
 	if realDay then

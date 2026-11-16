@@ -80,6 +80,24 @@ describe("Leaderboard values", function()
 		expect(Leaderboard.valueOf("Cured", "junk", 2968)).toBeNil()
 	end)
 
+	test("Rebirths: the save's Rebirth.Count, nil before v4 (Progression v2)", function()
+		local data = save()
+		expect(Leaderboard.valueOf("Rebirths", data, 2968)).toBe(0)
+		data.Rebirth.Count = 4
+		expect(Leaderboard.valueOf("Rebirths", data, 2968)).toBe(4)
+		data.Rebirth = nil
+		expect(Leaderboard.valueOf("Rebirths", data, 2968)).toBeNil()
+		local board = Leaderboard.BOARDS.Rebirths
+		expect({ board.Icon, board.Title, board.Caption, board.Color, board.Weekly }).toEqual({
+			"🏢",
+			"Most Rebirths",
+			"Branches",
+			"Purple",
+			false,
+		})
+		expect(Leaderboard.storeName("Rebirths", 2968, 1)).toBe("Board_Rebirths_v1")
+	end)
+
 	test("Level and Journal only once the save has them", function()
 		local data = save()
 		data.Level = nil -- a save from before the depth update (Schema v2) has neither

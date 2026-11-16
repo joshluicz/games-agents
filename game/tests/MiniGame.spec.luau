@@ -136,3 +136,34 @@ T.describe("MiniGame", function()
 		expect(cheered).toBe(4) -- floor(4.5)
 	end)
 end)
+
+T.describe("MiniGame Progression v2", function()
+	test("a medicine is one Pour game", function()
+		local Items = require("../src/shared/Data/Items")
+		for _, id in Items.Order do
+			if Items[id].Medicine then
+				expect(MiniGame.gameFor(id)).toBe("Pour")
+			else
+				expect(MiniGame.gameFor(id) ~= nil).toBe(true)
+			end
+		end
+	end)
+
+	test("accept: an auto game is always Perfect, and the minimum time skips it", function()
+		local games = { "Patch", "Pour" }
+		-- only the Pour is played: 1.2 x 0.8 = 0.96 s is enough
+		expect(MiniGame.accept({ "OK", "Good" }, games, 1, false, CFG, { true, false })).toEqual({ "Perfect", "Good" })
+		-- too early for the played game: all OK, but the auto one is still Perfect
+		expect(MiniGame.accept({ "OK", "Perfect" }, games, 0.5, false, CFG, { true, false })).toEqual({
+			"Perfect",
+			"OK",
+		})
+		-- junk report and Simple mode keep auto games Perfect
+		expect(MiniGame.accept("junk", games, 9, false, CFG, { false, true })).toEqual({ "OK", "Perfect" })
+		expect(MiniGame.accept({}, games, 9, true, CFG, { true, true })).toEqual({ "Perfect", "Perfect" })
+		-- no auto: as before
+		expect(MiniGame.accept({ "Good", "Good" }, games, 9, false, CFG)).toEqual({ "Good", "Good" })
+		-- every game auto: no minimum time
+		expect(MiniGame.accept({ "OK", "OK" }, games, 0, false, CFG, { true, true })).toEqual({ "Perfect", "Perfect" })
+	end)
+end)

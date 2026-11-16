@@ -3,7 +3,8 @@
 --   Prices.upgradePrice(upgrades, id, level): number?   price of the NEXT level; nil when maxed, unknown or junk
 --   Prices.maxLevel(upgrades, id): number                how many levels an upgrade has (0 if unknown)
 --   Prices.makeSeconds(speedLevel, cfg): number          Faster Hands: hold time at a station
---   Prices.capacity(trayLevel): number                   Bigger Tray: items you can carry (= 1 + level)
+--   Prices.capacity(trayLevel, bonus?): number           Bigger Tray: items you can carry (= 1 + level + bonus; the
+--                                                        Big Hands perk's +1, Progression v2)
 --   Prices.patience(chairsLevel, cfg): number            Comfy Chairs: seconds a patient waits
 -- `upgrades` is Shared/Data/Upgrades (Prices[n] is the price of level n). `cfg` is Shared/Config.
 -- Levels come from saves and the network, so every level is sanitised: junk counts as level 0.
@@ -62,8 +63,8 @@ function Prices.makeSeconds(speedLevel: number, cfg: Cfg): number
 	return math.max(cfg.MinMakeSeconds, seconds)
 end
 
-function Prices.capacity(trayLevel: number): number
-	return 1 + (cleanLevel(trayLevel) or 0)
+function Prices.capacity(trayLevel: number, bonus: number?): number
+	return 1 + (cleanLevel(trayLevel) or 0) + (cleanLevel(bonus) or 0)
 end
 
 function Prices.patience(chairsLevel: number, cfg: Cfg): number

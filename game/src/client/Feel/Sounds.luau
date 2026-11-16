@@ -16,6 +16,10 @@
 -- Cue names other tasks may fire (build plan §B9): Pour, Patch, Scrub, Blow, RateOK, RateGood, RatePerfect, Combo,
 -- Tip, Hire, Equip, Arrival, Golden, LevelUp, Celebrate, Tick, Coin; and from before: Click, Pop, Make, Give, Chime,
 -- Sparkle, Fanfare, Heart, Thud, Hop, Splash, Whoosh, Nope, Night, Morning; plus Close and Toast.
+-- Progression v2 (its build plan §B9, Sounds.V2_CUES): Rebirth, Perk, Node, Ability, Siren, Heli, Ding, Sold, Bought,
+-- Restock, Triage, Splash, Brew, LevelNurse, plus Tag (🏷️ listed). Wired here: "NurseNews" Job plays Equip (the
+-- Equipped news is gone), Level LevelNurse (softly), Sold and Gone Sold, Bought Bought, Listed Tag; a Pharmacy
+-- medicine landing in your hands plays Brew instead of Make. Restock is only ever fired by a panel you have open.
 --
 -- Built-in sounds only (Global Constraints). Roblox ships just 11 rbxasset://sounds files today (checked in the
 -- Studio and Player content folders on 2026-11-16): character moves, a splash, the settings-slider blip, an
@@ -140,7 +144,67 @@ Sounds.CUES = table.freeze({
 		Gap = 0.08,
 		Cooldown = 0.8,
 	},
+	-- Progression v2 (build plan §B9). Soft and short: nothing here nags (the Agency's Restock is only ever played
+	-- by a panel you have open, never on its own every 5 minutes).
+	Rebirth = { -- "🏢 New branch!": a long rising fanfare, a step up from LevelUp
+		Source = "Blip",
+		Volume = 0.55,
+		Pitch = 0.75,
+		Notes = { 0, 4, 7, 12, 16, 19, 24, 28 },
+		Gap = 0.08,
+		Cooldown = 2,
+	},
+	Perk = { Source = "Blip", Volume = 0.45, Pitch = 1.1, Notes = { 0, 7, 12, 16 }, Gap = 0.06, Cooldown = 0.6 },
+	Node = { Source = "Blip", Volume = 0.36, Pitch = 1.3, Notes = { 0, 5, 12 }, Gap = 0.05, Cooldown = 0.15 },
+	Ability = { Source = "Blip", Volume = 0.3, Pitch = 1.6, Notes = { 0, 7, 12 }, Gap = 0.04, Cooldown = 0.35 },
+	-- A toy siren, never a real one: two gentle notes up and down twice, quiet
+	Siren = { Source = "Blip", Volume = 0.22, Pitch = 1.1, Notes = { 0, 5, 0, 5 }, Gap = 0.28, Cooldown = 4 },
+	Heli = { Source = "Wind", Volume = 0.2, Pitch = 2.4, Jitter = 0.03, Cooldown = 1.5, Length = 1.2 },
+	Ding = { Source = "Blip", Volume = 0.4, Pitch = 1.4, Notes = { 4, 0 }, Gap = 0.16, Cooldown = 0.5 },
+	Sold = {
+		Source = "Blip",
+		Volume = 0.36,
+		Pitch = 1.7,
+		Notes = { 0, 5, 9, 12 },
+		Gap = 0.04,
+		Jitter = 0.02,
+		Cooldown = 0.4,
+		Length = 0.3,
+	},
+	Bought = { Source = "Blip", Volume = 0.4, Pitch = 1.05, Notes = { 0, 4, 7, 12 }, Gap = 0.05, Cooldown = 0.4 },
+	Restock = { Source = "Blip", Volume = 0.28, Pitch = 1.2, Notes = { 0, 4, 7 }, Gap = 0.09, Cooldown = 3 },
+	Triage = { Source = "Blip", Volume = 0.34, Pitch = 1.25, Notes = { 0, 7 }, Gap = 0.05, Cooldown = 0.25 },
+	Brew = {
+		Source = "Blip",
+		Volume = 0.3,
+		Pitch = 0.7,
+		Notes = { 0, 3, 7, 3, 10 },
+		Gap = 0.05,
+		Jitter = 0.05,
+		Cooldown = 0.4,
+		Length = 0.3,
+	},
+	LevelNurse = { Source = "Blip", Volume = 0.45, Pitch = 1, Notes = { 0, 4, 7, 12, 16 }, Gap = 0.06, Cooldown = 0.6 },
+	Tag = { Source = "Blip", Volume = 0.28, Pitch = 1.45, Notes = { 0, 4 }, Gap = 0.05, Cooldown = 0.3 }, -- 🏷️ listed
 } :: { [string]: Cue })
+
+-- The cues the Progression v2 build plan lists (§B9); tests/Juice checks each one is in CUES.
+Sounds.V2_CUES = table.freeze({
+	"Rebirth",
+	"Perk",
+	"Node",
+	"Ability",
+	"Siren",
+	"Heli",
+	"Ding",
+	"Sold",
+	"Bought",
+	"Restock",
+	"Triage",
+	"Splash",
+	"Brew",
+	"LevelNurse",
+})
 
 local MAX_LIVE = 18 -- sounds playing at once; more are skipped, never queued
 local MAX_SECONDS = 3 -- a played Sound is destroyed by then even if Ended never fires
@@ -287,6 +351,16 @@ local function wireKit(Kit: any)
 end
 
 local RATING_CUES = { OK = "RateOK", Good = "RateGood", Perfect = "RatePerfect" }
+-- NurseNews kinds (Progression v2 §B3; "Equipped" is gone, so a job change plays the Equip click): { cue, volume }
+local NEWS_CUES: { [string]: { any } } = {
+	Hired = { "Hire", 1 },
+	Seen = { "Sparkle", 0.6 },
+	Job = { "Equip", 1 },
+	Level = { "LevelNurse", 0.7 }, -- a quiet one: the big Lv 5 / Lv 10 ones are the Celebrate screen's
+	Sold = { "Sold", 1 },
+	Gone = { "Sold", 1 }, -- sold on the Market
+	Bought = { "Bought", 1 },
+}
 
 local function wireDepth(ctx: Types.Ctx, Kit: any)
 	ctx.on("MiniGameRated", function(_, rating: any)
@@ -313,14 +387,44 @@ local function wireDepth(ctx: Types.Ctx, Kit: any)
 		if type(info) ~= "table" then
 			return
 		end
-		if info.Kind == "Hired" then
-			Sounds.play("Hire")
-		elseif info.Kind == "Equipped" then
-			Sounds.play("Equip", if info.On == false then 0.7 else 1, if info.On == false then 0.85 else 1)
-		elseif info.Kind == "Seen" then
-			Sounds.play("Sparkle", 0.6)
+		local cue = NEWS_CUES[info.Kind]
+		if cue then
+			Sounds.play(cue[1], cue[2])
+		elseif info.Kind == "Listed" then
+			Sounds.play("Tag", if info.On == false then 0.6 else 1, if info.On == false then 0.85 else 1)
 		end
 	end)
+end
+
+-- What you carry now: a list of ItemIds (the Carry attribute, comma-joined).
+local function carried(player: Player): { string }
+	local value = player:GetAttribute("Carry")
+	if type(value) ~= "string" or value == "" then
+		return {}
+	end
+	return string.split(value, ",")
+end
+
+-- True when `after` holds a Pharmacy medicine (Data/Items with Medicine) that `before` didn't: brewed, not made.
+local function brewed(items: any, before: { string }, after: { string }): boolean
+	if type(items) ~= "table" then
+		return false
+	end
+	local had: { [string]: number } = {}
+	for _, id in before do
+		had[id] = (had[id] or 0) + 1
+	end
+	for _, id in after do
+		if (had[id] or 0) > 0 then
+			had[id] -= 1
+		else
+			local item = rawget(items, id)
+			if type(item) == "table" and type(item.Medicine) == "table" then
+				return true
+			end
+		end
+	end
+	return false
 end
 
 function Sounds.init(ctx: Types.Ctx)
@@ -341,15 +445,21 @@ function Sounds.init(ctx: Types.Ctx)
 	wireDepth(ctx, Kit)
 
 	local player = ctx.Player or Players.LocalPlayer
-	local carried = carryCount(player)
+	local count = carryCount(player)
+	local holding = carried(player)
 	player:GetAttributeChangedSignal("Carry"):Connect(function()
 		local now = carryCount(player)
-		if now > carried then
+		local items = carried(player)
+		-- A Pharmacy craft swaps two ingredients for one medicine: it bubbles (Brew) rather than "made"/"gave".
+		if brewed(ctx.Data and (ctx.Data :: any).Items, holding, items) then
+			Sounds.play("Brew")
+		elseif now > count then
 			Sounds.play("Make")
-		elseif now < carried then
+		elseif now < count then
 			Sounds.play("Give")
 		end
-		carried = now
+		count = now
+		holding = items
 	end)
 
 	task.spawn(function()

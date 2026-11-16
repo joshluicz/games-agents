@@ -28,7 +28,7 @@
 --   "TreatStart" (session)                     play these mini-games (UI.MiniGames)
 --   "MiniGameRated" (game, rating)             one mini-game ended, the client's own rating (UI.MiniGames -> Feel)
 --   "TreatDone" (outcome, session)             the server's TreatResult reply: ratings, tip, combo (UI.MiniGames)
---   "NurseNews" (info) · "NursesNew" (count)   a nurse seen/hired/equipped · unseen Journal news (UI.NursePanel ->
+--   "NurseNews" (info) · "NursesNew" (count)   a nurse seen/hired/levelled... · unseen Journal news (UI.NursePanel ->
 --                                              the Hud's 👩‍⚕️ dot)
 --   "Shout" (info)                             belt news for everyone (UI.BeltView turns it into a Banner)
 --   "Banner" (spec)                            a big top banner, optional countdown (UI.BeltView -> UI.Toasts)
@@ -36,12 +36,26 @@
 --                                              for a new room: Kind "Room" with an extra Room = <RoomId>
 --   "Open" ("Nurses") · "Open" ("Shop", "Hospital")   the Nurses panel; the Shop's Hospital tab
 --   "Open" ("NurseOdds")                       the belt's odds popup (UI/BeltView; UI/NursePanel's 🎲 chips open it too)
+-- Progression v2 (docs/plan/2026-11-16-progression-v2-build-plan.md §B9). The server events AgencyNews, MarketNews and
+-- BeltScout are forwarded to the bus under the same names too:
+--   "AgencyNews" (view) · "MarketNews" (view) · "BeltScout" (info)   the Agency as you see it · the Market's
+--                                              listings · the next belt arrival's rarity (🔭 Belt Scout owners)
+--   "Open" ("Nurses", "Team" | "Branch" | rarity)   the 👩‍⚕️ panel ("Team" = your roster page, "Branch" = the 🏢
+--                                              Journal page of rebirth-only nurses; Hud, anyone)
+--   "Open" ("Branch", "Open" | "Perks" | "Tree" | "Themes")   UI.BranchPanel (from the Shop's 🏥 tab, and "Perks"
+--                                              after the Rebirth celebration)
+--   "Open" ("Agency", tab?) · "Open" ("Market", tab?)   UI.AgencyPanel (tab "Hire" | "Sell") · UI.MarketPanel (tab
+--                                              "Buy" | "Sell" | "Mine") (NursePanel's buttons, the kiosks)
+--   "Sell" (nurseId) · "List" (nurseId)        NursePanel's card buttons -> UI.AgencyPanel (the sell confirm) ·
+--                                              UI.MarketPanel (the list flow)
+--   "Open" ("Lift", floors)                    UI.LiftPanel itself (a LiftPrompt's client Triggered)
 -- Client-only LocalPlayer attributes (set on this client, never by the server, never replicated): ReduceEffects
 -- (the ✨/💤 calm-effects switch in the Hud's ⚙️ panel; Kit.reducedMotion() honours it) and MusicMuted (🎵/🔇).
 -- The first snapshot: until the server's arrives, ctx.State is a default one with Tutorial = 0 ("not known yet"),
 -- so the HUD starts calm (only 💰) and no tutorial card shows.
 -- Module order: UI.Toasts first, then the rest of UI (UI.Tutorial last), then Feel. Theme and Kit are libraries,
--- not inited. ctx.Data also has the depth update's Nurses, Rarities and Levels (Levels is an array).
+-- not inited. ctx.Data also has the depth update's Nurses, Rarities and Levels (Levels is an array), and Progression
+-- v2's Jobs, Departments, Abilities, Perks, Tree and Themes.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -81,13 +95,17 @@ local UI_MODULES = {
 	"MiniGames",
 	"NursePanel",
 	"BeltView",
+	"AgencyPanel",
+	"MarketPanel",
+	"BranchPanel",
+	"LiftPanel",
 	"Tutorial",
 }
 -- Feel.CreatureProps is CreatureActing's library. CreatureMotion moves each creature's Root (hops, scale) and
 -- CreatureActing its Motor6Ds (the ailment acting), so both run on every patient.
-local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureMotion", "CreatureActing" }
--- Server events forwarded to the bus under the same name (build plan §B9)
-local FORWARDED_EVENTS = { "TreatStart", "NurseNews", "Shout", "Celebrate" }
+local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureMotion", "CreatureActing", "HospitalFX" }
+-- Server events forwarded to the bus under the same name (build plan §B9; Progression v2 §B9)
+local FORWARDED_EVENTS = { "TreatStart", "NurseNews", "Shout", "Celebrate", "AgencyNews", "MarketNews", "BeltScout" }
 local DATA_NAMES = {
 	"Ailments",
 	"Stations",
@@ -106,6 +124,13 @@ local DATA_NAMES = {
 	"Nurses",
 	"Rarities",
 	"Levels",
+	-- Progression v2
+	"Jobs",
+	"Departments",
+	"Abilities",
+	"Perks",
+	"Tree",
+	"Themes",
 }
 
 local dataFolder = Shared:WaitForChild("Data")
@@ -134,16 +159,16 @@ local function defaultSnapshot(): Types.Snapshot
 		Tutorial = 0, -- not known yet (Logic/Tutorial: 1..8 = in the tutorial, 9 = done)
 		TutorialCures = 0,
 		Playtime = data.Playtime,
-		Boosts = { Timed = {}, Permanent = {} },
+		Boosts = { Timed = {}, Permanent = {}, Branch = {}, Rebirth = { Cash = 1, Stars = 1 } },
 		MakeSeconds = {},
 		Stats = data.Stats,
 		Badges = data.Badges,
 		Level = data.Level,
 		Nurses = data.Nurses,
-		Equipped = data.Equipped,
 		NurseIndex = data.NurseIndex,
 		JournalSets = data.JournalSets,
 		Simple = data.Simple,
+		Rebirth = data.Rebirth,
 	}
 end
 

@@ -1,6 +1,7 @@
 --!strict
--- Builds a nurse Model and moves it (depth-update build plan §B4/§B8). Server only, a library (not in Main's start
--- order); Server/Nurses (plot workers) and Server/NurseBelt (belt riders) use it. OWNER: T3.
+-- Builds a nurse Model and moves it (depth-update build plan §B4/§B8; Progression v2 build plan §B4 and §C T1).
+-- Server only, a library (not in Main's start order); Server/Nurses (plot workers), Server/Abilities (the ring) and
+-- Server/NurseBelt (belt riders) use it. OWNER: T1 (Progression v2).
 --
 --   NurseBuilder.build(nurseId): Model
 --       The nurse from its Data/Nurses Look, built like a patient (CreatureBuilder.buildLook: the creatures v2 body
@@ -12,8 +13,19 @@
 --       (the brother's) replaces the placeholder look: it is cloned, cleaned of scripts and Humanoids, and given the
 --       same Root, Core and PoseJoint (CreatureBuilder.rigKit; no cap is added to it).
 --   NurseBuilder.setTask(model, task, icon?)
---       the Task attribute: "Idle" | "Making" | "Healing" | "Cheering" | "Walking" (junk -> "Idle"), and the little
---       bubble over its head: the item it is making (`icon`), 💗 healing, 🎉 cheering, nothing otherwise
+--       the Task attribute: "Idle" | "Making" | "Healing" | "Cheering" | "Walking" | "Escorting" | "Greeting" |
+--       "Treating" (junk -> "Idle"), and the little bubble over its head: the item it is making (`icon`), 💗 healing or
+--       treating, 🎉 cheering, 👋 greeting, 🛏️ escorting, nothing otherwise
+--   NurseBuilder.setJob(model, jobId)    the Job attribute and the job hat: a small chip with the job's Data/Jobs icon
+--                                        on the task bubble's corner (alone over the head while there's no bubble)
+--   NurseBuilder.addAbility(model, abilityId)
+--       the Ability attribute, and the ability ring: a small BillboardGui "AbilityRing" under Root.IconAnchor, beside
+--       the bubble (only within 40 studs): Ring (a white disc with a Track UIStroke in the rarity colour, its Fill disc
+--       growing as the cooldown ends, the ability's Icon on top). No parts. A client may draw a smoother ring inside it
+--       (T8 Feel/HospitalFX adds "RingFX"); the sparkle when it fires is the client's too (AbilityAt), so reduced
+--       motion stays each client's call
+--   NurseBuilder.setAbility(model, fraction)   the Fill: 0 = just fired .. 1 = ready, solid (no numbers, ever).
+--                                        Server/Abilities moves it in a few steps per cooldown, never every frame
 --   NurseBuilder.hop(model, from, to, height, seconds, spin?): boolean
 --       one hop by the creature-motion contract (build plan §B4): sets HopFrom, HopTo, HopSeconds, HopHeight, HopSpin,
 --       HopLean, then HopAt (Workspace:GetServerTimeNow()) last, so a client that listens to HopAt sees the whole hop.
@@ -30,21 +42,29 @@ local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Palette = require(Shared.Palette)
+local AbilitiesData = require(Shared.Data.Abilities)
+local JobsData = require(Shared.Data.Jobs)
 local NursesData = require(Shared.Data.Nurses)
 local Rarities = require(Shared.Data.Rarities)
 local CreatureBuilder = require(script.Parent.CreatureBuilder)
 
 local NurseBuilder = {}
 
-NurseBuilder.TASKS = table.freeze({ "Idle", "Making", "Healing", "Cheering", "Walking" })
+NurseBuilder.TASKS =
+	table.freeze({ "Idle", "Making", "Healing", "Cheering", "Walking", "Escorting", "Greeting", "Treating" })
 
 local COLLISION_GROUP = "Patients"
 local MAX_PARTS = 40
 local LEAN = 0.12 -- radians forward at the top of a hop (a spin hop doesn't lean)
 local SPARKLE_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
 local SPARKLE_RANK = 3 -- Epic and up sparkle (Data/Rarities.Order index)
-local TASK_ICONS: { [string]: string } = { Healing = "💗", Cheering = "🎉" }
+local TASK_ICONS: { [string]: string } =
+	{ Healing = "💗", Cheering = "🎉", Greeting = "👋", Treating = "💗", Escorting = "🛏️" }
 local BUBBLE_STUDS = 1.7 -- the task bubble, square
+local HAT_SCALE = 0.5 -- the job hat chip, of the bubble's size
+local RING_STUDS = 1.25 -- the ability ring, square
+local RING_DISTANCE = 40 -- studs: the ring only shows this close (§C T1)
+local RING_NAME = "AbilityRing" -- T8 Feel/HospitalFX finds it by this name and draws its smooth ring inside
 local NEAR_STUDS = 16 -- closer than this the bubble stops growing on screen (like the patients' badges)
 
 local WHITE = Palette.White
@@ -269,17 +289,42 @@ function NurseBuilder.build(nurseId: string): Model
 	return model
 end
 
--- The little bubble over a working nurse's head (made on first use).
-local function bubble(model: Model): TextLabel?
+local function anchorOf(model: Model): Instance?
 	local root = model.PrimaryPart
-	local anchor = root and root:FindFirstChild("IconAnchor")
+	return root and root:FindFirstChild("IconAnchor")
+end
+
+local function round(frame: GuiObject)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = frame
+end
+
+local function iconLabel(parent: Instance, scale: number): TextLabel
+	local label = Instance.new("TextLabel")
+	label.Name = "Icon"
+	label.BackgroundTransparency = 1
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = UDim2.fromScale(0.5, 0.5)
+	label.Size = UDim2.fromScale(scale, scale)
+	label.TextScaled = true
+	label.Font = Palette.BodyFont
+	label.Text = ""
+	label.ZIndex = 3
+	label.Parent = parent
+	return label
+end
+
+-- The task bubble over a working nurse's head (made on first use): a Disc with the task's icon and, on its corner, the
+-- Hat chip with the job's icon.
+local function taskGui(model: Model): BillboardGui?
+	local anchor = anchorOf(model)
 	if not anchor then
 		return nil
 	end
-	local gui = anchor:FindFirstChild("TaskGui")
-	if gui and gui:IsA("BillboardGui") then
-		local label = gui:FindFirstChild("Icon", true)
-		return if label and label:IsA("TextLabel") then label else nil
+	local existing = anchor:FindFirstChild("TaskGui")
+	if existing and existing:IsA("BillboardGui") then
+		return existing
 	end
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "TaskGui"
@@ -293,22 +338,59 @@ local function bubble(model: Model): TextLabel?
 	disc.Name = "Disc"
 	disc.Size = UDim2.fromScale(1, 1)
 	disc.BackgroundColor3 = WHITE
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.5, 0)
-	corner.Parent = disc
+	disc.Visible = false
+	round(disc)
 	Palette.outlineShape(disc, 2)
-	local label = Instance.new("TextLabel")
-	label.Name = "Icon"
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.fromScale(0.78, 0.78)
-	label.Position = UDim2.fromScale(0.11, 0.11)
-	label.TextScaled = true
-	label.Font = Palette.BodyFont
-	label.Text = ""
-	label.Parent = disc
+	iconLabel(disc, 0.78)
 	disc.Parent = billboard
+	local hat = Instance.new("Frame")
+	hat.Name = "Hat"
+	hat.Size = UDim2.fromScale(HAT_SCALE, HAT_SCALE)
+	hat.BackgroundColor3 = WHITE
+	hat.Visible = false
+	hat.ZIndex = 2
+	round(hat)
+	Palette.outlineShape(hat, 2)
+	iconLabel(hat, 0.8)
+	hat.Parent = billboard
 	billboard.Parent = anchor
-	return label
+	return billboard
+end
+
+-- The hat sits on the disc's top-left corner, or in the middle on its own; the billboard shows while either does.
+local function layoutBubble(gui: BillboardGui)
+	local disc = gui:FindFirstChild("Disc")
+	local hat = gui:FindFirstChild("Hat")
+	local discOn = disc ~= nil and disc:IsA("GuiObject") and disc.Visible
+	local hatOn = hat ~= nil and hat:IsA("GuiObject") and hat.Visible
+	if hat and hat:IsA("GuiObject") then
+		local anchor = if discOn then Vector2.new(0.2, 0.2) else Vector2.new(0.5, 0.5)
+		local position = if discOn then UDim2.fromScale(0, 0) else UDim2.fromScale(0.5, 0.75)
+		if hat.AnchorPoint ~= anchor then
+			hat.AnchorPoint = anchor
+		end
+		if hat.Position ~= position then
+			hat.Position = position
+		end
+	end
+	local on = discOn or hatOn
+	if gui.Enabled ~= on then
+		gui.Enabled = on
+	end
+end
+
+local function setIcon(frame: Instance?, text: string?)
+	if not frame or not frame:IsA("GuiObject") then
+		return
+	end
+	local label = frame:FindFirstChild("Icon")
+	local show = type(text) == "string" and text ~= ""
+	if show and label and label:IsA("TextLabel") and label.Text ~= text then
+		label.Text = text :: string
+	end
+	if frame.Visible ~= show then
+		frame.Visible = show
+	end
 end
 
 function NurseBuilder.setTask(model: Model, task: string, icon: string?)
@@ -317,22 +399,97 @@ function NurseBuilder.setTask(model: Model, task: string, icon: string?)
 		model:SetAttribute("Task", name)
 	end
 	local show = if type(icon) == "string" and icon ~= "" then icon else TASK_ICONS[name]
-	local root = model.PrimaryPart
-	local anchor = root and root:FindFirstChild("IconAnchor")
+	local anchor = anchorOf(model)
 	local existing = anchor and anchor:FindFirstChild("TaskGui")
 	if not show and not existing then
 		return -- nothing to show and no bubble yet: don't make one
 	end
-	local label = bubble(model)
-	if not label then
+	local gui = taskGui(model)
+	if not gui then
 		return
 	end
-	local gui = label:FindFirstAncestorWhichIsA("BillboardGui")
-	if show and label.Text ~= show then
-		label.Text = show
+	setIcon(gui:FindFirstChild("Disc"), show)
+	layoutBubble(gui)
+end
+
+function NurseBuilder.setJob(model: Model, jobId: string)
+	local job = if type(jobId) == "string" then rawget(JobsData :: any, jobId) else nil
+	local id = if type(job) == "table" then jobId else ""
+	if model:GetAttribute("Job") ~= id then
+		model:SetAttribute("Job", id)
 	end
-	if gui and gui.Enabled ~= (show ~= nil) then
-		gui.Enabled = show ~= nil
+	local gui = taskGui(model)
+	if not gui then
+		return
+	end
+	setIcon(gui:FindFirstChild("Hat"), if type(job) == "table" then job.Icon else nil)
+	layoutBubble(gui)
+end
+
+function NurseBuilder.addAbility(model: Model, abilityId: string)
+	local ability = if type(abilityId) == "string" then rawget(AbilitiesData :: any, abilityId) else nil
+	if type(ability) ~= "table" then
+		return
+	end
+	model:SetAttribute("Ability", abilityId)
+	local anchor = anchorOf(model)
+	if not anchor or anchor:FindFirstChild(RING_NAME) then
+		return
+	end
+	local color = rarityColor(tostring(model:GetAttribute("Rarity")))
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = RING_NAME
+	billboard.Size = UDim2.fromScale(RING_STUDS, RING_STUDS)
+	billboard.StudsOffset = Vector3.new(BUBBLE_STUDS * 0.95, BUBBLE_STUDS * 0.45, 0)
+	billboard.DistanceLowerLimit = NEAR_STUDS
+	billboard.MaxDistance = RING_DISTANCE
+	billboard.LightInfluence = 0
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.Size = UDim2.fromScale(1, 1)
+	ring.BackgroundColor3 = WHITE
+	ring.BackgroundTransparency = 0.1
+	round(ring)
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "Track"
+	stroke.Color = color
+	stroke.Thickness = 3
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = ring
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.AnchorPoint = Vector2.new(0.5, 0.5)
+	fill.Position = UDim2.fromScale(0.5, 0.5)
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = color
+	fill.BackgroundTransparency = 0.45
+	fill.BorderSizePixel = 0
+	fill.ZIndex = 2
+	round(fill)
+	fill.Parent = ring
+	local label = iconLabel(ring, 0.72)
+	label.Text = ability.Icon
+	ring.Parent = billboard
+	billboard.Parent = anchor
+end
+
+function NurseBuilder.setAbility(model: Model, fraction: number)
+	local anchor = anchorOf(model)
+	local gui = anchor and anchor:FindFirstChild(RING_NAME)
+	local ring = gui and gui:FindFirstChild("Ring")
+	local fill = ring and ring:FindFirstChild("Fill")
+	if not fill or not fill:IsA("Frame") then
+		return
+	end
+	local f = if type(fraction) == "number" and fraction == fraction then math.clamp(fraction, 0, 1) else 0
+	local size = UDim2.fromScale(f, f)
+	if fill.Size ~= size then
+		fill.Size = size
+	end
+	local transparency = if f >= 1 then 0 else 0.45 -- full and solid: ready
+	if fill.BackgroundTransparency ~= transparency then
+		fill.BackgroundTransparency = transparency
 	end
 end
 

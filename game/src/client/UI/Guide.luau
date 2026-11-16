@@ -22,6 +22,13 @@
 --    sets the slowest time (Speed 0) and times each hold against the MAKER's own level (Stations), so this only
 --    makes the ring honest. Prompts are found by the `StationPrompt` tag (Stations.PROMPT_TAG; Stations tags every
 --    one it makes), so nothing here listens to every part added to the town.
+--    Progression v2 (build plan §B8 Stations): each prompt's hold also follows ITS plot's attributes, the way the
+--    server times it: the team bonus TeamMake ("Bath=0.8,Cocoa=0.8") for that station, and an ability rush while
+--    MakeRushUntil is ahead (x MakeRushFactor: Busy Paws 0.5, Time Bubble 0 = the shortest hold,
+--    Config.BoostMinMakeSeconds), back to normal by itself when the rush ends (one timer per plot, no polling). The
+--    💊 Pharmacy holds for the Snapshot's MakeSeconds.Pharmacy (Server/Boosts: Config.Pharmacy.HoldSeconds, x
+--    Tier2Factor from R2, then MakeSpeed) instead of Faster Hands' time; before the first snapshot, its base hold
+--    (Hold.pharmacy). The pure rules are the HOLD block, tests/Juice.
 --
 -- Reading patients (all set by the server's Patients module, read-only here): the plot's FrontStation attribute
 -- (the StationId of the front patient's first missing item while it waits, "" otherwise) and FrontNeeds (every
@@ -82,19 +89,159 @@ end
 
 local PROMPT_TAG = "StationPrompt" -- Stations.PROMPT_TAG (a server module, so not required here)
 
+-- Progression v2 (build plan §B8 Stations, §C T8): the plot's own hold factors on top of your boosts. Pure (a scratch
+-- harness, tests/Juice, loads the block between the markers on its own).
+-- BEGIN HOLD
+local Hold = {}
+
+local function finiteNumber(value: any): number?
+	if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+		return value
+	end
+	return nil
+end
+
+-- The plot's TeamMake attribute ("Bath=0.8,Cocoa=0.8", Server/Nurses) as { [StationId]: factor }; only factors in
+-- (0, 1] count (a team only ever shortens a hold), junk is skipped.
+function Hold.teamMake(raw: any): { [string]: number }
+	local out: { [string]: number } = {}
+	if type(raw) ~= "string" then
+		return out
+	end
+	for pair in string.gmatch(raw, "[^,]+") do
+		local id, value = string.match(pair, "^%s*([%w_]+)%s*=%s*([%d%.]+)%s*$")
+		local factor = if id then finiteNumber(tonumber(value)) else nil
+		if id and factor and factor > 0 and factor <= 1 then
+			out[id] = factor
+		end
+	end
+	return out
+end
+
+-- The 💊 Pharmacy's own base hold (Config.Pharmacy: HoldSeconds, x Tier2Factor from R2), not Faster Hands'.
+function Hold.pharmacy(cfg: any, rebirths: any): number
+	local pharmacy = if type(cfg) == "table" and type(cfg.Pharmacy) == "table" then cfg.Pharmacy else {}
+	local base = finiteNumber(pharmacy.HoldSeconds) or 3
+	local tier2 = finiteNumber(pharmacy.Tier2Factor) or 1
+	local count = finiteNumber(rebirths) or 0
+	return if count >= 2 and tier2 > 0 and tier2 <= 1 then base * tier2 else base
+end
+
+-- A station's hold at a plot: `base` (your own: Snapshot.MakeSeconds) x the plot's team factor for that station x
+-- an ability rush while it runs (MakeRushUntil > now: x MakeRushFactor, Busy Paws 0.5; 0 = Time Bubble, the
+-- shortest hold), never below `floor` (Config.BoostMinMakeSeconds), never above `base`.
+function Hold.seconds(
+	base: number,
+	stationId: string?,
+	team: { [string]: number },
+	rushUntil: any,
+	rushFactor: any,
+	now: number,
+	floor: number
+): number
+	local seconds = math.max(finiteNumber(base) or 0, 0)
+	local minimum = math.max(finiteNumber(floor) or 0, 0)
+	if stationId and team[stationId] then
+		seconds *= team[stationId]
+	end
+	local untilTime, factor = finiteNumber(rushUntil), finiteNumber(rushFactor)
+	if untilTime and untilTime > (finiteNumber(now) or 0) and factor and factor >= 0 and factor < 1 then
+		seconds = if factor == 0 then minimum else seconds * factor
+	end
+	return math.min(math.max(seconds, minimum), math.max(finiteNumber(base) or 0, minimum))
+end
+-- END HOLD
+
 local function startHoldTimes(ctx: Types.Ctx)
 	local seconds = Prices.makeSeconds(0, ctx.Config)
 	-- Playtime branch: the server's own number per station (Snapshot.MakeSeconds: Faster Hands and every MakeSpeed
 	-- boost), so the ring matches what Stations times. Without it, Faster Hands alone as before.
 	local perStation: { [string]: number } = {}
+	local rebirths = 0
+	local floor = if type(ctx.Config.BoostMinMakeSeconds) == "number" then ctx.Config.BoostMinMakeSeconds else 0.3
 	local prompts: { [ProximityPrompt]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+	local plotOf: { [ProximityPrompt]: Instance } = setmetatable({}, { __mode = "k" }) :: any
+	local watchedPlots: { [Instance]: boolean } = {}
+	local rushTimers: { [Instance]: thread } = {}
+
+	-- The clinic plot a prompt sits on: the nearest ancestor Model with an OwnerUserId attribute.
+	local function findPlot(prompt: Instance): Instance?
+		local node = prompt.Parent
+		while node and node ~= Workspace do
+			if node:IsA("Model") and node:GetAttribute("OwnerUserId") ~= nil then
+				return node
+			end
+			node = node.Parent
+		end
+		return nil
+	end
 
 	local function apply(prompt: ProximityPrompt)
 		local stationId = prompt:GetAttribute("StationId")
-		local wanted = if type(stationId) == "string" then perStation[stationId] or seconds else seconds
+		local id = if type(stationId) == "string" then stationId else nil
+		-- The 💊 Pharmacy: the Snapshot's own number (Server/Boosts.makeSeconds: its hold, x Tier2Factor from R2,
+		-- then MakeSpeed), else its base hold before the first snapshot.
+		local base = if id == "Pharmacy"
+			then perStation.Pharmacy or Hold.pharmacy(ctx.Config, rebirths)
+			elseif id then perStation[id] or seconds
+			else seconds
+		local plot = plotOf[prompt]
+		local wanted = base
+		if plot then
+			wanted = Hold.seconds(
+				base,
+				id,
+				Hold.teamMake(plot:GetAttribute("TeamMake")),
+				plot:GetAttribute("MakeRushUntil"),
+				plot:GetAttribute("MakeRushFactor"),
+				Workspace:GetServerTimeNow(),
+				floor
+			)
+		end
 		if math.abs(prompt.HoldDuration - wanted) > 0.001 then
 			prompt.HoldDuration = wanted
 		end
+	end
+
+	local function applyPlot(plot: Instance)
+		for prompt in prompts do
+			if plotOf[prompt] == plot then
+				apply(prompt)
+			end
+		end
+	end
+
+	-- A rush ends at MakeRushUntil: put the plot's holds back then (one timer per plot, no polling).
+	local function scheduleRushEnd(plot: Instance)
+		local old = rushTimers[plot]
+		if old then
+			pcall(task.cancel, old)
+			rushTimers[plot] = nil
+		end
+		local untilTime = plot:GetAttribute("MakeRushUntil")
+		local left = if type(untilTime) == "number" then untilTime - Workspace:GetServerTimeNow() else 0
+		if left > 0 and left < 600 then
+			rushTimers[plot] = task.delay(left + 0.05, function()
+				rushTimers[plot] = nil
+				applyPlot(plot)
+			end)
+		end
+	end
+
+	local function watchPlot(plot: Instance)
+		if watchedPlots[plot] then
+			return
+		end
+		watchedPlots[plot] = true
+		for _, attribute in { "TeamMake", "MakeRushUntil", "MakeRushFactor" } do
+			plot:GetAttributeChangedSignal(attribute):Connect(function()
+				applyPlot(plot)
+				if attribute ~= "TeamMake" then
+					scheduleRushEnd(plot)
+				end
+			end)
+		end
+		scheduleRushEnd(plot)
 	end
 
 	local function track(instance: Instance)
@@ -102,6 +249,11 @@ local function startHoldTimes(ctx: Types.Ctx)
 			return
 		end
 		prompts[instance] = true
+		local plot = findPlot(instance)
+		if plot then
+			plotOf[instance] = plot
+			watchPlot(plot)
+		end
 		apply(instance)
 		-- If the server changes it, put ours back: it follows your own Faster Hands level.
 		instance:GetPropertyChangedSignal("HoldDuration"):Connect(function()
@@ -121,6 +273,8 @@ local function startHoldTimes(ctx: Types.Ctx)
 			end
 		end
 		perStation = fromServer
+		local rebirth = (state :: any).Rebirth
+		rebirths = if type(rebirth) == "table" and type(rebirth.Count) == "number" then rebirth.Count else 0
 		for prompt in prompts do
 			apply(prompt)
 		end

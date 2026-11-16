@@ -11,6 +11,14 @@
 --   Plots.fromInstance(inst): Plot?          the plot an Instance (a station, a prompt part) belongs to
 --   Plots.decorSlot(plot, slotKey): BasePart?
 --   Plots.observeRooms(fn): Connection       fn(plot, roomId, roomModel) for every room now AND every room later
+--   Plots.syncRooms(p)                       Progression v2 (§B8): makes the plot's room models match the save after a
+--                                            rebirth or a perk card. It removes the room models the save no longer
+--                                            owns (never the Stand; their placed decor already went back to the
+--                                            inventory in the save, so its models go now), adds the ones it owns but
+--                                            lacks (🛁 Bath Ready; RoomAdded fires for each), puts the "for sale"
+--                                            previews back, then makes the decor models follow Decor.Placed: models
+--                                            no longer placed (or whose slot went) go, placed ones without a model
+--                                            (the Stand's, a kept room's) are shown. Never yields, never saves
 --
 -- Lifecycle: a joiner gets a free plot once their data loads (middle plots first). Their owned rooms and placed
 -- decor are rebuilt, RoomAdded fires for each new room, then PlotAssigned. On leave, PlotReleased fires FIRST
@@ -446,6 +454,80 @@ function Plots.observeRooms(fn: (Plot, string, Model) -> ()): Signal.Connection
 		end
 	end
 	return Plots.RoomAdded:Connect(fn)
+end
+
+-- The room id a model under Rooms stands for: its RoomId attribute, else its "Room_<id>" name.
+local function roomIdOf(model: Instance): string?
+	local roomId = model:GetAttribute("RoomId")
+	if type(roomId) == "string" then
+		return roomId
+	end
+	return string.match(model.Name, "^Room_(%w+)$")
+end
+
+-- The decor models follow Decor.Placed: one per placed, owned decor whose slot exists, and nothing else.
+local function syncDecor(plot: Plot, data: Types.Data)
+	local folder = plot.Model:FindFirstChild("Decor")
+	if not folder then
+		return
+	end
+	local shown: { [string]: boolean } = {}
+	for _, child in folder:GetChildren() do
+		local slotKey = child:GetAttribute("SlotKey")
+		if type(slotKey) == "string" then
+			local decorId = child:GetAttribute("DecorId")
+			local placed = data.Decor.Placed[slotKey]
+			if
+				placed == nil
+				or placed ~= decorId
+				or data.Decor.Owned[placed] ~= true
+				or shown[slotKey]
+				or not Plots.decorSlot(plot, slotKey)
+			then
+				child:Destroy()
+			else
+				shown[slotKey] = true
+			end
+		end
+	end
+	for slotKey, decorId in data.Decor.Placed do
+		if not shown[slotKey] and data.Decor.Owned[decorId] == true and Plots.decorSlot(plot, slotKey) then
+			showDecor(plot, slotKey, decorId)
+		end
+	end
+end
+
+-- The room models follow the save (see the header). Rebirth calls it after a rebirth and after 🛁 Bath Ready.
+function Plots.syncRooms(owner: Player)
+	local plot = byPlayer[owner]
+	local data = PlayerData.get(owner)
+	if not plot or not data or plot.Owner ~= owner then
+		return
+	end
+	local roomsFolder = plot.Model:FindFirstChild("Rooms")
+	if roomsFolder then
+		for _, room in roomsFolder:GetChildren() do
+			local roomId = roomIdOf(room)
+			-- Only a room model we know; never the Stand (every plot keeps it).
+			if
+				room:IsA("Model")
+				and roomId
+				and roomId ~= "Stand"
+				and knownRoom(roomId)
+				and data.Rooms[roomId] ~= true
+			then
+				room:Destroy()
+			end
+		end
+	end
+	for _, roomId in Rooms.Order do
+		local present = roomsFolder ~= nil and roomsFolder:FindFirstChild("Room_" .. roomId) ~= nil
+		if roomId ~= "Stand" and data.Rooms[roomId] == true and not present then
+			addRoom(plot, roomId)
+		end
+	end
+	refreshPreviews(plot, data)
+	syncDecor(plot, data)
 end
 
 function Plots.start()

@@ -3,6 +3,8 @@
 -- plan §B7). Pure: no Roblox services, no requires. `cfg` is Shared/Config (its MiniGame table is read).
 --
 -- One mini-game per recipe item: 🧪 Potion -> Pour · 🩹 Plaster -> Patch · 🛁 Bubbles -> Scrub · ☕ Cocoa -> Cool.
+-- Progression v2: a medicine (Data/Items Medicine) is one 🧪 Pour game, however many slots it fills; a game an ability
+-- made PERFECT (TreatSession.Auto) is always Perfect and skipped by the client.
 -- Ratings are OK / Good / Perfect. There is no fail: OK still cures. A Perfect adds a small cash tip and +1 combo;
 -- the combo multiplies tips (x1.2 / x1.5 / x2 from 3 / 6 / 10). A Good holds it (no tip, no +1, no reset) and an OK
 -- (the miss: also what a timeout, a too-early report or a far-away report rate) resets it (build plan §E7, decided
@@ -20,10 +22,12 @@
 --                                                blows (Blows -> Perfect, Good -> Good). Anything less: OK.
 --   MiniGame.minSeconds(games, simple, cfg)      the fastest a real session can end (Simple: one tap per game)
 --   MiniGame.timeout(games, cfg)                 when the server stops waiting and settles the session as all OK
---   MiniGame.accept(reported, games, elapsed, simple, cfg): { Rating }
+--   MiniGame.accept(reported, games, elapsed, simple, cfg, auto?): { Rating }
 --                                                the server's view of a TreatResult report: Simple -> all Good; a
 --                                                report that isn't exactly one valid rating per game, or came sooner
---                                                than minSeconds x Slack -> all OK; otherwise the report
+--                                                than minSeconds x Slack -> all OK; otherwise the report. Whatever the
+--                                                report, a game flagged in `auto` ({ boolean }, an ability) is Perfect,
+--                                                and the minimum time counts only the other games
 --   MiniGame.multiplier(combo, cfg): number      the tip multiplier at this combo (1 below the first step)
 --   MiniGame.settle(combo, ratings, cfg, tipSoFar?, tipScale?): (combo, tip)
 --                                                walks the ratings in order: a Perfect adds 1 to the combo, then
@@ -37,7 +41,17 @@ export type GameId = "Pour" | "Patch" | "Scrub" | "Cool"
 
 local MiniGame = {}
 
-MiniGame.GAMES = table.freeze({ Potion = "Pour", Plaster = "Patch", Bubbles = "Scrub", Cocoa = "Cool" })
+MiniGame.GAMES = table.freeze({
+	Potion = "Pour",
+	Plaster = "Patch",
+	Bubbles = "Scrub",
+	Cocoa = "Cool",
+	-- Progression v2 medicines (Data/Items Medicine): one Pour each
+	WarmTonic = "Pour",
+	SoapyPatch = "Pour",
+	SuperSyrup = "Pour",
+	CocoaFizz = "Pour",
+})
 MiniGame.RATINGS = table.freeze({ "OK", "Good", "Perfect" })
 
 local VALID: { [any]: boolean } = { OK = true, Good = true, Perfect = true }
@@ -127,27 +141,54 @@ local function all(rating: Rating, n: number): { Rating }
 	return out
 end
 
-function MiniGame.accept(reported: any, games: { string }, elapsed: number, simple: boolean, cfg: any): { Rating }
+-- `ratings` with every auto game made Perfect (a new table).
+local function withAuto(ratings: { Rating }, auto: { boolean }?): { Rating }
+	if type(auto) ~= "table" then
+		return ratings
+	end
+	local out = table.clone(ratings)
+	for index in out do
+		if auto[index] == true then
+			out[index] = "Perfect"
+		end
+	end
+	return out
+end
+
+function MiniGame.accept(
+	reported: any,
+	games: { string },
+	elapsed: number,
+	simple: boolean,
+	cfg: any,
+	auto: { boolean }?
+): { Rating }
 	local n = #games
 	if simple then
-		return all("Good", n)
+		return withAuto(all("Good", n), auto)
 	end
 	if type(reported) ~= "table" or #reported ~= n then
-		return all("OK", n)
+		return withAuto(all("OK", n), auto)
 	end
-	local minimum = MiniGame.minSeconds(games, false, cfg) * num(settings(cfg).Slack, 0.8)
+	local played: { string } = {}
+	for index, game in games do
+		if not (type(auto) == "table" and auto[index] == true) then
+			table.insert(played, game)
+		end
+	end
+	local minimum = MiniGame.minSeconds(played, false, cfg) * num(settings(cfg).Slack, 0.8)
 	if num(elapsed, 0) < minimum then
-		return all("OK", n)
+		return withAuto(all("OK", n), auto)
 	end
 	local out: { Rating } = {}
 	for index = 1, n do
 		local rating = reported[index]
 		if not VALID[rating] then
-			return all("OK", n)
+			return withAuto(all("OK", n), auto)
 		end
 		out[index] = rating
 	end
-	return out
+	return withAuto(out, auto)
 end
 
 function MiniGame.multiplier(combo: number, cfg: any): number

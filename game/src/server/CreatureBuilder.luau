@@ -34,6 +34,17 @@
 --                                                    the badge's bottom edge, the next one to give a little bigger,
 --                                                    each given one dimmed with a ✅. Nothing left: no chips.
 --
+--   Progression v2 (build plan §B4/§C T7; OWNER: T7):
+--   CreatureBuilder.setDept(badge, deptId?)          the department chip on the badge's left (Data/Departments
+--                                                    icon: 🛏️ Wards, 🛁 Hydro), so a kid can pick the floor at
+--                                                    triage; nil or "" hides it
+--   CreatureBuilder.setUrgent(badge, urgent?)        "AE": a 🚑 chip (top left) and an orange rim round the badge;
+--                                                    "VIP": a 🚁 chip and a cyan rim; nil or "": neither. Kid-safe:
+--                                                    a friendly chip, nothing gory
+--   build(patientId, "Golden")                       the 🌟 Golden variant (R3+): a gold sheen on the body, a gold
+--                                                    sparkle emitter "Golden" under Root.FX (setEffect turns it on
+--                                                    and off) and the 🌟 sticker. No extra parts
+--
 --   Creature motion (build plan §B4, the depth update's perf pass): the server never moves a creature every frame.
 --   For each animation it sets attributes once, and every client draws the in-between (Feel/CreatureMotion). These
 --   helpers only set attributes: they never yield and never move anything. The caller waits and then writes the end
@@ -90,6 +101,7 @@ local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Ailments = require(Shared.Data.Ailments)
 local CreatureSize = require(Shared.Logic.CreatureSize)
+local Departments = require(Shared.Data.Departments)
 local Items = require(Shared.Data.Items)
 local Palette = require(Shared.Palette)
 local PatientsData = require(Shared.Data.Patients)
@@ -106,7 +118,10 @@ export type Badge = {
 	Icon: TextLabel, -- the big emoji: the ailment, then 💗 / 💤 / 🥰 / 😔
 	Need: Frame, -- the little chip with the item it needs
 	Star: Frame, -- Today's Visitor ⭐
-	Sticker: Frame, -- the variant sticker (✨ / 🧊)
+	Sticker: Frame, -- the variant sticker (✨ / 🧊 / 🌟)
+	Dept: Frame, -- Progression v2: the department chip (setDept)
+	Urgent: Frame, -- Progression v2: the 🚑 / 🚁 chip (setUrgent)
+	Rim: Frame, -- the badge's outer rim (setUrgent colours it)
 	FillLeft: Frame,
 	FillRight: Frame,
 	GradLeft: UIGradient,
@@ -190,7 +205,22 @@ local RING_START = Candy.Lime -- the patience ring starts full and green
 local TRACK = Color3.fromRGB(236, 232, 250) -- the empty part of the patience ring
 local DEFAULT_STATION = Candy.Pink
 local BUBBLE = Candy.Purple -- a regular's speech bubble (white outlined text reads best on it)
-local STICKER_RING: { [string]: Color3 } = { Sparkly = Candy.Pink, Frosty = Candy.Cyan }
+local STICKER_RING: { [string]: Color3 } = { Sparkly = Candy.Pink, Frosty = Candy.Cyan, Golden = Candy.Yellow }
+local GOLD = Color3.fromRGB(255, 204, 64) -- Golden: a warm gold sheen
+local GOLD_LIGHT = Color3.fromRGB(255, 244, 190)
+-- An urgent patient's badge: its chip's ring and the badge's rim (never red: the patience ring's "hurry" colour).
+local URGENT_RING: { [string]: Color3 } = { AE = Candy.Orange, VIP = Candy.Cyan }
+local DEPT_RING = Candy.Mint
+-- Each department chip's ring, the same colours as UI/MiniGames' triage floor buttons (its DEPT_KINDS: Theme.Colors
+-- Primary / Danger / Pink / Cyan / Good / Purple), so a kid matches the badge to the button.
+local DEPT_RINGS: { [string]: Color3 } = {
+	Reception = Candy.Orange,
+	AE = Candy.Red,
+	Wards = Candy.Pink,
+	Hydro = Candy.Cyan,
+	Pharmacy = Candy.Lime,
+	Roof = Candy.Purple,
+}
 
 -- Rainbow glitter for Sparkly, and the colours a cure bursts into.
 local RAINBOW = ColorSequence.new({
@@ -241,6 +271,16 @@ local function recipeLayout(count: number, nextIndex: number?): { { X: number, S
 		table.insert(spots, { X = x, Size = if index == nextIndex then 0.42 else 0.34 })
 	end
 	return spots
+end
+
+-- Progression v2: an urgent patient's chip icon ("AE" 🚑, "VIP" 🚁), or nil for everyone else.
+local function urgentIcon(urgent: any): string?
+	if urgent == "AE" then
+		return "🚑"
+	elseif urgent == "VIP" then
+		return "🚁"
+	end
+	return nil
 end
 -- END PURE
 
@@ -1541,6 +1581,14 @@ local function addEffects(model: Model, root: Part, middle: number, night: boole
 		frost.Lifetime = NumberRange.new(1, 1.8)
 		frost.LightEmission = 0.6
 		frost.Parent = fx
+	elseif variant == "Golden" then
+		-- Progression v2: a soft gold shimmer rising off it (Patients turns it on with setEffect "Golden").
+		local gold = sparkleEmitter("Golden", ColorSequence.new(GOLD, GOLD_LIGHT), 0.42, 9)
+		gold.EmissionDirection = Enum.NormalId.Top
+		gold.SpreadAngle = Vector2.new(60, 60)
+		gold.Speed = NumberRange.new(1, 2.2)
+		gold.LightEmission = 0.7
+		gold.Parent = fx
 	end
 end
 
@@ -1600,6 +1648,11 @@ local function applyVariant(tint: { BasePart }, variant: string?, kit: boolean)
 		end
 	elseif variant == "Sparkly" then
 		rainbowTint(tint, kit)
+	elseif variant == "Golden" then
+		for _, part in tint do
+			part.Color = part.Color:Lerp(GOLD, 0.55)
+			part.Reflectance = 0.18
+		end
 	end
 end
 
@@ -1701,7 +1754,7 @@ local function makeBadge(
 	-- From the outside in: a thick dark rim, the patience ring, the station's candy ring, then a white disc with the
 	-- ailment. The rim is a dark circle rather than a stroke, so it stays chunky at every distance.
 	local face = holder(gui, "Face", BADGE_FACE, 1)
-	circle(face, "Outline", 1, centre, Palette.Outline, 1)
+	local rim = circle(face, "Outline", 1, centre, Palette.Outline, 1)
 	circle(face, "Track", 0.9, centre, TRACK, 2)
 	local ringFrame = holder(face, "Ring", 0.9, 3)
 	local fillLeft, gradLeft = ringHalf(ringFrame, "RingLeft", false)
@@ -1717,6 +1770,12 @@ local function makeBadge(
 	star.Visible = false
 	local stickerFrame = chip(face, "Sticker", 0.4, UDim2.fromScale(0.86, 0.14), stickerRing, sticker or "")
 	stickerFrame.Visible = sticker ~= nil
+	-- Progression v2: the department chip (left edge, clear of the recipe row and the corners) and the 🚑/🚁 chip
+	-- (the Visitor star's corner: an urgent patient is never Today's Visitor). Hidden until set.
+	local deptFrame = chip(face, "Dept", 0.34, UDim2.fromScale(0.08, 0.5), DEPT_RING, "")
+	deptFrame.Visible = false
+	local urgentFrame = chip(face, "Urgent", 0.44, UDim2.fromScale(0.14, 0.14), Candy.Orange, "")
+	urgentFrame.Visible = false
 	-- A 2-3 item recipe's chips (setRecipe fills it in); hidden until a recipe has more than one item.
 	local recipe = holder(face, "Recipe", 1, 7)
 	recipe.Visible = false
@@ -1791,6 +1850,9 @@ local function makeBadge(
 		Need = need,
 		Star = star,
 		Sticker = stickerFrame,
+		Dept = deptFrame,
+		Urgent = urgentFrame,
+		Rim = rim,
 		FillLeft = fillLeft,
 		FillRight = fillRight,
 		GradLeft = gradLeft,
@@ -1974,6 +2036,42 @@ end
 
 function CreatureBuilder.badge(model: Model): Badge?
 	return badges[model]
+end
+
+-- A chip's emoji (chip() names it "<chip name>Icon").
+local function chipIcon(chipFrame: Frame, text: string)
+	local label = chipFrame:FindFirstChild(chipFrame.Name .. "Icon", true)
+	if label and label:IsA("TextLabel") then
+		label.Text = text
+	end
+end
+
+-- Progression v2: the department chip (Data/Departments icon); nil, "" or an unknown id hides it.
+function CreatureBuilder.setDept(badge: Badge, deptId: string?)
+	local dept = if type(deptId) == "string" and deptId ~= "" then rawget(Departments :: any, deptId) else nil
+	if type(dept) == "table" and type(dept.Icon) == "string" then
+		chipIcon(badge.Dept, dept.Icon)
+		badge.Dept.BackgroundColor3 = DEPT_RINGS[deptId :: string] or DEPT_RING
+		badge.Dept.Visible = true
+	else
+		badge.Dept.Visible = false
+	end
+end
+
+-- Progression v2: an urgent patient's 🚑 / 🚁 chip and coloured rim; anything else puts the plain badge back.
+function CreatureBuilder.setUrgent(badge: Badge, urgent: string?)
+	local icon = urgentIcon(urgent)
+	local ring = if icon and type(urgent) == "string" then URGENT_RING[urgent] else nil
+	if icon and ring then
+		chipIcon(badge.Urgent, icon)
+		badge.Urgent.BackgroundColor3 = ring
+		badge.Urgent.Visible = true
+		badge.Star.Visible = false
+		badge.Rim.BackgroundColor3 = ring
+	else
+		badge.Urgent.Visible = false
+		badge.Rim.BackgroundColor3 = Palette.Outline
+	end
 end
 
 -- The ring around the badge: `fraction` of a full circle, clockwise from 12 o'clock.

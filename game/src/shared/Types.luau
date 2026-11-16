@@ -10,20 +10,28 @@ export type StationId = string -- Data/Stations
 export type ItemId = string -- Data/Items
 export type PatientId = string -- Data/Patients (or a RegularId: regulars use their own id as creature id)
 export type RegularId = string -- Data/Regulars
-export type WingId = string -- Data/Wings: "Starter" | "Bath" | "Winter" | "Night"
+export type WingId = string -- Data/Wings: "Starter" | "Bath" | "Winter" | "Night" | "Sunny" | "Sky"
 export type RoomId = string -- Data/Rooms
 export type SlotId = string -- "Stand" | "A" | "B" | "C" | "D"
 export type DecorId = string -- Data/Decor
-export type UpgradeId = string -- Data/Upgrades: "Speed" | "Tray" | "Chairs" | "Tips"
-export type VariantId = string -- Data/Variants: "Sparkly" | "Frosty"
+export type UpgradeId = string -- Data/Upgrades: "Speed" | "Tray" | "Chairs" | "Tips" | "WardComfort" | "AESpeed" | "NightClinic"
+export type VariantId = string -- Data/Variants: "Sparkly" | "Frosty" | "Golden"
 export type SlotKey = string -- a decor slot: "<RoomId>:<n>", e.g. "Stand:1"
 export type NurseId = string -- Data/Nurses
 -- Data/Rarities: Mythic only during Night Rush, Secret only during Golden Hour (memory-20261116-013)
 export type Rarity = "Common" | "Rare" | "Epic" | "Legendary" | "Mythic" | "Secret"
-export type NurseRole = "Maker" | "Healer" | "Cheerer"
+export type NurseRole = "Maker" | "Healer" | "Cheerer" -- a nurse's default job (Data/Nurses Role)
+-- Progression v2 (docs/plan/2026-11-16-progression-v2-build-plan.md §B3)
+export type JobId = string -- Data/Jobs: "Maker" | "Healer" | "Cheerer" | "Receptionist" | "Porter" | "Medic"
+export type DeptId = string -- Data/Departments: "Reception" | "AE" | "Wards" | "Hydro" | "Pharmacy" | "Roof"
+export type AbilityId = string -- Data/Abilities
+export type PerkId = string -- Data/Perks (the Fallback card is "TreePoints")
+export type NodeId = string -- Data/Tree.Nodes
+export type ThemeId = string -- Data/Themes
 export type JournalMark = "Seen" | "Hired" -- Data.NurseIndex: a silhouette until seen, full colour once hired
 export type Rating = "OK" | "Good" | "Perfect" -- a mini-game's rating (Logic/MiniGame); OK still cures
-export type GameId = "Pour" | "Patch" | "Scrub" | "Cool" -- the mini-game for Potion, Plaster, Bubbles, Cocoa
+export type GameId = "Pour" | "Patch" | "Scrub" | "Cool" -- the mini-game for Potion (and every medicine), Plaster,
+-- Bubbles, Cocoa
 
 ------------------------------------------------------------------------------------------------------------------
 -- Data rows (match Shared/Data)
@@ -35,8 +43,9 @@ export type Ailment = {
 	Station: StationId,
 	Recipe: { ItemId }, -- 1-3 items, item 1 = the station's own item; cut by the hospital level (Logic/Recipe)
 }
-export type Station = { Name: string, Icon: string, Item: ItemId, Color: Color3 }
-export type Item = { Name: string, Icon: string, Station: StationId }
+export type Station = { Name: string, Icon: string, Item: ItemId, Craft: boolean?, Color: Color3 }
+-- Medicine/Tier: a Pharmacy medicine (Progression v2): its two ingredients and its tier (2 from R2)
+export type Item = { Name: string, Icon: string, Station: StationId, Medicine: { ItemId }?, Tier: number? }
 export type Look = {
 	Shape: string, -- "Ball" | "Bean" | "Blob" | "Box" | "Drop"
 	Body: string, -- hex colour, e.g. "#A8DB8F"
@@ -74,9 +83,18 @@ export type Room = {
 	Season: string?, -- "Winter" = buyable only while Workspace.IsWinter
 	Level: number?, -- the hospital level it needs (nil = 1): the Garden needs 3
 }
-export type Upgrade = { Name: string, Icon: string, Hint: string, Prices: { number } }
+-- Level / Rebirths: the gates (Progression v2: the hospital level and the rebirths it needs)
+export type Upgrade =
+	{ Name: string, Icon: string, Hint: string, Prices: { number }, Level: number?, Rebirths: number? }
 export type DecorLook = { Kind: string, Color: string, Accent: string, Glow: boolean? }
-export type Decor = { Name: string, Icon: string, Price: number?, EarnedBy: string?, Look: DecorLook }
+export type Decor = {
+	Name: string,
+	Icon: string,
+	Price: number?,
+	EarnedBy: string?, -- "Book" | "Story" | "Referral" | "Playtime" | "Journal" | "Rebirth"
+	Rebirths: number?, -- EarnedBy "Rebirth": the rebirth count that gives it (a Branch Trophy, R6-R10)
+	Look: DecorLook,
+}
 export type GoalKind = "Cure" | "CureNight" | "Make" | "CureWing"
 export type GoalDef = {
 	Id: string,
@@ -86,8 +104,9 @@ export type GoalDef = {
 	Icon: string,
 	Reward: { Cash: number, Stars: number },
 }
-export type Wing = { Name: string, Icon: string, SetReward: DecorId }
-export type Variant = { Name: string, Icon: string, WinterOnly: boolean }
+-- Rebirths: the owner's rebirths before its patients come; Only = "Helicopter": they come only by air ambulance
+export type Wing = { Name: string, Icon: string, SetReward: DecorId, Rebirths: number?, Only: string? }
+export type Variant = { Name: string, Icon: string, WinterOnly: boolean, Rebirths: number? }
 export type RarityInfo = {
 	Name: string,
 	Icon: string,
@@ -97,23 +116,73 @@ export type RarityInfo = {
 	Event: string?, -- "NightRush" | "GoldenHour": only rolled during that event
 	Journal: { Cash: number, Decor: DecorId }, -- the reward for hiring every nurse of this rarity
 }
-export type Nurse = { Name: string, Icon: string, Rarity: Rarity, Role: NurseRole, Look: Look }
+export type Nurse = {
+	Name: string,
+	Icon: string,
+	Rarity: Rarity,
+	Role: NurseRole,
+	Specialty: DeptId | "Any", -- +40% when its job works in this department; counts for that department's team
+	Ability: AbilityId,
+	Source: string?, -- "Rebirth": a rebirth-only nurse (never the belt, the Agency or the Market)
+	Rebirths: number?, -- with Source: the rebirth count that grants it
+	Look: Look,
+}
 export type LevelRow = {
 	Name: string,
 	Icon: string,
 	Stars: number, -- the Clinic Stars needed (a gate, not spent)
 	Cash: number, -- spent
-	Slots: number, -- nurses on duty
-	Beds: number, -- beds in the main building (the Stand's own bed included)
+	Beds: number, -- beds in the hospital (the Stand's own bed included; from Lv 2 the rest are the Wards upstairs)
 	Queue: number, -- patients in line
 	RecipeCap: number, -- recipes are cut to this many items
 	SpawnSeconds: number, -- seconds between new patients (a busier clinic at each level)
-	Floors: number,
+	Floors: number, -- walkable floors above the ground (the 4th at Lv 5 is the roof)
+	Departments: { DeptId }, -- open at this level, cumulatively
 	Unlocks: { string }, -- short chips for the Shop: an emoji and two or three words
+}
+export type Job = { Name: string, Icon: string, Dept: string, Opens: number, Text: string }
+export type TeamEffect = { Kind: string, Value: number, Stations: { StationId }? }
+export type Department = {
+	Name: string,
+	Icon: string,
+	Opens: number,
+	Floor: number,
+	Team2: TeamEffect?,
+	Team3: TeamEffect?,
+}
+export type Ability = {
+	Name: string,
+	Icon: string,
+	Kind: string,
+	Cooldown: number,
+	Daily: boolean?,
+	Values: { number },
+	Game: GameId?,
+}
+export type Perk = { Name: string, Icon: string, Text: string, Kind: string, Value: number }
+export type TreeNode = {
+	Branch: string,
+	Name: string,
+	Icon: string,
+	Text: string,
+	Max: number,
+	Cost: number,
+	Capstone: boolean,
+	Effect: string,
+	Value: number,
+}
+export type Theme = {
+	Name: string,
+	Icon: string,
+	Rebirths: number,
+	Wall: string,
+	Roof: string,
+	Trim: string,
+	Prop: string,
 }
 
 ------------------------------------------------------------------------------------------------------------------
--- Save schema v3 (Logic/Schema; creature-clinic build plan §B3, depth-update build plan §B1)
+-- Save schema v4 (Logic/Schema; creature-clinic build plan §B3, depth-update build plan §B1, Progression v2 §B1)
 ------------------------------------------------------------------------------------------------------------------
 export type BookPage = { Cured: number, Variants: { [VariantId]: boolean } }
 export type StoryEntry = { Beat: number, LastBeatDay: number }
@@ -130,14 +199,26 @@ export type PlaytimeData = {
 }
 export type BoostId = string -- Data/Boosts
 export type BadgeId = string -- Data/Badges.List[n].Id
-export type NurseEntry = { Level: number, Copies: number } -- Level = min(Copies, Config.Nurses.MaxLevel)
+-- A nurse you own (Progression v2): Level 1..the level cap (10; 15 from R3), XP toward the next level (0 at the cap),
+-- Copies hired, Job "" (= its Role), a Data/Jobs id, or "Rest" (an over-roster nurse that isn't working)
+export type NurseEntry = { Level: number, XP: number, Copies: number, Job: string }
+export type RebirthData = {
+	Count: number, -- rebirths done ("branches opened")
+	Points: number, -- unspent Branch Ability Tree points
+	Tree: { [NodeId]: number }, -- ranks bought
+	Perks: { PerkId }, -- perk cards chosen, in order
+	Offer: { PerkId }, -- the cards waiting to be chosen (0..3)
+	Theme: ThemeId, -- the branch theme shown; "" = Candy
+	Pending: { NurseId }, -- rebirth-only nurses waiting for a free roster slot
+	Told: boolean, -- the one gentle "🏢 You can open a branch!" toast was shown (once ever)
+}
 
 export type Data = {
-	Version: number, -- 3
+	Version: number, -- 4
 	Cash: number,
 	Stars: number,
 	Cured: number,
-	Upgrades: { [UpgradeId]: number }, -- levels: Speed, Tray, Chairs, Tips
+	Upgrades: { [UpgradeId]: number }, -- levels: Speed, Tray, Chairs, Tips, WardComfort, AESpeed, NightClinic
 	Rooms: { [RoomId]: boolean }, -- Stand = true always
 	Decor: DecorData,
 	Book: { [PatientId]: BookPage },
@@ -152,15 +233,17 @@ export type Data = {
 	WeekCures: { Week: number, Count: number }, -- cures in one UTC week, for the weekly leaderboard
 	Playtime: PlaytimeData,
 	Boosts: { [BoostId]: number }, -- timed boosts still running: seconds of active play left
-	Stats: { [string]: number }, -- badge counters (Logic/Badges); "Seeded" = 1 once worked out from an older save
+	Stats: { [string]: number }, -- badge counters (Logic/Badges); "Seeded" = 1 once worked out from an older save;
+	-- "RoomsBefore" = the rooms rebirths reset (the 🏠 Builder badge)
 	Badges: { [BadgeId]: number }, -- the badge tier rewarded so far (0..6)
 	-- Depth update (v3)
 	Level: number, -- hospital level 1..5 (Data/Levels)
-	Nurses: { [NurseId]: NurseEntry }, -- hired nurses
-	Equipped: { NurseId }, -- on duty: unique, owned, at most Level of them (slots)
+	Nurses: { [NurseId]: NurseEntry }, -- every nurse you own (at most the roster cap work; the rest rest)
 	NurseIndex: { [NurseId]: JournalMark }, -- the Nurse Journal
 	JournalSets: { [string]: boolean }, -- Rarity -> true: the journal group's reward was granted
 	Simple: boolean, -- Simple mode: every mini-game is one tap rated Good
+	-- Progression v2 (v4)
+	Rebirth: RebirthData,
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -194,13 +277,16 @@ export type Snapshot = {
 	MakeSeconds: { [StationId]: number }, -- your hold time at each station, every boost included (Guide)
 	Stats: { [string]: number },
 	Badges: { [BadgeId]: number },
-	-- Depth update: copies of the save fields (slots = Logic/Levels.slots(Data.Levels, Level))
+	-- Depth update: copies of the save fields
 	Level: number,
 	Nurses: { [NurseId]: NurseEntry },
-	Equipped: { NurseId },
 	NurseIndex: { [NurseId]: JournalMark },
 	JournalSets: { [string]: boolean },
 	Simple: boolean,
+	-- Progression v2: a copy of the save's Rebirth. The client works out the roster cap, the level cap, the effective
+	-- jobs, team bonuses, the next rebirth's cost and the tree's effects from it with Logic/* and Config. The Agency
+	-- and the Market are not here (GetAgency / GetMarket and AgencyNews / MarketNews)
+	Rebirth: RebirthData,
 }
 
 -- Server/Boosts.list: the timed boosts running (Left = saved seconds; subtract PlayTotal - Playtime.TotalSeconds for
@@ -208,6 +294,10 @@ export type Snapshot = {
 export type BoostList = {
 	Timed: { { Id: BoostId, Left: number } },
 	Permanent: { [string]: number },
+	-- Progression v2: the capped branch percent of each kind (the tree + perks, Config.BranchCaps) and the rebirth
+	-- multiplier on cure Cash and Stars (Logic/Rebirth.multiplier)
+	Branch: { [string]: number },
+	Rebirth: { Cash: number, Stars: number },
 }
 
 export type VisitorStatus = "Coming" | "Done" | "None"
@@ -220,6 +310,10 @@ export type CuredInfo = {
 	NewPage: boolean,
 	Position: Vector3,
 	Helper: number, -- UserId of the player who treated the patient
+	-- Progression v2 (Feel/CureFX's bonus lines; Server/Cure always sends them, "" / false = no):
+	Urgent: string?, -- "" | "AE" | "VIP": an ambulance (🚑 x3) or helicopter (🚁 x4) patient
+	Escorted: boolean?, -- it rode the lift with a Porter or a player (+20% 🛗)
+	Soaked: boolean?, -- it rested in the Hydro hot tub (+25% 🛁)
 }
 
 export type NextGoal = { Kind: string, Id: string, Icon: string }
@@ -243,18 +337,68 @@ export type TreatSession = {
 	Combo: number, -- the player's combo before this session
 	Position: Vector3, -- above the patient
 	Timeout: number, -- seconds; then the server settles the session as all OK by itself
+	-- Progression v2 (optional until Server/Treatment sends them)
+	Kind: ("Treat" | "Soak")?, -- Soak: the Hydro hot tub's 🫧 game (Items = {}, Games = { "Scrub" }, a tip only)
+	Auto: { boolean }?, -- per game: an ability made it PERFECT (the client shows ✨ and skips it)
+	Ease: number?, -- 1..1.3: 🎯 Steady Hands widens the Perfect windows (client only, never checked)
 }
 -- TreatResult's third return value when ok
-export type TreatOutcome = { Ratings: { Rating }, Tip: number, Combo: number, Complete: boolean }
-
--- NurseNews (server -> one player)
-export type NurseNews = {
-	Kind: "Seen" | "Hired" | "Equipped",
-	NurseId: NurseId,
-	Level: number?, -- Hired
-	New: boolean?, -- Hired: the first copy
-	On: boolean?, -- Equipped
+export type TreatOutcome = {
+	Ratings: { Rating },
+	Tip: number,
+	Combo: number,
+	Complete: boolean,
+	-- Progression v2: pick a floor for this patient now (Lv 3+, no Receptionist); Seconds for a soft bar, no digits
+	Triage: { Options: { DeptId }, Seconds: number }?,
 }
+
+-- NurseNews (server -> one player). Kind and NurseId always.
+--   "Seen" · "Hired" (Level, New) · "Job" (Job) · "Level" (Level, Ability: an ability upgrade at 5/10) · "Sold" (Cash)
+--   · "Bought" (Price) · "Gone" (Price: sold on the Market) · "Listed" (On) · "Resting" (On)
+export type NurseNews = {
+	Kind: "Seen" | "Hired" | "Job" | "Level" | "Sold" | "Bought" | "Gone" | "Listed" | "Resting",
+	NurseId: NurseId,
+	Level: number?, -- Hired, Level
+	New: boolean?, -- Hired: the first copy
+	Job: JobId?, -- Job
+	Ability: boolean?, -- Level: the ability got stronger (Lv 5, Lv 10)
+	Cash: number?, -- Sold
+	Price: number?, -- Bought, Gone
+	On: boolean?, -- Listed, Resting
+}
+
+-- BeltScout (server -> a 🔭 Belt Scout perk owner): the next belt arrival's rarity, rolled one arrival early with the
+-- odds on the sign at that moment (Event says which: "" | "NightRush" | "GoldenHour")
+export type BeltScoutInfo = { Rarity: Rarity, Event: string }
+
+-- The Nurse Agency (Server/Agency; GetAgency, AgencyNews)
+export type AgencySlot = {
+	Slot: number,
+	NurseId: NurseId,
+	Rarity: Rarity,
+	Price: number, -- YOUR price now (level scale and Bargain included)
+	Bought: boolean, -- you bought this slot this restock
+	Personal: boolean, -- a 🍀 Lucky Stock slot (only you see it)
+	Gate: string?, -- "🏥 Lv 3" | "🏢 R1" | nil
+}
+export type AgencyView = {
+	Restock: number,
+	Slots: { AgencySlot },
+	Odds: { [Rarity]: number },
+	SellBack: { [NurseId]: number }, -- what the Agency pays you for each nurse you own now
+}
+
+-- The Player Market (Server/Market; GetMarket, MarketNews). SellerName = DisplayName; nothing else about anyone.
+export type Listing = {
+	Id: number,
+	Seller: number, -- UserId
+	SellerName: string,
+	NurseId: NurseId,
+	Rarity: Rarity,
+	Level: number,
+	Price: number,
+}
+export type MarketView = { Listings: { Listing }, FeePercent: number, MaxPerSeller: number }
 
 -- Shout (server -> everyone)
 export type ShoutInfo = {
@@ -268,8 +412,10 @@ export type ShoutInfo = {
 }
 
 -- Celebrate (server -> one player; the client fires it too, for rooms)
+--   Progression v2 kinds: "Rebirth" (Count, Theme) · "Perk" (Perk) · "NurseLevel" (NurseId, Level, Ability) ·
+--   "Unlock" (Unlock: a Logic/Rebirth.UNLOCKS id)
 export type CelebrateInfo = {
-	Kind: "LevelUp" | "NewNurse" | "JournalSet" | "Room",
+	Kind: "LevelUp" | "NewNurse" | "JournalSet" | "Room" | "Rebirth" | "Perk" | "NurseLevel" | "Unlock",
 	Title: string, -- 3 words or fewer
 	Icon: string,
 	Rarity: Rarity?,
@@ -278,6 +424,11 @@ export type CelebrateInfo = {
 	Cash: number?,
 	Decor: DecorId?,
 	Room: RoomId?, -- Kind "Room": which room (Feel/CureFX fires it; UI/Celebrate shows its name)
+	Count: number?, -- Rebirth: the rebirths done now
+	Theme: ThemeId?, -- Rebirth: the new branch theme
+	Perk: PerkId?, -- Perk
+	Ability: boolean?, -- NurseLevel: the ability got stronger
+	Unlock: string?, -- Unlock
 }
 
 -- The client bus "Banner" spec (BeltView fires it, Toasts shows it)
@@ -317,7 +468,18 @@ export type CureCtx = {
 	Position: Vector3,
 	Items: number?, -- the recipe's length, 1..3 (a longer recipe pays more: Logic/Pay); nil = 1
 	Cheer: number?, -- the plot's CheerTip when the cure lands (a Cheerer on duty: Logic/Pay); nil = 1
+	-- Progression v2
+	Urgent: string?, -- "AE" | "VIP" (an ambulance or helicopter patient)
+	Extra: number?, -- situational factors Patients knows (escort, spa, triage, team, Ward Comfort), 1..Pay.MAX_EXTRA
+	Plot: Plot?, -- where it was cured (Cure asks Abilities and Nurses about this plot)
+	Dept: DeptId?, -- the department it recovered in (nurse XP specialty)
+	Wing: WingId?, -- for XP and the Book (already derivable; passed to save a lookup)
+	Escorted: boolean?, -- rode the lift with a Porter or a player (already in Extra; passed on to CuredInfo)
+	Soaked: boolean?, -- rested in a Hydro hot-tub spot (already in Extra; passed on to CuredInfo)
 }
+
+-- Team bonuses at a plot (Logic/Jobs.teamEffects, Server/Nurses.team): factors, 1 = none
+export type TeamEffects = { Cash: number, Urgent: number, Recover: number, Make: { [StationId]: number } }
 
 ------------------------------------------------------------------------------------------------------------------
 -- Client (Main.client ctx, build plan Task 0)
@@ -340,6 +502,13 @@ export type ClientData = {
 	Nurses: { [NurseId]: Nurse },
 	Rarities: { [string]: RarityInfo }, -- by Rarity
 	Levels: { LevelRow }, -- an array: Levels[level]
+	-- Progression v2
+	Jobs: { [JobId]: Job },
+	Departments: any, -- Data/Departments: { [DeptId]: Department }, with .Order, .Stations and .Wings
+	Abilities: { [AbilityId]: Ability },
+	Perks: any, -- Data/Perks: { [PerkId]: Perk }, with .Order, .Fallback and .FallbackId
+	Tree: any, -- Data/Tree: { Branches, BranchOrder, Nodes (with .Order), CapstoneNeeds }
+	Themes: { [ThemeId]: Theme },
 }
 
 export type Ctx = {

@@ -80,7 +80,8 @@ Config.AutosaveSeconds = 90
 -- Bump Version to start every board fresh. Admins (the owner and Config.AdminUserIds) are never on a board.
 Config.Leaderboards = {
 	Version = 1,
-	Boards = { "Cured", "Stars", "Hearts", "Week" }, -- the 🏆 panel's tabs, in order (Logic/Leaderboard.BOARDS)
+	-- the 🏆 panel's tabs, in order (Logic/Leaderboard.BOARDS); Progression v2 adds 🏢 Most Rebirths
+	Boards = { "Cured", "Stars", "Hearts", "Week", "Rebirths" },
 	WorldBoards = { "Cured", "Stars", "Hearts", "Week" }, -- the plaza boards, left to right (at most 4)
 	WriteSeconds = 150, -- a player's values are written at most this often (only what changed), and when they leave
 	RefreshSeconds = 120, -- each board is read this often (one request), and shared by everyone in the server
@@ -191,20 +192,125 @@ Config.Belt = {
 	MaxRiders = 5, -- a safety cap on riders at once (the cadence alone keeps two or three on)
 	Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
 	PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 }, -- x by hospital level, so newcomers can always afford Commons (§E5)
+	-- Progression v2 (design §7): Mythic and Secret ride for everyone, but only a player with this many rebirths may
+	-- hire them (Logic/Belt.gate: "🏢 R1"). Rebirth-only nurses (Data/Nurses Source) never ride.
+	MinRebirths = { Mythic = 1, Secret = 1 },
 }
 
--- Nurses on your plot (Logic/Nurse, Server/Nurses). Speed and strength scale with rarity x level (1-5).
+-- Nurses on your plot (Logic/Nurse, Server/Nurses). Speed and strength scale with rarity x level. Progression v2
+-- (docs/plan/2026-11-16-progression-v2-build-plan.md §B6): every nurse you own works its job; levels come from XP
+-- (Config.NurseXP; a copy is one whole level) up to MaxLevel, or MaxLevel + LevelCapBonus from LevelCapRebirths.
 Config.Nurses = {
-	MaxLevel = 5, -- hiring the same nurse again adds a level, up to this
+	MaxLevel = 10, -- the level cap (Lv 10)...
+	LevelCapRebirths = 3, -- ...raised from this many rebirths (R3, memory-20261116-019)...
+	LevelCapBonus = 5, -- ...by this much (Lv 15)
 	TrayMax = 4, -- items Makers keep ready in the plot's nurse tray
 	MinSeconds = 3, -- no nurse works faster than this
-	FasterPerLevel = 0.08, -- each level above 1 takes this share off a Maker's or Healer's seconds
+	FasterPerLevel = 0.05, -- each level above 1 takes this share off a Maker's, Healer's, Medic's or Porter's seconds
 	MakerSeconds = { Common = 14, Rare = 12, Epic = 10, Legendary = 8, Mythic = 7, Secret = 6 },
 	HealerSeconds = { Common = 16, Rare = 14, Epic = 12, Legendary = 10, Mythic = 9, Secret = 8 },
 	CheerPatience = { Common = 0.1, Rare = 0.15, Epic = 0.2, Legendary = 0.3, Mythic = 0.35, Secret = 0.4 },
 	CheerTip = { Common = 0.05, Rare = 0.08, Epic = 0.12, Legendary = 0.18, Mythic = 0.22, Secret = 0.25 },
-	CheerPerLevel = 0.03, -- each level above 1 adds this to both Cheerer bonuses
+	CheerPerLevel = 0.02, -- each level above 1 adds this to both Cheerer bonuses
+	SpecialtyBoost = 0.4, -- design §7: "+40% speed there": a job worked in the nurse's own department
+	MedicSeconds = { Common = 14, Rare = 12, Epic = 10, Legendary = 8, Mythic = 7, Secret = 6 },
+	MedicPatience = { Common = 0.2, Rare = 0.25, Epic = 0.3, Legendary = 0.4, Mythic = 0.45, Secret = 0.5 },
+	PorterSeconds = { Common = 5, Rare = 4.5, Epic = 4, Legendary = 3.5, Mythic = 3, Secret = 3 }, -- a trip's walk
+	ReceptionArrive = { Common = 0.05, Rare = 0.08, Epic = 0.12, Legendary = 0.16, Mythic = 0.18, Secret = 0.2 },
+	ReceptionPerLevel = 0.005, -- each level above 1 adds this to a Receptionist's arrival bonus
 }
+
+------------------------------------------------------------------------------------------------------------------
+-- Progression v2 (docs/plan/2026-11-16-progression-v2-build-plan.md §B6, the reasons in §B6.1). Claude's tuning,
+-- open to change after playtests. No Robux anywhere in these systems (CLAUDE.md red line 3).
+------------------------------------------------------------------------------------------------------------------
+
+-- The roster (memory-20261116-019): every nurse you own works. Max is for performance (§E1: 8 = R5).
+Config.Roster = { Base = 3, PerRebirth = 1, Max = 8 }
+
+-- Nurse XP (Logic/Nurse.addXP): to the next level = 10 + 5 x L x (L + 1). Each cure gives every WORKING nurse at
+-- that plot PerCure, +Specialty when the cure was in its department, x FastLearners with that perk.
+Config.NurseXP = { PerCure = 1, Specialty = 1, FastLearners = 2 }
+
+-- Signature abilities (Data/Abilities, Logic/Abilities): cooldown x CooldownStep at each of UpgradeLevels, never
+-- below MinCooldown seconds; x SecondWind with that perk. The design table's effect numbers (Server/Abilities):
+-- FastMake = Busy Paws' station holds x0.5, CashNext = Double Dose's cure pay x2, NearStation = Time Bubble needs
+-- the owner within 25 studs of a station.
+Config.Abilities = {
+	CooldownStep = 0.85,
+	UpgradeLevels = { 5, 10 },
+	MinCooldown = 20,
+	SecondWind = 0.8,
+	FastMake = 0.5,
+	CashNext = 2,
+	NearStation = 25,
+}
+
+-- Rebirths: "🏢 Open a new branch" (Logic/Rebirth). Optional, never pushed.
+Config.Rebirth = {
+	MinLevel = 5, -- a Mega Hospital
+	Cost = { 50000, 75000, 110000, 170000, 250000, 380000, 570000, 850000, 1300000, 1900000 }, -- R1..R10
+	Growth = 1.5, -- past the table: x1.5 a rebirth, rounded to 2 significant figures
+	CashPerRebirth = 0.25, -- +25% cure cash a rebirth, ADDED (R4 = x2), counted up to MaxBonusRebirths (§E12)
+	StarsPerRebirth = 0.25,
+	MaxBonusRebirths = 20,
+	PointsPerRebirth = 3, -- Branch Ability Tree points
+	OfferSize = 3, -- perk cards offered
+	StartCash = 0, -- cash after a rebirth (the SeedMoney perk: 1,000)
+}
+
+-- The branch's own boost caps (percent): the tree + perks. Beside Config.BoostCaps (badges + ranks), so neither eats
+-- the other's room and neither can run away.
+Config.BranchCaps = { Cash = 30, Stars = 30, Tips = 30, MakeSpeed = 30, Patience = 50 }
+
+-- The Nurse Agency kiosk (Server/Agency, Logic/Agency; design §8, §B3.1). No countdown anywhere (§E9).
+Config.Agency = {
+	RestockSeconds = 300, -- a new stock every 5 minutes of server uptime
+	Slots = 4,
+	LuckySlots = 2, -- the 🍀 Lucky Stock capstone: your own extra slots, same shown odds
+	Odds = { Common = 70, Rare = 26, Epic = 4 }, -- percent; never Legendary+ (design §8)
+	PriceMultiplier = 1.5, -- x the belt's price at your level
+	SellBack = 0.3, -- x the belt's BASE price, per copy (never level-scaled: no buy-and-sell-back profit)
+	Cooldown = 1, -- seconds per player between buys or sells
+	Offset = Vector3.new(11, 0, 12), -- the kiosk, from Town.Origin (the plaza's row-2 side)
+}
+
+-- The Player Market (Server/Market, Logic/Market; same server only, §B3.2).
+Config.Market = {
+	Fee = 0.1, -- the seller gets price - floor(price x Fee): a cash sink
+	BandMin = 0.5, -- the price band: x the belt's base price...
+	BandMax = 3,
+	LevelStep = 0.1, -- ...x (1 + LevelStep x (Level - 1))...
+	Round = 10, -- ...rounded to tens
+	MaxPerSeller = 3,
+	MaxListings = 30,
+	ListCooldown = 5,
+	BuyCooldown = 2,
+	Offset = Vector3.new(-11, 0, 12),
+}
+
+-- Hospital v2 (design §6)
+Config.Lift = { RideSeconds = 2, CarDistance = 6, Cooldown = 1, EscortWait = 6 }
+Config.AE = {
+	EverySeconds = 150, -- an ambulance about this often (±Jitter) at Lv 2+
+	Jitter = 0.2,
+	FirstSeconds = 60,
+	PatienceMultiplier = 0.6, -- 🚑 patients wait less...
+	CashMultiplier = 3, -- ...and pay x3...
+	Stars = 2, -- ...+2 ⭐
+	MinItems = 2, -- their recipe has at least this many items (Logic/Hospital.urgentRecipe)
+}
+Config.VIP = { EverySeconds = 300, Jitter = 0.2, CashMultiplier = 4, Stars = 3 } -- the air ambulance (R2 + Lv 5)
+Config.Triage = { Seconds = 4, RightBonus = 0.1 }
+Config.Escort = { CashBonus = 0.2, RecoverFactor = 0.5 }
+Config.Hydro = { Spots = 2, CashBonus = 0.25, RecoverFactor = 0.5 }
+Config.Pharmacy = { HoldSeconds = 3, Tier2Factor = 0.5 }
+Config.WardComfort = { RecoverPerLevel = 0.2, CashPerLevel = 0.05 }
+Config.AESpeed = { PatiencePerLevel = 0.15, SoonerPerLevel = 0.1 }
+Config.NightClinicPerLevel = 0.25 -- night cure cash +25% a Night Clinic level
+Config.NightOwl = 0.3 -- of Config.NightSeconds: the 🦉 perk's night patients keep coming this long after morning
+Config.GoldenChance = 0.02 -- R3+ owners' patients (1 in 50)
+Config.GoldenMultiplier = 5
 
 -- Game passes. 0 = not created. Nothing paid exists in this build (plan: Global Constraints), and the
 -- 2x Cash idea needs a rethink before it ever ships (design §9). Kept only so the ID has a home.

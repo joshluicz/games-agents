@@ -50,6 +50,7 @@ local Regulars = require(Shared.Data.Regulars)
 local Rooms = require(Shared.Data.Rooms)
 local Ailments = require(Shared.Data.Ailments)
 local Items = require(Shared.Data.Items)
+local Wings = require(Shared.Data.Wings)
 local PlayerData = require(script.Parent.PlayerData)
 local Economy = require(script.Parent.Economy)
 local Progress = require(script.Parent.Progress)
@@ -119,7 +120,8 @@ local function treatableWings(data: Types.Data): { [string]: boolean }
 end
 
 -- Today's Visitor comes from the day patients whose station is in a year-round room, so a seasonal wing never
--- leaves most clinics without a visitor.
+-- leaves most clinics without a visitor. Progression v2 (Task 0, the lead): never from a wing that needs rebirths or
+-- comes only by helicopter (Data/Wings Rebirths / Only), so the chip never promises a visitor who can't come.
 local function buildVisitorPool(): { string }
 	local evergreen: { [string]: boolean } = {}
 	for _, roomId in Rooms.Order do
@@ -134,7 +136,9 @@ local function buildVisitorPool(): { string }
 	for _, patientId in Patients.Order do
 		local patient = patientRow(patientId) :: Types.Patient
 		local station = stationFor(patientId)
-		if not patient.Night and station and evergreen[station] then
+		local wing = rawget(Wings :: any, patient.Wing)
+		local gated = type(wing) == "table" and (wing.Rebirths ~= nil or wing.Only ~= nil)
+		if not patient.Night and not gated and station and evergreen[station] then
 			table.insert(pool, patientId)
 		end
 	end

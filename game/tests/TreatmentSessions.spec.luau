@@ -1,9 +1,12 @@
 --!nocheck
 -- Treat sessions end to end (depth update T1, build plan Review focus 1): the real src/server/Treatment.luau runs
--- under Lune with mocked Roblox services (Players, Remotes, Economy, PlayerData, Nurses). It checks the session
--- lifecycle a cheating client would poke at: one session per player, junk / someone else's / stale ids refused
--- with nothing changed, a too-early report rated all OK, Simple mode, the distance check, the tip cap per cure,
--- the timeout, drop, the helper leaving, and Healer routing. Run from game/ with the rest:  lune run tests/run
+-- under Lune with mocked Roblox services (Players, Remotes, Economy, PlayerData, Nurses, Abilities). It checks the
+-- session lifecycle a cheating client would poke at: one session per player, junk / someone else's / stale ids
+-- refused with nothing changed, a too-early report rated all OK, Simple mode, the distance check, the tip cap per
+-- cure, the timeout, drop, the helper leaving, and Healer routing. Progression v2 (T7): auto-Perfect sessions
+-- (Abilities.consumePerfects), Ease from the tree, a medicine as one Pour game, the 🫧 Soak kind and its tip under
+-- the cap, the Triage remote (right / wrong / junk / late / timeout) and Medic routing.
+-- Run from game/ with the rest:  lune run tests/run
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
@@ -140,8 +143,28 @@ local Config = {
 		PerGameSeconds = 6,
 	},
 	Treat = { ItemPatience = 0.25, Distance = 20 },
+	Triage = { Seconds = 4, RightBonus = 0.1 },
 }
 local MiniGame = require("../src/shared/Logic/MiniGame")
+local RebirthLogic = require("../src/shared/Logic/Rebirth")
+local PerksData = require("../src/shared/Data/Perks")
+local TreeData = require("../src/shared/Data/Tree")
+
+-- Abilities: what a banked AutoPerfect makes PERFECT (the test sets `autoNext`; each ask spends it).
+local autoNext: { boolean }? = nil
+local perfectAsks = 0
+local Abilities = {
+	consumePerfects = function(_plot, games)
+		perfectAsks += 1
+		local flags = autoNext or {}
+		autoNext = nil
+		local out = {}
+		for index in games do
+			out[index] = flags[index] == true
+		end
+		return out
+	end,
+}
 
 local now = 100
 local fakeOs = setmetatable({
@@ -150,12 +173,22 @@ local fakeOs = setmetatable({
 	end,
 }, { __index = os })
 
-local Shared = { Config = "Config", Remotes = "Remotes", Types = "Types", Logic = { MiniGame = "MiniGame" } }
+local Shared = {
+	Config = "Config",
+	Remotes = "Remotes",
+	Types = "Types",
+	Logic = { MiniGame = "MiniGame", Rebirth = "RebirthLogic" },
+	Data = { Perks = "PerksData", Tree = "TreeData" },
+}
 local modules = {
 	Config = Config,
 	Remotes = Remotes,
 	Types = {},
 	MiniGame = MiniGame,
+	RebirthLogic = RebirthLogic,
+	PerksData = PerksData,
+	TreeData = TreeData,
+	Abilities = Abilities,
 	Economy = Economy,
 	PlayerData = PlayerData,
 	Nurses = Nurses,
@@ -169,7 +202,9 @@ local env = {
 			return { Shared = Shared }
 		end,
 	},
-	script = { Parent = { Economy = "Economy", PlayerData = "PlayerData", Nurses = "Nurses" } },
+	script = {
+		Parent = { Economy = "Economy", PlayerData = "PlayerData", Nurses = "Nurses", Abilities = "Abilities" },
+	},
 	require = function(token)
 		return assert(modules[token], "no mock for " .. tostring(token))
 	end,
@@ -190,6 +225,7 @@ local Treatment =
 Treatment.start()
 local TreatResult = served.TreatResult
 local SetSimple = served.SetSimple
+local Triage = served.Triage
 
 local plot = { Index = 1 }
 local function spec(items, settled)
@@ -417,5 +453,188 @@ T.describe("Treatment sessions (mocked)", function()
 		Nurses.Heal:Fire(plot, 42) -- junk id: ignored
 		Nurses.Heal:Fire("plot", "MintMouse") -- junk plot: ignored
 		expect(calls).toBe(2)
+	end)
+end)
+
+-- Progression v2 (T7) ----------------------------------------------------------------------------------------------
+local function triageSpec(items, settled, ask, complete)
+	local s = spec(items, settled)
+	s.Settle = function(ratings, tip)
+		table.insert(settled, { Ratings = ratings, Tip = tip })
+		return complete ~= false, ask
+	end
+	return s
+end
+local HYDRO_ASK = { Options = { "Wards", "Hydro" }, Right = "Hydro" }
+
+T.describe("Treatment v2 (mocked)", function()
+	test("auto-Perfect: the ability's games are Perfect whatever is reported; the minimum time skips them", function()
+		local a = newPlayer("V1")
+		saves[a] = { Simple = false }
+		autoNext = { true, false }
+		local asks = perfectAsks
+		local settled = {}
+		local id = Treatment.open(a, spec({ "Plaster", "Potion" }, settled))
+		expect(perfectAsks).toBe(asks + 1)
+		local payload = fired[#fired].Payload
+		expect(payload.Games).toEqual({ "Patch", "Pour" })
+		expect(payload.Auto).toEqual({ true, false })
+		expect(payload.Kind).toBe("Treat")
+		now += 1.0 -- Pour alone: 1.2 x 0.8 = 0.96 s (with Patch it would need 1.76 s)
+		local ok, _, outcome = TreatResult(a, id, { "OK", "Perfect" })
+		expect(ok).toBe(true)
+		expect(outcome.Ratings).toEqual({ "Perfect", "Perfect" })
+		expect(outcome.Tip).toBe(6) -- two Perfects, combo 1 and 2: 3 + 3
+	end)
+
+	test("auto-Perfect survives a timeout (the ability was spent); other games are OK", function()
+		local a = newPlayer("V2")
+		saves[a] = { Simple = false }
+		autoNext = { false, true }
+		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 0.05, 0
+		local settled = {}
+		Treatment.open(a, spec({ "Potion", "Plaster" }, settled))
+		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 12, 6
+		task.wait(0.15)
+		expect(#settled).toBe(1)
+		expect(settled[1].Ratings).toEqual({ "OK", "Perfect" })
+	end)
+
+	test("a medicine is ONE Pour game; no ability banked means no auto games", function()
+		local a = newPlayer("V3")
+		saves[a] = { Simple = false }
+		local id = Treatment.open(a, spec({ "WarmTonic" }, {}))
+		local payload = fired[#fired].Payload
+		expect(payload.Items).toEqual({ "WarmTonic" })
+		expect(payload.Games).toEqual({ "Pour" })
+		expect(payload.Auto).toEqual({ false })
+		Treatment.drop(id)
+	end)
+
+	test("Ease: the helper's own 🎯 Steady Hands (1 without, 1.3 at three ranks)", function()
+		local a, b = newPlayer("V4a"), newPlayer("V4b")
+		saves[a] = { Simple = false }
+		saves[b] = { Simple = false, Rebirth = { Tree = { SteadyHands = 3 }, Perks = {} } }
+		local idA = Treatment.open(a, spec({ "Potion" }, {}))
+		expect(fired[#fired].Payload.Ease).toBe(1)
+		local idB = Treatment.open(b, spec({ "Potion" }, {}))
+		expect(fired[#fired].Payload.Ease).toBeCloseTo(1.3)
+		Treatment.drop(idA)
+		Treatment.drop(idB)
+	end)
+
+	test("a Soak: one Scrub game, no items, and its tip stays under the patient's cap", function()
+		local a = newPlayer("V5")
+		saves[a] = { Simple = false }
+		expect(Treatment.open(a, spec({}, {}))).toBe(nil) -- a Treat needs items
+		local settled = {}
+		local s = spec({}, settled)
+		s.Kind = "Soak"
+		s.TipSoFar = 13 -- the cure paid 13 already: 2 left under TipCapPerCure 15
+		s.Settle = function(ratings, tip)
+			table.insert(settled, { Ratings = ratings, Tip = tip })
+			return false, nil
+		end
+		local id = Treatment.open(a, s)
+		local payload = fired[#fired].Payload
+		expect(payload.Kind).toBe("Soak")
+		expect(payload.Items).toEqual({})
+		expect(payload.Games).toEqual({ "Scrub" })
+		now += 2 -- Scrub: 1.5 x 0.8 = 1.2 s
+		local before = cash[a] or 0
+		local ok, _, outcome = TreatResult(a, id, { "Perfect" })
+		expect(ok).toBe(true)
+		expect(outcome.Tip).toBe(2)
+		expect(outcome.Complete).toBe(false)
+		expect(outcome.Triage).toBe(nil)
+		expect((cash[a] or 0) - before).toBe(2)
+	end)
+
+	test("Triage: a right pick, once; waitTriage answers it", function()
+		local a = newPlayer("V6")
+		saves[a] = { Simple = false }
+		expect(Triage(a, 1, "Hydro")).toBe(false) -- nothing pending yet
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		now += 2
+		local ok, _, outcome = TreatResult(a, id, { "Good" })
+		expect(ok).toBe(true)
+		expect(outcome.Complete).toBe(true)
+		expect(outcome.Triage).toEqual({ Options = { "Wards", "Hydro" }, Seconds = 4 })
+		local picked, message, payload = Triage(a, id, "Hydro")
+		expect(picked).toBe(true)
+		expect(message).toBe("✅ Right floor!")
+		expect(payload).toEqual({ Right = true })
+		expect(Triage(a, id, "Hydro")).toBe(false) -- once
+		expect(Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")).toBe("Hydro")
+	end)
+
+	test("Triage: junk and someone else's are refused; a wrong pick says Oops (it still goes the right way)", function()
+		local a, b = newPlayer("V7a"), newPlayer("V7b")
+		saves[a], saves[b] = { Simple = false }, { Simple = false }
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		now += 2
+		TreatResult(a, id, { "Good" })
+		for _, call in { { id, "Roof" }, { id, 7 }, { id + 1, "Wards" }, { "1", "Wards" }, { 0 / 0, "Wards" } } do
+			local okJunk, messageJunk = Triage(a, call[1], call[2])
+			expect(okJunk).toBe(false)
+			expect(messageJunk).toBe(Remotes.OOPS)
+		end
+		expect(Triage(b, id, "Hydro")).toBe(false) -- not b's patient
+		local ok, message, payload = Triage(a, id, "Wards")
+		expect(ok).toBe(true)
+		expect(message).toBe("Oops, not this floor!")
+		expect(payload).toEqual({ Right = false })
+		expect(Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")).toBe("Wards")
+	end)
+
+	test("Triage: no pick in time -> waitTriage answers '' and a late pick is refused", function()
+		local a = newPlayer("V8")
+		saves[a] = { Simple = false }
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		now += 2
+		TreatResult(a, id, { "Good" })
+		local answer = nil
+		task.spawn(function()
+			answer = Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")
+		end)
+		expect(answer).toBe(nil) -- still waiting for the pick
+		now += 5 -- past Config.Triage.Seconds
+		task.wait(0.25)
+		expect(answer).toBe("")
+		expect(Triage(a, id, "Hydro")).toBe(false)
+	end)
+
+	test("Triage: only the helper's own report asks; a timeout or an unfinished recipe asks nobody", function()
+		local a = newPlayer("V9")
+		saves[a] = { Simple = false }
+		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 0.05, 0
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 12, 6
+		task.wait(0.15)
+		expect(Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")).toBe("")
+		expect(Triage(a, id, "Hydro")).toBe(false)
+		local id2 = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK, false))
+		now += 2
+		local _, _, outcome = TreatResult(a, id2, { "Good" })
+		expect(outcome.Complete).toBe(false)
+		expect(outcome.Triage).toBe(nil)
+		-- A broken ask (one option, or a Right that isn't one) asks nothing.
+		local id3 = Treatment.open(a, triageSpec({ "Bubbles" }, {}, { Options = { "Wards" }, Right = "Wards" }))
+		now += 2
+		local _, _, outcome3 = TreatResult(a, id3, { "Good" })
+		expect(outcome3.Triage).toBe(nil)
+	end)
+
+	test("Medics: Nurses.Heal target Urgent reaches Patients as Urgent; anything else is Front", function()
+		local targets = {}
+		Treatment.onHeal(function(_p, _nurseId, target)
+			table.insert(targets, target)
+			return {}
+		end)
+		Nurses.Heal:Fire(plot, "CuddleCub", "Urgent")
+		Nurses.Heal:Fire(plot, "MintMouse", "Front")
+		Nurses.Heal:Fire(plot, "MintMouse", "junk")
+		Nurses.Heal:Fire(plot, "MintMouse")
+		expect(targets).toEqual({ "Urgent", "Front", "Front", "Front" })
 	end)
 end)

@@ -7,16 +7,18 @@
 --                                         a UserId in UserIds (Config.AdminUserIds, checked first), the game's owner
 --                                         (CreatorIsUser and userId == CreatorId), a UserId in Resolved (the
 --                                         Config.AdminNames the server looked up), or anyone while Studio
---   Admin.valid(action, arg, patients, boosts?): boolean   a known action with exactly the argument it takes: nil
---                                         for most, one of CASH or STARS for AddCash and AddStars, a Data/Patients id
---                                         for SpawnPatient (`patients` is that map; rawget, so its `Order` is no id),
---                                         a Data/Boosts id for AddBoost (`boosts` is that map)
---   Admin.serverWide(action): boolean     the action changes the whole server (night, day, winter)
+--   Admin.valid(action, arg, patients, boosts?, nurses?): boolean   a known action with exactly the argument it
+--                                         takes: nil for most, one of CASH or STARS for AddCash and AddStars, a
+--                                         Data/Patients id for SpawnPatient (`patients` is that map; rawget, so its
+--                                         `Order` is no id), a Data/Boosts id for AddBoost (`boosts` is that map), a
+--                                         Data/Nurses id for GiveNurse (`nurses` is that map)
+--   Admin.serverWide(action): boolean     the action changes the whole server (night, day, winter, the Agency's
+--                                         restock)
 --   Admin.serverWideAllowed(studio, players): boolean   only alone in the server (players <= 1), or in Studio
 --   Admin.ACTIONS                         every action: { Arg = ArgKind, ServerWide = boolean }
 --   Admin.CASH · Admin.STARS              the only amounts the cash and star buttons may add
 
-export type ArgKind = "None" | "Cash" | "Stars" | "PatientId" | "BoostId"
+export type ArgKind = "None" | "Cash" | "Stars" | "PatientId" | "BoostId" | "NurseId"
 export type Spec = { Arg: ArgKind, ServerWide: boolean }
 export type Who = {
 	Studio: boolean,
@@ -54,10 +56,19 @@ Admin.ACTIONS = table.freeze({
 	AddCureStat = spec("None", false), -- +100 to the 🏥 Healer counter
 	MaxBadges = spec("None", false), -- every badge to its top tier, with its rewards
 	AddBoost = spec("BoostId", false), -- a timed boost, as a play gift gives it
+	-- Progression v2 (build plan §B8 "Admin"): your own save and plot, through each system's admin hook
+	Rebirth = spec("None", false), -- Rebirth.adminRebirth: a free rebirth (no Lv 5, no cost)
+	AddTreePoints = spec("None", false), -- Rebirth.adminPoints: +3 tree points
+	NurseLevels = spec("None", false), -- Nurses.adminLevels: +1 level for each of your nurses, to the cap
+	GiveNurse = spec("NurseId", false), -- Nurses.adminGive: that nurse, free (the roster rules still apply)
+	ChargeAbilities = spec("None", false), -- Abilities.adminCharge: every ability at your plot ready now
+	SpawnAmbulance = spec("None", false), -- Patients.adminAmbulance: an ambulance now (Lv 2+)
+	SpawnHelicopter = spec("None", false), -- Patients.adminHelicopter: an air ambulance now (Lv 5; no R2 needed)
 	-- The whole server
 	SkipToNight = spec("None", true),
 	SkipToDay = spec("None", true),
 	ToggleWinter = spec("None", true),
+	RefillAgency = spec("None", true), -- Agency.restockNow: a new stock for everyone (a new restock index)
 }) :: { [string]: Spec }
 
 local function specOf(action: any): Spec?
@@ -98,7 +109,7 @@ local function knownId(arg: any, map: any): boolean
 		and type(rawget(map, arg)) == "table"
 end
 
-function Admin.valid(action: any, arg: any, patients: any, boosts: any?): boolean
+function Admin.valid(action: any, arg: any, patients: any, boosts: any?, nurses: any?): boolean
 	local found = specOf(action)
 	if not found then
 		return false
@@ -114,6 +125,8 @@ function Admin.valid(action: any, arg: any, patients: any, boosts: any?): boolea
 		return knownId(arg, patients)
 	elseif kind == "BoostId" then
 		return knownId(arg, boosts)
+	elseif kind == "NurseId" then
+		return knownId(arg, nurses)
 	end
 	return false
 end

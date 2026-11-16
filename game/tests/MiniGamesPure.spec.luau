@@ -265,4 +265,178 @@ T.describe("MiniGames (client pure helpers)", function()
 	end)
 end)
 
+local function near(a: number, b: number): boolean
+	return math.abs(a - b) <= 1e-9
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Progression v2 (build plan §B3 TreatSession / TreatOutcome, §C T8): auto games, the ease scaling, the Soak kind
+-- and the triage card's states. Same pure block, plus the frozen Logic/MiniGame they must agree with.
+------------------------------------------------------------------------------------------------------------------
+
+local Departments = luau.load(source("src/shared/Data/Departments.luau"), { debugName = "Data.Departments" })()
+
+local function payload(extra: { [string]: any }): { [string]: any }
+	local raw: { [string]: any } = {
+		Session = 3,
+		PatientId = "DumplingFrog",
+		Items = { "Plaster", "Potion" },
+		Games = { "Patch", "Pour" },
+		Simple = false,
+		Combo = 0,
+		Position = "ignored",
+		Timeout = 24,
+	}
+	for key, value in extra do
+		raw[key] = value
+	end
+	return raw
+end
+
+T.describe("MiniGames v2: the session's new fields", function()
+	test("defaults when the server sends none: Treat, nothing auto, no ease", function()
+		local s = Pure.session(payload({}))
+		expect(s.Kind).toBe("Treat")
+		expect(s.Auto).toEqual({ false, false })
+		expect(s.Ease).toBe(1)
+	end)
+	test("Auto lines up with the games; anything but true is false", function()
+		local s = Pure.session(payload({ Auto = { true, "yes" } }))
+		expect(s.Auto).toEqual({ true, false })
+		s = Pure.session(payload({ Auto = { [2] = true } }))
+		expect(s.Auto).toEqual({ false, true })
+		s = Pure.session(payload({ Auto = "all" }))
+		expect(s.Auto).toEqual({ false, false })
+	end)
+	test("Ease is clamped to 1..1.3 (junk = 1)", function()
+		expect(Pure.session(payload({ Ease = 1.2 })).Ease).toBe(1.2)
+		expect(Pure.session(payload({ Ease = 5 })).Ease).toBe(Pure.EASE_MAX)
+		expect(Pure.session(payload({ Ease = 0.5 })).Ease).toBe(1)
+		expect(Pure.session(payload({ Ease = 0 / 0 })).Ease).toBe(1)
+		expect(Pure.session(payload({ Ease = "wide" })).Ease).toBe(1)
+	end)
+	test("Soak: the hot tub's one Scrub game with no items", function()
+		local s = Pure.session({ Session = 9, Kind = "Soak", Items = {}, Games = { "Scrub" }, Combo = 1, Timeout = 18 })
+		expect(s.Kind).toBe("Soak")
+		expect(s.Games).toEqual({ "Scrub" })
+		expect(s.Items).toEqual({ "" })
+		expect(Pure.session(payload({ Kind = "Bath" })).Kind).toBe("Treat")
+	end)
+end)
+
+T.describe("MiniGames v2: auto games", function()
+	test("played: only the games not made PERFECT count", function()
+		expect(Pure.played({ "Patch", "Pour", "Cool" }, { true, false, true })).toEqual({ "Pour" })
+		expect(Pure.played({ "Patch", "Pour" }, nil)).toEqual({ "Patch", "Pour" })
+		expect(Pure.played({ "Patch" }, { true })).toEqual({})
+	end)
+	test("the report waits only for the played games, as the server's accept counts them", function()
+		local games, auto = { "Patch", "Pour", "Cool" }, { true, false, true }
+		local minimum = MiniGame.minSeconds(Pure.played(games, auto), false, CFG)
+		expect(minimum).toBe(CFG.MiniGame.MinSeconds.Pour)
+		-- A report right after that minimum is accepted as it is; the auto games come back Perfect whatever was sent.
+		local ratings = MiniGame.accept({ "Perfect", "Good", "Perfect" }, games, minimum, false, CFG, auto)
+		expect(ratings).toEqual({ "Perfect", "Good", "Perfect" })
+		ratings = MiniGame.accept({ "OK", "Good", "OK" }, games, minimum, false, CFG, auto)
+		expect(ratings).toEqual({ "Perfect", "Good", "Perfect" })
+	end)
+	test("all games auto: nothing to wait for", function()
+		local minimum = MiniGame.minSeconds(Pure.played({ "Patch", "Scrub" }, { true, true }), false, CFG)
+		expect(minimum).toBe(0)
+		expect(Pure.holdBack(0, minimum, 0.15)).toBe(0.15)
+	end)
+	test("the predicted combo counts an auto Perfect like any other", function()
+		local combo = MiniGame.settle(2, { "Perfect", "Perfect" }, CFG)
+		expect(combo).toBe(4)
+	end)
+end)
+
+T.describe("MiniGames v2: 🎯 Steady Hands widens the windows", function()
+	local mini = CFG.MiniGame
+	test("ease 1 (or junk) is the plain settings, as a fresh copy", function()
+		local plain = Pure.eased(mini, 1)
+		expect(plain.Pour.BandMin).toBe(mini.Pour.BandMin)
+		expect(plain.Cool.Window).toBe(mini.Cool.Window)
+		expect(plain ~= mini).toBeTruthy()
+		expect(Pure.eased(mini, "x").Pour.BandMax).toBe(mini.Pour.BandMax)
+		expect(Pure.eased(nil, 1.2).Pour.BandMin < 0.7).toBeTruthy() -- the Logic defaults, widened
+	end)
+	test("the Pour's ⭐ band widens round its middle; the Good slack grows too", function()
+		local eased = Pure.eased(mini, 1.3)
+		local width = mini.Pour.BandMax - mini.Pour.BandMin
+		local middle = (mini.Pour.BandMax + mini.Pour.BandMin) / 2
+		expect(near(eased.Pour.BandMax - eased.Pour.BandMin, width * 1.3)).toBeTruthy()
+		expect(near((eased.Pour.BandMax + eased.Pour.BandMin) / 2, middle)).toBeTruthy()
+		expect(near(eased.Pour.GoodSlack, mini.Pour.GoodSlack * 1.3)).toBeTruthy()
+		expect(mini.Pour.BandMin).toBe(0.7) -- the shipped table is never changed
+	end)
+	test("a fill just outside the plain band is Perfect once eased, and rated the same as drawn", function()
+		local fill = mini.Pour.BandMax + 0.02
+		expect(MiniGame.rate("Pour", fill, CFG)).toBe("Good")
+		expect(MiniGame.rate("Pour", fill, { MiniGame = Pure.eased(mini, 1.3) })).toBe("Perfect")
+		local lo, hi = Pure.bands(Pure.eased(mini, 1.3).Pour)
+		expect(fill >= lo and fill <= hi).toBeTruthy()
+	end)
+	test("the Cool's blow window, and more time to patch and scrub", function()
+		local eased = Pure.eased(mini, 1.2)
+		expect(near(eased.Cool.Window, mini.Cool.Window * 1.2)).toBeTruthy()
+		expect(near(eased.Patch.Seconds, mini.Patch.Seconds * 1.2)).toBeTruthy()
+		expect(near(eased.Scrub.Seconds, mini.Scrub.Seconds * 1.2)).toBeTruthy()
+		local pulse = mini.Cool.PulseSeconds
+		local late = pulse / 2 + mini.Cool.Window + 0.03
+		expect(Pure.goodBlow(late, pulse, mini.Cool.Window)).toBe(false)
+		expect(Pure.goodBlow(late, pulse, eased.Cool.Window)).toBe(true)
+	end)
+	test("the thresholds to reach (spots, bubbles, blows) never change: only the windows", function()
+		local eased = Pure.eased(mini, 1.3)
+		expect(eased.Patch.Spots).toBe(mini.Patch.Spots)
+		expect(eased.Scrub.Perfect).toBe(mini.Scrub.Perfect)
+		expect(eased.Cool.Blows).toBe(mini.Cool.Blows)
+		expect(eased.TipCapPerCure).toBe(mini.TipCapPerCure)
+	end)
+end)
+
+T.describe("MiniGames v2: the triage card's states", function()
+	test("a card: one big button per known floor, in order, with its icon", function()
+		local card = Pure.triage({ Options = { "Wards", "Hydro" }, Seconds = 4 }, Departments)
+		expect(card.Seconds).toBe(4)
+		expect(#card.Options).toBe(2)
+		expect(card.Options[1].Dept).toBe("Wards")
+		expect(card.Options[1].Icon).toBe(Departments.Wards.Icon)
+		expect(card.Options[2].Icon).toBe(Departments.Hydro.Icon)
+	end)
+	test("no card: junk, one floor, unknown floors, repeats, no time", function()
+		expect(Pure.triage(nil, Departments)).toBeNil()
+		expect(Pure.triage({ Options = { "Wards" }, Seconds = 4 }, Departments)).toBeNil()
+		expect(Pure.triage({ Options = { "Wards", "Wards" }, Seconds = 4 }, Departments)).toBeNil()
+		expect(Pure.triage({ Options = { "Wards", "Order" }, Seconds = 4 }, Departments)).toBeNil()
+		expect(Pure.triage({ Options = { "Wards", "Hydro" }, Seconds = 0 }, Departments)).toBeNil()
+		expect(Pure.triage({ Options = { "Wards", "Hydro" } }, Departments)).toBeNil()
+		expect(Pure.triage({ Options = "Wards,Hydro", Seconds = 4 }, Departments)).toBeNil()
+	end)
+	test("at most TRIAGE_MAX buttons, and a long wait is capped", function()
+		local card = Pure.triage({ Options = { "Wards", "Hydro", "Pharmacy", "AE" }, Seconds = 99 }, Departments)
+		expect(#card.Options).toBe(Pure.TRIAGE_MAX)
+		expect(card.Seconds).toBe(Pure.TRIAGE_SECONDS_MAX)
+	end)
+	test("the soft bar drains from full to empty, never digits", function()
+		expect(Pure.triageBar(0, 4)).toBe(1)
+		expect(Pure.triageBar(2, 4)).toBe(0.5)
+		expect(Pure.triageBar(9, 4)).toBe(0)
+		expect(Pure.triageBar(-1, 4)).toBe(1)
+		expect(Pure.triageBar(1, 0)).toBe(0)
+	end)
+	test("the answer: Right, Wrong (it still goes the right way) or Quiet", function()
+		expect(Pure.triageResult(true, "", { Right = true })).toBe("Right")
+		expect(Pure.triageResult(true, "", { Right = false })).toBe("Wrong")
+		expect(Pure.triageResult(true, "✅ Right floor!", nil)).toBe("Right")
+		expect(Pure.triageResult(true, "Oops, not this floor!", nil)).toBe("Wrong")
+		expect(Pure.triageResult(false, "Oops, not this floor!", nil)).toBe("Wrong")
+		expect(Pure.triageResult(false, "Oops! Try again.", nil)).toBe("Quiet") -- an error: nothing to say
+		expect(Pure.triageResult(false, "", nil)).toBe("Quiet") -- rate-limited or too late
+		expect(Pure.TRIAGE_TEXT.Right.Text).toBe("Right floor!")
+		expect(Pure.TRIAGE_TEXT.Wrong.Text).toBe("Oops, not this floor!")
+	end)
+end)
+
 return nil

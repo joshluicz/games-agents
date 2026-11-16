@@ -3,7 +3,10 @@
 -- Server only. The server is the only one that changes it; clients just read the attributes.
 --
 --   Carry.items(p): { ItemId }      a copy, oldest first
---   Carry.capacity(p): number       Logic/Prices.capacity(<Bigger Tray level>) = 1 + level
+--   Carry.capacity(p): number       Logic/Prices.capacity(<Bigger Tray level>, <🧺 Big Hands>) = 1 + level + bonus;
+--                                   the bonus is the owned perk cards' Tray (Logic/Rebirth.effects: Big Hands +1).
+--                                   A rebirth resets Bigger Tray: items already held stay (nothing is taken from a
+--                                   kid's hands), and new ones wait until there is room again
 --   Carry.add(p, itemId): boolean   false: unknown item, tray full, or the player is gone
 --   Carry.take(p, itemId): boolean  removes ONE of that item; false if the player doesn't carry it
 --   Carry.clear(p)
@@ -19,15 +22,20 @@
 --     (memory-20261116-007): a white pill with a thick dark outline and a dark lip underneath, like a candy button.
 -- Cleared on death and on leave. A new character without a death (LoadCharacter) gets the same items back.
 -- The tray level is read from PlayerData directly (same number as Economy.level), so Carry never requires
--- Economy and Economy may require Carry.
+-- Economy and Economy may require Carry. The perk bonus is read from the save too (Logic/Rebirth.effects), so Carry
+-- never requires Server/Rebirth (nothing does but Admin).
 
 local Players = game:GetService("Players")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Config = require(Shared.Config)
 local Items = require(Shared.Data.Items)
 local Palette = require(Shared.Palette)
+local PerksData = require(Shared.Data.Perks)
 local Stations = require(Shared.Data.Stations)
+local TreeData = require(Shared.Data.Tree)
 local Prices = require(Shared.Logic.Prices)
+local RebirthLogic = require(Shared.Logic.Rebirth)
 local PlayerData = require(script.Parent.PlayerData)
 
 local Carry = {}
@@ -72,6 +80,16 @@ local function trayLevel(player: Player): number
 		return math.floor(level)
 	end
 	return 0
+end
+
+-- 🧺 Big Hands (a perk card, kept across rebirths): extra items you can carry.
+local function perkBonus(player: Player): number
+	local data = PlayerData.get(player)
+	if not data then
+		return 0
+	end
+	local tray = RebirthLogic.effects(data, Config, PerksData, TreeData).Tray
+	return if type(tray) == "number" and tray == tray and tray > 0 then math.floor(tray) else 0
 end
 
 local function itemColor(itemId: string): Color3
@@ -288,7 +306,7 @@ function Carry.capacity(player: Player): number
 	if not isPlayer(player) then
 		return 1
 	end
-	return math.max(1, Prices.capacity(trayLevel(player)))
+	return math.max(1, Prices.capacity(trayLevel(player), perkBonus(player)))
 end
 
 function Carry.has(player: Player, itemId: string): boolean
@@ -377,7 +395,8 @@ function Carry.start()
 		guis[player] = nil
 	end)
 
-	-- A Bigger Tray purchase (or the save loading) changes the tray size: show the new room straight away.
+	-- A Bigger Tray purchase, a 🧺 Big Hands card, a rebirth (Bigger Tray back to 0) or the save loading changes the
+	-- tray size: show it straight away.
 	PlayerData.Changed:Connect(function(player: Player)
 		if carried[player] and player:GetAttribute("CarryMax") ~= Carry.capacity(player) then
 			sync(player)

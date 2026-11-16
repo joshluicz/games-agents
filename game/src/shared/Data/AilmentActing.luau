@@ -118,9 +118,44 @@ local ENTRIES: { [AilmentId]: Acting } = {
 		Squint = true,
 		Cheeks = COLD_CHEEKS,
 	},
+	-- Progression v2 (existing vocabulary only)
+	Pollen = { -- a flower-dusted sneeze: tissue at the ready, achoo! with a soft puff
+		Motion = "Sneeze",
+		Every = { 3, 5.5 },
+		Props = { "Tissue" },
+		Burst = "Achoo",
+		Face = "Achoo",
+		Squint = true,
+	},
+	Prickles = { -- a plaster on a cartoon thorn; it tugs at it, stuck
+		Motion = "Stuck",
+		Every = { 3, 5 },
+		Props = { "Bandage" },
+		Face = "Ooh",
+	},
+	Airsick = { -- a dizzy sway with stars circling its head
+		Motion = "Dizzy",
+		Every = { 3.5, 6 },
+		Props = { "DizzyStars" },
+		Face = "Ooh",
+	},
 }
 
-local ORDER = { "Hiccups", "Sneezes", "Cough", "Bump", "Scrape", "LostGlow", "Sticky", "Muddy", "Chills", "FrozenNose" }
+local ORDER = {
+	"Hiccups",
+	"Sneezes",
+	"Cough",
+	"Bump",
+	"Scrape",
+	"LostGlow",
+	"Sticky",
+	"Muddy",
+	"Chills",
+	"FrozenNose",
+	"Pollen",
+	"Prickles",
+	"Airsick",
+}
 
 -- Anything without an entry (a new ailment, a kit model): a gentle sniffle, no props.
 local DEFAULT: Acting = { Motion = "Sniffle", Every = { 3.5, 5.5 }, Props = {}, Squint = true }

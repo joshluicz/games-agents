@@ -1,7 +1,8 @@
 --!nocheck
--- The Nurses server's pure helpers (depth update T3): the three files compile, and the PURE-BEGIN..PURE-END
--- blocks of Server/Nurses and Server/NurseBelt, loaded on their own (the rest needs Roblox), are tested against
--- the real Logic/Belt, Logic/Nurse, Data/Nurses and Data/Rarities. Run from game/ with the rest:  lune run tests/run
+-- The Nurses server's pure helpers (depth update T3; Progression v2 T1): the four files compile, and the
+-- PURE-BEGIN..PURE-END blocks of Server/Nurses and Server/NurseBelt, loaded on their own (the rest needs Roblox), are
+-- tested against the real Logic/Belt, Logic/Nurse, Data/Nurses and Data/Rarities. The Progression v2 nurse work
+-- (jobs, XP, teams, grant/take/give, abilities) is tests/NurseWork.spec. Run from game/:  lune run tests/run
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
@@ -40,7 +41,7 @@ local Config = require("./config")
 local CFG = { Belt = Config.Belt, Nurses = { MaxLevel = Config.Nurses.MaxLevel } }
 
 T.describe("compile", function()
-	for _, name in { "Nurses.luau", "NurseBelt.luau", "NurseBuilder.luau" } do
+	for _, name in { "Nurses.luau", "NurseBelt.luau", "NurseBuilder.luau", "Abilities.luau" } do
 		test(name, function()
 			local ok, err = pcall(luau.compile, source(ROOT .. name))
 			expect(ok).toBe(true)
@@ -51,7 +52,7 @@ T.describe("compile", function()
 	end
 end)
 
-local NP = pureBlock("Nurses.luau", {})
+local NP = pureBlock("Nurses.luau", { NurseLogic = NurseLogic })
 local BP = pureBlock("NurseBelt.luau", { BeltLogic = BeltLogic })
 
 T.describe("Nurses.Pure", function()
@@ -137,14 +138,9 @@ T.describe("Nurses.Pure", function()
 		expect(NP.canHeal({ "Potion" }, {})).toBe(false)
 	end)
 
-	test("onDuty: Equipped in order, unique, known, cut to the slots", function()
-		local known = function(id)
-			return id ~= "Ghost"
-		end
-		expect(NP.onDuty({ "A", "Ghost", "B", "A", "C" }, known, 2)).toEqual({ "A", "B" })
-		expect(NP.onDuty({ "A", 5, "B" }, known, 5)).toEqual({ "A", "B" })
-		expect(NP.onDuty(nil, known, 3)).toEqual({})
-		expect(NP.onDuty({ "A" }, known, 0)).toEqual({})
+	test("Equipped is gone: no onDuty helper is left to drift from Logic/Nurse.working", function()
+		expect(NP.onDuty).toBeNil()
+		expect(NP.sameList).toBeNil()
 	end)
 
 	test("level: clamped 1..max, junk -> 1", function()
@@ -216,14 +212,15 @@ T.describe("NurseBelt.Pure", function()
 		expect(BP.afterHire(140, 100, "Rare", CFG, 2)).toBe(140)
 	end)
 
-	test("gateLine: the sign says who may hire Epic and up", function()
-		expect(BP.gateLine(3)).toBe("🏥 Epic+ hire from Lv 3")
-		expect(BP.gateLine(1)).toBe("")
-		local words = 0
-		for _ in string.gmatch(BP.gateLine(3), "%S+") do
-			words += 1
+	test("gateText: the sign says who may hire Epic and up, and Mythic/Secret from R1", function()
+		expect(BP.gateText(CFG)).toBe("🏥 Epic+ from Lv 3 · 🏢 Mythic/Secret from R1")
+		for _, line in BP.gateLines(CFG) do
+			local words = 0
+			for _ in string.gmatch(line, "%S+") do
+				words += 1
+			end
+			expect(words <= 6).toBe(true)
 		end
-		expect(words <= 6).toBe(true)
 	end)
 
 	test("hiredShout: Legendary and up", function()

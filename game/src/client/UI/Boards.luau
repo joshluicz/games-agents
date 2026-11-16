@@ -1,7 +1,8 @@
 --!strict
 -- Boards: the 🏆 leaderboards panel (game/README.md "Leaderboards").
 --   init(ctx)   opens on ctx.fire("Open", "Boards") (the HUD's 🏆 Top button)
--- One tab per board (Config.Leaderboards.Boards: 🏥 Cured, ⭐ Stars, ❤️ Hearts, 🏆 Week). A page shows the top 10
+-- One tab per board (Config.Leaderboards.Boards: 🏥 Cured, ⭐ Stars, ❤️ Hearts, 🏆 Week and, Progression v2, 🏢
+-- Branches: Most Rebirths, admins never on it like every board). A page shows the top 10
 -- (🥇🥈🥉, then numbers; each player's DisplayName with their @username small under it, as Roblox shows them) and,
 -- pinned under it, your own bar: "You: #12" and your value, "You: #100+" past the top 100, "Play to join in!" before you
 -- have a value, or "🛠️ Admins aren't ranked". Without DataStores (Studio without API access) the page says
@@ -10,8 +11,8 @@
 -- POLL_SECONDS while it stays open. The client only shows it.
 -- Look (candy pop, memory-20261116-007): the yellow 🏆 header shows the open board's title; tabs down the left like
 -- the Shop; white rows with a thick outline (gold, silver, bronze for the top 3, your own row in the board's colour);
--- your bar in the board's colour with white outlined text. Phone-friendly: the tab column fits the height, the rows
--- scroll, your bar stays put.
+-- your bar in the board's colour with white outlined text. Phone-friendly: the tab column fits the height (and
+-- scrolls when five tabs at 56 px don't fit a short landscape phone), the rows scroll, your bar stays put.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -147,19 +148,30 @@ function Boards.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- Tabs down the left, the page on the right: the rows (scrolling) and your bar under them
 	--------------------------------------------------------------------------------------------------------------
-	local tabColumn = Instance.new("Frame")
+	-- A scrolling column (like the Book's): five tabs never fall off a short phone's panel.
+	local tabColumn = Instance.new("ScrollingFrame")
 	tabColumn.Name = "Tabs"
 	tabColumn.BackgroundTransparency = 1
-	tabColumn.Size = UDim2.new(0, TAB_WIDTH, 1, 0)
+	tabColumn.BorderSizePixel = 0
+	tabColumn.Size = UDim2.new(0, TAB_WIDTH + 10, 1, 0) -- room for the selected tab's thick outline
+	tabColumn.CanvasSize = UDim2.new()
+	tabColumn.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	tabColumn.ScrollingDirection = Enum.ScrollingDirection.Y
+	tabColumn.ScrollBarThickness = 0
+	tabColumn.Selectable = false
 	tabColumn.Parent = modal.Body
 	local tabList = Kit.list(tabColumn, Enum.FillDirection.Vertical, 8)
 	tabList.VerticalAlignment = Enum.VerticalAlignment.Top
+	local tabPad = Instance.new("UIPadding")
+	tabPad.PaddingTop = UDim.new(0, 5)
+	tabPad.PaddingBottom = UDim.new(0, 5)
+	tabPad.Parent = tabColumn
 
 	local page = Instance.new("Frame")
 	page.Name = "Page"
 	page.BackgroundTransparency = 1
-	page.Position = UDim2.fromOffset(TAB_WIDTH + Theme.Size.Gap, 0)
-	page.Size = UDim2.new(1, -(TAB_WIDTH + Theme.Size.Gap), 1, 0)
+	page.Position = UDim2.fromOffset(TAB_WIDTH + 10 + Theme.Size.Gap, 0)
+	page.Size = UDim2.new(1, -(TAB_WIDTH + 10 + Theme.Size.Gap), 1, 0)
 	page.Parent = modal.Body
 
 	local scroll = Instance.new("ScrollingFrame")

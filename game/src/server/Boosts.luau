@@ -3,12 +3,18 @@
 -- rules are Logic/Boosts (Lune-tested). Everything is earned in play: nothing here is paid or random.
 --
 --   Boosts.multiplier(p, kind, scopes?): number   1 + percent/100 (kind "Cash" | "Stars" | "MakeSpeed" | "Patience" |
---                                                 "Tips"; scopes e.g. { Night = true, Starter = true, Remedy = true })
---   Boosts.percent(p, kind, scopes?): number      the same as a percent: permanent (capped) + timed
+--                                                 "Tips"; scopes e.g. { Night = true, Starter = true, Remedy = true }).
+--                                                 Progression v2: "Cash" and "Stars" are then x Logic/Rebirth.multiplier
+--                                                 (+25% a rebirth, added, up to 20); the other kinds take no rebirth part
+--   Boosts.percent(p, kind, scopes?): number      the percent: permanent (capped by Config.BoostCaps) + the branch
+--                                                 (the tree and perks, Logic/Rebirth.effects, capped by
+--                                                 Config.BranchCaps) + timed. No rebirth part (it multiplies)
 --   Boosts.addTimed(p, boostId, seconds?): boolean   starts or EXTENDS a Data/Boosts timed boost (default: its own
 --                                                 Minutes), up to Config.BoostMaxMinutes; never stacks
---   Boosts.list(p): Types.BoostList               the Snapshot's Boosts: timed ones running, permanent percents
---   Boosts.makeSeconds(p, stationId): number      the hold time at that station: Faster Hands, then MakeSpeed
+--   Boosts.list(p): Types.BoostList               the Snapshot's Boosts: timed ones running, permanent percents, the
+--                                                 capped Branch percents and the Rebirth multipliers { Cash, Stars }
+--   Boosts.makeSeconds(p, stationId): number      the hold time at that station: Faster Hands (the 💊 Pharmacy:
+--                                                 Config.Pharmacy.HoldSeconds, x Tier2Factor from R2), then MakeSpeed
 --   Boosts.cureScopes(cure): Scopes               the scopes a cure counts for: "Night", and its wing
 --   Boosts.hook(pending, flush)                   Server/Playtime: the active seconds counted but not saved yet,
 --                                                 and a way to save them (timed boosts tick with those seconds)
@@ -28,6 +34,9 @@ local PatientsData = require(Shared.Data.Patients)
 local RegularsData = require(Shared.Data.Regulars)
 local BoostsLogic = require(Shared.Logic.Boosts)
 local BadgesLogic = require(Shared.Logic.Badges)
+local RebirthLogic = require(Shared.Logic.Rebirth)
+local PerksData = require(Shared.Data.Perks)
+local TreeData = require(Shared.Data.Tree)
 local Prices = require(Shared.Logic.Prices)
 local PlayerData = require(script.Parent.PlayerData)
 local Economy = require(script.Parent.Economy)
@@ -69,16 +78,37 @@ local function effects(data: Types.Data): { BoostsLogic.Effect }
 	return list
 end
 
+-- The branch source: the tree's and the perks' percents (Logic/Rebirth.effects), everywhere.
+local function branch(data: Types.Data): BoostsLogic.Branch
+	local fx = RebirthLogic.effects(data, Config, PerksData, TreeData)
+	return { Cash = fx.Cash, Stars = fx.Stars, Tips = fx.Tips, MakeSpeed = fx.MakeSpeed, Patience = fx.Patience }
+end
+
 function Boosts.percent(player: Player, kind: string, scopes: BoostsLogic.Scopes?): number
 	local data = if isPlayer(player) then PlayerData.get(player) else nil
 	if not data or type(kind) ~= "string" then
 		return 0
 	end
-	return BoostsLogic.percent(effects(data), liveTimed(player, data), BoostData, kind, scopes, Config.BoostCaps)
+	return BoostsLogic.percent(
+		effects(data),
+		liveTimed(player, data),
+		BoostData,
+		kind,
+		scopes,
+		Config.BoostCaps,
+		branch(data),
+		Config.BranchCaps
+	)
 end
 
 function Boosts.multiplier(player: Player, kind: string, scopes: BoostsLogic.Scopes?): number
-	return 1 + Boosts.percent(player, kind, scopes) / 100
+	local base = 1 + Boosts.percent(player, kind, scopes) / 100
+	if kind ~= "Cash" and kind ~= "Stars" then
+		return base
+	end
+	local data = if isPlayer(player) then PlayerData.get(player) else nil
+	local count = if data then data.Rebirth.Count else 0
+	return base * RebirthLogic.multiplier(count, Config, kind)
 end
 
 function Boosts.addTimed(player: Player, boostId: string, seconds: number?): boolean
@@ -99,7 +129,7 @@ end
 
 function Boosts.list(player: Player): Types.BoostList
 	local data = if isPlayer(player) then PlayerData.get(player) else nil
-	local out: Types.BoostList = { Timed = {}, Permanent = {} }
+	local out: Types.BoostList = { Timed = {}, Permanent = {}, Branch = {}, Rebirth = { Cash = 1, Stars = 1 } }
 	if not data then
 		return out
 	end
@@ -110,11 +140,28 @@ function Boosts.list(player: Player): Types.BoostList
 		end
 	end
 	out.Permanent = BoostsLogic.summary(effects(data), Config.BoostCaps)
+	out.Branch = BoostsLogic.branchSummary(branch(data), Config.BranchCaps)
+	out.Rebirth = {
+		Cash = RebirthLogic.multiplier(data.Rebirth.Count, Config, "Cash"),
+		Stars = RebirthLogic.multiplier(data.Rebirth.Count, Config, "Stars"),
+	}
 	return out
 end
 
 function Boosts.makeSeconds(player: Player, stationId: string): number
 	local base = Prices.makeSeconds(Economy.level(player, "Speed"), Config)
+	if stationId == "Pharmacy" then
+		-- The 💊 Pharmacy has its own hold (§B8): Config.Pharmacy.HoldSeconds, x Tier2Factor from the maker's R2
+		-- (the Pharmacy2 unlock). Stations and the Snapshot's MakeSeconds (UI/Guide's ring) both come through here.
+		local data = PlayerData.get(player)
+		local count = if data
+				and type(data.Rebirth) == "table"
+				and type(data.Rebirth.Count) == "number"
+			then data.Rebirth.Count
+			else 0
+		base = Config.Pharmacy.HoldSeconds
+			* (if RebirthLogic.has(count, "Pharmacy2") then Config.Pharmacy.Tier2Factor else 1)
+	end
 	local percent = Boosts.percent(player, "MakeSpeed", { [stationId] = true })
 	return BoostsLogic.makeSeconds(base, percent, Config.BoostMinMakeSeconds)
 end

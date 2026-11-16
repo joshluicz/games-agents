@@ -8,6 +8,7 @@
 --   Data.Badges  { [BadgeId]: tier }    the tier whose rewards were handed out (0..6). Tiers only ever go up
 --
 --   Badges.DERIVED                     stats read from the save instead of a counter: PlayHours, Beats, Builder
+--                                      (rooms + Stats.RoomsBefore + decor), Rebirths (Data.Rebirth.Count)
 --   Badges.statValue(data, stat): number      a counter (0 if missing) or a derived stat. `data` may be the save or
 --                                             a Snapshot (same field names)
 --   Badges.tierFor(value, thresholds): number 0..#thresholds
@@ -42,7 +43,7 @@ export type Creature = { Wing: string, Station: string?, Night: boolean }
 
 local Badges = {}
 
-Badges.DERIVED = table.freeze({ PlayHours = true, Beats = true, Builder = true })
+Badges.DERIVED = table.freeze({ PlayHours = true, Beats = true, Builder = true, Rebirths = true })
 Badges.SEEDED = "Seeded"
 
 local function finite(value: any): boolean
@@ -83,8 +84,13 @@ function Badges.statValue(data: any, stat: string): number
 		end
 		return total
 	elseif stat == "Builder" then
+		-- Progression v2: + the rooms rebirths reset (Stats.RoomsBefore), so a rebirth never empties the bar
 		local owned = if type(data.Decor) == "table" then data.Decor.Owned else nil
-		return size(data.Rooms, "Stand") + size(owned)
+		local before = if type(data.Stats) == "table" then count(data.Stats.RoomsBefore) else 0
+		return size(data.Rooms, "Stand") + before + size(owned)
+	elseif stat == "Rebirths" then
+		local rebirth = data.Rebirth
+		return if type(rebirth) == "table" then count(rebirth.Count) else 0
 	end
 	return if type(data.Stats) == "table" then count(data.Stats[stat]) else 0
 end

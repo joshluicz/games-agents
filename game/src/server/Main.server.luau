@@ -1,5 +1,6 @@
 -- Server entry point: collision groups, then every system's start() in the plan's order (build plan Task 0;
--- the depth update's systems per docs/plan/2026-11-16-depth-update-build-plan.md §B10).
+-- the depth update's systems per docs/plan/2026-11-16-depth-update-build-plan.md §B10; Progression v2's per
+-- docs/plan/2026-11-16-progression-v2-build-plan.md §B10).
 -- A system whose start() errors is reported and skipped, so one broken module never stops the clinic opening.
 
 local PhysicsService = game:GetService("PhysicsService")
@@ -46,7 +47,8 @@ local START_ORDER = {
 	"Plots",
 	"Carry",
 	"Economy",
-	"Levels", -- hospital levels: before anything asks for a level, queue or slots
+	"Levels", -- hospital levels: before anything asks for a level, the line or the floors
+	"Lift", -- the hospital lift (Progression v2): after the buildings exist
 	"Progress",
 	"Book",
 	"Story",
@@ -58,9 +60,13 @@ local START_ORDER = {
 	"Playtime", -- after Plots and Daily: counts active play, the play gifts and Doctor ranks
 	"Stations",
 	"Nurses", -- nurses on plots, the nurse tray, the journal
+	"Abilities", -- nurse abilities (Progression v2): after Nurses, before Treatment and Patients ask it
 	"Treatment", -- treat sessions and mini-game results (Patients calls it)
 	"Patients",
 	"NurseBelt", -- the shared belt in town (calls Nurses)
+	"Agency", -- the Nurse Agency kiosk (Progression v2; calls Nurses)
+	"Market", -- the Player Market kiosk (Progression v2; calls Nurses)
+	"Rebirth", -- "Open a new branch" (Progression v2; calls Patients, Treatment, Nurses, Plots)
 	"Visits",
 	"Leaderboards", -- after Plots (the town is built) and Visits; reads PlayerData's saves
 	"DayNight",

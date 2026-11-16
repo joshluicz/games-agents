@@ -13,7 +13,8 @@
 --                                                  "Good" | "Danger" | "Pink" | "Purple" | "Cyan" | "Cash" |
 --                                                  "Quiet" | "Card"; min 56 px tall
 --   Kit.iconButton(props?): TextButton             big emoji square; extras: Icon, Caption, Kind; has a "Dot"
---   Kit.setDot(button, visible)                    the red "something new" dot: pops in, then hops now and then
+--   Kit.setDot(button, visible, glyph?)            the red "something new" dot: pops in, then hops now and then;
+--                                                  a glyph (an emoji) turns it into a slightly bigger sticker
 --   Kit.setEnabled(button, enabled)
 --   Kit.corner(parent, radius?) · Kit.pad(parent, px?) · Kit.stroke(parent, colour?, px?)
 --   Kit.outline(text, px?): UIStroke              outlined text (a dark stroke around the letters)
@@ -45,6 +46,17 @@
 --   Kit.rarityColor(rarity): Color3                the rarity's colour (Data/Rarities; unknown = Common grey)
 --   Kit.breathing(gui, amount?): () -> ()          idle "breathing" on a call to action: a slow gentle grow and
 --                                                  shrink, paused while it's pressed or bounced; returns stop
+-- Progression v2 (build plan §B9; T8 juiced the Foundation's first versions, same signatures):
+--   Kit.ring(parent, color): (fraction) -> ()      a filling ring (ability cooldowns) round the edge of `parent`:
+--                                                  Theme.Juice.RingBeads beads light up clockwise (the newest pops),
+--                                                  all lit + a bright outline + one bump when ready. Call the setter
+--                                                  with 0..1 (Kit.Juice.ringFraction). It NEVER prints seconds (red
+--                                                  line 3) and never loops on its own
+--   Kit.holdButton(button, seconds, onDone): () -> ()   hold-to-confirm: a bright band fills across the button and
+--                                                  it swells a little while held, a rising tick each quarter
+--                                                  (Kit.Ticked); onDone runs once the hold lasts `seconds`; letting
+--                                                  go early empties it. Reduced motion: the same hold, the band steps
+--                                                  by quarters and nothing swells. Returns stop
 --   Kit.Juice                                      the pure helpers behind all this (no Roblox APIs; see below)
 -- ZIndex 0 is the decoration layer inside a Kit button or panel (Gloss, Shine, Header, Rays): it draws over the
 -- parent's own fill but under every other child, so give your own children ZIndex 1 or more (the default).
@@ -171,6 +183,54 @@ end
 -- How long a toast stays: `base` seconds, a little longer for long messages, at most `max`.
 function Juice.toastSeconds(text: string, base: number, perChar: number, max: number): number
 	return math.min(max, base + math.max(0, #text - 30) * perChar)
+end
+
+local function finite(value: any): number?
+	if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+		return value
+	end
+	return nil
+end
+
+-- Progression v2: an ability's cooldown ring. How full it is at `now` (server time): 1 once it's ready (readyAt <=
+-- now, or no readyAt at all), else the share of `cooldown` already waited (0 just fired). A future readyAt with no
+-- usable cooldown is empty (0), never falsely "ready". Never seconds: the caller draws a ring, not a number.
+function Juice.ringFraction(readyAt: any, cooldown: any, now: number): number
+	local at, clock = finite(readyAt), finite(now) or 0
+	if at == nil or at <= clock then
+		return 1
+	end
+	local length = finite(cooldown)
+	if length == nil or length <= 0 then
+		return 0
+	end
+	return math.clamp(1 - (at - clock) / length, 0, 1)
+end
+
+-- A ring of `count` beads at `fraction`: how many are lit, and how far the next one is (0..1). Full = all lit, 0.
+function Juice.ringBeads(fraction: number, count: number): (number, number)
+	local n = math.max(1, math.floor(finite(count) or 1))
+	local share = math.clamp(finite(fraction) or 0, 0, 1)
+	local lit = math.floor(share * n + 1e-9)
+	if lit >= n then
+		return n, 0
+	end
+	return lit, math.clamp(share * n - lit, 0, 1)
+end
+
+-- Hold-to-confirm: the fill (0..1) after holding `held` of `seconds`. With `steps` (reduced motion) it moves in whole
+-- steps (quarters), so it still shows the hold without a smooth slide.
+function Juice.holdFill(held: number, seconds: number, steps: number?): number
+	local total = finite(seconds) or 0
+	if total <= 0 then
+		total = 1
+	end
+	local share = math.clamp((finite(held) or 0) / total, 0, 1)
+	local whole = finite(steps)
+	if whole and whole >= 1 then
+		share = math.floor(share * math.floor(whole) + 1e-9) / math.floor(whole)
+	end
+	return share
 end
 -- END JUICE
 
@@ -751,10 +811,35 @@ local function startDotHops(dot: GuiObject)
 	end)
 end
 
-function Kit.setDot(button: GuiObject, visible: boolean)
+function Kit.setDot(button: GuiObject, visible: boolean, glyph: string?)
 	local dot = button:FindFirstChild("Dot")
 	if not (dot and dot:IsA("GuiObject")) then
 		return
+	end
+	-- An optional glyph (Progression v2: 🃏 / 🌳 on the 🛒 dot for a branch reward) makes it a slightly bigger sticker
+	-- with the emoji in it; without one it's the plain red dot again.
+	local mark = dot:FindFirstChild("Glyph")
+	local wanted = if visible and type(glyph) == "string" and glyph ~= "" then glyph else nil
+	if wanted and not mark then
+		local label = Instance.new("TextLabel")
+		label.Name = "Glyph"
+		label.BackgroundTransparency = 1
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.Position = UDim2.fromScale(0.5, 0.5)
+		label.Size = UDim2.fromScale(0.86, 0.86)
+		label.TextScaled = true
+		label.Font = Theme.Font
+		label.ZIndex = dot.ZIndex + 1
+		label.Parent = dot
+		mark = label
+	end
+	if mark and mark:IsA("TextLabel") then
+		mark.Text = wanted or ""
+		mark.Visible = wanted ~= nil
+	end
+	local side = if wanted then Theme.Size.Dot + 8 else Theme.Size.Dot
+	if dot.Size.X.Offset ~= side then
+		dot.Size = UDim2.fromOffset(side, side)
 	end
 	local appeared = visible and not dot.Visible
 	dot.Visible = visible
@@ -1221,6 +1306,198 @@ function Kit.rarityFrame(gui: GuiObject, rarity: string): () -> ()
 	return function()
 		job.Stopped = true
 		stroke:Destroy()
+	end
+end
+
+-- A filling ring (Progression v2: ability cooldowns, build plan §B9). A circle of Theme.Juice.RingBeads beads round
+-- the edge of `parent` (its middle stays clear for the icon under it): they light up one by one, clockwise from the
+-- top, in `color`, the next one glowing in as it nears; the newest lit bead pops. Full = ready: every bead lit, a
+-- bright outline round the ring and one happy bump (no looping glow, so a ready ring never keeps the shared loop
+-- awake). Returns a setter for the fraction (0 = empty, 1 = full: ready; junk = 0). It NEVER prints seconds (red
+-- line 3): Kit.Juice.ringFraction turns AbilityReadyAt/AbilityCooldown into the fraction. Reduced motion: no pops.
+function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
+	local count = Theme.Juice.RingBeads
+	local pale = Kit.lighten(color, 0.72)
+	local holder = Instance.new("Frame")
+	holder.Name = "Ring"
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = UDim2.fromScale(0.5, 0.5)
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.ZIndex = parent.ZIndex + 1
+	local aspect = Instance.new("UIAspectRatioConstraint")
+	aspect.Parent = holder
+	Kit.corner(holder, 999)
+	-- The ready outline: hidden until every bead is lit.
+	local glow = Kit.stroke(holder, color, 3)
+	glow.Name = "Glow"
+	glow.Enabled = false
+
+	local beads: { Frame } = {}
+	local shown: { number } = {} -- each bead's drawn state: 0 pale, 1 lit, or the partial share
+	for index = 1, count do
+		local angle = (index - 1) / count * 2 * math.pi
+		local bead = Instance.new("Frame")
+		bead.Name = "Bead" .. index
+		bead.AnchorPoint = Vector2.new(0.5, 0.5)
+		bead.Position = UDim2.fromScale(0.5 + 0.42 * math.sin(angle), 0.5 - 0.42 * math.cos(angle))
+		bead.Size = UDim2.fromScale(0.15, 0.15)
+		bead.BackgroundColor3 = pale
+		bead.BorderSizePixel = 0
+		bead.ZIndex = holder.ZIndex
+		Kit.corner(bead, 999)
+		local edge = Kit.stroke(bead, Theme.Colors.Outline, 1.5)
+		edge.Transparency = 0.35
+		bead.Parent = holder
+		beads[index] = bead
+		shown[index] = 0
+	end
+	holder.Parent = parent
+
+	local lit = -1 -- beads lit at the last call (-1 = never set: the first call never pops)
+	return function(fraction: number)
+		local on, partial = Juice.ringBeads(fraction, count)
+		for index, bead in beads do
+			local want = if index <= on then 1 elseif index == on + 1 then math.floor(partial * 4) / 4 else 0
+			if shown[index] ~= want then
+				shown[index] = want
+				bead.BackgroundColor3 = pale:Lerp(color, want)
+			end
+		end
+		local ready = on >= count
+		glow.Enabled = ready
+		if lit >= 0 and on > lit and not Kit.reducedMotion() then
+			if ready then
+				Kit.punch(holder, 1.15, Theme.Tween.Bump)
+			end
+			local newest = beads[on]
+			if newest then
+				Kit.punch(newest, 1.7, Theme.Tween.Bump)
+			end
+		end
+		lit = on
+	end
+end
+
+-- Hold-to-confirm (Progression v2: opening a branch, selling an Epic+; build plan §B9). Holding the button fills a
+-- bright band across it from the left while the button swells a little, and each quarter of the way fires Kit.Ticked
+-- (Sounds plays a rising tick), so a hold you can't see still sounds like it's filling. Letting go (or sliding off)
+-- before `seconds` empties it and nothing happens; onDone runs once per completed hold, with a happy bump. A button
+-- that isn't Interactable ignores presses. Reduced motion: the same hold, the band steps up by quarters instead of
+-- sliding and the button doesn't swell. Returns stop (disconnects everything and removes the band).
+function Kit.holdButton(button: TextButton, seconds: number, onDone: () -> ()): () -> ()
+	local hold = if type(seconds) == "number" and seconds == seconds and seconds > 0 then seconds else 1
+	local fill = Instance.new("Frame")
+	fill.Name = "HoldFill"
+	fill.BackgroundColor3 = Palette.White
+	fill.BackgroundTransparency = 0.45
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.ZIndex = button.ZIndex
+	Kit.corner(fill, Theme.Size.Corner)
+	-- A brighter leading edge, so the band reads as moving.
+	local shade = Instance.new("UIGradient")
+	shade.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(0.85, 0.1),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	shade.Parent = fill
+	fill.Parent = button
+	local scale = scaleOf(button)
+
+	local token = 0
+	local connections: { RBXScriptConnection } = {}
+	local tween: Tween? = nil
+	local holding = false
+	local function reset()
+		token += 1
+		if tween then
+			tween:Cancel()
+			tween = nil
+		end
+		fill.Size = UDim2.fromScale(0, 1)
+		if holding then
+			holding = false
+			if not Kit.reducedMotion() then
+				tweenScale(scale, Theme.Tween.Release, 1)
+			else
+				scale.Scale = 1
+			end
+		end
+	end
+	local function isPress(input: InputObject): boolean
+		local kind = input.UserInputType
+		return kind == Enum.UserInputType.MouseButton1
+			or kind == Enum.UserInputType.Touch
+			or input.KeyCode == Enum.KeyCode.ButtonA
+			or input.KeyCode == Enum.KeyCode.Return
+	end
+	table.insert(
+		connections,
+		button.InputBegan:Connect(function(input: InputObject)
+			if not isPress(input) or not button.Interactable then
+				return
+			end
+			reset()
+			local mine = token
+			holding = true
+			local calm = Kit.reducedMotion()
+			if calm then
+				fill.Size = UDim2.fromScale(0, 1)
+			else
+				local slide = TweenService:Create(fill, TweenInfo.new(hold, Enum.EasingStyle.Linear), {
+					Size = UDim2.fromScale(1, 1),
+				})
+				tween = slide
+				slide:Play()
+				tweenScale(scale, TweenInfo.new(hold, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 1.06)
+			end
+			-- Quarters: a rising tick each (and the calm band's step).
+			for step = 1, 3 do
+				task.delay(hold * step / 4, function()
+					if token == mine then
+						if calm then
+							fill.Size = UDim2.fromScale(Juice.holdFill(hold * step / 4, hold, 4), 1)
+						end
+						Kit.Ticked:Fire(button, step / 4)
+					end
+				end)
+			end
+			task.delay(hold, function()
+				if token ~= mine then
+					return
+				end
+				fill.Size = UDim2.fromScale(1, 1)
+				holding = false
+				token += 1
+				Kit.Ticked:Fire(button, 1)
+				Kit.punch(button, 1.2, Theme.Tween.Bump)
+				task.spawn(onDone)
+				task.delay(0.25, function()
+					if token == mine + 1 then
+						fill.Size = UDim2.fromScale(0, 1)
+					end
+				end)
+			end)
+		end)
+	)
+	table.insert(
+		connections,
+		button.InputEnded:Connect(function(input: InputObject)
+			if isPress(input) then
+				reset()
+			end
+		end)
+	)
+	table.insert(connections, button.MouseLeave:Connect(reset))
+	table.insert(connections, button.SelectionLost:Connect(reset))
+	return function()
+		reset()
+		for _, connection in connections do
+			connection:Disconnect()
+		end
+		fill:Destroy()
 	end
 end
 

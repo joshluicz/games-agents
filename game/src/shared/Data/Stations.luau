@@ -14,7 +14,8 @@ export type StationId = string
 export type Station = {
 	Name: string,
 	Icon: string,
-	Item: string, -- the ItemId this station makes (Data/Items)
+	Item: string, -- the ItemId this station makes (Data/Items); "" for a crafting station
+	Craft: boolean?, -- true: it turns two carried ingredients into a medicine (the 💊 Pharmacy, Logic/Recipe.craft)
 	Color: Color3, -- ailments treated here share this colour, so kids can match by colour
 }
 
@@ -23,9 +24,12 @@ local ENTRIES: { [StationId]: Station } = {
 	Plaster = { Name = "Plaster Table", Icon = "🩹", Item = "Plaster", Color = Candy.Pink },
 	Bath = { Name = "Warm Bath", Icon = "🛁", Item = "Bubbles", Color = Candy.Blue },
 	Cocoa = { Name = "Cocoa Corner", Icon = "☕", Item = "Cocoa", Color = Candy.Orange },
+	-- Progression v2 (hospital Lv 4, on Floor_3): no patient's ailment is treated here, so its colour only has to
+	-- differ from the four above (Palette.Candy has no Green: Mint).
+	Pharmacy = { Name = "Pharmacy", Icon = "💊", Item = "", Craft = true, Color = Candy.Mint },
 }
 
-local ORDER = { "Remedy", "Plaster", "Bath", "Cocoa" }
+local ORDER = { "Remedy", "Plaster", "Bath", "Cocoa", "Pharmacy" }
 
 local function freeze(t: any): any
 	for _, value in t do

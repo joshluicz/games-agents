@@ -8,6 +8,7 @@ local expect, test = T.expect, T.test
 local Admin = require("../src/shared/Logic/Admin")
 local Patients = require("../src/shared/Data/Patients")
 local Boosts = require("../src/shared/Data/Boosts")
+local Nurses = require("../src/shared/Data/Nurses")
 
 local OWNER = 2228783124
 local FRIEND = 111
@@ -137,10 +138,13 @@ T.describe("Admin.valid", function()
 end)
 
 T.describe("Admin server-wide actions", function()
-	test("are night, day and winter only", function()
+	test("are night, day, winter and the Agency's restock only", function()
 		expect(Admin.serverWide("SkipToNight")).toBe(true)
 		expect(Admin.serverWide("SkipToDay")).toBe(true)
 		expect(Admin.serverWide("ToggleWinter")).toBe(true)
+		expect(Admin.serverWide("RefillAgency")).toBe(true)
+		expect(Admin.serverWide("Rebirth")).toBe(false)
+		expect(Admin.serverWide("SpawnAmbulance")).toBe(false)
 		expect(Admin.serverWide("AddCash")).toBe(false)
 		expect(Admin.serverWide("SpawnPatient")).toBe(false)
 		expect(Admin.serverWide("Nope")).toBe(false)
@@ -153,9 +157,43 @@ T.describe("Admin server-wide actions", function()
 	end)
 
 	test("every action says what argument it takes", function()
-		local kinds = { None = true, Cash = true, Stars = true, PatientId = true, BoostId = true }
+		local kinds = { None = true, Cash = true, Stars = true, PatientId = true, BoostId = true, NurseId = true }
 		for _, found in Admin.ACTIONS do
 			expect(kinds[found.Arg]).toBe(true)
 		end
+	end)
+end)
+
+T.describe("Admin Progression v2 actions (build plan §B8)", function()
+	test("the eight new actions exist with the right arguments", function()
+		for action, arg in
+			{
+				Rebirth = "None",
+				AddTreePoints = "None",
+				RefillAgency = "None",
+				NurseLevels = "None",
+				GiveNurse = "NurseId",
+				ChargeAbilities = "None",
+				SpawnAmbulance = "None",
+				SpawnHelicopter = "None",
+			}
+		do
+			local found = Admin.ACTIONS[action]
+			assert(found, "missing " .. action)
+			expect(found.Arg).toBe(arg)
+		end
+	end)
+
+	test("GiveNurse takes a Data/Nurses id only", function()
+		expect(Admin.valid("GiveNurse", "PuffPup", Patients, Boosts, Nurses)).toBe(true)
+		expect(Admin.valid("GiveNurse", "FounderFennec", Patients, Boosts, Nurses)).toBe(true)
+		expect(Admin.valid("GiveNurse", "Order", Patients, Boosts, Nurses)).toBe(false)
+		expect(Admin.valid("GiveNurse", "Nope", Patients, Boosts, Nurses)).toBe(false)
+		expect(Admin.valid("GiveNurse", nil, Patients, Boosts, Nurses)).toBe(false)
+		expect(Admin.valid("GiveNurse", 5, Patients, Boosts, Nurses)).toBe(false)
+		expect(Admin.valid("GiveNurse", "PuffPup", Patients, Boosts)).toBe(false) -- no nurse map: nothing passes
+		expect(Admin.valid("Rebirth", nil, Patients, Boosts, Nurses)).toBe(true)
+		expect(Admin.valid("Rebirth", 1, Patients, Boosts, Nurses)).toBe(false)
+		expect(Admin.valid("SpawnHelicopter", nil, Patients, Boosts, Nurses)).toBe(true)
 	end)
 end)

@@ -9,6 +9,8 @@ export type Upgrade = {
 	Icon: string,
 	Hint: string, -- 6 words or fewer
 	Prices: { number },
+	Level: number?, -- the hospital level it needs (nil = 1): Logic/Progress.canBuyUpgrade
+	Rebirths: number?, -- the rebirths it needs (nil = 0)
 }
 
 local ENTRIES: { [UpgradeId]: Upgrade } = {
@@ -21,9 +23,32 @@ local ENTRIES: { [UpgradeId]: Upgrade } = {
 	Tray = { Name = "Bigger Tray", Icon = "🧺", Hint = "Carry one more", Prices = { 100, 500, 1500 } },
 	Chairs = { Name = "Comfy Chairs", Icon = "💺", Hint = "Patients wait longer", Prices = { 75, 250, 600 } },
 	Tips = { Name = "Tip Jar", Icon = "💰", Hint = "More cash per cure", Prices = { 75, 250, 600, 1400, 3000 } },
+	-- Progression v2 (build plan §B5): department upgrades, gated. Each level: Config.WardComfort / AESpeed /
+	-- NightClinicPerLevel.
+	WardComfort = {
+		Name = "Ward Comfort",
+		Icon = "🛏️",
+		Hint = "Patients rest faster",
+		Prices = { 800, 2500, 6000 },
+		Level = 2,
+	},
+	AESpeed = {
+		Name = "A&E Speed",
+		Icon = "🚑",
+		Hint = "Ambulances come sooner",
+		Prices = { 1000, 3000, 8000 },
+		Level = 2,
+	},
+	NightClinic = {
+		Name = "Night Clinic",
+		Icon = "🌙",
+		Hint = "Night cures pay more",
+		Prices = { 1500, 4000, 9000 },
+		Rebirths = 4,
+	},
 }
 
-local ORDER = { "Speed", "Tray", "Chairs", "Tips" }
+local ORDER = { "Speed", "Tray", "Chairs", "Tips", "WardComfort", "AESpeed", "NightClinic" }
 
 local function freeze(t: any): any
 	for _, value in t do
