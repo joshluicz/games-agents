@@ -1,0 +1,195 @@
+--!strict
+-- Shared type names for every task (build plan §B). Types only: requiring this returns an empty table.
+--   local Types = require(ReplicatedStorage.Shared.Types)
+--   local function f(data: Types.Data) ... end
+-- Data row types (Ailment, Room, Decor, ...) are exported by each Data module too; these match them.
+
+-- Ids are plain strings. These aliases document which table an id belongs to.
+export type AilmentId = string -- Data/Ailments
+export type StationId = string -- Data/Stations
+export type ItemId = string -- Data/Items
+export type PatientId = string -- Data/Patients (or a RegularId: regulars use their own id as creature id)
+export type RegularId = string -- Data/Regulars
+export type WingId = string -- Data/Wings: "Starter" | "Bath" | "Winter" | "Night"
+export type RoomId = string -- Data/Rooms
+export type SlotId = string -- "Stand" | "A" | "B" | "C" | "D"
+export type DecorId = string -- Data/Decor
+export type UpgradeId = string -- Data/Upgrades: "Speed" | "Tray" | "Chairs" | "Tips"
+export type VariantId = string -- Data/Variants: "Sparkly" | "Frosty"
+export type SlotKey = string -- a decor slot: "<RoomId>:<n>", e.g. "Stand:1"
+
+------------------------------------------------------------------------------------------------------------------
+-- Data rows (match Shared/Data)
+------------------------------------------------------------------------------------------------------------------
+export type Ailment = { Name: string, Icon: string, Color: Color3, Station: StationId }
+export type Station = { Name: string, Icon: string, Item: ItemId, Color: Color3 }
+export type Item = { Name: string, Icon: string, Station: StationId }
+export type Look = {
+	Shape: string, -- "Ball" | "Bean" | "Blob" | "Box" | "Drop"
+	Body: string, -- hex colour, e.g. "#A8DB8F"
+	Accent: string, -- hex colour
+	Ears: string, -- "None" | "Round" | "Floppy" | "Pointy" | "Long" | "Tufts"
+	Top: string, -- "None" | "Leaf" | "Bow" | "Cloud" | "Antennae" | "Crust" | "Pleat" | "Scoop" | "Star" | "Lid"
+	Extra: string, -- "None" | "Wings" | "Tail" | "Flippers" | "Spout"
+	Scale: number,
+}
+export type Patient = { Name: string, Ailment: AilmentId, Wing: WingId, Night: boolean?, Look: Look }
+export type Beat = { Emote: string, Bubble: string }
+export type Regular = {
+	Name: string,
+	Patient: PatientId,
+	Ailment: AilmentId,
+	Wing: WingId,
+	UnlockStars: number,
+	Beats: { Beat },
+	Reward: string, -- DecorId or RoomId
+	RewardKind: "Decor" | "Room",
+	Look: Look,
+}
+export type Room = {
+	Name: string,
+	Icon: string,
+	Slot: SlotId,
+	Price: number,
+	StarsNeeded: number,
+	Stations: { StationId },
+	Beds: number,
+	DecorSlots: number,
+	Wing: WingId,
+	Season: string?, -- "Winter" = buyable only while Workspace.IsWinter
+}
+export type Upgrade = { Name: string, Icon: string, Hint: string, Prices: { number } }
+export type DecorLook = { Kind: string, Color: string, Accent: string, Glow: boolean? }
+export type Decor = { Name: string, Icon: string, Price: number?, EarnedBy: string?, Look: DecorLook }
+export type GoalKind = "Cure" | "CureNight" | "Make" | "CureWing"
+export type GoalDef = {
+	Id: string,
+	Kind: GoalKind,
+	Target: number,
+	Wing: WingId?,
+	Icon: string,
+	Reward: { Cash: number, Stars: number },
+}
+export type Wing = { Name: string, Icon: string, SetReward: DecorId }
+export type Variant = { Name: string, Icon: string, WinterOnly: boolean }
+
+------------------------------------------------------------------------------------------------------------------
+-- Save schema v2 (Logic/Schema, build plan §B3)
+------------------------------------------------------------------------------------------------------------------
+export type BookPage = { Cured: number, Variants: { [VariantId]: boolean } }
+export type StoryEntry = { Beat: number, LastBeatDay: number }
+export type Goal = { Id: string, Progress: number, Day: number }
+export type DailyData = { Goals: { Goal }, LastGrantDay: number }
+export type DecorData = { Owned: { [DecorId]: boolean }, Placed: { [SlotKey]: DecorId } }
+
+export type Data = {
+	Version: number, -- 2
+	Cash: number,
+	Stars: number,
+	Cured: number,
+	Upgrades: { [UpgradeId]: number }, -- levels: Speed, Tray, Chairs, Tips
+	Rooms: { [RoomId]: boolean }, -- Stand = true always
+	Decor: DecorData,
+	Book: { [PatientId]: BookPage },
+	Story: { [RegularId]: StoryEntry },
+	Daily: DailyData,
+	Mailbox: { LastSeenDay: number },
+	HeartsGiven: { Day: number, Plots: { [string]: boolean } }, -- keyed by plot owner's UserId as a string
+	ReferralRewarded: boolean,
+}
+
+------------------------------------------------------------------------------------------------------------------
+-- Network payloads (Shared/Remotes, build plan §B4)
+------------------------------------------------------------------------------------------------------------------
+export type Snapshot = {
+	Upgrades: { [UpgradeId]: number },
+	Rooms: { [RoomId]: boolean },
+	Decor: DecorData,
+	Book: { [PatientId]: BookPage },
+	Story: { [RegularId]: StoryEntry },
+	Daily: DailyData,
+	Cash: number,
+	Stars: number,
+	Cured: number, -- extra to §B4: handy for the Guide (shown while Cured < 3)
+	MailboxReady: boolean,
+	PlotIndex: number?, -- nil = no plot (all 6 taken)
+	TodaysVisitor: PatientId, -- "" until Daily sets it
+	IsWinter: boolean,
+}
+
+export type CuredInfo = {
+	PatientId: PatientId,
+	Variant: VariantId?,
+	Cash: number,
+	Stars: number,
+	NewPage: boolean,
+	Position: Vector3,
+	Helper: number, -- UserId of the player who treated the patient
+}
+
+export type NextGoal = { Kind: string, Id: string, Icon: string }
+
+export type DayReportInfo = {
+	Cured: number,
+	NewPages: { PatientId },
+	StarsGained: number,
+	Next: NextGoal,
+}
+
+export type PurchaseKind = "Upgrade" | "Room" | "Decor"
+
+------------------------------------------------------------------------------------------------------------------
+-- Server-side shapes (build plan §B5)
+------------------------------------------------------------------------------------------------------------------
+export type Plot = {
+	Index: number,
+	Model: Model,
+	Owner: Player?,
+	Counter: BasePart,
+	QueueStart: BasePart,
+	Spawn: BasePart, -- the PatientSpawn marker
+	Exit: BasePart, -- the PatientExit marker
+}
+
+export type CureCtx = {
+	Helper: Player,
+	Owner: Player,
+	PatientId: PatientId,
+	Variant: VariantId?,
+	Night: boolean,
+	Regular: RegularId?,
+	Visitor: boolean,
+	PatienceLeft: number, -- 0..1
+	Position: Vector3,
+}
+
+------------------------------------------------------------------------------------------------------------------
+-- Client (Main.client ctx, build plan Task 0)
+------------------------------------------------------------------------------------------------------------------
+export type ClientData = {
+	Ailments: { [AilmentId]: Ailment },
+	Stations: { [StationId]: Station },
+	Items: { [ItemId]: Item },
+	Patients: { [PatientId]: Patient },
+	Regulars: { [RegularId]: Regular },
+	Rooms: { [RoomId]: Room },
+	Upgrades: { [UpgradeId]: Upgrade },
+	Decor: { [DecorId]: Decor },
+	DailyGoals: { GoalDef },
+	Wings: { [WingId]: Wing },
+	Variants: { [VariantId]: Variant },
+}
+
+export type Ctx = {
+	Player: Player,
+	Remotes: any, -- Shared/Remotes
+	Config: any, -- Shared/Config
+	Data: ClientData, -- each map also has .Order: { id } (not visited by pairs)
+	State: Snapshot, -- always the latest snapshot (a default one until the server's first arrives)
+	onState: (fn: (Snapshot) -> ()) -> () -> (), -- calls fn now and on every new snapshot; returns a disconnect
+	toast: (text: string) -> (), -- a local toast, same look as server toasts
+	on: (event: string, fn: (...any) -> ()) -> () -> (), -- the client bus; returns a disconnect
+	fire: (event: string, ...any) -> (),
+}
+
+return {}

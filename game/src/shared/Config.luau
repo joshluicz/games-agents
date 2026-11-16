@@ -1,52 +1,61 @@
 --!strict
--- Every number you'd want to tune lives here. Change it, save, and Rojo syncs it into Studio.
+-- Every tuning number lives here. Change it, save, and Rojo syncs it into Studio.
+-- Content (patients, rooms, decor, goals, upgrade prices) lives in Shared/Data instead.
+-- Pure Logic modules never require this file: the server passes Config in as `cfg`.
 
 local Config = {}
 
--- ⬜ OPEN #1: the brothers pick the theme. Rename these when they do.
-Config.ProductName = "Treat"
-Config.ProductPlural = "Treats"
-Config.StationAction = "Make" -- the prompt reads "Make Treat"
-Config.CurrencyName = "Cash"
+Config.CurrencyName = "Cash" -- the leaderstats name, and what the HUD calls money
 
--- Customers
-Config.MaxQueue = 4 -- customers waiting at once
-Config.QueueSpacing = 4 -- studs between customers in the queue
-Config.SpawnEverySeconds = 6 -- with one player; more players means faster spawns
-Config.SpawnSpeedupPerExtraPlayer = 0.15 -- 15% faster per extra player in the server
-Config.PatienceSeconds = 35 -- how long a customer waits at the counter before leaving
-Config.BasePay = 10 -- cash for a served customer before bonuses
-Config.QuickServeBonus = 0.5 -- up to +50% for serving with most of the patience left
-Config.CustomerWalkSpeed = 10
+-- Pay (Logic/Pay)
+Config.BasePay = 12 -- cash for one cure before bonuses
+Config.QuickServeBonus = 0.5 -- up to +50% for curing with most of the patience left
+Config.TipsPerLevel = 0.2 -- each Tip Jar level adds +20% cash
+Config.NightPayMultiplier = 2
+Config.SparklyChance = 0.03
+Config.SparklyMultiplier = 2
+Config.VisitorMultiplier = 3 -- Today's Visitor
+Config.FrostyChance = 0.25 -- winter only
+Config.FrostyMultiplier = 1.5
 
--- Making the product
-Config.BaseMakeSeconds = 2.5
+-- Patients
+Config.PatienceSeconds = 60 -- how long a patient waits at the counter before leaving (no penalty)
+Config.ChairsPatienceBonus = 10 -- extra seconds of patience per Comfy Chairs level
+Config.MaxQueue = 4 -- patients waiting at one clinic at once
+Config.QueueSpacing = 4 -- studs between patients in the queue
+Config.SpawnEverySeconds = 7
+Config.RecoverSeconds = 4 -- time in bed (or in place) before the cure lands
+
+-- Making treatments at a station (Logic/Prices.makeSeconds)
+Config.BaseMakeSeconds = 2
 Config.MinMakeSeconds = 0.5
+Config.MakeSpeedFactor = 0.8 -- each Faster Hands level multiplies the hold time by this
 
 -- Day and night
-Config.DaySeconds = 180
-Config.NightSeconds = 90
-Config.NightPayMultiplier = 2
+Config.DaySeconds = 420
+Config.NightSeconds = 180
 
--- Upgrades: each has a max level and a price per level (index = the level you're buying)
-Config.Upgrades = {
-	Speed = {
-		DisplayName = "Faster Hands",
-		Description = "Make things faster",
-		Prices = { 50, 150, 400, 900, 2000 },
-	},
-	Tray = {
-		DisplayName = "Bigger Tray",
-		Description = "Carry one more",
-		Prices = { 100, 500, 1500 },
-	},
-	Tips = {
-		DisplayName = "Tip Jar",
-		Description = "+20% cash per customer",
-		Prices = { 75, 250, 600, 1400, 3000 },
-	},
+-- Seasons: dates are UTC, inclusive. Workspace.ForceWinter = true turns winter on for testing.
+Config.Winter = { Start = "2026-12-01", End = "2027-01-10" }
+
+-- Daily
+Config.MailboxGiftCash = 25 -- once per UTC day, the same however long you were away
+Config.MaxBankedGoals = 3 -- daily goals bank up to this many; they never expire
+
+-- Saving
+Config.DataStoreName = "PlayerData_v2"
+Config.LegacyDataStoreName = "PlayerData_v1" -- read once to migrate shop-sim saves
+Config.AutosaveSeconds = 90
+
+-- Remotes: per player, per remote
+Config.RemoteRatePerSecond = 10
+
+-- Town: two rows of three plots facing a central street. Far from the brother's Workspace.Shop.
+Config.Town = {
+	Origin = Vector3.new(0, 0, 300),
+	PlotSize = 70,
+	Plots = 6,
 }
-Config.UpgradeOrder = { "Speed", "Tray", "Tips" }
 
 -- Background music: Roblox's licensed music library (uploader DistrokidOfficial), free for any experience.
 -- Day tracks play in turn, and the night track takes over at night. Players can mute it on the HUD.
@@ -62,33 +71,10 @@ Config.Music = {
 	},
 }
 
--- Game passes. 0 = not created yet. Create the pass in Creator Hub, paste its ID here.
+-- Game passes. 0 = not created. Nothing paid exists in this build (plan: Global Constraints), and the
+-- 2x Cash idea needs a rethink before it ever ships (design §9). Kept only so the ID has a home.
 Config.GamePasses = {
 	DoubleCash = 0,
 }
-
--- Saving
-Config.DataStoreName = "PlayerData_v1"
-Config.AutosaveSeconds = 90
-
-function Config.makeSeconds(speedLevel: number): number
-	return math.max(Config.MinMakeSeconds, Config.BaseMakeSeconds * (0.8 ^ speedLevel))
-end
-
-function Config.trayCapacity(trayLevel: number): number
-	return 1 + trayLevel
-end
-
-function Config.tipMultiplier(tipsLevel: number): number
-	return 1 + 0.2 * tipsLevel
-end
-
-function Config.nextPrice(upgradeName: string, currentLevel: number): number?
-	local upgrade = Config.Upgrades[upgradeName]
-	if not upgrade then
-		return nil
-	end
-	return upgrade.Prices[currentLevel + 1]
-end
 
 return Config
