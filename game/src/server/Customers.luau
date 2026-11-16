@@ -43,9 +43,23 @@ local function pick<T>(list: { T }): T
 	return list[math.random(1, #list)]
 end
 
-local function slotPosition(shop, index: number): Vector3
+-- The queue grows backwards, away from the counter. The direction comes from where the Counter is,
+-- so it doesn't matter which way QueueStart faces. (Falls back to QueueStart's front face.)
+local function queueDirection(shop): Vector3
 	local start: BasePart = shop.QueueStart
-	return start.Position - start.CFrame.LookVector * ((index - 1) * Config.QueueSpacing)
+	local counter: BasePart? = shop.Counter
+	if counter then
+		local toCounter = counter.Position - start.Position
+		local flat = Vector3.new(toCounter.X, 0, toCounter.Z)
+		if flat.Magnitude > 0.1 then
+			return flat.Unit
+		end
+	end
+	return start.CFrame.LookVector
+end
+
+local function slotPosition(shop, index: number): Vector3
+	return shop.QueueStart.Position - queueDirection(shop) * ((index - 1) * Config.QueueSpacing)
 end
 
 local function makeBubble(head: BasePart, isNight: boolean): (BillboardGui, Frame)

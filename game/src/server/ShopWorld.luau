@@ -10,6 +10,7 @@ export type Shop = {
 	CustomerSpawn: BasePart,
 	CustomerExit: BasePart,
 	Station: BasePart,
+	Counter: BasePart?,
 }
 
 local ShopWorld = {}
@@ -125,6 +126,7 @@ function ShopWorld.get(): Shop
 		CustomerSpawn = spawnPart,
 		CustomerExit = exitPart or spawnPart,
 		Station = station,
+		Counter = findPart(model, "Counter"),
 	}
 end
 

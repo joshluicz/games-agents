@@ -1,0 +1,160 @@
+<title>Build the Shop</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one friendly column of numbered steps, prompts as copyable "order slips", a sticky name checklist. Light-only by house rule. */
+:root {
+  color-scheme: light;
+  --paper: #fffaf3;
+  --card: #ffffff;
+  --ink: #2b2420;
+  --muted: #6e625a;
+  --line: #eadfd2;
+  --berry: #d9466f;
+  --berry-soft: #fde6ec;
+  --mint: #1f9e6e;
+  --mint-soft: #e2f6ee;
+  --amber: #b86b00;
+  --amber-soft: #fff1d6;
+  --stop: #c0392b;
+  --stop-soft: #fdeaea;
+  --display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  --body: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+html, body { background: var(--paper); color: var(--ink); }
+body { font-family: var(--body); font-size: 17px; line-height: 1.6; }
+.wrap {
+  max-width: 760px; margin: 0 auto;
+  padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 28px;
+}
+h1, h2, h3 { font-family: var(--display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 6vw, 2.8rem); font-weight: 700; }
+h2 { font-size: 1.55rem; font-weight: 600; }
+h3 { font-size: 1.15rem; font-weight: 600; }
+p { margin: 0; }
+.lede { font-size: 1.1rem; color: var(--muted); max-width: 62ch; }
+.hero { display: flex; flex-direction: column; gap: 12px; }
+.tag { font-family: var(--display); font-weight: 600; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--berry); }
+.where { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: .92rem; }
+.part { display: flex; flex-direction: column; gap: 16px; }
+.part-head { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; border-bottom: 2px dashed var(--line); }
+.part-head span { color: var(--muted); }
+ol.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; counter-reset: step; }
+ol.steps > li { counter-increment: step; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 4px 14px; }
+ol.steps > li::before { content: counter(step); grid-row: span 9; width: 36px; height: 36px; border-radius: 50%; background: var(--berry-soft); color: var(--berry); font-family: var(--display); font-weight: 700; display: grid; place-items: center; }
+.step-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.slip { background: var(--amber-soft); border: 1px solid #f1d9a8; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.slip-label { font-family: var(--display); font-weight: 600; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); }
+.slip p { font-size: .98rem; }
+button.copy { align-self: flex-start; font: 600 .95rem var(--display); background: var(--ink); color: #fff; border: 0; border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+button.copy:focus-visible, input:focus-visible { outline: 3px solid var(--berry); outline-offset: 2px; }
+button.copy.done { background: var(--mint); }
+code, .name { font-family: var(--mono); font-size: .92em; background: #f4ede4; border-radius: 6px; padding: 1px 6px; }
+.names { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.names li { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 10px; }
+.names input { width: 22px; height: 22px; margin-top: 3px; accent-color: var(--mint); }
+.names label { min-width: 0; }
+.note { border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.note.stop { background: var(--stop-soft); }
+.note.stop strong { color: var(--stop); }
+.note.ok { background: var(--mint-soft); }
+.note.ok strong { color: var(--mint); }
+.rules { display: flex; flex-direction: column; gap: 10px; }
+.stuck { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.foot { color: var(--muted); font-size: .9rem; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <span class="tag">For the builder</span>
+    <h1>Build the Shop</h1>
+    <p class="lede">You're building the place where the whole game happens. You don't need building experience: Roblox Studio has an AI helper called <strong>Assistant</strong>, and you tell it what to make. Joshua's code runs the customers, cash and upgrades. Your job is to make the shop look amazing.</p>
+    <div class="where"><span class="pill">Roblox Studio on your Mac</span><span class="pill">Part A: start now</span><span class="pill">Part B: when Joshua says Team Create is ready</span></div>
+  </header>
+
+  <section class="part" aria-labelledby="a">
+    <div class="part-head"><h2 id="a">Part A: build it in your own place</h2><span>Practice place. Nothing you do here can break the real game.</span></div>
+    <ol class="steps">
+      <li><div class="step-body"><h3>Open a blank place</h3><p>Open Roblox Studio, then <strong>New</strong> and <strong>Baseplate</strong>.</p></div></li>
+      <li><div class="step-body"><h3>Open Explorer and Properties</h3><p><strong>Explorer</strong> lists everything in your game. <strong>Properties</strong> shows the settings of whatever you click. Both are in the <strong>View</strong> (or <strong>Window</strong>) menu.</p></div></li>
+      <li><div class="step-body"><h3>Open Assistant</h3><p>Click <strong>Assistant</strong> in Studio. A chat panel opens: type what you want and it builds it.</p></div></li>
+      <li><div class="step-body"><h3>Build the shop</h3><p>Copy this into Assistant:</p>
+        <div class="slip"><span class="slip-label">Paste into Assistant</span>
+          <p id="p1">Create a Model in Workspace named Shop. Inside it, build a small, cozy shop: a flat 40 by 40 stud wooden floor, walls about 12 studs tall on three sides with the front side left open as the entrance, and a counter 14 studs wide near the back wall, named Counter. Leave space behind the counter for players to stand. Anchor every part. Keep the floor flat and empty from the open front all the way to the counter.</p>
+          <button class="copy" type="button" data-copy="p1">Copy</button></div></div></li>
+      <li><div class="step-body"><h3>Add the 5 special parts</h3><p>The code looks for these exact names, so spell them exactly like this, capital letters too. Copy this into Assistant:</p>
+        <div class="slip"><span class="slip-label">Paste into Assistant</span>
+          <p id="p2">Inside the Shop model, add these anchored parts with exactly these names. Station: a 4 by 5 by 3 stud block behind the counter, where players will make food. QueueStart: an invisible 2 by 1 by 2 stud part on the floor, 3 studs in front of the counter, on the customer side. CustomerSpawn: an invisible 2 by 1 by 2 stud part on the floor just inside the open front. CustomerExit: an invisible 2 by 1 by 2 stud part on the floor just inside the open front, 8 studs to the side of CustomerSpawn. Invisible means Transparency 1 and CanCollide false. Keep the Counter part named Counter.</p>
+          <button class="copy" type="button" data-copy="p2">Copy</button></div></div></li>
+      <li><div class="step-body"><h3>Check the names</h3><p>In Explorer, click the arrow next to <span class="name">Shop</span>. Tick each one you can see (extra parts are fine):</p>
+        <ul class="names">
+          <li><input type="checkbox" id="n-counter"><label for="n-counter"><span class="name">Counter</span>: the counter</label></li>
+          <li><input type="checkbox" id="n-station"><label for="n-station"><span class="name">Station</span>: where food gets made</label></li>
+          <li><input type="checkbox" id="n-queue"><label for="n-queue"><span class="name">QueueStart</span>: where the first customer stands</label></li>
+          <li><input type="checkbox" id="n-spawn"><label for="n-spawn"><span class="name">CustomerSpawn</span>: where customers appear</label></li>
+          <li><input type="checkbox" id="n-exit"><label for="n-exit"><span class="name">CustomerExit</span>: where they walk out</label></li>
+        </ul>
+        <p>Missing or spelled wrong? Click it and press <strong>F2</strong> to rename it.</p></div></li>
+      <li><div class="step-body"><h3>Make it look good (the fun part)</h3><p>Ask Assistant for anything you like. Some ideas:</p>
+        <div class="slip"><span class="slip-label">Ideas</span>
+          <p id="p3">Make the walls pastel pink and the floor light wood. Add a sign above the entrance that says OPEN, some shelves on the side walls, and warm lights hanging from the ceiling.</p>
+          <button class="copy" type="button" data-copy="p3">Copy</button></div>
+        <p><strong>For a cool machine or oven:</strong> click <span class="name">Station</span> in Explorer first, then type <code>/generate_mesh a cute cartoon oven</code>. Assistant makes it fit inside Station's box. Then click the old Station part and set <strong>Transparency</strong> to <strong>1</strong>.</p>
+        <div class="note stop"><strong>Don't delete or rename Station.</strong><span>The code needs it to know where food gets made.</span></div></div></li>
+      <li><div class="step-body"><h3>Walk around it</h3><p>Press <strong>Play</strong> (or F5) to walk around, and <strong>Stop</strong> when you're done. No customers will show up here. That's normal, because the code lives in the real game.</p></div></li>
+      <li><div class="step-body"><h3>Save it</h3><p><strong>File → Save to File</strong> keeps a copy on your Mac. Then in Explorer, <strong>right-click Shop → Save to Roblox</strong>. That puts it in your inventory for Part B.</p></div></li>
+    </ol>
+  </section>
+
+  <section class="part" aria-labelledby="b">
+    <div class="part-head"><h2 id="b">Part B: put it in the real game</h2><span>Do this once Joshua says Team Create is ready.</span></div>
+    <div class="note ok"><strong>First:</strong><span>you and Joshua are Roblox friends, then <strong>Trusted Friends</strong>, and he's given you <strong>Edit</strong> access. At 13, Roblox needs this (or a parent's OK) before you can build with someone 18+.</span></div>
+    <ol class="steps">
+      <li><div class="step-body"><h3>Open the real game</h3><p>In Studio, find it under games <strong>shared with you</strong> and open it. That's Team Create: Joshua sees what you build, live.</p></div></li>
+      <li><div class="step-body"><h3>Drop your shop in</h3><p>Open the <strong>Toolbox</strong>, go to <strong>Inventory → My Models</strong>, and click your <span class="name">Shop</span>.</p></div></li>
+      <li><div class="step-body"><h3>Check where it sits</h3><p>In Explorer, <span class="name">Shop</span> must sit <strong>directly inside Workspace</strong>, not inside another folder. If there's another model called Shop, tell Joshua. There can only be one.</p></div></li>
+      <li><div class="step-body"><h3>Press Play</h3><p>Customers should walk in from the front and line up at your counter. 🎉</p></div></li>
+    </ol>
+  </section>
+
+  <section class="part" aria-labelledby="r">
+    <div class="part-head"><h2 id="r">Rules</h2></div>
+    <div class="rules">
+      <div class="note stop"><strong>Don't touch the scripts.</strong><span>Leave <span class="name">ServerScriptService</span>, <span class="name">StarterPlayerScripts</span> and <span class="name">ReplicatedStorage → Shared</span> alone. That's Joshua's code, and changes made there get wiped.</span></div>
+      <div class="note stop"><strong>Free models can hide bad scripts.</strong><span>If something made by someone else gets added, click its arrow in Explorer. If there's a <span class="name">Script</span> inside, delete it, or ask Joshua.</span></div>
+      <div class="note stop"><strong>Make it your own.</strong><span>Don't copy another game's look, characters or name.</span></div>
+      <div class="note ok"><strong>Keep the path clear.</strong><span>The floor from the entrance to the counter stays flat and empty. Customers walk in straight lines.</span></div>
+    </div>
+  </section>
+
+  <section class="stuck" aria-labelledby="s">
+    <h2 id="s">Stuck?</h2>
+    <p>1. Ask Assistant: <em>"How do I move a part?"</em>, <em>"How do I make this bigger?"</em>, <em>"Why can't I see my part?"</em></p>
+    <p>2. Still stuck? Tell Joshua what you tried and what happened.</p>
+  </section>
+
+  <p class="foot">Same guide in the repo: docs/guides/build-the-shop.md</p>
+</div>
+
+<script>
+document.querySelectorAll("button.copy").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var el = document.getElementById(btn.dataset.copy);
+    var text = el ? el.textContent.trim() : "";
+    function done() { btn.textContent = "Copied!"; btn.classList.add("done"); setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("done"); }, 1600); }
+    function fallback() { var r = document.createRange(); r.selectNodeContents(el); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = "Selected, press Cmd+C"; }
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  });
+});
+document.querySelectorAll(".names input").forEach(function (box) {
+  try { box.checked = localStorage.getItem("shop-" + box.id) === "1"; } catch (e) {}
+  box.addEventListener("change", function () { try { localStorage.setItem("shop-" + box.id, box.checked ? "1" : "0"); } catch (e) {} });
+});
+</script>

@@ -9,8 +9,7 @@ goal is money (`memory-20261116-002`). Plan: `docs/plan/2026-11-16-game-plan.md`
 ## Next actions
 - [ ] **Joshua:** do the Windows setup in `docs/setup/01-connect-claude-to-roblox.md` (ID age check + 2FA, Claude Code ↔
       Studio MCP, Rokit/Rojo), publish a **private** Baseplate place, `rojo serve`, press Play.
-- [ ] **Brother:** do the Mac setup in the same doc (Studio, age check, become Trusted Friends with Joshua), join Team
-      Create, build the shop around the five marker parts (plan §4).
+- [ ] **Brother:** follow `docs/guides/build-the-shop.md` (page: https://claude.ai/artifact/V6KDDqaX6qxpXAeNpEAN2b). Part A in his own place now, Part B once Team Create works.
 - [ ] **Both:** pick the theme and name (OPEN #1). Change `game/src/shared/Config.luau` → `ProductName`.
 - [ ] **Both:** playtest tonight's version to the definition of done (plan §2). Write notes in `logs/playtests/`.
 
