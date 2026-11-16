@@ -75,6 +75,58 @@ the **post-merge** tree:
 The overhaul runs in its own worktree (`.worktrees/look`, branch `claude/look-overhaul`) cut from that merge. Where
 this plan replaces something v2 built, §G says which way it resolves.
 
+**Foundation notes (Task 0, 2026-11-17): where the merged tree differs from this plan's first draft.** The plan
+was written while Progression v2 was still in flight. Task 0 checked §A, §B and §G against the real tree and fixed
+the text below in place; this is the list, so nobody codes against the old wording.
+- **Baseline:** 1,000 specs in 42 files before the Foundation; 1,130 in 49 with it.
+- **§A.** Task 0 also touched files it doesn't own, for the moves and stubs only (each marked `FOUNDATION` or
+  `-- STUB (T<n>)`): `Kit` (`tab`, `textLimit`, the role kinds, the navy default header), `Hud` (the split, the Now
+  stubs), `MiniGames` (`stage()`), `server/Tutorial` (`setReopen`, the two remote stubs), `Hospital.spec` (the mock
+  moved out, the budget tests moved to `PartBudget.spec`, the PURE path), `Belt.spec`, `Rebirth.spec`.
+  `Market.luau` has `placeholderKiosk` and `kitKiosk` but **no `buildSign`** (only `Agency.luau` has one).
+- **§B1.** The plot lookup is `Plots.getPlot(p)` (there is no `Plots.plotOf`). `Patients.reopen(owner)` and
+  `PlayerData.canSave(p)` exist as written.
+- **§B3.** Three palette rules contradicted the table they check, so the rules changed and the table stayed:
+  "no channel ≥ 245" is **above 245** (Yellow `#F5C731` has R = 245); plot colours sit **≥ 15°** apart, not 20
+  (Orange–Yellow are 17.9° apart, Blue–Cyan 19.8°); V is compared **at two decimals** (the road's `#3E4352` is
+  V 0.3216, "0.32"). `Theme.Radius.Round` is a `UDim` (0.5 scale), the others are px. `Theme.Space` is
+  `{ Step = { 4, 8, 12, 16, 24, 32 }, Gap, PadCard, PadPanel, Margin, MarginPhone }`. `Theme.Colors.Quiet` stays as
+  an alias of `Secondary`. Old `Theme.Size.Gap` (10), `Pad` (12) and `Margin` (12) keep their values so untouched
+  layouts don't shift.
+- **§B4.** `Parts.surface(part, name, face, pixels, maxDistance?, lightInfluence?)`. `Parts` also carries what more
+  than one builder needs: `band`, `disc`, `iconLabel`, `lighten`, `darken`, `anchorAll`, `scrubScripts`, and the
+  LEGACY `candyLabel` / `candyBoard` (T2–T4 replace their uses with `floatText` / `navyPlate`, then they go).
+  `NightLights` gained `light(part, range)` (today's lamp light); `tag` stores `DayMaterial` as the Material's
+  **name** (a string) plus `NightKind`. `Studs.Pure.alignedSize` takes and returns `{ X, Y, Z }`.
+  The town's lawn part is still named **`TownLawn`** and `BoardBuilder` reads `ClinicTown.TownLawn` and `Street`:
+  T2 owns both files and renames them together. `World/Props` and `TownBuilder.build` are still today's candy pieces,
+  so `tree` (5 parts), `bush` (4), `bench` (4) and `fence` (posts every 10) are over the contract's counts until T2.
+- **§B5.** With a stud kept from the lane and from the plaza's edges, the odds sign facing TownSpawn can be at most
+  **9.2 studs wide** (`TownLayout.spec` prints it). Today's sign stand is 12 wide and faces the centre line, and
+  `NurseBelt` turns riders "back up the belt" when the belt is on the centre line: both are T2's to change.
+  Until T2 lands only TownSpawn has moved; the old plaza disc, planters and benches stand in the belt's lane.
+- **§B6.** Decor slot 1 is at **(−8.5, −10.2)** in the real tree (the hospital doc rounded it to −10.3); it does not
+  move. `Building.reach(fromXZ, toXZ, level, floor?)` takes the floor (0 unless given) and `Building.obstacles(level,
+  floor?)` lists what is solid. `reach` allows a **0.3-stud skim** (`Building.SKIM`): the plan's own numbers put the
+  straight line from the landing's centre (−9, 4) to `BedSpot_3`'s foot (6.7, 6.0) 0.26 studs inside the foot corner
+  of bed 1's frame (z up to 4.6). T3 may end the frames at z 4.2 instead and file a Request to drop the skim.
+  A station's 4.5-wide top at Remedy's new x (−4.3) reaches x −6.55, 0.05 past the shaft's face (−6.5): T4 trims it.
+  Decor slot 2's 4 × 4 marker and `MascotSpot` overlap by 0.5 × 0.3 studs on the porch.
+- **§B7.** `HudZones` constants are `RAIL_BUTTON` 72 / `RAIL_BUTTON_MIN` 56, `RAIL_GAP` 10 / `RAIL_GAP_PHONE` 8,
+  `NOW_HEIGHT` 88 / `NOW_HEIGHT_SHORT` 76 (under `NOW_SHORT_BREAK` 500). Added, because the plan left them open:
+  `WALLET_WIDTH` 240, `STATUS_WIDTH_PHONE` 180 (260 leaves a 667-wide phone 115 px for the Now card), `NOW_MAX` 480,
+  `MARGIN` / `MARGIN_PHONE`, the Layout fields `Top`, `RailTop`, `NowHeight` and `StatusWidth`, and
+  `railRect(layout, side, index, safeW)` / `nowRect(layout, safeW)`. On desktop the band starts one gap under the
+  wallet (about 422 px at 720, not 430).
+- **§B8.** `Modal.tabs` also returns `Column` and `Content` (the body beside the tabs). `Kit.textLimit` returns its
+  constraint. `Modal.Pure` has `hudMode`, `confirm` (the defaults), `percent` and `oddsLine`. `Hud.modal` is a
+  one-line wrapper (it hands Hud the bus, so `Hud.sound` works before `Hud.init`); the rest are plain re-exports.
+- **§B9.** `Wayfinder.Pure` first versions: `feetY(rootY, rootHeight, hipHeight, r6?)`, `beamStart(feetY, lift)`,
+  `endAnchor(box, fromX, fromZ, out)`, `needsBend(ax, az, bx, bz, box)`, `chevronSpots(length, first, gap, max,
+  near?)`, `near(distance, nearStuds)`. `Data/Guide` also has an `Icon`. `NextEvent.MAX_AHEAD` is the 6 h.
+- **§D.** `PartBudget.spec` holds the 400 total now and prints the three shares; the shares become hard limits there
+  when the integrator flips `SHARES_HOLD` (today's v2 plot is building 75 · rooms 146 · plot 151 at Lv 5).
+
 **Tooling** (PowerShell, from `game/`; the gates every task runs before finishing):
 ```powershell
 & "$env:USERPROFILE\.rokit\bin\stylua.exe" src tests              # format first
@@ -257,7 +309,7 @@ forwards it, the same way it forwards `TutorialCures`. The client's default snap
 | Function | Server | Rules, in order |
 |---|---|---|
 | `TutorialSkip()` | T8 `Tutorial` | loaded · `Logic/Tutorial.canSkip(step)` (an active step 1..8; else "Already done!") · `move(p, DONE)` without any gift · `TutorialCures` cleared · toast "🔁 Replay anytime in ⚙️" |
-| `TutorialReplay()` | T8 `Tutorial` | loaded and `PlayerData.canSave(p)` · `Logic/Tutorial.canReplay(step, hasPlot)`: the step is DONE and `Plots.plotOf(p)` is the caller's own clinic (else "Get a clinic first!") · `Config.Tutorial.ReplayCooldown` (30 s) per player (else "Try again soon") · the reopen hook empties **the caller's own** line (`Patients.reopen(p)`, wired by `Main.server`) · player attribute `TutorialReplay = true` for the session · `move(p, PATIENT)`. `TutorialGift` is already true, so there's no second gift. No respawn, no camera sweep, no funnel logs |
+| `TutorialReplay()` | T8 `Tutorial` | loaded and `PlayerData.canSave(p)` · `Logic/Tutorial.canReplay(step, hasPlot)`: the step is DONE and `Plots.getPlot(p)` is the caller's own clinic (else "Get a clinic first!") · `Config.Tutorial.ReplayCooldown` (30 s) per player (else "Try again soon") · the reopen hook empties **the caller's own** line (`Patients.reopen(p)`, wired by `Main.server`) · player attribute `TutorialReplay = true` for the session · `move(p, PATIENT)`. `TutorialGift` is already true, so there's no second gift. No respawn, no camera sweep, no funnel logs |
 
 The admin `RestartTutorial` (`Server/Admin`) is unchanged: admin only, and it also respawns you.
 
@@ -365,11 +417,13 @@ Config.Tutorial = {
 
 **Palette rules (`tests/Palette.spec`, Task 0).**
 - The table above matches art-direction §4.1 exactly.
-- No `World` or `Accent` colour has a channel ≥ 245. The warm whites cap at a maximum channel of 240.
-- `Road`, `Pad`, `Roof` and `Trunk` are dark anchors (V ≤ 0.45; road, pad and roof ≤ 0.32).
+- No `World` or `Accent` colour has a channel above 245 (`World.Lamp` aside). The warm whites cap at a maximum
+  channel of 240.
+- `Road`, `Pad`, `Roof` and `Trunk` are dark anchors (V ≤ 0.45; road, pad and roof ≤ 0.32). V is compared at two
+  decimals.
 - The greens have S ≥ 0.6 and V in 0.55–0.85. V(GrassA) − V(GrassB) ≥ 0.05, and GrassB's hue is 0–15° bluer.
 - Every plot colour has S ≥ 0.6 and V 0.78–0.96. Each sits ≥ 25° of hue from GrassA, ≥ 15° from pure red, and
-  ≥ 20° from every other plot colour.
+  ≥ 15° from every other plot colour.
 - `Navy == Theme.Colors.Header == Theme.Colors.NowPlate`.
 
 **`Theme` tokens (ux audit §3.4, with Joshua's navy).** Old keys stay as aliases, as listed.
@@ -410,7 +464,7 @@ Studs.Pure                           -- mode(hasVariant), whole(n) (snaps to who
 
 **✚ `World/Parts` (Task 0, frozen).** These are the generic helpers today's `PlotBuilder` already has, moved: `part`,
 `soft`, `ball`, `cylinder`, `wedge`, `marker`, `paint`, `rounded`, `surface` (= `detailGui` plus `MaxDistance` and
-`LightInfluence`) and `iconBadge`. Task 0 adds the shared look pieces every world builder must use, so the town, the
+`LightInfluence`: `surface(part, name, face, pixels, maxDistance?, lightInfluence?)`) and `iconBadge`. Task 0 adds the shared look pieces every world builder must use, so the town, the
 plots and the building read as one family:
 ```lua
 Parts.floatText(gui: SurfaceGui | BillboardGui, text: string, props: { Gold: boolean?, Shadow: boolean?,
@@ -431,10 +485,12 @@ Parts.pawHeart(parent: GuiObject, size: UDim2, color: Color3): Frame
 -- ✚ World/NightLights (T1)
 NightLights.TAG = "ClinicNightLight"            -- PlotBuilder.NIGHT_LIGHT_TAG re-exports it
 NightLights.tag(part: BasePart, kind: "Lamp" | "Window" | "Sign")
-	-- stores the part's day Material and Color as the attributes DayMaterial and DayColor, then tags it.
+	-- stores the part's day Material (its name) and Color as the attributes DayMaterial and DayColor, and the
+	-- kind as NightKind, then tags it.
 	-- Lamp: Neon + its lights at night. Window: World.WindowNight colour, SmoothPlastic, no Neon.
 	-- Sign: lights only. By day every part goes back to its own DayMaterial and DayColor
 	-- (hospital §3.9 #6: today's code forces SmoothPlastic by day and would wipe studs)
+NightLights.light(part: BasePart, range: number): PointLight   -- a lamp's shadowless light, off until night; tags "Lamp"
 NightLights.wire()                              -- once; follows Workspace.IsNight
 
 -- ✚ World/Props (T2): the shared scenery pieces (the town and the plots both use them; part counts are contract)
@@ -559,7 +615,7 @@ plus the front ward. Plot-local studs: −z is the street, and y = 0 is the pad 
 - **Stand spots** (the building is built around them; T4's room uses them):
   - Remedy (−4.3, −1.3) and Plaster (1.7, −1.3): each moved +1.2 in x.
   - `Bed_1` at (7.6, −4.8), unchanged.
-  - Decor slot 1 at (−8.5, −10.3); **decor slot 2 at (−9.5, −17.5)**, on the porch.
+  - Decor slot 1 at (−8.5, −10.2), unchanged; **decor slot 2 at (−9.5, −17.5)**, on the porch.
   - **`MascotSpot` at (−7, −14.8).**
   - The waiting bench at x 10..10.9, z −8..−3.5.
 - **The functional ward beds** (`Wards.BedSpot_<n>.Bed_<n>`, `Floor = 1`; F1's main ward, the tower part):
@@ -569,7 +625,8 @@ plus the front ward. Plot-local studs: −z is the street, and y = 0 is the pad 
   - **Every foot spot is reachable from `Floor_1.Landing` in a straight line** that crosses no shaft, wall, bed or
     atrium. Patients walks upstairs that way (`{ target }`).
 - **Checks.** `Logic/Building` exposes the rects plus `Building.clear(rect, level): boolean` and
-  `Building.reach(fromXZ, toXZ, level): boolean`. `tests/Building.spec` (Task 0) checks the numbers against what
+  `Building.reach(fromXZ, toXZ, level, floor?): boolean` (the ground unless `floor` is given; it allows a 0.3-stud
+  corner skim, `Building.SKIM`: see the Foundation notes). `tests/Building.spec` (Task 0) checks the numbers against what
   Patients assumes:
   - the walkways at x ±12.5 and `BackZ` 4;
   - the `bedRoute` at x 7.6 through the main door;
@@ -663,9 +720,11 @@ HudZones.layout(safeW: number, safeH: number, topbar: number?): Layout
 	--   Left: { Piece }, Right: { Piece }, More: { Piece } (moved into ⚙️ More), Band: { Top: number, Bottom: number },
 	--   Margin: number, NowWidth: number }
 HudZones.nowWidth(safeW: number, walletRight: number): number  -- min(480, safeW - 2 * (walletRight + 8))
--- constants: PHONE_BREAK = 440 (safe height) · RAIL_BUTTON = 72 (max) / 56 (min) · RAIL_GAP = 10 / 8 (phone) ·
---   CORNER_CLEAR = 110 · TOPBAR = 58 (fallback; read GuiService.TopbarInset) · WALLET_HEIGHT = 112 (desktop) ·
---   NOW_HEIGHT = 88 (76 under 500 px tall) · NOW_TAB = 24 · NOW_SLIM = 44 · STATUS_WIDTH = 260
+-- constants: PHONE_BREAK = 440 (safe height) · RAIL_BUTTON = 72 (max) / RAIL_BUTTON_MIN = 56 · RAIL_GAP = 10 /
+--   RAIL_GAP_PHONE = 8 · CORNER_CLEAR = 110 · TOPBAR = 58 (fallback; read GuiService.TopbarInset) ·
+--   WALLET_HEIGHT = 112 / WALLET_WIDTH = 240 (desktop) · NOW_HEIGHT = 88 (NOW_HEIGHT_SHORT = 76 under 500 px tall) ·
+--   NOW_TAB = 24 · NOW_SLIM = 44 · NOW_MAX = 480 · STATUS_WIDTH = 260 (STATUS_WIDTH_PHONE = 180)
+-- also: HudZones.railRect(layout, side, index, safeW) · HudZones.nowRect(layout, safeW)
 ```
 - **The rules.**
   - Every piece belongs to exactly one zone, and its slot index never changes. A piece that isn't revealed leaves
@@ -745,7 +804,7 @@ Modal.modal(ctx, spec: ModalSpec): Modal   -- = Hud.modal; ModalSpec as today, p
 	-- HudMode: HudMode? (default "Panel" for Layer Panel, "None" for Popup) · Meta: string? (the header's one
 	-- meta chip: "📔 6%", "💰 726"; modal.setMeta(text)). spec.Accent is accepted and IGNORED: every header is Navy
 Modal.tabs(modal: Modal, tabs: { { Id: string, Icon: string, Caption: string, Stripe: Color3? } },
-	onSelect: (id: string) -> ()): { select: (id: string) -> () }
+	onSelect: (id: string) -> ()): { select: (id: string) -> (), Column: Frame, Content: Frame }
 	-- THE tab pattern: a left column of square tabs (Hud.fitTabs sizes them), painted by Kit.tab
 Modal.confirm(ctx, spec: { Title: string, Line: string, Yes: string, No: string?, Kind: ("Primary" | "Destructive"
 	| "Collect")?, Hold: number? }, onYes: () -> ())
@@ -999,8 +1058,8 @@ after control returns, and the first 💰 at about 20–35 s (an estimate; the f
 ### Task 0: Foundation (lead, first, then frozen). Load `roblox-luau`, `roblox-studio-workflow`.
 Also does **required task 7** (studs: `World/Studs` and its spec) and the **token half of required task 1** (Palette
 and Theme).
-- [ ] **Gate:** v2 is merged into `claude/trusting-carson-5v32sr`. Cut `.worktrees/look` (`claude/look-overhaul`).
-  Run every gate and record the baseline spec count in this plan.
+- [x] **Gate:** v2 is merged into `claude/trusting-carson-5v32sr`. Cut `.worktrees/look` (`claude/look-overhaul`).
+  Run every gate and record the baseline spec count in this plan. **Baseline: 1,000 specs, 42 files, lint clean.**
 - [ ] **Records first** (the lead): `memory-20261117-002` (Joshua's beds + replay, verbatim) and `-003` (Claude's
   defaults, provisional, Joshua can overrule).
 - [ ] **Config** (§B2), **Types** and **Remotes** (§B1: `TutorialSkip`, `TutorialReplay`; until T8 serves them they

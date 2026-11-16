@@ -6,7 +6,9 @@
 -- How each step moves on. Every move is a real server event, never the client's word:
 --   1 -> 2     the TutorialAck remote (Remotes.serve: rate-limited, pcalled), only while the player has a clinic.
 --              If no ack comes, by itself WELCOME_FALLBACK_SECONDS after they got their clinic
---   2 -> 3     ARRIVED_SECONDS after the first patient reaches the Counter (Patients calls onFrontArrived)
+--   2 -> 3     ARRIVED_SECONDS after the first patient reaches the Counter (Patients calls onFrontArrived). Look
+--              overhaul: that patient walks in during step 1 already, so entering step 2 with it at the Counter
+--              (the plot's FrontItem is set) counts as the arrival too
 --   3 -> 4     the owner makes, at a station on their own clinic, the item the front patient needs (Stations
 --              calls onMade). Already carrying it when step 3 starts: straight to 4
 --   2..4 -> 5  the front patient on their clinic is treated, by them or a friend (Patients calls onTreated)
@@ -31,6 +33,11 @@
 --   Tutorial.queueCap(owner): number?         at most this many in line, nil = Config.MaxQueue
 --   Tutorial.onFrontArrived(owner) · Tutorial.onMade(p, itemId, plot) · Tutorial.onTreated(owner) ·
 --   Tutorial.onCured(owner)                   the hooks above
+--   Tutorial.setReopen(fn)                    Main.server hands over Patients.reopen once (look overhaul §B10): the
+--                                             Replay remote empties the caller's own line with it
+--   Tutorial.REPLAY_ATTRIBUTE                 "TutorialReplay": the player attribute State forwards (a replay session)
+-- Look overhaul (build plan §B1): the TutorialSkip and TutorialReplay remotes. STUB (T8): both are served here and
+-- answer (false, Remotes.SOON) until T8 writes their rules.
 --   Tutorial.finish(p): boolean · Tutorial.restart(p): boolean
 --                                             the 🛠️ Admin panel only (Server/Admin): straight to DONE, or back to
 --                                             the welcome card; each is a normal step change (old timers stop)
@@ -53,6 +60,14 @@ type Plot = Types.Plot
 local Tutorial = {}
 
 Tutorial.CURES_ATTRIBUTE = "TutorialCures"
+Tutorial.REPLAY_ATTRIBUTE = "TutorialReplay"
+
+-- Patients.reopen, handed over by Main.server (Patients requires this module, so it can't be required here).
+local reopen: ((Player) -> boolean)? = nil
+
+function Tutorial.setReopen(fn: (Player) -> boolean)
+	reopen = if type(fn) == "function" then fn else nil
+end
 
 local GIFT_TOAST = "🎁 A gift to get you started!"
 
@@ -129,6 +144,15 @@ local function enter(player: Player, step: number)
 	if step == Logic.WELCOME then
 		if plot then
 			later(player, Logic.WELCOME_FALLBACK_SECONDS, Logic.WELCOME, "Ack")
+		end
+	elseif step == Logic.PATIENT then
+		-- FOUNDATION (look overhaul): the first patient now comes during the welcome sweep (Logic.spawnPlan), so it
+		-- can already be standing at the Counter when the ack moves the step here. Its onFrontArrived came while the
+		-- step was still WELCOME and did nothing, so count the arrival now (FrontItem is set only while a patient
+		-- waits at the Counter). Without this the tutorial would wait at step 2 for ever.
+		local front = if plot then plot.Model:GetAttribute("FrontItem") else nil
+		if type(front) == "string" and front ~= "" then
+			later(player, Logic.ARRIVED_SECONDS, Logic.PATIENT, "Arrived")
 		end
 	elseif step == Logic.MAKE then
 		-- Made it early (while the patient walked in): carrying it already counts.
@@ -289,9 +313,23 @@ local function onAck(player: Player): (boolean, string)
 	return true, ""
 end
 
+-- STUB (T8): the rules are build plan §B1 (canSkip, move to DONE without a gift, the cures cleared, the toast).
+local function onSkip(_player: Player): (boolean, string)
+	return false, Remotes.SOON
+end
+
+-- STUB (T8): the rules are build plan §B1 (canReplay, the cooldown, `reopen` on the caller's own line, the
+-- REPLAY_ATTRIBUTE, move to PATIENT; TutorialGift is already true, so there is never a second gift).
+local function onReplay(_player: Player): (boolean, string)
+	local _hook = reopen
+	return false, Remotes.SOON
+end
+
 function Tutorial.start()
 	Remotes.setQuiet(Tutorial.active)
 	Remotes.serve("TutorialAck", onAck)
+	Remotes.serve("TutorialSkip", onSkip)
+	Remotes.serve("TutorialReplay", onReplay)
 
 	PlayerData.Loaded:Connect(resume)
 	Plots.PlotAssigned:Connect(onPlot)

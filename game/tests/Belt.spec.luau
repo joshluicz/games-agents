@@ -249,7 +249,8 @@ T.describe("Belt", function()
 	end)
 end)
 
--- PlotBuilder's town numbers (a Roblox module, so read from its text): the street's half width and the plot gap.
+-- PlotBuilder's town numbers (a Roblox module, so read from its text): the street's half width and the plot gap
+-- (TownBuilder repeats them; tests/TownLayout.spec checks the two files agree).
 local function plotBuilderNumber(name: string): number
 	local source: string? = nil
 	for _, path in
@@ -342,10 +343,13 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 		expect(west - westReach > -streetEnd).toBe(true) -- the Hall of Fame garden (x < -137) stays clear
 	end)
 
-	test("inside the curbs, clear of the spawn pad and the plaza planters", function()
-		expect(math.abs(sz) + beltHalf <= curb - 2).toBe(true) -- a lane stays free along the curb
-		expect(math.abs(sz) - beltHalf >= 5 + 2).toBe(true) -- the 10 x 10 spawn pad
-		expect(math.abs(sz) - beltHalf >= 5 + 2 + 0.5).toBe(true) -- planters at z = ±5 (4 across)
+	test("down the road's centre line, alone in its lane, clear of the spawn pad (memory-20261117-001 #3)", function()
+		expect(math.abs(sz) < 1e-6).toBe(true) -- the centre line
+		expect(math.abs(ez) < 1e-6).toBe(true)
+		expect(beltHalf <= Config.Town.BeltClear).toBe(true) -- the bed and rollers fit the lane kept for it
+		expect(Config.Town.BeltClear + 2 <= curb).toBe(true) -- a lane stays free along each curb
+		local spawnNear = math.abs(Config.Town.SpawnOffset.Z) - Config.Town.SpawnSize / 2
+		expect(spawnNear - Config.Town.BeltClear >= 2).toBe(true) -- the spawn pad is 2 studs off the lane
 	end)
 
 	test("every plot's gate is within hire reach of riders passing it", function()
@@ -358,13 +362,14 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 		end
 	end)
 
-	test("the odds sign stands at the plaza, off the belt, clear of the middle gate, inside the curb", function()
+	test("the odds sign stands on the plaza, off the belt's lane, clear of the middle gate, inside the curb", function()
 		local signX, signZ = B.SignOffset.X, B.SignOffset.Z
-		local signHalf = 6 -- 12 studs wide
-		expect(math.abs(signZ) - math.abs(sz) >= beltHalf + 1).toBe(true) -- behind the belt, from the spawn
+		local plaza = Config.Town.Plaza
+		expect(math.abs(signZ) - Config.Town.BeltClear >= 1).toBe(true) -- off the belt's lane
 		expect(math.abs(signZ) + 0.8 <= curb).toBe(true) -- its posts stay on the street
-		expect(math.abs(signX) - signHalf >= 6.2 + 0.6 + 1).toBe(true) -- the middle gate (posts at ±6.8) stays open
-		expect(math.abs(signX) + signHalf <= half - 1 + 3).toBe(true) -- at the plaza, readable from the spawn
+		expect(signX >= plaza.X0 and signX <= plaza.X1).toBe(true) -- on the plaza ...
+		expect(signZ >= plaza.Z0 and signZ <= plaza.Z1).toBe(true)
+		expect(math.abs(signX) >= 6.2 + 0.6 + 1).toBe(true) -- ... and not in the middle gate's mouth (posts at +-6.8)
 		expect(Belt.distanceToPath(Config, signX, signZ) <= B.HireDistance).toBe(true)
 	end)
 end)

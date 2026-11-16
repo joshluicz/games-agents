@@ -1,44 +1,81 @@
 --!strict
 -- The look of every screen: palette, fonts, sizes and motion. Change a token here, not per button.
--- "Candy pop" (memory-20261116-007): saturated colours, thick dark outlines, chunky outlined text, glossy buttons.
--- The colours themselves live in Shared/Palette so the world and the UI match. Chunky and readable for phones.
+-- The look overhaul's tokens (look build plan §B3; docs/research/2026-11-16-ux-cohesion-audit.md §3.4, with Joshua's
+-- navy header, memory-20261117-001): flat white paper, ONE navy header, calmer roles, text never under 18 px, three
+-- radii, one shadow and a motion budget. The colours themselves live in Shared/Palette so the world and the UI match.
+-- Every key the candy-pop Theme had is still here (an alias where its token was renamed), so files the overhaul
+-- hasn't reached keep compiling.
+--
+--   Theme.Colors      chrome (Paper, Card, CardLine, Well, Locked, Header = NowPlate = Palette.Navy, Plate, Ink,
+--                     InkSoft, Stroke) · roles (Primary, Collect, Secondary, Destructive, Disabled, each gradient
+--                     role with its ...End; aliases Good = Collect, Danger = Destructive) · meaning (Cash, Star,
+--                     Night, and Pink / Purple / Cyan for rarity, wing and station stripes only)
+--   Theme.Radius      Small 8 · Medium 14 · Large 22 (px) · Round (a UDim: 0.5 scale)
+--   Theme.Stroke      Fine 2 · Bold 3 · Panel 4 · Text 2.5 · Title 3
+--   Theme.TextSize    Caption 18 (THE FLOOR: nothing a player reads is smaller) · Body 22 · Button 24 · Title 30 ·
+--                     Number 36 · Hero 56 · Icon 40 (aliases Small = Caption, Big = 48)
+--   Theme.Space       Step { 4, 8, 12, 16, 24, 32 } · Gap 8 · PadCard 12 · PadPanel 16 · Margin 16 / MarginPhone 8
+--   Theme.Shadow      the one shadow: only under modals, the Now card and toasts
+--   Theme.Motion      Perpetual = 1: at most one looping effect on screen, on the one Collect button
+--   Theme.Zone        the HUD zone numbers (mirrors Shared/Logic/HudZones)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Palette = require(Shared:WaitForChild("Palette"))
+local HudZones = require(Shared:WaitForChild("Logic"):WaitForChild("HudZones"))
 
 local Candy = Palette.Candy
+local hex = Color3.fromHex
 
 local Theme = {}
 
+local PAPER = hex("#FFFFFF")
+local COLLECT = hex("#45CF3A")
+local DESTRUCTIVE = hex("#FF4459")
+local QUIET = hex("#DFE6F2")
+
 Theme.Colors = table.freeze({
-	-- Surfaces
-	Paper = Color3.fromRGB(255, 255, 255), -- panels (a white-to-ice gradient is added by Kit.panel)
-	PaperEdge = Color3.fromRGB(220, 232, 255), -- the bottom of the panel gradient
-	Card = Color3.fromRGB(238, 244, 255), -- rows and cards inside panels
+	-- Chrome
+	Paper = PAPER, -- panels: flat white
+	PaperEdge = PAPER, -- (old key) the panel gradient's bottom: the same white now, so there is no gradient
+	Card = hex("#EEF3FA"), -- rows and cards inside panels ...
+	CardLine = hex("#C3D0E6"), -- ... and their 2 px stroke
+	Well = hex("#D6E3F5"), -- a card's image tile; every row's icon tile (neutral)
+	Locked = hex("#6A5FA0"), -- "???" silhouettes
+	Header = Palette.Navy, -- EVERY panel header (no per-panel colour)
+	NowPlate = Palette.Navy, -- the top-centre Now card
+	Plate = hex("#FFFFFF"), -- HUD plates (rail buttons, toasts)
 	Shade = Color3.fromRGB(20, 12, 48), -- the dim behind a modal (use with Transparency.Dim)
 	-- Text
 	Ink = Palette.Ink,
 	InkSoft = Palette.InkSoft,
 	OnColor = Palette.White, -- text on coloured buttons (always outlined)
 	Outline = Palette.Outline,
-	-- Roles
-	Primary = Candy.Orange, -- main actions
-	Secondary = Candy.Blue, -- other actions
-	Good = Candy.Lime, -- claim, open, done
-	Danger = Candy.Red, -- close, cancel
-	Pink = Candy.Pink,
+	Stroke = Palette.Outline, -- every outline
+	-- Roles (ux audit §3.3). A role with an ...End is a top-to-bottom gradient
+	Primary = hex("#FF9A1F"), -- Buy, Hire, Level up, List: one per view. Never shines or breathes
+	PrimaryEnd = hex("#F27A0C"),
+	Collect = COLLECT, -- Claim, Open!, Yay!: the only role that may shine or breathe
+	CollectEnd = hex("#2BA52A"),
+	Secondary = QUIET, -- everything else: a quiet fill with ink text
+	Destructive = DESTRUCTIVE, -- Sell, Reset, Throw away (always behind a confirm or a hold), and the ✖
+	DestructiveEnd = hex("#D9283F"),
+	Disabled = hex("#B3B6C9"),
+	DisabledText = hex("#6E7190"),
+	Dot = Color3.fromRGB(255, 40, 70), -- the "something new" badge
+	-- Old role keys (aliases)
+	Good = COLLECT,
+	Danger = DESTRUCTIVE,
+	Quiet = QUIET,
+	-- Meaning
+	Cash = hex("#FFD43B"),
+	Star = hex("#FFE228"),
+	Heart = Candy.Pink,
+	Night = hex("#5B3BD6"),
+	NightText = Color3.fromRGB(240, 232, 255),
+	Pink = Candy.Pink, -- rarity, wing and station stripes only
 	Purple = Candy.Purple,
 	Cyan = Candy.Cyan,
-	Quiet = Color3.fromRGB(226, 232, 252), -- tertiary buttons
-	Disabled = Color3.fromRGB(176, 176, 198),
-	-- Game values
-	Cash = Candy.Yellow,
-	Star = Color3.fromRGB(255, 226, 40),
-	Heart = Candy.Pink,
-	Night = Color3.fromRGB(96, 52, 214),
-	NightText = Color3.fromRGB(240, 232, 255),
-	Stroke = Palette.Outline, -- every outline
-	Dot = Color3.fromRGB(255, 40, 70), -- the "something new" badge
 })
 
 Theme.Transparency = table.freeze({
@@ -54,21 +91,81 @@ Theme.DisplayFont = Palette.DisplayFont
 Theme.DisplayFontFace = Font.fromEnum(Palette.DisplayFont)
 
 Theme.TextSize = table.freeze({
-	Small = 18, -- the minimum for anything a player must read
-	Body = 24,
-	Title = 34,
-	Big = 48, -- numbers that matter (cash, the Day Report count)
+	Caption = 18, -- THE FLOOR: every UITextSizeConstraint's MinTextSize (Kit.textLimit)
+	Body = 22,
+	Button = 24,
+	Title = 30,
+	Number = 36, -- HUD numbers
+	Hero = 56, -- Celebrate, the Day Report's count
 	Icon = 40, -- emoji on icon buttons
+	-- Old keys (aliases, for files the overhaul hasn't reached)
+	Small = 18,
+	Big = 48,
 })
 
+Theme.Radius = table.freeze({
+	Small = 8, -- chips, bars, small tiles
+	Medium = 14, -- buttons, cards, tabs
+	Large = 22, -- panels, the Now card, toasts
+	Round = UDim.new(0.5, 0), -- dots, portraits (a UDim, not px)
+})
+
+Theme.Stroke = table.freeze({
+	Fine = 2, -- cards (in CardLine), tiles, chips
+	Bold = 3, -- buttons, HUD plates
+	Panel = 4, -- panels
+	Text = 2.5, -- labels on colour
+	Title = 3, -- HUD numbers, titles
+})
+
+Theme.Space = table.freeze({
+	Step = table.freeze({ 4, 8, 12, 16, 24, 32 }), -- the only spacings
+	Gap = 8, -- lists
+	PadCard = 12,
+	PadPanel = 16,
+	Margin = 16, -- from the safe-area edge (desktop and tablet)
+	MarginPhone = 8,
+})
+
+-- The one shadow: only under modals, the Now card and toasts. None on the HUD (the outline does that job).
+Theme.Shadow = table.freeze({
+	Color = Palette.Outline,
+	Transparency = 0.6,
+	Offset = Vector2.new(0, 6),
+})
+
+-- The motion budget: at most this many looping effects on screen at once, on the one Collect button. Dots pop once.
+Theme.Motion = table.freeze({
+	Perpetual = 1,
+})
+
+-- The HUD zone numbers (Shared/Logic/HudZones owns them; UI/Hud lays out from HudZones.layout).
+Theme.Zone = table.freeze({
+	PhoneBreak = HudZones.PHONE_BREAK,
+	RailButton = HudZones.RAIL_BUTTON,
+	RailButtonMin = HudZones.RAIL_BUTTON_MIN,
+	RailGap = HudZones.RAIL_GAP,
+	RailGapPhone = HudZones.RAIL_GAP_PHONE,
+	CornerClear = HudZones.CORNER_CLEAR,
+	Topbar = HudZones.TOPBAR,
+	WalletHeight = HudZones.WALLET_HEIGHT,
+	NowHeight = HudZones.NOW_HEIGHT,
+	NowHeightShort = HudZones.NOW_HEIGHT_SHORT,
+	NowTab = HudZones.NOW_TAB,
+	NowSlim = HudZones.NOW_SLIM,
+	NowMax = HudZones.NOW_MAX,
+	StatusWidth = HudZones.STATUS_WIDTH,
+})
+
+-- Old sizes (kept so untouched layouts don't shift; new code uses Radius, Stroke and Space).
 Theme.Size = table.freeze({
 	ButtonHeight = 56, -- the minimum tap target height (Global Constraints)
-	IconButton = 76, -- square bottom-bar buttons
-	Corner = 16,
-	CornerLarge = 24,
-	Stroke = 3, -- outlines on buttons and chips
-	StrokeLarge = 4, -- outlines on panels
-	TextStroke = 2.5, -- outlines on text
+	IconButton = 76, -- square icon buttons (the rails use Theme.Zone.RailButton)
+	Corner = 14, -- = Radius.Medium
+	CornerLarge = 22, -- = Radius.Large
+	Stroke = 3, -- = Stroke.Bold
+	StrokeLarge = 4, -- = Stroke.Panel
+	TextStroke = 2.5, -- = Stroke.Text
 	Pad = 12,
 	Gap = 10,
 	Margin = 12, -- from the safe-area edge

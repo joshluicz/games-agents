@@ -1,6 +1,8 @@
 --!strict
 -- Treatment mini-games (depth-update design §1, build plan §B3/§B9). Client only. OWNER: T2; Progression v2: T8.
 --   init(ctx)   listens for the bus "TreatStart" (Types.TreatSession, forwarded from the server by Main.client)
+--   stage(): GuiObject?   the current game's stage, for UI/Tutorial's touch hand (nil when no game is up).
+--               STUB (T6): always nil until T6 moves the card onto Modal.modal (look build plan §B8)
 --
 -- One short game per session.Games entry, in recipe order, on a candy card in the middle of the screen. Big targets
 -- (56 px or more), touch and mouse; Space or the gamepad's A button plays every game too.
@@ -2549,6 +2551,11 @@ end
 -- A treat card is open now (UI/Celebrate holds the celebrations nobody tapped for until it closes).
 function MiniGames.isOpen(): boolean
 	return current ~= nil
+end
+
+-- STUB (T6): the current game's stage (look build plan §B8). Nil = no game is up.
+function MiniGames.stage(): GuiObject?
+	return nil
 end
 
 function MiniGames.init(ctx: Types.Ctx)

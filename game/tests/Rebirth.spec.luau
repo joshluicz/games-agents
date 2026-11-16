@@ -131,6 +131,7 @@ T.describe("Rebirth.apply", function()
 			"VisitorDay",
 			"HeartsReceived",
 			"Tutorial",
+			"TutorialGift",
 			"WeekCures",
 			"Playtime",
 			"Boosts",

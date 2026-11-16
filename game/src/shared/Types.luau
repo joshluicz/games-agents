@@ -230,6 +230,9 @@ export type Data = {
 	VisitorDay: number, -- the UTC day this clinic last cured Today's Visitor (0 = never)
 	HeartsReceived: number, -- hearts left on this clinic's sign, all time (cosmetic)
 	Tutorial: number, -- the first-session tutorial step (Logic/Tutorial): 1 = the welcome .. 8, 9 = done
+	-- Look overhaul: the step-7 top-up has run, or was never needed (Server/Tutorial gives it once; a Replay never
+	-- gives a second one). Derived when missing: true for a save at or past step 7 (Logic/Schema)
+	TutorialGift: boolean,
 	WeekCures: { Week: number, Count: number }, -- cures in one UTC week, for the weekly leaderboard
 	Playtime: PlaytimeData,
 	Boosts: { [BoostId]: number }, -- timed boosts still running: seconds of active play left
@@ -270,6 +273,9 @@ export type Snapshot = {
 	-- snapshot says 0 = not known yet, so the HUD stays calm until the server answers.
 	Tutorial: number,
 	TutorialCures: number, -- step 6 only: cures so far of the 2 more (0..2)
+	-- Look overhaul: true while this session is REPLAYING the tutorial (⚙️ "🔁 Replay tutorial"). Not saved: it is
+	-- Server/Tutorial's player attribute TutorialReplay, forwarded like TutorialCures. No sweep, no gift, full HUD
+	TutorialReplay: boolean,
 	-- Time played, boosts and badges (Server/Playtime, Boosts, Badges). Playtime is the SAVED part: the live seconds
 	-- (with what's counted since the last save) are the player attributes PlayToday and PlayTotal.
 	Playtime: PlaytimeData,
@@ -415,7 +421,9 @@ export type ShoutInfo = {
 --   Progression v2 kinds: "Rebirth" (Count, Theme) · "Perk" (Perk) · "NurseLevel" (NurseId, Level, Ability) ·
 --   "Unlock" (Unlock: a Logic/Rebirth.UNLOCKS id)
 export type CelebrateInfo = {
-	Kind: "LevelUp" | "NewNurse" | "JournalSet" | "Room" | "Rebirth" | "Perk" | "NurseLevel" | "Unlock",
+	-- "Tutorial" (look overhaul): the tutorial's finale, fired on the client by UI/Tutorial and shown even while the
+	-- tutorial runs: Title "YOU DID IT!", Chips, and Next (the one "COMING UP" chip, a FREE event only)
+	Kind: "LevelUp" | "NewNurse" | "JournalSet" | "Room" | "Rebirth" | "Perk" | "NurseLevel" | "Unlock" | "Tutorial",
 	Title: string, -- 3 words or fewer
 	Icon: string,
 	Rarity: Rarity?,
@@ -429,7 +437,18 @@ export type CelebrateInfo = {
 	Perk: PerkId?, -- Perk
 	Ability: boolean?, -- NurseLevel: the ability got stronger
 	Unlock: string?, -- Unlock
+	Chips: { string }?, -- Tutorial: "📖 Collect them all", "🎯 Daily goals", "👩‍⚕️ Hire nurses"
+	Next: NextEventView?, -- Tutorial: what's coming up (Logic/NextEvent.pick; never anything paid)
 }
+
+-- A FREE upcoming event for a "coming up" chip (Logic/NextEvent; memory-20261116-022: countdowns only for free
+-- events, in minutes). At is a Workspace:GetServerTimeNow() time.
+export type NextEventView = { Id: string, Icon: string, Name: string, At: number }
+
+-- What the HUD does while a modal is open (UI/Modal sends it with ModalOpened / ModalClosed): "Panel" hides the
+-- rails, the Now card and Status (the wallet stays) · "Game" (the mini-game) hides the rails and Status, the wallet
+-- and the Now card stay · "None" (a popup) changes nothing.
+export type HudMode = "Panel" | "Game" | "None"
 
 -- The client bus "Banner" spec (BeltView fires it, Toasts shows it)
 export type BannerSpec = {
@@ -509,6 +528,8 @@ export type ClientData = {
 	Perks: any, -- Data/Perks: { [PerkId]: Perk }, with .Order, .Fallback and .FallbackId
 	Tree: any, -- Data/Tree: { Branches, BranchOrder, Nodes (with .Order), CapstoneNeeds }
 	Themes: { [ThemeId]: Theme },
+	-- Look overhaul
+	Guide: any, -- Data/Guide: { Name, Icon, Look } (the tutorial's guide nurse; no .Order)
 }
 
 export type Ctx = {

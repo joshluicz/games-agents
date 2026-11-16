@@ -1,10 +1,13 @@
 --!nocheck
--- The hospital world (Progression v2 build plan §C T6): the building's layout (PlotBuilder.Pure), the lift's rules
--- (Server/Lift and UI/LiftPanel pure blocks), the 💊 Pharmacy's craft check and the hold factors (Server/Stations).
--- The pure blocks are loaded straight from the shipped source. The last part builds the REAL PlotBuilder under a
--- small Instance mock (Lune's roblox datatypes; no Roblox services), so the parts budget (a Lv 5 plot with every room
--- <= 400 parts, no creatures or decor) and the clearances (nothing on the Counter, the line, the gate, the sign, the
--- walkways or a room slot) are checked on what ships. Run from game/ with the rest:  lune run tests/run
+-- The hospital world (Progression v2 build plan §C T6): the building's layout (HospitalBuilder.Pure, which
+-- PlotBuilder.Pure re-exports), the lift's rules (Server/Lift and UI/LiftPanel pure blocks), the 💊 Pharmacy's craft
+-- check and the hold factors (Server/Stations).
+-- The pure blocks are loaded straight from the shipped source. The last part builds the REAL PlotBuilder (and through
+-- it HospitalBuilder, TownBuilder and World/*) under tests/worldmock (Lune's roblox datatypes; no Roblox services),
+-- so the contract's names and the clearances (nothing on the Counter, the line, the gate, the sign, the walkways or
+-- a room slot) are checked on what ships. The parts budget is tests/PartBudget.spec.
+-- Look overhaul: T3 rewrites the layout tests for the new building (look build plan §D T3) and keeps the
+-- contract-name tests. Run from game/ with the rest:  lune run tests/run
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
@@ -37,7 +40,7 @@ local function loadPure(path: string): any
 	return luau.load(string.sub(text, from, to - 1) .. "\nreturn Pure\n", { debugName = path .. " (pure)" })()
 end
 
-local Building = loadPure("src/server/PlotBuilder.luau")
+local Building = loadPure("src/server/HospitalBuilder.luau")
 local Lift = loadPure("src/server/Lift.luau")
 local Panel = loadPure("src/client/UI/LiftPanel.luau")
 local Stations = loadPure("src/server/Stations.luau")
@@ -332,261 +335,12 @@ T.describe("Hospital (stations)", function()
 end)
 
 ------------------------------------------------------------------------------------------------------------------
--- The real PlotBuilder under a small Instance mock (Lune's roblox datatypes; Instances are plain tables)
+-- The real PlotBuilder under tests/worldmock (Lune's roblox datatypes; Instances are plain tables)
 ------------------------------------------------------------------------------------------------------------------
 
-local CFrame, Vector3 = roblox.CFrame, roblox.Vector3
-
-local BASE = { Part = true, WedgePart = true, CornerWedgePart = true, MeshPart = true, SpawnLocation = true }
-local tags: { [string]: { any } } = {}
-local methods = {}
-local meta = {}
-
-local function noSignal()
-	return {
-		Connect = function()
-			return { Disconnect = function() end }
-		end,
-		Once = function()
-			return { Disconnect = function() end }
-		end,
-	}
-end
-
-local function new(className: string)
-	local p = { Name = className, ClassName = className, _children = {}, _attrs = {} }
-	if BASE[className] then
-		p.Size, p.CFrame, p.CanCollide, p.CanQuery, p.Transparency = Vector3.new(4, 1, 2), CFrame.new(), true, true, 0
-	end
-	return setmetatable({ _p = p }, meta)
-end
-
-function methods:IsA(class)
-	local cn = rawget(self, "_p").ClassName
-	return cn == class
-		or class == "Instance"
-		or (class == "BasePart" and BASE[cn] == true)
-		or (class == "Light" and string.find(cn, "Light$") ~= nil)
-end
-function methods:GetChildren()
-	return table.clone(rawget(self, "_p")._children)
-end
-function methods:GetDescendants()
-	local out = {}
-	local function walk(i)
-		for _, c in rawget(i, "_p")._children do
-			table.insert(out, c)
-			walk(c)
-		end
-	end
-	walk(self)
-	return out
-end
-function methods:FindFirstChild(name, recursive)
-	for _, c in rawget(self, "_p")._children do
-		if c.Name == name then
-			return c
-		end
-	end
-	if recursive then
-		for _, c in rawget(self, "_p")._children do
-			local found = c:FindFirstChild(name, true)
-			if found then
-				return found
-			end
-		end
-	end
-	return nil
-end
-function methods:FindFirstChildWhichIsA(class, recursive)
-	for _, d in (if recursive then self:GetDescendants() else self:GetChildren()) do
-		if d:IsA(class) then
-			return d
-		end
-	end
-	return nil
-end
-function methods:FindFirstAncestor(name)
-	local p = self.Parent
-	while p and p.Name ~= name do
-		p = p.Parent
-	end
-	return p
-end
-function methods:SetAttribute(k, v)
-	rawget(self, "_p")._attrs[k] = v
-end
-function methods:GetAttribute(k)
-	return rawget(self, "_p")._attrs[k]
-end
-function methods:GetAttributeChangedSignal()
-	return noSignal()
-end
-function methods:Destroy()
-	self.Parent = nil
-end
-function methods:AddTag(tag)
-	tags[tag] = tags[tag] or {}
-	table.insert(tags[tag], self)
-end
-function methods:Clone()
-	local src = rawget(self, "_p")
-	local copy = new(src.ClassName)
-	local p = rawget(copy, "_p")
-	for k, v in src do
-		if k ~= "_children" and k ~= "_attrs" and k ~= "Parent" then
-			p[k] = v
-		end
-	end
-	for k, v in src._attrs do
-		p._attrs[k] = v
-	end
-	for _, child in src._children do
-		child:Clone().Parent = copy
-	end
-	return copy
-end
-function methods:ClearAllChildren()
-	for _, c in self:GetChildren() do
-		c:Destroy()
-	end
-end
-local function boxOf(model)
-	local lo, hi
-	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") then
-			local cf, s = part.CFrame, part.Size / 2
-			for _, c in { cf * Vector3.new(-s.X, -s.Y, -s.Z), cf * Vector3.new(s.X, s.Y, s.Z) } do
-				lo = if lo then lo:Min(c) else c
-				hi = if hi then hi:Max(c) else c
-			end
-		end
-	end
-	if not lo then
-		return CFrame.new(), Vector3.zero
-	end
-	return CFrame.new((lo + hi) / 2), hi - lo
-end
-function methods:GetBoundingBox()
-	return boxOf(self)
-end
-function methods:GetPivot()
-	local p = rawget(self, "_p")
-	if BASE[p.ClassName] then
-		return p.CFrame
-	end
-	return if p.PrimaryPart then p.PrimaryPart.CFrame elseif p.WorldPivot then p.WorldPivot else (boxOf(self))
-end
-function methods:PivotTo(cf)
-	local p = rawget(self, "_p")
-	if BASE[p.ClassName] then
-		p.CFrame = cf
-		return
-	end
-	local offset = cf * self:GetPivot():Inverse()
-	for _, d in self:GetDescendants() do
-		if d:IsA("BasePart") then
-			d.CFrame = offset * d.CFrame
-		end
-	end
-	if p.WorldPivot then
-		p.WorldPivot = offset * p.WorldPivot
-	end
-end
-meta.__index = function(self, k)
-	local p = rawget(self, "_p")
-	if k == "Position" and p.CFrame then
-		return p.CFrame.Position
-	end
-	if p[k] ~= nil then
-		return p[k]
-	end
-	if methods[k] then
-		return methods[k]
-	end
-	if k == "Destroying" or k == "Triggered" then
-		return noSignal()
-	end
-	return self:FindFirstChild(k)
-end
-meta.__newindex = function(self, k, v)
-	local p = rawget(self, "_p")
-	if k == "Parent" then
-		if p.Parent then
-			local list = rawget(p.Parent, "_p")._children
-			table.remove(list, table.find(list, self))
-		end
-		p.Parent = v
-		if v then
-			table.insert(rawget(v, "_p")._children, self)
-		end
-	else
-		p[k] = v
-	end
-end
-
-local workspaceMock = new("Folder")
-workspaceMock.Name = "Workspace"
-rawset(rawget(workspaceMock, "_p"), "GetServerTimeNow", function()
-	return 0
-end)
-local storageMock = new("Folder")
-local services = {
-	Workspace = workspaceMock,
-	ServerStorage = storageMock,
-	CollectionService = {
-		AddTag = function(_, instance, tag)
-			tags[tag] = tags[tag] or {}
-			table.insert(tags[tag], instance)
-		end,
-		GetTagged = function(_, tag)
-			return tags[tag] or {}
-		end,
-		GetInstanceAddedSignal = noSignal,
-	},
-}
-
-local loaded = {}
-local function ref(path: string)
-	return setmetatable({ _path = path }, {
-		__index = function(_, k)
-			if k == "Parent" then
-				return ref((string.match(path, "^(.*)/[^/]+$")))
-			elseif k == "WaitForChild" then
-				return function(self, name)
-					return self[name]
-				end
-			end
-			return ref(path .. "/" .. k)
-		end,
-	})
-end
-local function loadModule(path: string): any
-	if loaded[path] then
-		return loaded[path]
-	end
-	local env = {
-		game = {
-			GetService = function(_, name)
-				return if name == "ReplicatedStorage" then { Shared = ref("src/shared") } else services[name]
-			end,
-		},
-		script = ref(string.gsub(path, "%.luau$", "")),
-		require = function(r)
-			return loadModule(r._path .. ".luau")
-		end,
-		Instance = { new = new },
-		warn = function() end,
-	}
-	for k, v in roblox do
-		if env[k] == nil and k ~= "Instance" then
-			env[k] = v
-		end
-	end
-	local result = luau.load(fs.readFile(find(path)), { debugName = path, environment = env })()
-	loaded[path] = result
-	return result
-end
+local world = require("./worldmock").new()
+local loadModule = world.load
+local Vector3 = roblox.Vector3
 
 T.describe("Hospital (the built world)", function()
 	local PlotBuilder = loadModule("src/server/PlotBuilder.luau")
@@ -595,82 +349,6 @@ T.describe("Hospital (the built world)", function()
 		PlotBuilder.placeRoom(plot, roomId)
 	end
 	local pivot = plot:GetPivot()
-
-	local function partsOnPlot(): number
-		local n = 0
-		for _, d in plot:GetDescendants() do
-			if d:IsA("BasePart") and not d:FindFirstAncestor("Patients") and not d:FindFirstAncestor("Nurses") then
-				n += 1
-			end
-		end
-		return n
-	end
-
-	test("parts budget: every level, every theme, every room <= 400 (no creatures, no decor)", function()
-		local worst = 0
-		for _, theme in { "Candy", "Arctic", "Jungle", "Space", "Ocean", "Royal" } do
-			for level = 1, 5 do
-				PlotBuilder.buildBuilding(plot, level, nil, theme)
-				local n = partsOnPlot()
-				worst = math.max(worst, n)
-				if n > 400 then
-					error(string.format("Lv %d %s: %d parts", level, theme, n))
-				end
-			end
-		end
-		expect(worst <= 400).toBe(true)
-	end)
-
-	test("a Lv 5 plot with every room and every decor slot filled (the 10 heaviest decor) stays in budget", function()
-		-- Integration (lead): the real DecorBuilder under the same mock. Each decor exists once (Plots.placeDecor moves
-		-- it), so the worst a plot can hold is the heaviest decor pieces, one per slot.
-		local DecorBuilder = loadModule("src/server/DecorBuilder.luau")
-		local DecorData = loadModule("src/shared/Data/Decor.luau")
-		local RoomsData = loadModule("src/shared/Data/Rooms.luau")
-		local slots = 0
-		for _, roomId in RoomsData.Order do
-			slots += RoomsData[roomId].DecorSlots
-		end
-		local counts: { number } = {}
-		for _, decorId in DecorData.Order do
-			local model = DecorBuilder.build(decorId)
-			local n = 0
-			for _, d in model:GetDescendants() do
-				if d:IsA("BasePart") then
-					n += 1
-				end
-			end
-			if n > 25 then
-				error(decorId .. ": " .. n .. " parts (DecorBuilder's MAX_PARTS is 25)")
-			end
-			table.insert(counts, n)
-		end
-		table.sort(counts, function(a, b)
-			return a > b
-		end)
-		local decor = 0
-		for index = 1, math.min(slots, #counts) do
-			decor += counts[index]
-		end
-		local worstPlot = 0
-		for _, theme in { "Candy", "Royal", "Jungle" } do
-			PlotBuilder.buildBuilding(plot, 5, nil, theme)
-			worstPlot = math.max(worstPlot, partsOnPlot())
-		end
-		expect(slots).toBe(10)
-		expect(worstPlot <= 400).toBe(true)
-		expect(decor <= slots * 25).toBe(true)
-		expect(worstPlot + decor <= 400 + slots * 25).toBe(true)
-		print(
-			string.format(
-				"    [parts] Lv 5, every room: %d; + the %d heaviest decor (%d): %d",
-				worstPlot,
-				slots,
-				decor,
-				worstPlot + decor
-			)
-		)
-	end)
 
 	test("the contract's names: floors, landings with both prompts, the lift, stairs, departments", function()
 		for level = 1, 5 do

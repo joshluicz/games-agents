@@ -14,7 +14,7 @@
 --   Schema.xpToNext(level): number       XP from `level` to the next: 10 + 5 x level x (level + 1)
 --   Schema.rosterCap(count): number      nurses that may work after `count` rebirths: 3 + count, at most 8
 --   Schema.levelCap(count): number       the nurse level cap: 10, or 15 from 3 rebirths
---   Schema.TUTORIAL_FIRST / TUTORIAL_DONE   the Tutorial values for the welcome and for done
+--   Schema.TUTORIAL_FIRST / TUTORIAL_DONE / TUTORIAL_SHOP   the Tutorial values for the welcome, done and step 7
 --
 -- v4 (Progression v2) adds Rebirth, gives every nurse XP and a Job, drops Equipped, and adds the upgrades WardComfort,
 -- AESpeed and NightClinic and the counter Stats.RoomsBefore (the numberMap rules, like every counter). The version went
@@ -51,6 +51,10 @@
 --   Tutorial        the first-session tutorial step (Logic/Tutorial: 1 = the welcome .. 9 = done). A save without
 --                   it is migrated: any cure (Cured > 0, a v1 "Served" included) means an existing player, so done;
 --                   anyone else starts at the welcome. A fresh save starts at the welcome.
+--   TutorialGift    (look overhaul) the step-7 top-up has run or was never needed. A boolean is kept; missing or
+--                   junk is derived: true when Tutorial >= TUTORIAL_SHOP (7), since the top-up runs on entering
+--                   step 7. So a Replay (DONE -> PATIENT) never gives a second gift, and an older v4 server that
+--                   drops the field loses nothing: the next load derives it again. No version bump.
 --   WeekCures       this player's cures in one UTC week (Logic/Leaderboard.week), for the weekly leaderboard:
 --                   { Week, Count }. A cure in a new week starts the count again (Leaderboard.addWeekCure)
 --   Playtime        { Day, TodaySeconds, TotalSeconds, Claimed, Rank } (Logic/Playtime): active play today and all
@@ -94,6 +98,7 @@ export type Data = {
 	VisitorDay: number,
 	HeartsReceived: number,
 	Tutorial: number,
+	TutorialGift: boolean,
 	WeekCures: { Week: number, Count: number },
 	Playtime: Playtime,
 	Boosts: { [string]: number },
@@ -121,6 +126,7 @@ Schema.MAX_KEY_LENGTH = 40
 -- Logic/Tutorial's WELCOME and DONE, repeated because Schema has no requires (Tutorial.spec checks they match).
 Schema.TUTORIAL_FIRST = 1
 Schema.TUTORIAL_DONE = 9
+Schema.TUTORIAL_SHOP = 7 -- Logic/Tutorial's SHOP: entering it runs the one-time top-up (TutorialGift)
 -- Data/Levels, Config.Nurses and Config.Roster values, repeated because Schema has no requires (Levels.spec and
 -- Nurse.spec check they match).
 Schema.MAX_LEVEL = 5
@@ -165,6 +171,7 @@ function Schema.default(): Data
 		VisitorDay = 0,
 		HeartsReceived = 0,
 		Tutorial = Schema.TUTORIAL_FIRST,
+		TutorialGift = false,
 		WeekCures = { Week = 0, Count = 0 },
 		Playtime = { Day = 0, TodaySeconds = 0, TotalSeconds = 0, Claimed = {}, Rank = 0 },
 		Boosts = {},
@@ -583,6 +590,14 @@ function Schema.reconcile(saved: any, today: number?): Data
 		data.Tutorial = tutorial
 	else
 		data.Tutorial = if data.Cured > 0 then Schema.TUTORIAL_DONE else Schema.TUTORIAL_FIRST
+	end
+	-- The step-7 top-up's flag (look overhaul; no version bump). A boolean is kept. Missing or junk: the top-up
+	-- runs when step 7 is entered, so a save at or past it has had its chance. That makes the field harmless to
+	-- lose (an older v4 server writing the save back): the next load derives it again.
+	if type(saved.TutorialGift) == "boolean" then
+		data.TutorialGift = saved.TutorialGift
+	else
+		data.TutorialGift = data.Tutorial >= Schema.TUTORIAL_SHOP
 	end
 
 	-- Time-played rewards, boosts and badges. A save from before them starts at 0 (Stats unseeded: {}).

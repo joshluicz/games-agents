@@ -47,10 +47,23 @@
 -- step (Config.MiniGame.Combo) and pops away when it resets; it never shows during the tutorial. Panels slide up
 -- as they pop in and close with a soft sound.
 --
+-- THE SPLIT (look build plan §A/§B7/§B8; the look overhaul's Foundation). The modal shell moved to UI/Modal (T6),
+-- which never requires this module. Hud keeps these RE-EXPORTS, so no caller changed:
+--   Hud.modal(ctx, spec): Modal        = Modal.modal: a panel or popup shell with ONE navy header (spec.Accent is
+--                                      ignored), ✖, pop in/out, one Panel open at a time, gamepad focus and
+--                                      ButtonB to close; spec.HudMode and spec.Meta are new (UI/Modal)
+--   Hud.isOpen(name?) · Hud.fitTabs(column, tabs, gap) · Hud.fitHeight(content, area, min?)   = Modal's
+--   Hud.confirm(ctx, spec, onYes)      = Modal.confirm: THE confirm ("Not now" focused; Hold for a hold-to-confirm)
+--   Hud.oddsPopup(ctx, spec)           = Modal.oddsPopup: THE odds popup (every row: the word and the number)
+-- The Now slot (look build plan §B7). STUB (T5): a plain frame at the top centre, until T5 builds the zones:
+--   Hud.setNow(source, card?, priority) offer a card to the top-centre Now slot (nil removes that source's). The
+--                                      highest priority shows; Hud parents it and centres it; the card sets its own
+--                                      height. Priorities: 30 Hud's warnings · 20 "Tutorial" (T8) · 10 the tracked goal
+--   Hud.nowBottom(): number            px from the screen top to the Now card's bottom (0 when empty; the stub: 0)
+-- T5 also rebuilds the screen below (the rails, the wallet without pills, Status, ⚙️ More) from Logic/HudZones; until
+-- then it is still the bottom-bar HUD described above.
+--
 -- Shared helpers (the other UI modules require this module for them; none of them needs Hud.init to have run):
---   Hud.modal(ctx, spec): Modal        a panel or popup shell: dim, paper card with a dark drop shadow, a coloured
---                                      title band (spec.Accent, or the colour of its HUD button), ✖, pop in/out,
---                                      one Panel open at a time, gamepad focus and ButtonB to close
 --   Hud.ask(remote, ...): (ok, msg, payload?)   InvokeServer that never throws and gives up after ASK_TIMEOUT
 --                                      seconds; payload is a table third value (TreatResult's TreatOutcome)
 --   Hud.portrait(look, dark?): Frame   a cute 2D creature face drawn from a Data `Look` (dark = "not met yet")
@@ -67,15 +80,12 @@
 --                                      world Vector3 (a cured patient: flying coins) or nil (the screen's middle).
 --                                      n defaults to 6, at most 10. Calm: nothing flies (the numbers still update)
 --   Hud.pop(gui) · Hud.shake(gui)      a happy bounce · a "nope" wiggle
---   Hud.fitTabs(column, tabs, gap)     square tabs sized to the column (56 to 76 px)
---   Hud.fitHeight(content, area, min?) scales a block down to fit a short screen (not below min, default 0.6)
 --   Hud.calm(): boolean                Reduced Motion, or the ✨ calm toggle (ReduceEffects): skip the motion
 --   Hud.sound(name, volume?)           a Feel/Sounds cue over the bus
 --   Hud.format(n): string              1,234 · 1.2M past a million
 --   Hud.target(name): GuiObject?       a HUD piece by name ("Cash", "Stars", "Shop", "Book", "Mailbox", "Goals",
 --                                      "Nurses", "Badges", "Boards", "Gifts", "Settings", "Hands"), for pointers
 --                                      (UI/Tutorial) and flying icons
---   Hud.isOpen(name?): boolean         a modal is open (that one, or any)
 --   Hud.livePlay(state): (save, day, pending)   Data.Playtime as it is right now: the Snapshot's saved part plus
 --                                      the live PlayToday/PlayTotal attributes (Server/Playtime), on today's UTC
 --                                      day (yesterday's opened gifts don't count); pending = seconds not saved yet
@@ -87,16 +97,13 @@
 --   listens  "NursesNew" (count)                    NursePanel: unseen Nurse Journal news, for the 👩‍⚕️ dot
 --   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Nurses" |
 --                                                   "Badges" | "Boards" | "Gifts" | "Admin"
---   fires    "ModalOpened" (name) · "ModalClosed" (name)
---   fires    "Sound" (name, volume?)                Whoosh on open, Nope on a shake, Pop when icons land
+--   (UI/Modal fires "ModalOpened" (name, hudMode) · "ModalClosed" (name, hudMode))
+--   fires    "Sound" (name, volume?)                Nope on a shake, Pop when icons land
 
-local ContextActionService = game:GetService("ContextActionService")
-local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -111,51 +118,24 @@ local LevelsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Levels"))
 local ProgressLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Progress"))
 local TreeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tree"))
 local Kit = require(script.Parent.Kit)
+local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
 
 local Hud = {}
 
-export type Layer = "Panel" | "Popup"
-export type ModalSpec = {
-	Name: string,
-	Title: string?, -- header text: an emoji and at most two words
-	Accent: Color3?, -- the header band's colour; default the colour of the HUD button that opens it, else Secondary
-	Layer: Layer?, -- "Panel" (default): only one open at a time · "Popup": stacks above panels
-	MaxSize: Vector2?, -- default Theme PanelMaxWidth x PanelMaxHeight
-	Scale: Vector2?, -- share of the safe area, default 0.94 x 0.94
-	CloseButton: boolean?, -- default true
-	Dim: boolean?, -- default true; false leaves the world playable around the card
-	DimCloses: boolean?, -- default true
-	AutoFocus: boolean?, -- default true; false = never grab gamepad focus (popups that arrive on their own)
-	OnOpen: (() -> ())?,
-	OnClose: (() -> ())?,
-}
-export type Modal = {
-	Name: string,
-	Layer: Layer,
-	Gui: ScreenGui,
-	Root: Frame, -- what pops (holds the shadow and the panel)
-	Panel: Frame, -- the paper card
-	Body: Frame, -- the space under the header
-	CloseButton: TextButton?,
-	Focus: GuiObject?, -- what a gamepad selects on open (set it after building; default the ✖)
-	open: () -> (),
-	close: () -> (),
-	toggle: () -> (),
-	isOpen: () -> boolean,
-}
+-- The modal types live in UI/Modal now (re-exported so `Hud.Modal` and `Hud.ModalSpec` still work).
+export type Layer = Modal.Layer
+export type ModalSpec = Modal.ModalSpec
+export type Modal = Modal.Modal
 
 ------------------------------------------------------------------------------------------------------------------
 -- Small helpers
 ------------------------------------------------------------------------------------------------------------------
 
-local SHADOW_OFFSET = 8
-local SLIDE_FROM = 36 -- px below its place a panel starts as it pops in
-local DIM_BLEED = 400 -- the dim reaches past the safe area so the whole screen darkens (decoration may bleed)
 local FLOAT_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local POP_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
--- The big bottom buttons, each its own candy Kind. The panel each one opens wears the same colour on its header.
+-- The big bottom buttons, each its own candy Kind (T5 turns them into the rails' white plates).
 type Tab = { Name: string, Icon: string, Caption: string, Kind: string, Color: Color3 }
 local TABS: { Tab } = {
 	{ Name = "Shop", Icon = "🛒", Caption = "Shop", Kind = "Pink", Color = Theme.Colors.Pink },
@@ -166,17 +146,6 @@ local TABS: { Tab } = {
 	{ Name = "Badges", Icon = "🏅", Caption = "Badges", Kind = "Primary", Color = Theme.Colors.Primary }, -- UI/BadgeBook
 	{ Name = "Boards", Icon = "🏆", Caption = "Top", Kind = "Cash", Color = Theme.Colors.Cash }, -- UI/Boards
 }
-local GIFTS_COLOR = Theme.Colors.Pink -- the 🎁 button and its panel's header
-
-local function tabColor(name: string): Color3?
-	for _, tab in TABS do
-		if tab.Name == name then
-			return tab.Color
-		end
-	end
-	return if name == "Gifts" then GIFTS_COLOR else nil
-end
-
 local function commas(n: number): string
 	local digits = tostring(math.floor(math.abs(n)))
 	local grouped = string.reverse((string.gsub(string.reverse(digits), "(%d%d%d)", "%1,")))
@@ -210,17 +179,6 @@ function Hud.sound(name: string, volumeScale: number?)
 	end
 end
 
-local function scaleNamed(gui: GuiObject, name: string): UIScale
-	local existing = gui:FindFirstChild(name)
-	if existing and existing:IsA("UIScale") then
-		return existing
-	end
-	local scale = Instance.new("UIScale")
-	scale.Name = name
-	scale.Parent = gui
-	return scale
-end
-
 -- Kit.punch reuses the UIScale that's already there (Kit buttons have one: two on one object fight) and tells
 -- Kit's breathing and dot hops to wait until the bounce is over.
 function Hud.pop(gui: GuiObject?, size: number?)
@@ -245,280 +203,76 @@ function Hud.shake(gui: GuiObject?)
 	end)
 end
 
-local function usesDirectionalFocus(): boolean
-	local preferred = UserInputService.PreferredInput
-	return preferred == Enum.PreferredInput.Gamepad or preferred == Enum.PreferredInput.MicroGamepad
-end
-
 ------------------------------------------------------------------------------------------------------------------
--- Modals: a stack, so ButtonB and focus always belong to the top one
+-- Modals: UI/Modal owns the shell. These are re-exports, so every panel keeps calling Hud.*
 ------------------------------------------------------------------------------------------------------------------
 
-local CLOSE_ACTION = "ClinicCloseModal"
-local stack: { Modal } = {}
-
-function Hud.isOpen(name: string?): boolean
-	for _, modal in stack do
-		if name == nil or modal.Name == name then
-			return true
-		end
-	end
-	return false
-end
-
-local function firstButton(root: Instance): GuiObject?
-	for _, descendant in root:GetDescendants() do
-		if descendant:IsA("GuiButton") and descendant.Selectable and descendant.Visible then
-			return descendant
-		end
-	end
-	return nil
-end
-
-local function focusTop()
-	task.defer(function()
-		local top = stack[#stack]
-		if top and usesDirectionalFocus() then
-			local target = top.Focus or top.CloseButton or firstButton(top.Panel)
-			if target and target:IsDescendantOf(top.Gui) then
-				GuiService.SelectedObject = target
-			end
-		end
-	end)
-end
-
-local function syncCloseBinding()
-	if #stack == 0 then
-		ContextActionService:UnbindAction(CLOSE_ACTION)
-		return
-	end
-	ContextActionService:BindActionAtPriority(CLOSE_ACTION, function(_, inputState: Enum.UserInputState)
-		if inputState ~= Enum.UserInputState.Begin then
-			return Enum.ContextActionResult.Pass
-		end
-		local top = stack[#stack]
-		if top then
-			top.close()
-		end
-		return Enum.ContextActionResult.Sink
-	end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.ButtonB)
-end
-
+-- A wrapper only so Hud.sound works for a panel built before Hud.init has run (it hands Hud the bus).
 function Hud.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 	fireBus = fireBus or ctx.fire
-	local layer: Layer = spec.Layer or "Panel"
-	local gui = Kit.screen(
-		"Modal_" .. spec.Name,
-		if layer == "Popup" then Theme.DisplayOrder.Popup else Theme.DisplayOrder.Panel
-	)
-	gui.Enabled = false
+	return Modal.modal(ctx, spec)
+end
 
-	local dim: TextButton? = nil
-	if spec.Dim ~= false then
-		local shade = Instance.new("TextButton")
-		shade.Name = "Dim"
-		shade.Text = ""
-		shade.AutoButtonColor = false
-		shade.Selectable = false
-		shade.BackgroundColor3 = Theme.Colors.Shade
-		shade.BackgroundTransparency = 1
-		shade.BorderSizePixel = 0
-		shade.Position = UDim2.fromOffset(-DIM_BLEED, -DIM_BLEED)
-		shade.Size = UDim2.new(1, DIM_BLEED * 2, 1, DIM_BLEED * 2)
-		shade.Parent = gui
-		dim = shade
+Hud.isOpen = Modal.isOpen
+Hud.confirm = Modal.confirm
+Hud.oddsPopup = Modal.oddsPopup
+Hud.fitTabs = Modal.fitTabs
+Hud.fitHeight = Modal.fitHeight
+
+------------------------------------------------------------------------------------------------------------------
+-- The Now slot (look build plan §B7). STUB (T5): a plain frame at the top centre
+------------------------------------------------------------------------------------------------------------------
+
+type NowOffer = { Card: GuiObject, Priority: number }
+local nowOffers: { [string]: NowOffer } = {}
+local nowSlot: Frame? = nil
+
+local function nowFrame(): Frame
+	local existing = nowSlot
+	if existing then
+		return existing
 	end
+	local gui = Kit.screen("NowSlot", Theme.DisplayOrder.Hud)
+	local slot = Instance.new("Frame")
+	slot.Name = "Now"
+	slot.AnchorPoint = Vector2.new(0.5, 0)
+	slot.Position = UDim2.new(0.5, 0, 0, Theme.Space.Gap)
+	slot.Size = UDim2.fromOffset(Theme.Zone.NowMax, 0)
+	slot.AutomaticSize = Enum.AutomaticSize.Y
+	slot.BackgroundTransparency = 1
+	slot.Parent = gui
+	nowSlot = slot
+	return slot
+end
 
-	local maxSize = spec.MaxSize or Vector2.new(Theme.Size.PanelMaxWidth, Theme.Size.PanelMaxHeight)
-	local share = spec.Scale or Vector2.new(0.94, 0.94)
-	local root = Instance.new("Frame")
-	root.Name = "Root"
-	root.AnchorPoint = Vector2.new(0.5, 0.5)
-	root.Position = UDim2.fromScale(0.5, 0.5)
-	root.Size = UDim2.fromScale(share.X, share.Y)
-	root.BackgroundTransparency = 1
-	root.Visible = false
-	-- Keep gamepad focus inside the card while it's open.
-	root.SelectionGroup = true
-	root.SelectionBehaviorUp = Enum.SelectionBehavior.Stop
-	root.SelectionBehaviorDown = Enum.SelectionBehavior.Stop
-	root.SelectionBehaviorLeft = Enum.SelectionBehavior.Stop
-	root.SelectionBehaviorRight = Enum.SelectionBehavior.Stop
-	local limit = Instance.new("UISizeConstraint")
-	limit.MaxSize = maxSize
-	limit.Parent = root
-	root.Parent = gui
-
-	local shadow = Instance.new("Frame")
-	shadow.Name = "Shadow"
-	shadow.Position = UDim2.fromOffset(0, SHADOW_OFFSET)
-	shadow.Size = UDim2.fromScale(1, 1)
-	shadow.BackgroundColor3 = Theme.Colors.Outline -- a hard, dark sticker shadow
-	shadow.BackgroundTransparency = 0.5
-	shadow.BorderSizePixel = 0
-	shadow.ZIndex = 0
-	Kit.corner(shadow, Theme.Size.CornerLarge)
-	shadow.Parent = root
-
-	local panel = Kit.panel({
-		Name = "Panel",
-		Title = spec.Title,
-		Accent = spec.Accent or tabColor(spec.Name),
-		AnchorPoint = Vector2.zero,
-		Position = UDim2.fromScale(0, 0),
-		Size = UDim2.fromScale(1, 1),
-		ZIndex = 1,
-		Parent = root,
-	})
-	-- The Root carries the size limit, so the shadow and the card stay the same size.
-	local panelLimit = panel:FindFirstChildOfClass("UISizeConstraint")
-	if panelLimit then
-		panelLimit:Destroy()
+function Hud.setNow(source: string, card: GuiObject?, priority: number)
+	local old = nowOffers[source]
+	if old and old.Card ~= card then
+		old.Card.Parent = nil -- the caller owns its card: Hud only shows or hides it
 	end
-	-- With a dim, taps on the card stop here so they never reach the dim behind it (which would close it).
-	-- Without one, taps on the card's background fall through, so the thumbstick still works under it.
-	panel.Active = dim ~= nil
-
-	local closeButton: TextButton? = nil
-	if spec.CloseButton ~= false then
-		closeButton = Kit.button({
-			Name = "Close",
-			Kind = "Danger",
-			Text = "✖",
-			TextSize = Theme.TextSize.Title,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.fromScale(1, 0),
-			Size = UDim2.fromOffset(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight),
-			ZIndex = 2,
-			Parent = panel,
-		})
-	end
-
-	local header = if spec.Title or closeButton then Theme.Size.ButtonHeight + Theme.Size.Gap else 0
-	local body = Instance.new("Frame")
-	body.Name = "Body"
-	body.Position = UDim2.fromOffset(0, header)
-	body.Size = UDim2.new(1, 0, 1, -header)
-	body.BackgroundTransparency = 1
-	body.Parent = panel
-
-	local opened = false
-	local dimTween: Tween? = nil
-	local function fadeDim(target: number)
-		local shade = dim
-		if not shade then
-			return
-		end
-		if dimTween then
-			dimTween:Cancel()
-		end
-		if Hud.calm() then
-			shade.BackgroundTransparency = target
-			return
-		end
-		local tween = TweenService:Create(shade, Theme.Tween.Fade, { BackgroundTransparency = target })
-		dimTween = tween
-		tween:Play()
-	end
-
-	local modal = {
-		Name = spec.Name,
-		Layer = layer,
-		Gui = gui,
-		Root = root,
-		Panel = panel,
-		Body = body,
-		CloseButton = closeButton,
-		Focus = closeButton :: GuiObject?,
-	} :: Modal
-
-	function modal.isOpen(): boolean
-		return opened
-	end
-
-	function modal.close()
-		if not opened then
-			return
-		end
-		opened = false
-		local index = table.find(stack, modal)
-		if index then
-			table.remove(stack, index)
-		end
-		local selected = GuiService.SelectedObject
-		if selected and selected:IsDescendantOf(gui) then
-			GuiService.SelectedObject = nil
-		end
-		fadeDim(1)
-		Kit.popOut(root, function()
-			if opened then
-				root.Visible = true -- reopened while closing
-			else
-				gui.Enabled = false
-			end
-		end)
-		syncCloseBinding()
-		focusTop()
-		Hud.sound("Close")
-		ctx.fire("ModalClosed", spec.Name)
-		if spec.OnClose then
-			task.spawn(spec.OnClose)
+	nowOffers[source] = if card then { Card = card, Priority = priority } else nil
+	local best: NowOffer? = nil
+	for _, offer in nowOffers do
+		if best == nil or offer.Priority > best.Priority then
+			best = offer
 		end
 	end
+	local slot = nowFrame()
+	for _, offer in nowOffers do
+		local shown = offer == best
+		offer.Card.Visible = shown
+		if shown then
+			offer.Card.AnchorPoint = Vector2.new(0.5, 0)
+			offer.Card.Position = UDim2.fromScale(0.5, 0)
+			offer.Card.Size = UDim2.new(1, 0, 0, offer.Card.Size.Y.Offset)
+		end
+		offer.Card.Parent = slot
+	end
+end
 
-	function modal.open()
-		if opened then
-			return
-		end
-		if layer == "Panel" then
-			for _, other in table.clone(stack) do
-				if other ~= modal and other.Layer == "Panel" then
-					other.close()
-				end
-			end
-		end
-		opened = true
-		table.insert(stack, modal)
-		gui.Enabled = true
-		fadeDim(Theme.Transparency.Dim)
-		Kit.popIn(root)
-		-- ... and slides up into place as it pops (calm: just there).
-		if Hud.calm() then
-			root.Position = UDim2.fromScale(0.5, 0.5)
-		else
-			root.Position = UDim2.new(0.5, 0, 0.5, SLIDE_FROM)
-			TweenService:Create(root, Theme.Tween.Slide, { Position = UDim2.fromScale(0.5, 0.5) }):Play()
-		end
-		syncCloseBinding()
-		if spec.AutoFocus ~= false then
-			focusTop()
-		end
-		Hud.sound("Whoosh", 0.7)
-		ctx.fire("ModalOpened", spec.Name)
-		if spec.OnOpen then
-			task.spawn(spec.OnOpen)
-		end
-	end
-
-	function modal.toggle()
-		if opened then
-			modal.close()
-		else
-			modal.open()
-		end
-	end
-
-	if closeButton then
-		closeButton.Activated:Connect(function()
-			modal.close()
-		end)
-	end
-	if dim and spec.DimCloses ~= false then
-		dim.Activated:Connect(function()
-			modal.close()
-		end)
-	end
-	return modal
+-- STUB (T5): the real one measures the card. Toasts stack under it.
+function Hud.nowBottom(): number
+	return 0
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -1222,62 +976,6 @@ function Hud.shopNews(
 		end
 	end
 	return news
-end
-
--- Square tab buttons down a column: as big as the column's height allows, between 56 (the tap minimum) and 76.
--- A column taller than that scrolls if it's a ScrollingFrame.
-function Hud.fitTabs(column: GuiObject, tabs: { GuiObject }, gap: number)
-	local function fit()
-		local height = column.AbsoluteSize.Y
-		if height <= 0 or #tabs == 0 then
-			return
-		end
-		local side =
-			math.clamp(math.floor((height - gap * (#tabs - 1)) / #tabs), Theme.Size.ButtonHeight, Theme.Size.IconButton)
-		for _, tab in tabs do
-			tab.Size = UDim2.fromOffset(side, side)
-		end
-	end
-	column:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-	fit()
-end
-
--- Scales a block of content down (never up) so it fits the height it's given, but never below `minScale` (0.6
--- unless given). The content should have AnchorPoint (0.5, 0), a scale width and AutomaticSize Y.
-function Hud.fitHeight(content: GuiObject, area: GuiObject, minScale: number?)
-	local floor = math.clamp(minScale or 0.6, 0.3, 1)
-	local scale = scaleNamed(content, "FitScale")
-	-- Changing the scale changes content.AbsoluteSize, which fires this again: the guard and the deferred
-	-- re-check stop that loop, and tiny changes are ignored so rounding can't make it flicker.
-	local busy = false
-	local queued = false
-	local function fit()
-		if busy then
-			return
-		end
-		busy = true
-		local needed = content.AbsoluteSize.Y / math.max(scale.Scale, 0.01)
-		local available = area.AbsoluteSize.Y
-		if needed > 0 and available > 0 then
-			local target = math.clamp(available / needed, floor, 1)
-			if math.abs(target - scale.Scale) > 0.01 then
-				scale.Scale = target
-			end
-		end
-		busy = false
-	end
-	local function request()
-		if not queued then
-			queued = true
-			task.defer(function()
-				queued = false
-				fit()
-			end)
-		end
-	end
-	content:GetPropertyChangedSignal("AbsoluteSize"):Connect(request)
-	area:GetPropertyChangedSignal("AbsoluteSize"):Connect(request)
-	fit()
 end
 
 -- Calls a client -> server RemoteFunction safely and yields for the answer. Returns (ok, message); message may

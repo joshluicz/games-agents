@@ -154,6 +154,46 @@ T.describe("Tutorial.advance", function()
 		expect(Tutorial.advance(SHOP, "Purchased")).toBe(BOOK)
 	end)
 
+	test("Skip ends any active step; it does nothing once done or before the step is known", function()
+		for step = WELCOME, BOOK do
+			expect(Tutorial.advance(step, "Skip")).toBe(DONE)
+			expect(Tutorial.canSkip(step)).toBe(true)
+		end
+		expect(Tutorial.advance(DONE, "Skip")).toBe(DONE)
+		expect(Tutorial.canSkip(DONE)).toBe(false)
+		for _, bad in { 0, 10, 2.5, "3", false } :: { any } do
+			expect(Tutorial.canSkip(bad)).toBe(false)
+		end
+		expect(Tutorial.canSkip(nil)).toBe(false)
+	end)
+
+	test("Replay is the one step back: only from DONE, to the first patient", function()
+		expect(Tutorial.advance(DONE, "Replay")).toBe(PATIENT)
+		for step = WELCOME, BOOK do
+			expect(Tutorial.advance(step, "Replay")).toBe(step) -- mid-tutorial: nothing
+		end
+		expect(Tutorial.advance(0, "Replay")).toBe(0)
+		expect(Tutorial.advance(12, "Replay")).toBe(12)
+	end)
+
+	test("canReplay: done AND owns a clinic", function()
+		local rows = {
+			{ DONE, true, true },
+			{ DONE, false, false },
+			{ BOOK, true, false },
+			{ WELCOME, true, false },
+			{ 0, true, false },
+			{ 10, true, false },
+			{ 9.5, true, false },
+			{ "9", true, false },
+		} :: { any }
+		for _, row in rows do
+			expect(Tutorial.canReplay(row[1], row[2])).toBe(row[3])
+		end
+		expect(Tutorial.canReplay(nil, true)).toBe(false)
+		expect(Tutorial.canReplay(DONE, nil :: any)).toBe(false)
+	end)
+
 	test("never moves once done", function()
 		for _, event in { "Ack", "Arrived", "Made", "Treated", "Cured", "Purchased", "BookShown" } :: { any } do
 			expect(Tutorial.advance(DONE, event, { Right = true, Cures = 9 })).toBe(DONE)
@@ -162,8 +202,9 @@ T.describe("Tutorial.advance", function()
 end)
 
 T.describe("Tutorial.spawnPlan", function()
-	test("nobody during the welcome", function()
-		expect(Tutorial.spawnPlan(WELCOME, true, false)).toBe("Wait")
+	test("the first patient already hops in during the welcome sweep (look overhaul)", function()
+		expect(Tutorial.spawnPlan(WELCOME, true, false)).toBe("First")
+		expect(Tutorial.spawnPlan(WELCOME, false, false)).toBe("Wait") -- one at a time
 	end)
 
 	test("only the first patient in steps 2 to 4", function()
@@ -209,5 +250,78 @@ T.describe("Tutorial gift", function()
 		expect(Tutorial.topUp(50, 50)).toBe(0)
 		expect(Tutorial.topUp(80, 50)).toBe(0)
 		expect(Tutorial.topUp(10, nil)).toBe(0)
+	end)
+end)
+
+T.describe("Tutorial cards (look overhaul)", function()
+	test("the 9 server steps show as 7 cards", function()
+		expect(Tutorial.CARDS).toBe(7)
+		expect(#Tutorial.CARD_NAMES).toBe(7)
+		expect(Tutorial.CARD_NAMES).toEqual({ "Meet", "Make", "Give", "Pour", "Rest", "More", "Upgrade" })
+		expect(Tutorial.card(WELCOME)).toBe(1)
+		expect(Tutorial.card(PATIENT)).toBe(1)
+		expect(Tutorial.card(MAKE)).toBe(2)
+		expect(Tutorial.card(TREAT)).toBe(3)
+		expect(Tutorial.card(TREAT, false)).toBe(3)
+		expect(Tutorial.card(TREAT, true)).toBe(4) -- the mini-game is up
+		expect(Tutorial.card(REST)).toBe(5)
+		expect(Tutorial.card(MORE)).toBe(6)
+		expect(Tutorial.card(SHOP)).toBe(7)
+		expect(Tutorial.card(BOOK)).toBe(7)
+	end)
+
+	test("no card once done, or before the step is known; `treating` only matters in TREAT", function()
+		expect(Tutorial.card(DONE)).toBeNil()
+		expect(Tutorial.card(DONE, true)).toBeNil()
+		expect(Tutorial.card(0)).toBeNil()
+		expect(Tutorial.card(nil)).toBeNil()
+		expect(Tutorial.card("3")).toBeNil()
+		expect(Tutorial.card(MAKE, true)).toBe(2)
+		expect(Tutorial.card(REST, true)).toBe(5)
+	end)
+
+	test("cards never go backwards as the steps go forward", function()
+		local last = 0
+		for step = WELCOME, BOOK do
+			local card = Tutorial.card(step) :: number
+			expect(card >= last).toBe(true)
+			expect(card >= 1 and card <= Tutorial.CARDS).toBe(true)
+			last = card
+		end
+	end)
+
+	test("the idle nudge only on the walking steps", function()
+		for _, step in { MAKE, TREAT, MORE } do
+			expect(Tutorial.nudge(step)).toBe(true)
+		end
+		for _, step in { WELCOME, PATIENT, REST, SHOP, BOOK, DONE, 0 } do
+			expect(Tutorial.nudge(step)).toBe(false)
+		end
+		expect(Tutorial.nudge(nil)).toBe(false)
+	end)
+
+	test("the first patient stands one second before the Make card", function()
+		expect(Tutorial.ARRIVED_SECONDS).toBe(1)
+	end)
+end)
+
+T.describe("Tutorial gift flag (look overhaul)", function()
+	test("the top-up is due only on entering SHOP, and only once", function()
+		expect(Tutorial.giftDue(SHOP, false)).toBe(true)
+		expect(Tutorial.giftDue(SHOP, true)).toBe(false)
+		for _, step in { WELCOME, PATIENT, MAKE, TREAT, REST, MORE, BOOK, DONE } do
+			expect(Tutorial.giftDue(step, false)).toBe(false)
+		end
+		expect(Tutorial.giftDue(SHOP, nil :: any)).toBe(true) -- an unknown flag counts as not given
+	end)
+
+	test("a replay never gives a second gift: the flag is set by the time anyone is done", function()
+		-- Schema derives TutorialGift = true for every save at or past SHOP, so a replayed run enters SHOP gifted.
+		expect(Schema.TUTORIAL_SHOP).toBe(SHOP)
+		local replayed = Schema.reconcile({ Version = 4, Cured = 9, Tutorial = DONE })
+		expect(replayed.TutorialGift).toBe(true)
+		local step = Tutorial.advance(replayed.Tutorial, "Replay")
+		expect(step).toBe(PATIENT)
+		expect(Tutorial.giftDue(SHOP, replayed.TutorialGift)).toBe(false)
 	end)
 end)

@@ -16,6 +16,13 @@ models live in the place file (`ServerStorage.ClinicKit`, `ServerStorage.Creatur
   (save schema v4, Config, Types, Remotes, every Data and Logic module) and the eight parallel tasks (T1-T8) are in,
   with no stubs left; 982 Lune specs pass. **Not yet playtested in Studio:** the [v2 checklist](#progression-v2-checklist-build-plan-d)
   below is next.
+- **Look overhaul** (the studs look, a real hospital building, the belt down the road's centre, the HUD on two side
+  rails, one navy modal template, a tutorial with a floor beam, Skip and Replay): rulings `memory-20261117-001` to
+  `-004`; contracts, file ownership, numbers and the playtest list `docs/plan/2026-11-17-look-overhaul-build-plan.md`
+  (§A owners, §B contracts, §C numbers, §E playtest). **The Foundation is in (2026-11-17)**: tokens, the world split,
+  studs, the new Logic modules and stubs with the final APIs, so everything requires and boots. The parallel tasks
+  T1-T9 are next; until they land, the world and the screens still look like Update 1. See
+  [The look overhaul](#the-look-overhaul-foundation). Modules marked *(look)* below are new in it.
 - The brother's building guide: `docs/guides/build-the-clinic.md`. Quick Words: `docs/guides/quick-words.md`.
 
 ## Run it (Joshua, Windows)
@@ -40,7 +47,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | File | Does |
 |---|---|
 | `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs. Also who's an admin: `AdminUserIds`, `AdminNames` ([Admin panel](#admin-panel)); the `Leaderboards` timings and board lists ([Leaderboards](#leaderboards)); the idle time, boost caps and the Roblox badge ids ([Play gifts...](#play-gifts-doctor-ranks-boosts-and-badges)): `PlaytimeIdleSeconds`, `BoostCaps`, `BoostMaxMinutes`, `BoostMinMakeSeconds`, `Badges`; *(depth)* `MiniGame` (tips, combo, game timings), `Treat`, `Belt` (odds, Night Rush, Golden Hour, pity, prices, distances incl. `SeenDistance`; *(v2)* `MinRebirths`), `Nurses` (*(v2)* MaxLevel 10, the R3 cap bonus, 5% a level, the specialty boost, Medic/Porter/Receptionist numbers); *(v2)* `Roster`, `NurseXP`, `Abilities` (cooldown steps, and the effect numbers `FastMake`, `CashNext`, `NearStation`), `Rebirth` (costs, +25% a rebirth, points, the offer), `BranchCaps`, `Agency`, `Market`, `Lift`, `AE`, `VIP`, `Triage`, `Escort`, `Hydro`, `Pharmacy`, `WardComfort`, `AESpeed`, `NightClinicPerLevel`, `NightOwl`, `GoldenChance`/`GoldenMultiplier`, and the 🏢 `Rebirths` board in `Leaderboards.Boards` |
-| `shared/Palette.luau` | The candy-pop colours and fonts shared by the world and the UI (`memory-20261116-007`). Change colours here |
+| `shared/Palette.luau` | The colours and fonts shared by the world and the UI. *(look)* `World` and `Accent` follow art-direction §4.1 (no pastels, dark anchors), `PlotColors`, `Departments`, `Navy`, `Gold`; `Candy` stays for the UI; every old key is an alias ([The look overhaul](#colours-and-tokens)). Change colours here |
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids); *(depth)* `TreatSession`, `TreatOutcome`, `NurseNews`, `ShoutInfo`, `CelebrateInfo` (incl. `Room` for Kind "Room"), `BannerSpec`; *(v2)* the ids `JobId`, `DeptId`, `AbilityId`, `PerkId`, `NodeId`, `ThemeId`, the v4 `NurseEntry` and `RebirthData`, `AgencySlot`/`AgencyView`, `Listing`/`MarketView`, `BeltScoutInfo`, `TeamEffects`, the new `NurseNews`/`CelebrateInfo` kinds, `TreatSession.Kind/Auto/Ease`, `TreatOutcome.Triage` and `CureCtx.Urgent/Extra/Plot/Dept/Wing`; *(v2, integration)* `CuredInfo.Urgent/Escorted/Soaked` and `CureCtx.Escorted/Soaked` |
 | `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`, `Admin`, `Discard`, `GetBoards`, `ClaimPlayGift` and `SetHelpers(on: boolean)`, the owner's helpers switch; *(depth)* events `TreatStart`, `NurseNews`, `Shout`, `Celebrate` and functions `TreatResult`, `SetSimple`, `HireNurse`, `LevelUp`; *(v2)* events `AgencyNews`, `MarketNews`, `BeltScout` and functions `SetJob`, `OpenBranch`, `ChoosePerk`, `BuyNode`, `ResetTree`, `SetTheme`, `ClaimBranchNurse`, `GetAgency`, `AgencyBuy`, `SellNurse`, `GetMarket`, `ListNurse`, `Unlist`, `BuyListing`, `RideLift`, `Triage`, all served now (an unserved one would answer `false, "Coming soon!"`); `EquipNurse` is gone: every nurse you own works). Server helpers: `serve` (rate limit plus pcall; a table third return value is passed on), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet), `setActivity` (every served call marks the player active: Server/Playtime) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
@@ -88,7 +95,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Tutorial.luau` | The first-session tutorial ([below](#the-first-session-tutorial)): the saved step, moved on only by real server events, the one-time shop top-up, `TutorialAck`, and the quiet toasts while it runs |
 | `server/Events.luau` | Winter: `Config.Winter` dates or the `ForceWinter` Workspace attribute → `Workspace.IsWinter` |
 | `server/Plots.luau` | Assigns a plot once data loads, frees it on leave, rebuilds rooms and decor from the save, `canWork` (owner, friend or `OpenHelpers`), `unlockRoom`, `placeDecor`. Owners (re)spawn in front of the Counter, beside the line, facing the clinic. *(v2)* `syncRooms(p)`: the plot follows the save after a rebirth or 🛁 Bath Ready (room models the save no longer owns go, never the Stand; owned rooms the plot lacks come; the for-sale previews come back; decor models follow `Decor.Placed`). Never yields, never saves |
-| `server/PlotBuilder.luau` | Builds the town, the plots and placeholder rooms, or clones the brother's `ServerStorage.ClinicKit` models. Night lamps (tag `ClinicNightLight`). Station icons and for-sale boards stop growing up close (`DistanceLowerLimit`). The sign stands beside the gate facing the street, raised on two tall posts so the whole board clears the fence; it has `OwnerName`, `HeartCount` and `RankBadge` (the Doctor rank pill). Every plot (kit too) gets a `QueueLane` Model: checkered cream and lilac pavement under the patients' line, from just in front of the Counter out to the gate, with an edge in the plot's colour on each side and a numbered spot (1, 2, 3) at each place in line, all walk-through and ray-ignored. `PlotBuilder.queueSpot` says where each place in line is, for the lane and for `Patients`, so they always line up. *(depth)* `buildBuilding(plotModel, level, grewFrom?)`: every plot always has a `Building` Model (empty at Lv 1; Lv 2 the ward, Lv 3+ storeys and a ✚ sign (a white cross on the plot's accent colour, never red on white), Lv 4 the ambulance bay, Lv 5 a tower and helipad), its extra beds as `BedSpot_<n>.Bed_<n>` (kept across level-ups), pieces carrying the attribute `Since`, the Building's `Level`/`GrewFrom`/`GrewAt`, and the plot's `Level` attribute; `clearPlot` puts it back to Lv 1. The building stands behind the Stand (plot-local z from 2), so it never reaches the queue lane (z -15 to -34), the gate or the sign; the Lv 4 ambulance bay is on the front-left lawn (x -30 to -23), clear of both. Kit clones lose scripts and Highlights, and their lights stop casting shadows. *(v2)* `buildBuilding(plotModel, level, grewFrom?, theme?)` builds the walkable hospital (§B4): `Lobby` (the ground storey, `Landing_0`), `Floor_<n>` (a collidable `Slab` + `SlabBack`, a `Landing` with `Floor`, soft see-through `Walls`; the Lv 5 roof is `Floor_4`), the `Lift` (`Shaft`, `Car`, `Cap`; a `LiftPrompt` and a disabled `EscortPrompt` per landing), `Stairs` (`Flight_k`, ≤ 43°), `Wards` on Floor 1 (`BedSpot_n.Bed_n`, `Floor = 1`, kept across level-ups and themes), `Hydro.HotTub` on Floor 2 (`TubSpot_1/2`, a disabled `Tub.SoakPoint.SoakPrompt`), `Pharmacy.Station_Pharmacy` on Floor 3, the Lv 5 `Roof` (HeliSpot with `ArriveAt`, planters) and `Tower`, the `AmbulanceBay` from Lv 2 (the Ambulance with `ArriveAt` and a `StretcherSpot`), `RoofShell`, the theme's walls/roof/trim and one `ThemeProp` (≤ 6 parts; the plot's accent never changes). Every plot gets a `MascotSpot` and every sign a hidden `BranchBadge`. Tags `BuildingStation`, `HospitalLift`, `LiftPrompt`, `EscortPrompt`, `SoakPrompt`. Building attributes `Level`, `GrewFrom`, `GrewAt`, `Floors`, `Theme`. A Lv 5 plot with every room is 372 parts (378 with the Jungle/Royal prop; 418 before Progression v2), stripes and details drawn as SurfaceGuis |
+| `server/PlotBuilder.luau` | *(look: split, see [The look overhaul](#new-and-split-modules-look); the town is `TownBuilder`'s, the Building `HospitalBuilder`'s, the helpers `World/*`'s; every function and constant here still works)* Builds the town, the plots and placeholder rooms, or clones the brother's `ServerStorage.ClinicKit` models. Night lamps (tag `ClinicNightLight`). Station icons and for-sale boards stop growing up close (`DistanceLowerLimit`). The sign stands beside the gate facing the street, raised on two tall posts so the whole board clears the fence; it has `OwnerName`, `HeartCount` and `RankBadge` (the Doctor rank pill). Every plot (kit too) gets a `QueueLane` Model: checkered cream and lilac pavement under the patients' line, from just in front of the Counter out to the gate, with an edge in the plot's colour on each side and a numbered spot (1, 2, 3) at each place in line, all walk-through and ray-ignored. `PlotBuilder.queueSpot` says where each place in line is, for the lane and for `Patients`, so they always line up. *(depth)* `buildBuilding(plotModel, level, grewFrom?)`: every plot always has a `Building` Model (empty at Lv 1; Lv 2 the ward, Lv 3+ storeys and a ✚ sign (a white cross on the plot's accent colour, never red on white), Lv 4 the ambulance bay, Lv 5 a tower and helipad), its extra beds as `BedSpot_<n>.Bed_<n>` (kept across level-ups), pieces carrying the attribute `Since`, the Building's `Level`/`GrewFrom`/`GrewAt`, and the plot's `Level` attribute; `clearPlot` puts it back to Lv 1. The building stands behind the Stand (plot-local z from 2), so it never reaches the queue lane (z -15 to -34), the gate or the sign; the Lv 4 ambulance bay is on the front-left lawn (x -30 to -23), clear of both. Kit clones lose scripts and Highlights, and their lights stop casting shadows. *(v2)* `buildBuilding(plotModel, level, grewFrom?, theme?)` builds the walkable hospital (§B4): `Lobby` (the ground storey, `Landing_0`), `Floor_<n>` (a collidable `Slab` + `SlabBack`, a `Landing` with `Floor`, soft see-through `Walls`; the Lv 5 roof is `Floor_4`), the `Lift` (`Shaft`, `Car`, `Cap`; a `LiftPrompt` and a disabled `EscortPrompt` per landing), `Stairs` (`Flight_k`, ≤ 43°), `Wards` on Floor 1 (`BedSpot_n.Bed_n`, `Floor = 1`, kept across level-ups and themes), `Hydro.HotTub` on Floor 2 (`TubSpot_1/2`, a disabled `Tub.SoakPoint.SoakPrompt`), `Pharmacy.Station_Pharmacy` on Floor 3, the Lv 5 `Roof` (HeliSpot with `ArriveAt`, planters) and `Tower`, the `AmbulanceBay` from Lv 2 (the Ambulance with `ArriveAt` and a `StretcherSpot`), `RoofShell`, the theme's walls/roof/trim and one `ThemeProp` (≤ 6 parts; the plot's accent never changes). Every plot gets a `MascotSpot` and every sign a hidden `BranchBadge`. Tags `BuildingStation`, `HospitalLift`, `LiftPrompt`, `EscortPrompt`, `SoakPrompt`. Building attributes `Level`, `GrewFrom`, `GrewAt`, `Floors`, `Theme`. A Lv 5 plot with every room is 372 parts (378 with the Jungle/Royal prop; 418 before Progression v2), stripes and details drawn as SurfaceGuis |
 | `server/Carry.luau` | What each player is carrying (`Carry`, `CarryMax` attributes) and the icon above their head. *(v2)* Capacity = 1 + Bigger Tray + 🧺 Big Hands (read from the save's perks). After a rebirth resets Bigger Tray, items already in hand stay; new pickups wait for room |
 | `server/Economy.luau` | Cash, upgrades and purchases. Wires `Purchase` and `PlaceDecor`. *(depth)* `Economy.charge(p, price, apply)` (charge and apply in one update; Levels uses it); `Purchased` also fires kind `"Level"`; rooms check their hospital level (`Progress.canBuyRoom`). *(v2)* Upgrades check `Logic/Progress.canBuyUpgrade` first ("Needs 🏥 Lv 2", "Needs 🏢 R4"); Ward Comfort, A&E Speed and Night Clinic sell like the others |
 | `server/Progress.luau` | Clinic ⭐ Stars and the next goal. Its "unlocked" and "ready" toasts skip rooms above your hospital level |
@@ -157,8 +164,116 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `tests/run.luau` | Runs every `tests/*.spec.luau`, prints PASS/FAIL and exits 1 on any failure |
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
+| `tests/worldmock.luau` *(look)* | A small Instance mock (Lune's roblox datatypes): `World.new()` gives a fresh world whose `load(path)` runs the shipped server modules; `setVariant(on)` is the **studs switch** (adds the `CureStuds` MaterialVariant), `setNight(on)`, `parts(root)`, `box(part, pivot?)`. `Hospital.spec`, `PartBudget.spec`, `Studs.spec`, `Palette.spec` and the tasks' world specs build what ships with it |
+| `tests/uirules.luau` *(look)* | `check(paths)`: the UI rules on the shipped source: no `MinTextSize` or literal `TextSize` under 18, no local `paintTab` / `textLimit`, no corner-radius literals, no panel-specific header colour (`Accent = `). `-- uirules: allow <Rule>` excuses one line |
+| `tests/look.luau` *(look)* | `hsv`, `luma`, `maxChannel`, `hueGap`, `round`, `isBigFace(part, area)` for the look specs |
+| *(look)* specs | `Palette` (the palette rules, the Theme tokens, the helpers' own checks), `HudZones`, `NextEvent`, `Building`, `Studs` (both modes, `refresh`, the shared look pieces, the night lights' day restore), `TownLayout`, `PartBudget` (v2's budget test moved out of `Hospital.spec`: every level × every theme ≤ 400, with the counts printed per share) |
 | `tests/config.luau` | The real `Shared/Config` for specs (a stub stands in for `Vector3`), so the belt's odds, placement and the line length are checked on what ships, not on copies |
 | `tests/*.spec.luau` | `Schema` (incl. a v2 save with play time, stats and badges migrating to v3), `Data` (incl. creature sizes, `Bits` and `AilmentActing`), `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin`, `Leaderboard`, `CreatureSize`, `Playtime`, `Boosts`, `Badges`, *(depth)* `Recipe`, `MiniGame`, `Belt`, `Levels`, `Nurse`, *(v2)* `Jobs`, `Abilities`, `Rebirth` (incl. the table test of every save field kept or reset), `Tree`, `Agency`, `Market` (incl. the band and fee table), `HospitalLogic` (Logic/Hospital; `Hospital.spec` is T6's). Plus the pure blocks of Roblox modules, loaded straight from the source between their markers so they test the shipped code: `ServerPure` (Patients, Treatment, Stations; *(v2)* spent items and medicines, auto ratings, ease, triage), `TreatmentSessions` (the real Server/Treatment under mocked services: one session per player, junk and stale ids, early reports, the tip cap, the timeout, drop, a helper leaving, Healer routing; *(v2)* auto-Perfect, a medicine as one Pour, Soak tips, Triage right/wrong/junk/late, Medic routing), `NurseServer` (Nurses, NurseBelt), `NurseUI` (BeltView, and NursePanel's Team page and job picker), `MiniGamesPure` (UI/MiniGames; *(v2)* the session's Kind/Auto/Ease, the ease scaling, the triage card), `Juice` (UI/Kit, UI/Celebrate; *(v2)* the ring and hold helpers, Celebrate's v2 kinds, Guide's HOLD, BookPanel's GATE, CureFX's BONUS and HospitalFX's PURE blocks, the Sounds cues), `Motion` (Feel/CreatureMotion, the badge's recipe row, the urgent icon). *(v2)* Server modules running under mocks: `NurseWork` (T1: the Nurses and Abilities pure blocks, and the real Server/Nurses: grant/take/give, the Market's undo, two buyers in a frame, the roster waking, SetJob, XP), `RebirthServer` (T2: the real Rebirth/Economy/Carry/Plots: one rebirth from three clicks, the count check, a rejoin keeps the offer, perks, the tree round trip, themes, the gift nurse), `AgencyServer` (T3: Agency's checks in order, no buy-and-sell profit, the odds over 20,000 stocks and Lucky Stock's over 200,000 slots, NurseBelt/BeltView/AgencyPanel pure blocks), `MarketServer` (T4: the real Server/Market: two buyers in one frame, a seller who left, a changed price, the band, a full roster, a failed buyer update restoring the seller with cash conserved, the save order and `writeAfter`), `BranchUI` (T5: BranchPanel and Shop pure blocks: the keep/reset rows R0-R25, the waiting-card gate, ≤ 6 words), `Hospital` (T6: layout, which floors exist, the lift rules, the Pharmacy craft and hold floor, and the real PlotBuilder and DecorBuilder under an Instance mock: ≤ 400 parts at every level and theme, 548 with every decor slot filled, the contract names, the clearances), `HospitalPatients` (T7: routing, triage, escort, the tub, the urgent recipe and place in line, Twin Counters, Golden/Sunny/Sky) |
+
+## The look overhaul (Foundation)
+Plan: `docs/plan/2026-11-17-look-overhaul-build-plan.md`. The Foundation (Task 0) is frozen: `Config`, `Types`,
+`Remotes`, `Palette`, `Data/*`, `Logic/*`, `World/Parts`, `World/Studs`, `Theme`, `Main.server`, `Main.client`,
+`State` and the Foundation specs and helpers. A task that needs a change there files a Request with the lead.
+
+### New and split modules *(look)*
+| File | Does | Owner |
+|---|---|---|
+| `shared/Logic/Building.luau` | The hospital's **interface numbers** (plot-local studs): footprints per level and floor, storey heights and slab tops (11, 20, 29, 38; a slab ≤ 0.6 thick), the lift shaft and landings, the door rects, the canopy, the Stand's spots (Remedy, Plaster, `Bed_1`, the decor slots, `MascotSpot`, the bench), the ward beds. `obstacles(level, floor)`, `clear(rect, level)` and `reach(from, to, level, floor?)` check them against what `Patients` assumes | frozen |
+| `shared/Logic/HudZones.luau` | The HUD zone map: `ZONE` (every piece in one zone), `ORDER` (the rails' fixed slots), `layout(safeW, safeH, topbar?)`, `nowWidth`, `railRect`, `nowRect` | frozen |
+| `shared/Logic/NextEvent.luau` | The "coming up" chip: `pick(now, candidates, maxAhead?)` (the soonest FREE event within 6 h; never one with `Paid = true`) and `label(seconds)` ("in 12m": minutes only) | frozen |
+| `shared/Data/Guide.luau` | The tutorial's guide nurse: a placeholder name (never shown) and an original `Look` | frozen |
+| `server/World/Parts.luau` | The generic part and label helpers, moved from PlotBuilder (`part`, `soft`, `ball`, `cylinder`, `wedge`, `marker`, `paint`, `rounded`, `surface`, `iconBadge`), plus the shared look pieces: `floatText` (outlined text, **no board**), `navyPlate` (a board only where there is a table to read) and `pawHeart` (our placeholder mark; it replaces every cross) | frozen |
+| `server/World/Studs.luau` | The studs look: `mode()`, `apply(part)`, `smooth(part)`, `refresh(root)`, `Pure` ([below](#studs)) | frozen |
+| `server/World/NightLights.luau` | Parts that glow after dark: `TAG`, `tag(part, "Lamp" \| "Window" \| "Sign")`, `light(part, range)`, `wire()`. Each part's day Material and Color are stored and restored, so a studded part comes back studded | T1 |
+| `server/World/Props.luau` | The shared scenery: `tree`, `bush`, `lamp`, `bench`, `fence`, `planter` (signatures and part counts are contract; today's candy pieces until T2 lands) | T2 |
+| `server/TownBuilder.luau` | The town round the plots: `build(count)` and `spawn()` (TownSpawn at `Config.Town.SpawnOffset`) | T2 |
+| `server/HospitalBuilder.luau` | The Building: `build(plotModel, level, grewFrom?, theme?)` (= `PlotBuilder.buildBuilding`) and `Pure`, its interior layout; it reads the plot's `Accent` attribute | T3 |
+| `client/UI/Modal.luau` | The one modal template, moved out of Hud: `modal` (one navy header; `spec.HudMode`, `spec.Meta`), `isOpen`, `tabs`, `confirm`, `oddsPopup`, `fitTabs`, `fitHeight`, `Pure`. A library; it never requires Hud | T6 |
+| `client/UI/Wayfinder.luau` | The tutorial's world guide: `show(spec)`, `hide`, `attach(character)`, `destroy`, `Pure`. A library. Stub: a pin only, until T8 builds the beam, chevrons, glow and hand | T8 |
+| `client/Feel/Cutaway.luau` | Hides the storeys above you inside your hospital. Stub: `init` does nothing; `Pure.floorOf` and `Pure.hide` are in | T3 |
+
+**The split.** `server/PlotBuilder.luau` (3,073 lines) became `TownBuilder`, `HospitalBuilder`, `World/Props`,
+`World/NightLights` and `World/Parts`, with the code moved unchanged (the per-level part counts are identical:
+297 / 339 / 348 / 362 / 372). PlotBuilder keeps the plots, the rooms, the queue lane and every public function;
+`buildTown` and `buildBuilding` call the new modules; `Pure`, `NIGHT_LIGHT_TAG`, `STATION_TAG`, `LIFT_TAG` and
+`PROMPT_TAGS` are re-exports, so no caller changed. Each plot Model now carries the attribute **`Accent`** (a
+Color3: its `Palette.PlotColors` entry). Requires never loop: `PlotBuilder` → (`TownBuilder`, `HospitalBuilder`,
+`World/*`); the two builders → `World/*` only (`tests/TownLayout.spec` checks it).
+`client/UI/Hud.luau` lost its modal shell to `Modal`; `Hud.modal`, `Hud.isOpen`, `Hud.fitTabs`, `Hud.fitHeight`
+and the new `Hud.confirm` and `Hud.oddsPopup` are re-exports, and `Hud.setNow` / `Hud.nowBottom` are stubs.
+
+**Stubs** (each marked `-- STUB (T<n>)` in the source; the API is final, the body is today's code or nothing):
+`TownBuilder.build` and `World/Props` (T2: still the candy town and props), `HospitalBuilder` (T3: still v2's
+building), `Feel/Cutaway.init` (T3), the plots and rooms in `PlotBuilder` (T4), `Hud.setNow` / `nowBottom` (T5),
+`Kit.tab`, `Kit.textLimit`, the role names and `Modal.tabs` / `confirm` / `oddsPopup` (T6: working, plain),
+`MiniGames.stage()` (T6: nil), `Wayfinder` (T8), and the `TutorialSkip` / `TutorialReplay` remotes (T8: they answer
+`false, "Coming soon!"`).
+
+### Studs
+`World/Studs` studs a part in one of two ways and picks by itself:
+- **"Surface"** (the fallback, what runs today): `Material = Plastic` and `TopSurface = Studs`. Only the **top** face
+  is studded (lawns, pads, prop tops); walls stay smooth. It needs no assets.
+- **"Variant"**: as soon as `MaterialService` holds a `MaterialVariant` named `Config.Look.StudsVariant`
+  (`CureStuds`), a studded part is `Plastic` with that variant, so **every** face is studded. Adding the variant
+  while a server runs re-studs the world (`Studs.refresh(Workspace)`).
+
+`Studs.apply` sets the attribute `Studded = true` (how the specs and `refresh` find studded parts); `Studs.smooth`
+clears it. No `Texture`, `Decal` or extra part either way. **The alignment rule:** a studded part's X and Z sizes
+are whole studs (`Studs.Pure.alignedSize`), odd widths preferred, on the plot's whole-stud grid. Never call the look
+by the toy brand's name: it is "studs".
+
+**The Studio step for the variant** (Joshua, once; the look build plan §D I-2): generate our own `CureStuds_color`
+and `CureStuds_normal` maps (art-direction Appendix B), upload them (any Robux cost needs both brothers' yes), then
+in Studio's MaterialService add a MaterialVariant `CureStuds`: BaseMaterial Plastic, `StudsPerTile 1`,
+`MaterialPattern` Regular, the two maps. Save the place. Until then the game runs in Surface mode.
+
+### Colours and tokens
+- `shared/Palette.luau`: `World` (art-direction §4.1: mid-value surfaces, dark anchors `Road` / `Pad` / `Roof`, warm
+  whites capped at 240), `Accent` (world accents), `PlotColors` (Plot 5 is **Yellow** now, not Lime), `Departments`
+  (inside only), `Navy`, `Gold`. `Candy` is unchanged (the UI is unlit). Every old key is an alias of its new value.
+- `client/UI/Theme.luau`: `Colors` (flat `Paper`, `Card`, `CardLine`, `Well`, `Header` = `NowPlate` = navy, the
+  roles `Primary` / `Collect` / `Secondary` / `Destructive` / `Disabled`; `Good`, `Danger` and `Quiet` are aliases),
+  `Radius` (8 / 14 / 22 / Round), `Stroke`, `TextSize` (**`Caption` 18 is the floor**), `Space`, `Shadow` (one),
+  `Motion` (`Perpetual = 1`) and `Zone` (mirrors `Logic/HudZones`).
+- `tests/Palette.spec` holds the rules: no bleached colour, dark anchors, the greens, plot colours that stand apart
+  from the grass, from red and from each other, `Navy == Header == NowPlate`, every text size ≥ 18.
+
+### The HUD zones
+`Logic/HudZones` says where every HUD piece lives (T5 builds the screen from it):
+- **System** ⚙️ in the Roblox top-bar row · **Wallet** 💰 ⭐ top-left · **Now** one card top-centre (`Hud.setNow`:
+  30 warnings · 20 the tutorial · 10 the tracked goal) · **Status** top-right (day/night, one free-event chip,
+  the visitor, boosts) · **Left rail** 🛒 👩‍⚕️ 📖 🏅 🏆 · **Right rail** 🎁 🎯 📬 · **Bottom centre** your hands.
+- Slots are fixed: a piece that isn't revealed leaves its slot empty. Nothing is ever in the bottom corners
+  (`CORNER_CLEAR` 110).
+- **Phones** (safe height under 440): exactly 3 a side at 56 px, no captions; 🏅 and 🏆 go into ⚙️ More; the wallet
+  moves into the top-bar row. **Desktop and tablet:** as many of the left five as fit at 56-72 px (at least 3).
+- `ModalOpened` / `ModalClosed` now carry a `HudMode`: "Panel" hides the rails, Now and Status (the wallet stays);
+  "Game" (the mini-game) keeps the wallet and the Now card; "None" (a popup) changes nothing.
+- Countdowns are only for **free** events, in minutes (`Logic/NextEvent`; `memory-20261116-022`). Nothing paid ever
+  gets a timer.
+
+### Skip and Replay
+- `Logic/Tutorial` gained the events **"Skip"** (any active step → done) and **"Replay"** (done → the first patient:
+  the one deliberate step back, `memory-20261117-002`), the 7 cards (`card(step, treating?)`, `CARD_NAMES`), `nudge`,
+  `canSkip`, `canReplay(step, hasPlot)` and `giftDue(step, gifted)`. The first patient now hops in during the welcome
+  sweep (`spawnPlan(WELCOME)` is "First"), and stands 1 s (not 2) before the Make card.
+- Two player-safe remotes, `TutorialSkip()` and `TutorialReplay()` (`Remotes.serve`: rate-limited and pcalled;
+  arguments ignored; only the caller's own save and plot). **They answer "Coming soon!" until T8 serves them.**
+  The admin `RestartTutorial` is unchanged.
+- The save field **`TutorialGift`** (still schema v4): the step-7 top-up has run or was never needed. Missing or junk
+  is derived (`Tutorial >= 7`), so a Replay never gives a second gift and an older server dropping the field loses
+  nothing.
+- The Snapshot's `TutorialReplay` (the player attribute of the same name, not saved) is true while a session replays.
+- `Main.server` hands `Patients.reopen` to `Tutorial.setReopen` after every system has started (Patients requires
+  Tutorial, so Tutorial can't require Patients).
+
+### Town layout
+`Config.Belt.Offset` is now `(120, 0, 0)`: the belt runs down the road's **centre line**. The spawn plaza moved to
+the street's row-2 half: `Config.Town.SpawnOffset` (0, 0, 11), `SpawnSize` 8, `Plaza`, `BeltClear` 4.4, with the
+Agency at (13, 12), the Market at (−13, 12) and the odds sign at (−24, 11). `tests/TownLayout.spec` checks the
+clearances on Config. **Until T2 lands** only TownSpawn has moved: the old plaza disc, planters and benches still
+stand in the belt's lane.
 
 ## Boot order
 **Server (`Main.server.luau`):**
@@ -229,14 +344,18 @@ fresh save starts at 1. A save from before the tutorial (no `Tutorial` field) wi
 | 7 | 🛒 Spend 💰 in the Shop! | any purchase (`Economy.Purchased`). Entering 7: a one-time cash top-up to the cheapest upgrade's price if short ("🎁 A gift to get you started!"). In-game cash only |
 | 8 | 📖 Collect every creature in your Book! | 5 s later: done. Then the Mailbox letter pops |
 
-- **Patients during it** (by the owner's step): nobody in step 1; then one easy Starter patient needing 🧪; then one
+- **Patients during it** (by the owner's step): one easy Starter patient needing 🧪, from step 1 on; then one
   Starter patient needing 🩹; then the usual pool. One at a time in line through step 6, patience never runs out in
   steps 1-6, and no regulars or Today's Visitor until it's done.
 - **Quiet:** while it runs, ambient toasts wait (`Remotes.news`, `Remotes.toastAll`), and there's no Day Report and
   no Mailbox pop-up. Replies and warnings still show.
 - **Rejoining:** steps 3-5 go back to 2 (the patient left with you); step 6 counts its 2 cures from 0 again.
-- **No skip button.** The HUD reveals itself with the step (see `client/UI/Hud.luau`). Only admins can jump it, from
-  the [Admin panel](#admin-panel).
+- **No skip button yet.** The HUD reveals itself with the step (see `client/UI/Hud.luau`). Only admins can jump it,
+  from the [Admin panel](#admin-panel).
+- **Look overhaul (Foundation in, T8 next):** the rules for Skip and Replay, the 7 cards and the gift flag are in
+  `Logic/Tutorial` and the two remotes exist ([Skip and Replay](#skip-and-replay)); the cards, the beam and the
+  confirms come with T8. Already changed for everyone: the first patient comes during the welcome sweep (step 1), and
+  step 2 waits 1 s, not 2.
 
 ## Play gifts, Doctor ranks, boosts and badges
 Rewards for playing, all earned in play: **no Robux, nothing random, no streaks, nothing to miss**
@@ -477,6 +596,9 @@ the outer boards stand just outside the arch's posts. The street's end and the l
 Joshua, 2026-11-16: "conveyor belt should be on the main road"; his brother: nurses should come less often than in the
 belt games, so rarity feels earned (`memory-20261116-017`). `Config.Belt` holds every number; `server/NurseBelt.luau`
 builds and runs it; `client/UI/BeltView.luau` draws it for each player.
+- **Look overhaul (`memory-20261117-001` #3):** the belt now runs down the road's **centre line**
+  (`Config.Belt.Offset` z = 0) and the spawn plaza moved off it ([Town layout](#town-layout)). The "Where" notes
+  below describe the old row-1 lane; T2 rebuilds the town, the sign and the riders' facing for the centre line.
 - **Where:** one straight belt on the street's row-1 half, 11 studs off the centre line (z = 289 with
   `Config.Town.Origin` at (0, 0, 300)), from the nurse house just inside the east welcome arch (x = +120) to the cloud
   just inside the west one (x = -120); riders move west. It passes all six gates: a rider is within `HireDistance`
@@ -558,6 +680,7 @@ and turn off light shadows (the [performance budget](#performance-budget)). The 
 
 ## Test it
 ### Lune specs (pure logic)
+Baseline before the look overhaul: 1,000 specs in 42 files. With the Foundation: 1,130 in 49.
 ```powershell
 cd games-agents\game
 lune run tests/run

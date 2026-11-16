@@ -3,11 +3,12 @@
 --   State.push(p)          debounced 0.2 s: builds the Snapshot and fires the State remote to that player
 --   State.snapshot(p)      the Snapshot now (a copy; defaults if the player's data isn't loaded)
 --   wires GetState         answers with the Snapshot, after waiting for the data to load (nil when rate-limited)
--- It pushes on its own when: the player's data changes (PlayerData.Changed), their PlotIndex or TutorialCures
--- attribute changes, or the Workspace's UtcDay, TodaysVisitor or IsWinter changes. Other modules only call push()
+-- It pushes on its own when: the player's data changes (PlayerData.Changed), their PlotIndex, TutorialCures or
+-- TutorialReplay attribute changes, or the Workspace's UtcDay, TodaysVisitor or IsWinter changes. Other modules only call push()
 -- for state that lives outside the save.
 -- Tutorial is the saved step (Data.Tutorial); TutorialCures is Server/Tutorial's step-6 count, kept on the player
--- as an attribute (it isn't saved: a rejoin in step 6 counts 2 more from 0).
+-- as an attribute (it isn't saved: a rejoin in step 6 counts 2 more from 0). TutorialReplay (look overhaul) is its
+-- player attribute of the same name: true while this session replays the tutorial (not saved either).
 -- Time played, boosts and badges: Playtime, Stats and Badges are the saved fields; Boosts is Server/Boosts.list (timed
 -- boosts running, permanent percents) and MakeSeconds the hold time at each station with every boost (the client's
 -- ring follows it, Guide). The live play seconds are the player attributes PlayToday/PlayTotal (Server/Playtime).
@@ -101,6 +102,7 @@ function State.snapshot(player: Player): Types.Snapshot
 		IsWinter = Workspace:GetAttribute("IsWinter") == true,
 		Tutorial = data.Tutorial,
 		TutorialCures = if type(tutorialCures) == "number" then tutorialCures else 0,
+		TutorialReplay = player:GetAttribute("TutorialReplay") == true,
 		Playtime = deepCopy(data.Playtime),
 		Boosts = boostList(player),
 		MakeSeconds = makeSeconds(player),
@@ -140,7 +142,7 @@ function State.start()
 	end)
 
 	local function watch(player: Player)
-		for _, attribute in { "PlotIndex", "TutorialCures" } do
+		for _, attribute in { "PlotIndex", "TutorialCures", "TutorialReplay" } do
 			player:GetAttributeChangedSignal(attribute):Connect(function()
 				State.push(player)
 			end)

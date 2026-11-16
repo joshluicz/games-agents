@@ -88,4 +88,17 @@ for _, name in START_ORDER do
 	end
 end
 
+-- Look overhaul (§B10): the tutorial's Replay empties the caller's own line through Patients.reopen. Patients
+-- requires Tutorial, so Tutorial can never require Patients: the hook is handed over here, once both have started.
+do
+	local ok, err = pcall(function()
+		local Tutorial = require(Server.Tutorial) :: any
+		local Patients = require(Server.Patients) :: any
+		Tutorial.setReopen(Patients.reopen)
+	end)
+	if not ok then
+		warn("[Main] Tutorial.setReopen failed: " .. tostring(err))
+	end
+end
+
 print("[Main] Clinic is open.")

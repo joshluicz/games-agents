@@ -38,6 +38,11 @@
 --                                                        Server/Market
 --   RideLift(floor)                                      Server/Lift
 --   Triage(session, dept)                                Server/Treatment
+--   Look overhaul (docs/plan/2026-11-17-look-overhaul-build-plan.md §B1). Player-safe: arguments are ignored, and
+--   each touches only the caller's own save and the caller's own plot (Server/Tutorial):
+--   TutorialSkip()                                       an active tutorial step -> done, with no gift
+--   TutorialReplay()                                     done + owns a clinic -> the tutorial again from the first
+--                                                        patient (no second gift; Config.Tutorial.ReplayCooldown)
 --   Until its system serves it, each of these answers (false, Remotes.SOON) on the server, so a client never waits
 --   on a RemoteFunction nobody answers (the Foundation stubs; Remotes.serve replaces the default).
 --
@@ -109,6 +114,9 @@ local NEW_FUNCTIONS = {
 	"BuyListing",
 	"RideLift",
 	"Triage",
+	-- Look overhaul
+	"TutorialSkip",
+	"TutorialReplay",
 }
 for _, name in NEW_FUNCTIONS do
 	table.insert(FUNCTIONS, name)
@@ -199,6 +207,9 @@ local Remotes = {
 	BuyListing = folder:WaitForChild("BuyListing") :: RemoteFunction,
 	RideLift = folder:WaitForChild("RideLift") :: RemoteFunction,
 	Triage = folder:WaitForChild("Triage") :: RemoteFunction,
+	-- Look overhaul
+	TutorialSkip = folder:WaitForChild("TutorialSkip") :: RemoteFunction,
+	TutorialReplay = folder:WaitForChild("TutorialReplay") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.

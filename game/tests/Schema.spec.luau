@@ -358,6 +358,40 @@ T.describe("Schema.reconcile", function()
 		expect(Schema.reconcile({ Version = 2, Cured = 0, Tutorial = 9 }).Tutorial).toBe(9)
 	end)
 
+	test("TutorialGift: false on a fresh save, a saved boolean is kept (look overhaul, still v4)", function()
+		expect(Schema.default().TutorialGift).toBe(false)
+		expect(Schema.VERSION).toBe(4)
+		expect(Schema.reconcile({ Version = 4, Tutorial = 9, Cured = 5, TutorialGift = false }).TutorialGift).toBe(
+			false
+		)
+		expect(Schema.reconcile({ Version = 4, Tutorial = 3, Cured = 0, TutorialGift = true }).TutorialGift).toBe(true)
+	end)
+
+	test("TutorialGift: missing or junk is derived from the step (at or past step 7 = it had its chance)", function()
+		for _, junk in { "none", 1, 0, "true", {} } :: { any } do
+			local past = if junk == "none" then nil else junk
+			for step = 1, 9 do
+				local data = Schema.reconcile({ Version = 4, Cured = 0, Tutorial = step, TutorialGift = past })
+				expect(data.TutorialGift).toBe(step >= Schema.TUTORIAL_SHOP)
+			end
+		end
+		-- an old save without a step: an existing player is done (so gifted); a new one starts ungifted
+		expect(Schema.reconcile({ Version = 2, Cured = 4 }).TutorialGift).toBe(true)
+		expect(Schema.reconcile({ Version = 2, Cured = 0 }).TutorialGift).toBe(false)
+		expect(Schema.reconcile({ Cash = 50, Served = 7 }).TutorialGift).toBe(true)
+	end)
+
+	test("TutorialGift survives a round trip, and losing it loses nothing that matters", function()
+		local once = Schema.reconcile({ Version = 4, Cured = 2, Tutorial = 8 })
+		expect(once.TutorialGift).toBe(true)
+		local again = Schema.reconcile(once)
+		expect(again.TutorialGift).toBe(true)
+		-- an older v4 server writes the save back without the field: the next load derives the same value
+		local stripped = Schema.reconcile(once)
+		stripped.TutorialGift = nil
+		expect(Schema.reconcile(stripped).TutorialGift).toBe(true)
+	end)
+
 	test("replaces a bad tutorial step by the migration rule", function()
 		for _, bad in { 0, 10, 2.5, -1, 0 / 0, math.huge, "3", true } :: { any } do
 			expect(Schema.reconcile({ Version = 2, Cured = 0, Tutorial = bad }).Tutorial).toBe(1)

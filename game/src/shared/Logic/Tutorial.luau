@@ -4,9 +4,10 @@
 -- Data.Tutorial; the client only reads it (Snapshot.Tutorial) to show the card, the pointer and the HUD.
 --
 -- The steps (Data.Tutorial). Each one moves on only on a real server event:
---   1 WELCOME   "👋 Welcome to your clinic, Doctor!"          the TutorialAck remote (tap, or 4 s on the client;
---                                                             the server moves on by itself if no ack comes)
---   2 PATIENT   "🤧 A patient! The bubble shows what's wrong."  2 s after the first patient reaches the Counter
+--   1 WELCOME   the camera sweep                               the TutorialAck remote (the client acks when the
+--                                                             sweep ends; the server moves on by itself if no
+--                                                             ack comes). The first patient hops in meanwhile
+--   2 PATIENT   "🤧 A patient! The bubble shows what's wrong."  1 s after the first patient reaches the Counter
 --   3 MAKE      "🧪 Hold at the potion table!"                 the owner makes what that patient needs
 --   4 TREAT     "🏥 Take it to the Counter. Treat!"            the patient is treated
 --   5 REST      "🛏️ Resting… Cured! 🎉"                       the cure lands
@@ -15,7 +16,15 @@
 --   8 BOOK      "📖 Collect every creature in your Book!"      5 s later
 --   9 DONE      the tutorial is over (the save migration marks every player with a cure as DONE)
 -- A later event can skip a step that no longer makes sense (a friend treats the patient during step 3, say),
--- but nothing ever moves a step back except `resume` after a rejoin.
+-- but nothing ever moves a step back except `resume` after a rejoin and "Replay".
+--
+-- Look overhaul (docs/plan/2026-11-17-look-overhaul-build-plan.md §B9; memory-20261117-002):
+--   · "Skip" (any active step -> DONE): the ⏭️ Skip chip and the ⚙️ row, behind a confirm (the TutorialSkip remote).
+--   · "Replay" (DONE -> PATIENT): the ⚙️ "🔁 Replay tutorial" row (the TutorialReplay remote). THE ONE DELIBERATE
+--     EXCEPTION to "steps only go forward": Joshua asked for the tutorial to be replayable "in case they
+--     accidentally skipped it". A replay starts at PATIENT (no sweep) and never gives a second gift (giftDue).
+--   · The server's 9 steps show as 7 cards (Tutorial.card): the card is what the player sees and what the
+--     onboarding funnel logs (CARD_NAMES).
 --
 --   Tutorial.isStep(value): boolean        an integer from WELCOME to DONE
 --   Tutorial.migrate(saved, cured): number a save's step: a valid saved step is kept; a save without one is
@@ -33,6 +42,12 @@
 --   Tutorial.queueCap(step): number?       at most this many in line (steps 2-6: one at a time), nil = normal
 --   Tutorial.cheapest(prices): number?     the lowest of the next upgrade prices (nil entries skipped)
 --   Tutorial.topUp(cash, cheapest): number the one-time gift that makes the cheapest upgrade affordable
+--   Tutorial.card(step, treating?): number?  the card (1..CARDS) for a step: WELCOME/PATIENT 1 · MAKE 2 · TREAT 3
+--                                          (4 while the mini-game is up) · REST 5 · MORE 6 · SHOP/BOOK 7 · else nil
+--   Tutorial.nudge(step): boolean          a walking step (MAKE, TREAT, MORE): the idle "Psst!" nudge may show
+--   Tutorial.canSkip(step): boolean        = active(step)
+--   Tutorial.canReplay(step, hasPlot): boolean   done, and the caller owns a clinic
+--   Tutorial.giftDue(step, gifted): boolean      entering `step` gives the top-up: SHOP, and never given before
 
 local Tutorial = {}
 
@@ -47,14 +62,18 @@ Tutorial.BOOK = 8
 Tutorial.DONE = 9
 
 Tutorial.MORE_CURES = 2 -- step MORE: cures to go after the first one
-Tutorial.ARRIVED_SECONDS = 2 -- step PATIENT: how long the first patient stands at the Counter before step MAKE
-Tutorial.WELCOME_SECONDS = 4 -- step WELCOME: the client acks after this (or a tap)
+Tutorial.ARRIVED_SECONDS = 1 -- step PATIENT: how long the first patient stands at the Counter before step MAKE
+Tutorial.WELCOME_SECONDS = 4 -- step WELCOME: the old welcome card's time (UI/Tutorial acks when the sweep ends)
 -- The server moves on by itself if no ack comes: only so a broken client can never stall the tutorial. Generous,
 -- so a slow phone still loading when its clinic is assigned gets its title card, sweep and welcome card first.
 Tutorial.WELCOME_FALLBACK_SECONDS = 30
 Tutorial.BOOK_SECONDS = 5 -- step BOOK: then DONE
 
-export type Event = "Ack" | "Arrived" | "Made" | "Treated" | "Cured" | "Purchased" | "BookShown"
+-- The cards the player sees (the "TUTORIAL n/7" tab), and their names for the onboarding funnel.
+Tutorial.CARDS = 7
+Tutorial.CARD_NAMES = table.freeze({ "Meet", "Make", "Give", "Pour", "Rest", "More", "Upgrade" })
+
+export type Event = "Ack" | "Arrived" | "Made" | "Treated" | "Cured" | "Purchased" | "BookShown" | "Skip" | "Replay"
 export type Ctx = { Right: boolean?, Cures: number? }
 -- "Wait": nobody new · "First": the easy first patient (a Starter patient needing the 🧪 Remedy) ·
 -- "Second": a Starter patient needing 🩹, to show there's more than one station · "Any": the usual pool but no
@@ -100,8 +119,15 @@ function Tutorial.resume(step: number): number
 end
 
 function Tutorial.advance(step: number, event: Event, ctx: Ctx?): number
+	if event == "Replay" then
+		-- The one deliberate step back (see the header): only from DONE, to the first patient (no welcome sweep).
+		return if Tutorial.isStep(step) and Tutorial.isDone(step) then Tutorial.PATIENT else step
+	end
 	if not Tutorial.active(step) then
 		return step
+	end
+	if event == "Skip" then
+		return Tutorial.DONE
 	end
 	if event == "Ack" then
 		return if step == Tutorial.WELCOME then Tutorial.PATIENT else step
@@ -131,9 +157,8 @@ function Tutorial.spawnPlan(step: any, plotEmpty: boolean, secondSpawned: boolea
 	if not Tutorial.active(step) then
 		return "Normal"
 	end
-	if step == Tutorial.WELCOME then
-		return "Wait"
-	elseif step <= Tutorial.TREAT then
+	if step <= Tutorial.TREAT then
+		-- WELCOME too (look overhaul): the first patient hops in during the camera sweep, so card 1 has its patient.
 		-- Only the first patient: one more if it's gone (it can't run out of patience, but a broken one is removed).
 		return if plotEmpty then "First" else "Wait"
 	elseif step == Tutorial.REST then
@@ -166,6 +191,40 @@ function Tutorial.topUp(cash: number, cheapest: number?): number
 		return 0
 	end
 	return math.ceil(cheapest - cash)
+end
+
+function Tutorial.card(step: any, treating: boolean?): number?
+	if not Tutorial.active(step) then
+		return nil
+	end
+	if step <= Tutorial.PATIENT then
+		return 1
+	elseif step == Tutorial.MAKE then
+		return 2
+	elseif step == Tutorial.TREAT then
+		return if treating == true then 4 else 3
+	elseif step == Tutorial.REST then
+		return 5
+	elseif step == Tutorial.MORE then
+		return 6
+	end
+	return 7
+end
+
+function Tutorial.nudge(step: any): boolean
+	return step == Tutorial.MAKE or step == Tutorial.TREAT or step == Tutorial.MORE
+end
+
+function Tutorial.canSkip(step: any): boolean
+	return Tutorial.active(step)
+end
+
+function Tutorial.canReplay(step: any, hasPlot: boolean): boolean
+	return Tutorial.isStep(step) and Tutorial.isDone(step) and hasPlot == true
+end
+
+function Tutorial.giftDue(step: any, gifted: boolean): boolean
+	return step == Tutorial.SHOP and gifted ~= true
 end
 
 return Tutorial

@@ -1,17 +1,38 @@
 --!strict
 -- The game's colours and fonts, shared by the server (world, creatures, billboards) and the client (UI/Theme).
--- The look is "candy pop": saturated colours, thick dark outlines and chunky outlined text, like the top kids'
--- games (memory-20261116-007). Change a colour here, not per part. Not Lune-safe (Color3), so Logic never uses it.
+-- Change a colour here, not per part. Not Lune-safe by itself (Color3); tests/Palette.spec loads it with Lune's
+-- roblox datatypes.
+--
+-- The look overhaul (memory-20261117-001; docs/research/2026-11-16-art-direction.md §4.1; look build plan §B3):
+-- "saturated, flashy, trending" stands (memory-20261116-007), but the WORLD is no longer pastel candy. World colours
+-- are albedo values, before lighting: big surfaces at mid value, dark anchors (road, plot pad, roofs), warm whites
+-- capped at 240, and never a lerp toward white for a surface bigger than trim. The UI is unlit, so it keeps the
+-- brighter Candy hues.
+--   Palette.World       surfaces. Its material is set by Server/World/Studs or the builder (noted per key)
+--   Palette.Accent      world accents: plot and room colours, props
+--   Palette.PlotColors  Plot_1..6: Pink, Blue, Orange, Purple, Yellow, Cyan (Yellow replaced Lime, which vanished
+--                       against the grass)
+--   Palette.Departments the departments' colours, used INSIDE only (dado bands, curtains, blankets, headboards, the
+--                       lift buttons). Reception has no entry: it wears the plot's colour
+--   Palette.Navy        the Now card, every panel header and every world information plate
+--   Palette.Gold        gold world titles
+--   Palette.Candy       the UI's bright set (unchanged)
+-- Every key the candy-pop Palette had is still here as an ALIAS of its new value (see "Old keys"), so files the
+-- overhaul hasn't reached keep compiling and pick up the calmer colours.
 
 local Palette = {}
 
--- Ink: every thick outline, every text stroke, and dark text on light panels.
-Palette.Outline = Color3.fromRGB(24, 16, 52)
-Palette.Ink = Color3.fromRGB(36, 24, 72)
-Palette.InkSoft = Color3.fromRGB(98, 86, 140)
-Palette.White = Color3.fromRGB(255, 255, 255)
+local hex = Color3.fromHex
 
--- The candy set: buttons, accents, plot colours, creature colours. Bright and fully saturated.
+-- Ink: every thick outline, every text stroke, and dark text on light panels.
+Palette.Outline = hex("#1B1238")
+Palette.Ink = hex("#221A48")
+Palette.InkSoft = hex("#5D5788")
+Palette.White = Color3.fromRGB(255, 255, 255) -- UI and floating text only: no world surface is pure white
+Palette.Navy = hex("#1E2440")
+Palette.Gold = hex("#FFD84A")
+
+-- The candy set: UI buttons, accents, creature colours. Bright and fully saturated (the UI is unlit).
 Palette.Candy = table.freeze({
 	Lime = Color3.fromRGB(80, 220, 60),
 	Orange = Color3.fromRGB(255, 150, 30),
@@ -24,37 +45,94 @@ Palette.Candy = table.freeze({
 	Mint = Color3.fromRGB(40, 228, 170),
 })
 
--- Each plot's own accent (gate arch, awning, sign), Plot_1 .. Plot_6.
-Palette.PlotColors = table.freeze({
-	Palette.Candy.Pink,
-	Palette.Candy.Blue,
-	Palette.Candy.Orange,
-	Palette.Candy.Purple,
-	Palette.Candy.Lime,
-	Palette.Candy.Cyan,
+-- World accents (art-direction §4.1). Red and Lime are for props only: never a plot, and Red is never a cross.
+Palette.Accent = table.freeze({
+	Pink = hex("#DB3D7D"),
+	Blue = hex("#3195E0"),
+	Orange = hex("#EB842A"),
+	Purple = hex("#894ECC"),
+	Cyan = hex("#29BCCC"),
+	Yellow = hex("#F5C731"),
+	Red = hex("#D63C4B"), -- props only: the A&E canopy, the ambulance stripe
+	Lime = hex("#6ACC39"), -- props only
 })
 
--- The world: toy-like and bright. Mostly SmoothPlastic, a little Neon for glow; no realistic materials.
-Palette.World = table.freeze({
-	Grass = Color3.fromRGB(96, 214, 72),
-	GrassDark = Color3.fromRGB(62, 180, 58),
-	Path = Color3.fromRGB(255, 224, 150),
-	Street = Color3.fromRGB(118, 124, 168),
-	StreetLine = Color3.fromRGB(255, 255, 255),
-	Fence = Color3.fromRGB(255, 255, 255),
-	Wood = Color3.fromRGB(222, 142, 70),
-	WoodDark = Color3.fromRGB(170, 96, 48),
-	Leaves = Color3.fromRGB(64, 204, 82),
-	LeavesLight = Color3.fromRGB(132, 236, 86),
-	Trunk = Color3.fromRGB(150, 92, 52),
-	Water = Color3.fromRGB(40, 196, 255),
-	Floor = Color3.fromRGB(255, 244, 222),
-	Pavement = Color3.fromRGB(252, 246, 234), -- the queue lane's tiles: warm cream ...
-	PavementAlt = Color3.fromRGB(228, 226, 240), -- ... checkered with a soft lilac grey ...
-	PavementGrout = Color3.fromRGB(196, 192, 216), -- ... and the lines between them
-	Wall = Color3.fromRGB(255, 255, 255),
-	Lamp = Color3.fromRGB(255, 232, 140),
+-- Each plot's own colour (its walls, gate arch, sign letters), Plot_1 .. Plot_6. Never red.
+Palette.PlotColors = table.freeze({
+	Palette.Accent.Pink,
+	Palette.Accent.Blue,
+	Palette.Accent.Orange,
+	Palette.Accent.Purple,
+	Palette.Accent.Yellow,
+	Palette.Accent.Cyan,
 })
+
+local GRASS_A = hex("#56C740")
+local GRASS_B = hex("#3FB536")
+local LEAVES_A = hex("#39A844")
+local LEAVES_C = hex("#67C246")
+local PLANK = hex("#D6B27C")
+local PLANK_ALT = hex("#BA9265")
+local ROAD = hex("#3E4352")
+local ROAD_LINE = hex("#F0EBE1")
+local BEAM = hex("#805738")
+local FLOOR_A = hex("#AD8053")
+local WALL_UPPER = hex("#EBE4D8")
+
+-- The world. The material beside each key is what Server/World/Studs or the builder gives it.
+Palette.World = table.freeze({
+	GrassA = GRASS_A, -- Plastic, studded
+	GrassB = GRASS_B, -- Plastic, studded (the checker's darker tile)
+	Dirt = hex("#8C603E"), -- Plastic, studded
+	LeavesA = LEAVES_A, -- Plastic, studded (voxel cubes)
+	LeavesB = hex("#2B8F42"),
+	LeavesC = LEAVES_C,
+	Trunk = hex("#704B31"), -- Wood
+	Plank = PLANK, -- WoodPlanks
+	PlankAlt = PLANK_ALT,
+	Road = ROAD, -- SmoothPlastic: a dark anchor
+	RoadLine = ROAD_LINE, -- SmoothPlastic
+	Curb = hex("#999CA3"), -- Slate
+	Pad = hex("#253D4C"), -- Plastic, studded: a dark anchor
+	Edge = hex("#8A8E94"), -- Slate
+	Roof = hex("#2D2B3D"), -- SmoothPlastic: a dark anchor
+	Trim = hex("#F0EBDF"), -- SmoothPlastic: the warm white
+	Beam = BEAM, -- Wood
+	Fence = hex("#EBE6DA"), -- SmoothPlastic
+	CheckerTeal = hex("#369E94"), -- Plastic, studded (an optional backdrop)
+	CheckerCream = hex("#EBDEC0"),
+	Water = hex("#38A7D6"), -- Glass 0.3
+	FloorA = FLOOR_A, -- WoodPlanks (interior floors, slabs)
+	FloorB = hex("#996B45"),
+	WallUpper = WALL_UPPER, -- SmoothPlastic (the interior upper wall)
+	Window = hex("#2F3B57"), -- SmoothPlastic
+	WindowNight = hex("#D8B470"), -- warm at night, NOT Neon
+	Pavement = hex("#CDB38A"), -- SmoothPlastic: the queue lane, in mid-tones ...
+	PavementAlt = hex("#B79D74"), -- ... checkered ...
+	PavementGrout = hex("#8A7558"), -- ... and the lines between
+	Lamp = Color3.fromRGB(255, 232, 140), -- unchanged: Neon at night only, small parts only
+	-- Old keys (aliases; new code uses the names above)
+	Grass = GRASS_A,
+	GrassDark = GRASS_B,
+	Path = PLANK,
+	Street = ROAD,
+	StreetLine = ROAD_LINE,
+	Wood = PLANK_ALT,
+	WoodDark = BEAM,
+	Leaves = LEAVES_A,
+	LeavesLight = LEAVES_C,
+	Floor = FLOOR_A,
+	Wall = WALL_UPPER,
+})
+
+-- Inside only. Reception = the plot's colour (no entry).
+Palette.Departments = table.freeze({
+	Wards = Palette.Accent.Purple,
+	Hydro = Palette.Accent.Cyan,
+	Pharmacy = Palette.Accent.Blue,
+	Roof = LEAVES_A,
+	AE = Palette.Accent.Red,
+}) :: { [string]: Color3 }
 
 -- Fonts: a chunky display font for titles, buttons and numbers; a round one for reading.
 Palette.DisplayFont = Enum.Font.LuckiestGuy
@@ -90,7 +168,7 @@ function Palette.outlineShape(gui: GuiObject, thickness: number?): UIStroke
 	return stroke
 end
 
--- The candy gradient: lighter at the top, a little deeper at the bottom. Put it on a GuiObject whose
+-- The button gradient: lighter at the top, a little deeper at the bottom. Put it on a GuiObject whose
 -- BackgroundColor3 is the base colour. Kept light enough that white text on it stays white.
 function Palette.candyGradient(parent: GuiObject): UIGradient
 	local gradient = Instance.new("UIGradient")

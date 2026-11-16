@@ -15,7 +15,9 @@
 --                                              "Boards" | "Admin"; Shop tab = "Upgrades" | "Rooms" | "Decor" (Hud
 --                                              buttons, DayReportPanel's Go button; "Boards" from the HUD's 🏆 Top;
 --                                              "Admin" from the ⚙️ panel's 🛠️, admins only)
---   "ModalOpened" (name) · "ModalClosed" (name)   a panel opened or closed (Hud.modal)
+--   "ModalOpened" (name, hudMode) · "ModalClosed" (name, hudMode)   a panel opened or closed (UI/Modal;
+--                                          hudMode "Panel" | "Game" | "None": what the HUD hides meanwhile)
+--   "SkipTutorial" () · "ReplayTutorial" ()   the ⚙️ rows (Hud): UI/Tutorial shows the confirm and asks the remote
 --   "BookNew" (count)                          unseen new Book pages, for the 📖 dot (BookPanel -> Hud)
 --   "Purchased" (kind, id)                     a Purchase the server said yes to (Shop)
 --   "DecorPlaced" (slotKey, decorId?)          a PlaceDecor the server said yes to (Shop; nil = put away)
@@ -53,8 +55,9 @@
 -- (the ✨/💤 calm-effects switch in the Hud's ⚙️ panel; Kit.reducedMotion() honours it) and MusicMuted (🎵/🔇).
 -- The first snapshot: until the server's arrives, ctx.State is a default one with Tutorial = 0 ("not known yet"),
 -- so the HUD starts calm (only 💰) and no tutorial card shows.
--- Module order: UI.Toasts first, then the rest of UI (UI.Tutorial last), then Feel. Theme and Kit are libraries,
--- not inited. ctx.Data also has the depth update's Nurses, Rarities and Levels (Levels is an array), and Progression
+-- Module order: UI.Toasts first, then the rest of UI (UI.Tutorial last), then Feel. Theme, Kit, Modal (the modal
+-- template, look overhaul) and Wayfinder (the tutorial's world guide) are libraries, not inited. ctx.Data.Guide is
+-- the tutorial's guide nurse (it has no .Order). ctx.Data also has the depth update's Nurses, Rarities and Levels (Levels is an array), and Progression
 -- v2's Jobs, Departments, Abilities, Perks, Tree and Themes.
 
 local Players = game:GetService("Players")
@@ -103,7 +106,8 @@ local UI_MODULES = {
 }
 -- Feel.CreatureProps is CreatureActing's library. CreatureMotion moves each creature's Root (hops, scale) and
 -- CreatureActing its Motor6Ds (the ailment acting), so both run on every patient.
-local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureMotion", "CreatureActing", "HospitalFX" }
+-- Feel.Cutaway (look overhaul): hides the storeys above you while you stand inside your hospital.
+local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureMotion", "CreatureActing", "HospitalFX", "Cutaway" }
 -- Server events forwarded to the bus under the same name (build plan §B9; Progression v2 §B9)
 local FORWARDED_EVENTS = { "TreatStart", "NurseNews", "Shout", "Celebrate", "AgencyNews", "MarketNews", "BeltScout" }
 local DATA_NAMES = {
@@ -131,6 +135,8 @@ local DATA_NAMES = {
 	"Perks",
 	"Tree",
 	"Themes",
+	-- Look overhaul
+	"Guide",
 }
 
 local dataFolder = Shared:WaitForChild("Data")
@@ -158,6 +164,7 @@ local function defaultSnapshot(): Types.Snapshot
 		IsWinter = false,
 		Tutorial = 0, -- not known yet (Logic/Tutorial: 1..8 = in the tutorial, 9 = done)
 		TutorialCures = 0,
+		TutorialReplay = false,
 		Playtime = data.Playtime,
 		Boosts = { Timed = {}, Permanent = {}, Branch = {}, Rebirth = { Cash = 1, Stars = 1 } },
 		MakeSeconds = {},

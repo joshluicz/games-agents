@@ -4,14 +4,26 @@
 -- LayoutOrder, ...), plus Parent (set last) and the extras noted below. Colours and sizes come from Theme.
 --
 --   Kit.screen(name, displayOrder): ScreenGui       ResetOnSpawn off, inside the safe area, in PlayerGui
---   Kit.panel(props?): Frame                       white card, thick outline; extras: Title = "🛒 Shop" adds a
---                                                  coloured header band with an outlined title, Accent = Color3
---                                                  (the band's colour, default Secondary)
+--   Kit.panel(props?): Frame                       white card, thick outline; extras: Title = "🛒 Shop" adds
+--                                                  the header band with an outlined title: Theme.Colors.Header
+--                                                  (navy, flat) unless Accent = Color3 is given (old callers; a
+--                                                  modal never passes one)
 --   Kit.label(props?): TextLabel                   extra: Outlined = true -> display font, white text, dark stroke
---   Kit.button(props?): TextButton                 glossy candy button with an outline, a press bounce and (with a
---                                                  mouse) a hover grow; extra: Kind = "Primary" | "Secondary" |
---                                                  "Good" | "Danger" | "Pink" | "Purple" | "Cyan" | "Cash" |
---                                                  "Quiet" | "Card"; min 56 px tall
+--   Kit.button(props?): TextButton                 glossy button with an outline, a press bounce and (with a
+--                                                  mouse) a hover grow; extra: Kind, min 56 px tall. The ROLES (look
+--                                                  build plan §B8): "Primary" | "Collect" | "Secondary" | "Quiet" |
+--                                                  "Destructive" | "Icon". Old kinds still work until T6 maps them
+--                                                  (Good -> Collect, Danger -> Destructive, Pink/Purple/Cyan/Cash ->
+--                                                  Secondary, Card -> Quiet)
+--   Kit.tab(button, selected, stripe?)             THE tab look (Modal.tabs paints with it). Unselected: Card fill,
+--                                                  ink caption · selected: Header (navy) fill, white outlined
+--                                                  caption, a 3 px outline · stripe: a 6 px left edge in the
+--                                                  section's own colour (a wing, a rarity, a board)
+--   Kit.textLimit(label, maxPx)                    THE text fit: a UITextSizeConstraint with MinTextSize =
+--                                                  Theme.TextSize.Caption (18, the floor) and MaxTextSize =
+--                                                  max(maxPx, 18). For TextScaled labels; no local copies
+-- Kit.tab, Kit.textLimit and the role names are the look overhaul Foundation's first versions: T6 restyles them and
+-- keeps the names and signatures.
 --   Kit.iconButton(props?): TextButton             big emoji square; extras: Icon, Caption, Kind; has a "Dot"
 --   Kit.setDot(button, visible, glyph?)            the red "something new" dot: pops in, then hops now and then;
 --                                                  a glyph (an emoji) turns it into a slightly bigger sticker
@@ -237,8 +249,13 @@ end
 Kit.Juice = Juice
 
 local KIND_COLORS: { [string]: Color3 } = {
+	-- the roles (look build plan §B8)
 	Primary = Theme.Colors.Primary,
+	Collect = Theme.Colors.Collect,
 	Secondary = Theme.Colors.Secondary,
+	Destructive = Theme.Colors.Destructive,
+	Icon = Theme.Colors.Plate,
+	-- old kinds (T6 maps them onto the roles)
 	Good = Theme.Colors.Good,
 	Danger = Theme.Colors.Danger,
 	Pink = Theme.Colors.Pink,
@@ -249,7 +266,7 @@ local KIND_COLORS: { [string]: Color3 } = {
 	Card = Theme.Colors.Card,
 }
 -- Light kinds carry dark, un-outlined text; every other kind carries white outlined text.
-local LIGHT_KINDS = { Quiet = true, Card = true }
+local LIGHT_KINDS = { Quiet = true, Card = true, Secondary = true, Icon = true }
 local EXTRA_KEYS =
 	{ Parent = true, Kind = true, Title = true, Icon = true, Caption = true, Accent = true, Outlined = true }
 
@@ -632,7 +649,9 @@ function Kit.panel(props: Props?): Frame
 	limit.Parent = panel
 	apply(panel, props)
 	if props and type(props.Title) == "string" then
-		local accent: Color3 = if typeof(props.Accent) == "Color3" then props.Accent else Theme.Colors.Secondary
+		-- Every header is navy (Theme.Colors.Header), flat. A colour passed in is an old caller's.
+		local custom = typeof(props.Accent) == "Color3"
+		local accent: Color3 = if custom then props.Accent else Theme.Colors.Header
 		-- The header band runs edge to edge (out through the panel's padding) behind the title and close button.
 		local pad = Theme.Size.Pad
 		local header = Instance.new("Frame")
@@ -640,17 +659,19 @@ function Kit.panel(props: Props?): Frame
 		header.ZIndex = 0
 		header.Position = UDim2.fromOffset(-pad, -pad)
 		header.Size = UDim2.new(1, pad * 2, 0, Theme.Size.ButtonHeight + pad + 4)
-		header.BackgroundColor3 = Kit.lighten(accent, 0.08)
+		header.BackgroundColor3 = if custom then Kit.lighten(accent, 0.08) else accent
 		header.BorderSizePixel = 0
 		Kit.corner(header, Theme.Size.CornerLarge)
-		Palette.candyGradient(header)
+		if custom then
+			Palette.candyGradient(header)
+		end
 		local foot = Instance.new("Frame") -- squares off the band's bottom corners
 		foot.Name = "Foot"
 		foot.ZIndex = 0
 		foot.AnchorPoint = Vector2.new(0, 1)
 		foot.Position = UDim2.fromScale(0, 1)
 		foot.Size = UDim2.new(1, 0, 0, Theme.Size.CornerLarge)
-		foot.BackgroundColor3 = Kit.shade(accent, 0.06)
+		foot.BackgroundColor3 = if custom then Kit.shade(accent, 0.06) else accent
 		foot.BorderSizePixel = 0
 		foot.Parent = header
 		local line = Instance.new("Frame") -- the outline under the band
@@ -776,6 +797,71 @@ function Kit.iconButton(props: Props?): TextButton
 
 	apply(button, props)
 	return finish(button, props)
+end
+
+-- THE tab look (first version; T6 restyles it). `button` is a Kit.iconButton (its Icon and Caption labels) or any
+-- text button.
+function Kit.tab(button: GuiButton, selected: boolean, stripe: Color3?)
+	local fill = if selected then Theme.Colors.Header else Theme.Colors.Card
+	button.BackgroundColor3 = fill
+	button:SetAttribute("KitColor", fill)
+	button:SetAttribute("Selected", selected)
+	for _, name in { "Gloss", "CandyGradient" } do
+		local shine = button:FindFirstChild(name)
+		if shine and shine:IsA("GuiObject") then
+			shine.Visible = false -- flat fills: the gloss reads as a grey smear on navy
+		elseif shine and shine:IsA("UIGradient") then
+			shine.Enabled = false
+		end
+	end
+	local border = button:FindFirstChildOfClass("UIStroke")
+	if border then
+		border.Color = Theme.Colors.Stroke
+		border.Thickness = if selected then Theme.Stroke.Bold else Theme.Stroke.Fine
+	end
+	local function ink(text: Instance?)
+		if text and (text:IsA("TextLabel") or text:IsA("TextButton")) then
+			text.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
+			local outline = text:FindFirstChild("TextOutline")
+			if selected then
+				Kit.outline(text)
+			elseif outline then
+				outline:Destroy()
+			end
+		end
+	end
+	ink(button:FindFirstChild("Caption"))
+	ink(button)
+	local edge = button:FindFirstChild("Stripe")
+	if stripe then
+		local bar: Frame
+		if edge and edge:IsA("Frame") then
+			bar = edge
+		else
+			bar = Instance.new("Frame")
+			bar.Name = "Stripe"
+			bar.BorderSizePixel = 0
+			bar.Position = UDim2.fromScale(0, 0.12)
+			bar.Size = UDim2.new(0, 6, 0.76, 0)
+			bar.ZIndex = 2
+			Kit.corner(bar, Theme.Radius.Small)
+			bar.Parent = button
+		end
+		bar.BackgroundColor3 = stripe
+	elseif edge then
+		edge:Destroy()
+	end
+end
+
+-- THE text fit: a scaled label never shrinks under the floor (Theme.TextSize.Caption) and never grows past maxPx.
+function Kit.textLimit(label: TextLabel | TextButton, maxPx: number): UITextSizeConstraint
+	local existing = label:FindFirstChildOfClass("UITextSizeConstraint")
+	local limit: UITextSizeConstraint = existing or Instance.new("UITextSizeConstraint")
+	local floor = Theme.TextSize.Caption
+	limit.MaxTextSize = math.max(maxPx, floor)
+	limit.MinTextSize = floor
+	limit.Parent = label
+	return limit
 end
 
 -- The red dot pops in when it appears, then hops (a little jump and wiggle) every Theme.Juice.DotHopEvery seconds

@@ -105,10 +105,16 @@ Config.AdminUserIds = { 311718381 } :: { number } -- Dandlepeeps (looked up in-g
 Config.AdminNames = { "Dandlepeeps" } -- Joshua's brother
 
 -- Town: two rows of three plots facing a central street.
+-- Look overhaul (memory-20261117-001 #3; look build plan §B2/§B5): the road's centre line belongs to the Nurse Belt,
+-- so the spawn plaza sits on the street's row-2 half (+z). All of these are offsets from Origin (x, z).
 Config.Town = {
 	Origin = Vector3.new(0, 0, 300),
 	PlotSize = 70,
 	Plots = 6,
+	SpawnOffset = Vector3.new(0, 0, 11), -- TownSpawn's centre (an 8 x 8 pad, z 7..15)
+	SpawnSize = 8,
+	Plaza = { X0 = -30, X1 = 30, Z0 = 5.4, Z1 = 17 }, -- the row-2 half of the road (the curb is z 17.2..18)
+	BeltClear = 4.4, -- |z| <= this, x -121.5..121.5: the belt's alone (its bed is +-3.3)
 }
 
 -- Background music: Roblox's licensed music library (uploader DistrokidOfficial), free for any experience.
@@ -161,19 +167,20 @@ Config.Treat = {
 
 -- The Nurse Belt: one shared conveyor along the town's main street (memory-20261116-012/-013/-017, Logic/Belt,
 -- Server/NurseBelt). Cash only. Every odd, event odds included, is printed on the belt's sign and in the 🎲 popup.
--- Where (Joshua, 2026-11-16: "conveyor belt should be on the main road"): on the street's row-1 half, 11 studs off
--- its centre line (clear of the spawn pad, the plaza benches and the curb), from just inside the east welcome arch
--- (x = +120 from Town.Origin) to just inside the west one (x = -120), past every plot's gate. Riders move west, toward
--- the Hall of Fame end (it stays clear: x < -137). The conveyor is low enough to step over anywhere.
+-- Where (Joshua, 2026-11-17, memory-20261117-001 #3: the belt runs down the road's CENTRE line): on z = 0, from just
+-- inside the east welcome arch (x = +120 from Town.Origin) to just inside the west one (x = -120), past every plot's
+-- gate. The spawn plaza moved off it (Config.Town.SpawnOffset / Plaza; nothing else solid stands within
+-- Config.Town.BeltClear of the centre line). Riders move west, toward the Hall of Fame end (it stays clear:
+-- x < -137), and face the plaza (+z). The conveyor is low enough to step over anywhere.
 -- How often (memory-20261116-017, his brother: rarer than the belt games, so a rare nurse feels earned): one nurse
 -- about every 40 s, base odds 75 / 20 / 4.5 / 0.5, a Rare+ guaranteed within 15 arrivals; Mythic only in Night Rush
 -- and Secret only in Golden Hour. Epic and up ride for everyone but need hospital Lv 3 to hire (MinLevel); their
 -- first-rebirth gate for Mythic and Secret waits for rebirths (design §7).
 Config.Belt = {
-	Offset = Vector3.new(120, 0, -11), -- the belt's start (the nurse house end) from Town.Origin
+	Offset = Vector3.new(120, 0, 0), -- the belt's start (the nurse house at the east end, z = 0) from Town.Origin
 	Heading = 180, -- degrees about Y from world +X that riders move: 180 = toward -X (west)
 	Length = 240, -- studs, start to end
-	SignOffset = Vector3.new(-14, 0, -15.8), -- the odds sign from Town.Origin: the plaza's row-1 edge, facing the spawn
+	SignOffset = Vector3.new(-24, 0, 11), -- the odds sign from Town.Origin: the plaza's west end, facing TownSpawn
 	ArriveSeconds = 40, -- a nurse steps on this often
 	RideSeconds = 100, -- start to end (2.4 studs a second); with one every 40 s, two or three ride at once
 	ReplaceSeconds = 8, -- a hire that leaves no other nurse on the belt (Common or Rare) brings the next this soon
@@ -272,7 +279,7 @@ Config.Agency = {
 	PriceMultiplier = 1.5, -- x the belt's price at your level
 	SellBack = 0.3, -- x the belt's BASE price, per copy (never level-scaled: no buy-and-sell-back profit)
 	Cooldown = 1, -- seconds per player between buys or sells
-	Offset = Vector3.new(11, 0, 12), -- the kiosk, from Town.Origin (the plaza's row-2 side)
+	Offset = Vector3.new(13, 0, 12), -- the kiosk, from Town.Origin (on the plaza; it turns to face TownSpawn)
 }
 
 -- The Player Market (Server/Market, Logic/Market; same server only, §B3.2).
@@ -286,7 +293,7 @@ Config.Market = {
 	MaxListings = 30,
 	ListCooldown = 5,
 	BuyCooldown = 2,
-	Offset = Vector3.new(-11, 0, 12),
+	Offset = Vector3.new(-13, 0, 12),
 }
 
 -- Hospital v2 (design §6)
@@ -311,6 +318,57 @@ Config.NightClinicPerLevel = 0.25 -- night cure cash +25% a Night Clinic level
 Config.NightOwl = 0.3 -- of Config.NightSeconds: the 🦉 perk's night patients keep coming this long after morning
 Config.GoldenChance = 0.02 -- R3+ owners' patients (1 in 50)
 Config.GoldenMultiplier = 5
+
+------------------------------------------------------------------------------------------------------------------
+-- Look overhaul (docs/plan/2026-11-17-look-overhaul-build-plan.md §B2, the reasons in §C). Claude's defaults
+-- (memory-20261117-003, provisional): Joshua or his brother can overrule any of them here.
+------------------------------------------------------------------------------------------------------------------
+
+-- The studs look and the part budgets (tests/PartBudget.spec, the world specs).
+Config.Look = {
+	StudsVariant = "CureStuds", -- the MaterialService child that switches World/Studs to "Variant" mode (§B4)
+	CheckerStuds = 4, -- town lawn checker cell: within 20 studs of the street and in the plot gaps
+	CheckerFarStuds = 8, -- the rest of the town lawn
+	-- An rbxassetid of a 2x2-cell checker once uploaded: one Texture per lawn part (StudsPerTileU/V = 2 x cell,
+	-- Transparency ~0.85) replaces the GrassB tiles. "" = the tiles are parts.
+	CheckerTexture = "",
+	TownParts = 600, -- ClinicTown (the lawn, road, plaza, trees, lamps, arches; not the belt, kiosks, boards or plots)
+	PlotBudget = 400, -- one plot at Lv 5 with every room, any theme, no creatures, nurses or decor
+	BuildingParts = 160, -- its share: the Building, any level, any theme
+	RoomParts = 90, -- its share: every room model on the plot (the Stand floor + annexes + the Garden)
+	-- Its share: everything else on the plot (pad, edging, path, Counter, markers, slots, sign, fence, gate, mailbox,
+	-- trees, bushes, queue lane).
+	PlotParts = 115,
+	SurfaceGuisPerBuilding = 12,
+	GlassPerBuilding = 6, -- see-through parts (Transparency strictly between 0 and 1)
+	WardFloorBeds = 7, -- beds you can see on the Wards floor (F1), Lv 2..5: functional + dressing
+	Lv1Beds = 2, -- beds you can see at Lv 1: Bed_1 + one dressing bed
+	Sleepers = { Lv1 = 1, Ward = 2 }, -- sleeping stand-ins on dressing beds
+}
+
+-- The tutorial's guide (UI/Wayfinder, UI/Tutorial, Server/Tutorial; tutorial-ux §5.5).
+Config.Tutorial = {
+	-- the guide beam
+	BeamLift = 1.75,
+	BeamEndLift = 0.25,
+	BeamWidth = 1.6,
+	BeamTextureLength = 2,
+	BeamSpeed = 1.5,
+	BeamMaxSpans = 4,
+	BeamTexture = "", -- our own chevron strip once uploaded ("" = a solid tinted strip)
+	NearStuds = 6, -- the beam and the chevrons hide this close to the target (flat distance)
+	-- the floor chevrons (support)
+	ChevronStuds = 4,
+	ChevronGap = 6,
+	MaxChevrons = 6,
+	FirstChevron = 3,
+	GlowSeconds = 1.6, -- the glow's pulse
+	NudgeSeconds = 20, -- "Psst! Follow the arrows" (a hint, never shown as a number)
+	SuccessHold = 0.8, -- the tick beat before the next card
+	FirstCureHold = 2.5, -- CURED! holds this long
+	ArrowsUntilCures = 3, -- the Guide keeps beam + glow + pin until this many cures (after Skip too)
+	ReplayCooldown = 30, -- seconds per player between TutorialReplay calls
+}
 
 -- Game passes. 0 = not created. Nothing paid exists in this build (plan: Global Constraints), and the
 -- 2x Cash idea needs a rethink before it ever ships (design §9). Kept only so the ID has a home.
