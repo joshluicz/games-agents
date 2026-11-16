@@ -5,9 +5,9 @@ Asked after Joshua played the live game. His words, verbatim:
 > actual hospital... they lack texture. is the builder for multiple levels, ie not a single story building. it should
 > be a building. there should be some templates existing, we can take reference but it should be our own one.
 
-He then added: "theres a trending texture for most of the steal a... games. its like a lego brick floor and the items /
-pets are all like lego." In our docs and in the game that style is **"studs"** or **"brick style"**, never the toy
-brand's name.
+He then pointed at the trending texture of the "Steal a ..." games: a studded-brick floor, with items and pets that
+look built from studded bricks too. In our docs and in the game that style is **"studs"** or **"brick style"**, never
+the toy brand's name.
 
 **Scope.** Research and writing only. No code was changed, nothing was committed, nothing was inserted into Studio.
 The only Studio tool allowed was the read-only `search_asset`, and it couldn't run (§2.2), so the Creator Store was
