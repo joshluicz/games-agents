@@ -124,7 +124,7 @@ Pure.SLAB = 0.6 -- every slab and roof (Logic/Building.SLAB_MAX: F1's underside 
 Pure.DOOR = 7 -- every doorway's height; the fascia and the lintels start here
 Pure.BAND = 0.5 -- the fascia stripe's height, just under F1's slab (the podium's roof at Lv 1)
 Pure.SPANDREL = 2.4 -- an upper storey's studded wall under its front glass band
-Pure.GLASS = 0.3 -- the see-through parts: the glass bands, the display window, the partition, the lift shaft
+Pure.GLASS = 0.55 -- (0.3 with a navy tint read as black from the street: Studio 2026-11-17) the see-through parts: the glass bands, the display window, the partition, the lift shaft
 Pure.CAR = 6.5 -- the lift car's height
 Pure.CLEAR = 0.5 -- Lv 5: the shaft's glass reaches this far over the car standing at the roof
 Pure.HEAD = 4.5 -- Lv 5: the lift tower's head over the shaft (the neon paw-heart's wall)
@@ -511,6 +511,23 @@ local function outerWall(
 	return p
 end
 
+-- A room's own light: shadowless (the perf budget), always on, warm white, on an Attachment (no part). Without it
+-- every storey read as black through its glass from the street by day (Studio run, 2026-11-17).
+local ROOM_LIGHT_BRIGHTNESS = 1.1
+local ROOM_LIGHT_RANGE = 18
+local function roomLight(anchor: BasePart, at: Vector3)
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "RoomLight"
+	attachment.Position = anchor.CFrame:PointToObjectSpace(at)
+	attachment.Parent = anchor
+	local light = Instance.new("PointLight")
+	light.Color = WORLD.WallUpper
+	light.Brightness = ROOM_LIGHT_BRIGHTNESS
+	light.Range = ROOM_LIGHT_RANGE
+	light.Shadows = false
+	light.Parent = attachment
+end
+
 -- A part a theme recolours: "Trim" or "Band".
 local function painted(p: BasePart, paintRole: string): BasePart
 	p:SetAttribute("Paint", paintRole)
@@ -528,7 +545,7 @@ local function glass(
 	z0: number,
 	z1: number
 ): Part
-	local p = box(parent, name, x0, x1, y0, y1, z0, z1, WORLD.Window, Enum.Material.Glass)
+	local p = box(parent, name, x0, x1, y0, y1, z0, z1, WORLD.Glass, Enum.Material.Glass)
 	p.Transparency = Pure.GLASS
 	p.CastShadow = false
 	NightLights.tag(p, "Window")
@@ -907,7 +924,7 @@ local function buildHall(model: Model, style: Style, floors: number)
 	outerWall(hall, "WallLintelCorridor", h - w, h, Pure.DOOR, top, doors.Corridor.Z0, doors.Corridor.Z1, style)
 	outerWall(hall, "WallBack", -h, h, 0, top, back - w, back, style)
 	ribbon(hall, "Back", -h, h, 0, back)
-	paint(
+	local floorHall = paint(
 		box(
 			hall,
 			"FloorHall",
@@ -921,6 +938,7 @@ local function buildHall(model: Model, style: Style, floors: number)
 			Enum.Material.WoodPlanks
 		)
 	)
+	roomLight(floorHall, Vector3.new(0, top - 1, (Pure.STAND_BACK + back - w) / 2))
 	-- A&E: a red canopy over its door, facing the ambulance bay, and the letters on the wall over it.
 	local ae = doors.AE
 	soft(box(hall, "CanopyAE", -h - 2, -h, Pure.DOOR + 0.6, Pure.DOOR + 1, ae.Z0 - 0.5, ae.Z1 + 0.5, DEPT.AE))
@@ -1129,6 +1147,10 @@ local function buildFloor(model: Model, style: Style, k: number, hasPharmacy: bo
 		)
 		Studs.apply(dado)
 		dado.CastShadow = false
+	end
+	local slab = floorModel:FindFirstChild("Slab")
+	if slab and slab:IsA("BasePart") then
+		roomLight(slab, Vector3.new(0, top - 1, (f.Z0 + f.Z1) / 2))
 	end
 end
 

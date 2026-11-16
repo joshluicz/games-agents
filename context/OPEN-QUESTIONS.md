@@ -22,6 +22,11 @@ was filed. Don't re-ask an answered question.
     So a Common can go from Lv 1 to 10 for about 💰1,300-1,900 in under an hour. The plan aimed for 4-7 hours. The
     fixes are a fixed amount of XP per copy, or copy prices that grow with the nurse's level. Claude's lean: XP per
     copy, re-tuned after real play data. ⬜ **Joshua (or Claude's call).**
+11. 🧰 **Three small icon picks from the look overhaul** (2026-11-17):
+    - **The First-Aid Stand's icon.** ⛑️ was swapped for a placeholder 🧰, because ⛑️ shows a white cross.
+    - **Golden Hour's icon.** The status shows 🌟 and the belt shows 👑; pick one.
+    - **🏥 and 🚑.** Do they count as cross emblems? Some platforms draw them with a red cross.
+    ⬜ **Both (optional; Claude keeps the placeholders until then).**
 
 ## ✅ Answered
 - #8, the depth update review fixes (build plan §E5-E7): 2026-11-16, Joshua: "your call for all" → Claude's calls:

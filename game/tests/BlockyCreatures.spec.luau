@@ -618,7 +618,7 @@ local function studsCheck(model, who: string, variant: boolean)
 				check(part.MaterialVariant == "CureStuds", who .. ": the plate takes the CureStuds variant")
 			else
 				check(part.TopSurface == Enum.SurfaceType.Studs, who .. ": studs on the plate's top")
-				check(part.FrontSurface == Enum.SurfaceType.Smooth, who .. ": only on its top")
+				check(part.BottomSurface == Enum.SurfaceType.Smooth, who .. ": never on its bottom")
 			end
 		elseif part.Name ~= "Root" and part.Name ~= "Core" then
 			local m = part.Material

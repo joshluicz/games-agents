@@ -5,8 +5,9 @@
 --   "Variant"  MaterialService holds a MaterialVariant named Config.Look.StudsVariant ("CureStuds": OUR OWN stud
 --              maps, made in Studio once; game/README.md "Studs"). A studded part is Plastic with that variant, so
 --              EVERY face is studded: walls, trees, pads.
---   "Surface"  the fallback until that variant exists: Plastic with TopSurface = Studs. Only the TOP face is studded
---              (the built-in studs draw only on Plastic), and every other face is smooth. No assets needed.
+--   "Surface"  the fallback until that variant exists: Plastic with the built-in Studs surface on the top AND the four
+--              side faces (the built-in studs draw only on Plastic; the bottom stays smooth). Checked in Studio on
+--              2026-11-17: side-face studs render, so walls, trees and hedges are textured with no assets at all.
 -- No Texture, no Decal and no extra part either way.
 --
 --   Studs.mode(): "Variant" | "Surface"   checked at first use, and again whenever MaterialService gains or loses a
@@ -58,6 +59,7 @@ end
 Studs.Pure = Pure
 
 local SURFACES = { "TopSurface", "BottomSurface", "LeftSurface", "RightSurface", "FrontSurface", "BackSurface" }
+local STUDDED_FACES = { "TopSurface", "LeftSurface", "RightSurface", "FrontSurface", "BackSurface" } -- all but the bottom
 
 local function variantName(): string
 	local look = (Config :: any).Look
@@ -109,7 +111,9 @@ function Studs.apply(p: BasePart)
 		p.MaterialVariant = variantName()
 	else
 		p.MaterialVariant = ""
-		p.TopSurface = Enum.SurfaceType.Studs
+		for _, name in STUDDED_FACES do
+			(p :: any)[name] = Enum.SurfaceType.Studs
+		end
 	end
 	p:SetAttribute("Studded", true)
 end

@@ -179,12 +179,19 @@ local function setStyle()
 		ColorShift_Top = Color3.new(0, 0, 0),
 		ColorShift_Bottom = Color3.new(0, 0, 0),
 	}
+	-- LightingStyle and PrioritizeLightingQuality can't be written by a game script (Studio 2026-11-17: "lacking
+	-- capability PluginOrOpenCloud"), so the place file holds them. Write only what differs, and warn only then.
 	for key, value in style do
-		local ok, err = pcall(function()
-			(Lighting :: any)[key] = value
+		local okRead, now = pcall(function()
+			return (Lighting :: any)[key]
 		end)
-		if not ok then
-			warn("[DayNight] Lighting." .. key .. " not set:", err)
+		if not (okRead and now == value) then
+			local ok, err = pcall(function()
+				(Lighting :: any)[key] = value
+			end)
+			if not ok then
+				warn("[DayNight] Lighting." .. key .. " not set (set it in the place file):", err)
+			end
 		end
 	end
 end

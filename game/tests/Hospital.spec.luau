@@ -1012,14 +1012,33 @@ T.describe("Hospital (the built world)", function()
 				if d:IsA("BasePart") and (string.match(d.Name, "^Glass") or string.match(d.Name, "^Window")) then
 					expect(d:GetAttribute("NightKind")).toBe("Window")
 					expect(d:HasTag("ClinicNightLight")).toBe(true)
-				elseif d:IsA("Light") then
+				elseif d:IsA("Light") and not (d.Parent and d.Parent.Name == "RoomLight") then
 					lights += 1
 				end
 			end
 			expect(building.Tower.LogoNeon:GetAttribute("NightKind")).toBe("Lamp")
 			expect(building.Tower.Beacon:GetAttribute("NightKind")).toBe("Lamp")
-			expect(lights).toBe(1)
+			expect(lights).toBe(1) -- the one night light (room lights are counted in the next test)
 			expect(building.Tower.LogoNeon.LogoGui.Mark.PawHeart ~= nil).toBe(true) -- our mark, never a cross
+		end
+	)
+
+	test(
+		"room lights: one shadowless light in the hall and in each indoor storey, on an Attachment (no part)",
+		function()
+			local building = build(5)
+			local rooms = {}
+			for _, d in building:GetDescendants() do
+				if d:IsA("Attachment") and d.Name == "RoomLight" then
+					local light = d:FindFirstChildWhichIsA("PointLight")
+					expect(light ~= nil).toBe(true)
+					expect(light.Shadows).toBe(false)
+					local owner = d.Parent and d.Parent.Parent
+					table.insert(rooms, owner and owner.Name or "?")
+				end
+			end
+			table.sort(rooms)
+			expect(table.concat(rooms, ",")).toBe("Floor_1,Floor_2,Floor_3,Hall")
 		end
 	)
 

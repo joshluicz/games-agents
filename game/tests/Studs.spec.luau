@@ -1,6 +1,6 @@
 --!nocheck
 -- The studs look (Server/World/Studs; look build plan §B4): both modes under tests/worldmock. "Surface" is the
--- fallback (Plastic + TopSurface Studs, top face only) until the CureStuds MaterialVariant exists in MaterialService;
+-- fallback (Plastic + the built-in Studs surface on the top and the four sides) until the CureStuds MaterialVariant exists in MaterialService;
 -- "Variant" studs every face. Also the shared look pieces of Server/World/Parts and the night lights' day restore.
 
 local fs = require("@lune/fs")
@@ -72,19 +72,23 @@ T.describe("Studs in Surface mode (no MaterialVariant yet)", function()
 		expect(Studs.mode()).toBe("Surface")
 	end)
 
-	test("apply: Plastic, studs on the top face only, every other face smooth, no variant, Studded = true", function()
-		local part = partIn(world)
-		Studs.apply(part)
-		expect(part.Material).toBe(Enum.Material.Plastic)
-		expect(part.MaterialVariant).toBe("")
-		expect(part.TopSurface).toBe(Enum.SurfaceType.Studs)
-		for _, name in SURFACES do
-			if name ~= "TopSurface" then
-				expect(part[name]).toBe(Enum.SurfaceType.Smooth)
+	test(
+		"apply: Plastic, studs on the top and the four sides, the bottom smooth, no variant, Studded = true",
+		function()
+			local part = partIn(world)
+			Studs.apply(part)
+			expect(part.Material).toBe(Enum.Material.Plastic)
+			expect(part.MaterialVariant).toBe("")
+			for _, name in SURFACES do
+				if name == "BottomSurface" then
+					expect(part[name]).toBe(Enum.SurfaceType.Smooth)
+				else
+					expect(part[name]).toBe(Enum.SurfaceType.Studs)
+				end
 			end
+			expect(part:GetAttribute("Studded")).toBe(true)
 		end
-		expect(part:GetAttribute("Studded")).toBe(true)
-	end)
+	)
 
 	test("smooth: SmoothPlastic, every face smooth, no variant, Studded cleared", function()
 		local part = partIn(world)

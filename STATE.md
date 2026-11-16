@@ -22,16 +22,19 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 - [x] **Joshua:** published Update 1 (2026-11-16). His verdict: "pretty shit". That feedback became the look overhaul.
 - [x] **Claude:** Progression v2 merged (`c9e4d1c`, 1000 specs). The Studio run checked its systems through remotes
       (`logs/playtests/2026-11-17-progression-v2-studio.md`). Not published: it ships together with the overhaul.
-- [ ] **Claude:** the visual pass of v2 needs a Studio run with the screen on: lift, wards, triage, BranchPanel.
-- [ ] **Claude, running:** the look overhaul workflow (`.worktrees/look`, branch `claude/look-overhaul`), with Fable
-      on the decision agents. Plan `docs/plan/2026-11-17-look-overhaul-build-plan.md` (`-001` to `-004`):
-      - relight, studs, the belt in the road's centre;
-      - a real multi-storey hospital with full wards;
-      - HUD side rails, a navy unified modal;
-      - the tutorial floor beam with Skip and Replay;
-      - blocky creatures.
-
-      The workflow script is `docs/plan/workflows/look-overhaul-wf.js`.
+- [x] **Claude:** the look overhaul is built, merged, run in Studio and fixed (2026-11-17,
+      `logs/playtests/2026-11-17-look-overhaul.md`).
+      - Done: relight, studs on every face, the belt in the road's centre, a multi-storey hospital with lit wards,
+        HUD side rails, navy panels, the tutorial floor beam with Skip and Replay, blocky creatures.
+      - 1439 specs pass.
+      - Progression v2 ships with it.
+- [ ] **Joshua + brother:** play it in Studio (or a private server), then **both say yes** before publishing (red
+      line 4). Pick the First-Aid Stand icon and Golden Hour's icon (`2026-11-17-look-overhaul.md`, "Still open").
+- [ ] **Claude, next:**
+      - the beam's arrow texture (needs one uploaded image);
+      - a phone check in the Device Simulator;
+      - the lift, triage and Market (2 players) seen by eye;
+      - the small UI polish listed in the log.
 - [ ] **Joshua:** Performance Stats (FPS, ping) on PC + phone from the live game, for the lag.
 - [ ] **Brother:** play as a new player and with 🛠️ Admin; notes into `logs/playtests/`.
 - [ ] **Joshua:** Creator Hub: maturity questionnaire done? New icon + thumbnails (`docs/launch/images/`).
@@ -46,6 +49,19 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-17 (Joshua's PC, Claude + workflows, Joshua away). Progression v2, the Market fix and the look overhaul,
+  all merged and run in Studio.**
+  - **Progression v2** merged (`c9e4d1c`). Its Fable review led to the Market save fix (`3bf1fc3`): a sold nurse can't
+    vanish when a save fails mid-trade.
+  - **The look overhaul** came from Joshua's "pretty shit" feedback and rulings `-001` to `-004`:
+    - 14 agents, with Fable on the foundation, the integrator, the reviews and the fixer;
+    - 9 review bugs fixed;
+    - merged as `541fbc5`.
+  - **The Studio run** found three problems, all fixed:
+    - walls without texture: studs now go on the side faces too, with no assets;
+    - black wards from the street: room lights plus lighter glass;
+    - DayNight boot warnings.
+  - **Note for Studio MCP:** captures show a white 3D view when Studio is **minimised**. Restore the window.
 - **2026-11-16 (evening, Joshua's PC, Claude + parallel agents). Update 1 merged and playtested.**
   - **Merged:**
     - creatures v2;

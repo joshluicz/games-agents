@@ -60,6 +60,7 @@ T.describe("Palette.World (art-direction §4.1)", function()
 		FloorB = "#996B45",
 		WallUpper = "#EBE4D8",
 		Window = "#2F3B57",
+		Glass = "#CDE8F5",
 		WindowNight = "#D8B470",
 		Pavement = "#CDB38A",
 		PavementAlt = "#B79D74",
