@@ -185,8 +185,11 @@ Keep the other agent's recent work (Counter serve prompt, sparkles, music, roof 
 ## 9. Money (Stage 1+, only after the ownership note and both brothers' yes)
 - **Cosmetics only at first:** clinic themes, uniforms, a cosmetic helper pet. Fixed prices shown plainly. No paid random
   items, no timed offers, no "decline" shaming.
-- ⚠️ **The 2× Cash pass needs a rethink.** It speeds progress. The EU Digital Fairness Act proposal (2026-11-11, not law)
-  would ban pay-to-progress for minors, and regulators already treat it as a pressure pattern. New OPEN question.
+- **The 2× Cash pass stays** (Joshua, `memory-20261116-006`), under three rules:
+  - it doubles **Cash only**, never Stars, Book stamps, story or dailies;
+  - it's shown in the Shop only, never pushed (no pop-ups, timers or post-cure prompts);
+  - cosmetic passes sit beside it.
+  Revisit if the EU Digital Fairness Act proposal (2026-11-11) becomes law with its pay-to-progress ban for minors.
 
 ## 10. Release slices
 1. **Slice 1, "First-Aid Stand" (private):**

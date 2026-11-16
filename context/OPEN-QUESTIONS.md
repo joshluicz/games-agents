@@ -6,7 +6,7 @@ was filed. Don't re-ask an answered question.
 ## ⏳ Open
 1. 🎨 **The name, and the cast.** The theme is settled: a creature clinic (`memory-20261116-005`, working title
    "Creature Clinic"). Still open: the game's real name (no "brainrot" at launch, `-004`) and the patients' names and
-   looks (the brother's call). Does the brother like the clinic? ⬜ **Both.**
+   looks (the brother's call). The brother likes the clinic (2026-11-16, `-006`). ⬜ **Both.**
 2. 🤝 **The ownership note (red line 5), before any public promo or Robux.** Who owns the group and the game (CoS read:
    Joshua, since the 18+ ID-verified owner is what unlocks all-ages publishing), what % the brother gets, and how it
    reaches him (a group recurring payout, or Joshua pays him). ⚠️ Unconfirmed whether a 13-year-old can receive group
@@ -22,11 +22,8 @@ was filed. Don't re-ask an answered question.
    became a business line of Eitri Brokkr on 2026-10-17)? CoS read: personal and family for now, revisit if it earns,
    since DevEx pays an individual's account. ⬜ **Joshua.**
 
-8. 💳 **Keep the 2× Cash pass?** It speeds progress. The EU Digital Fairness Act proposal (2026-11-11, not law yet)
-   would ban pay-to-progress for minors, and regulators already treat it as a pressure pattern. The alternative is
-   cosmetic-only passes (clinic themes, uniforms, a helper pet). Design §9. ⬜ **Both**, before Stage 1 money.
-
 ## ✅ Answered
+- 2× Cash pass: kept, doubling cash only, never pushed, beside cosmetic passes: 2026-11-16 → `memory-20261116-006`.
 - Game type, audience, goal, computers, brother's age: 2026-11-16 → `memory/records/memory-20261116-002.md`.
 - Structure (your own place on a plot), the daily-return goal, not a restaurant tycoon: 2026-11-16 → `memory-20261116-003`.
 - Brainrot: our own absurd cast, no meme characters, no "brainrot" title at launch: 2026-11-16 → `memory-20261116-004`.
