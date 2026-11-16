@@ -48,6 +48,20 @@ Config.Upgrades = {
 }
 Config.UpgradeOrder = { "Speed", "Tray", "Tips" }
 
+-- Background music: Roblox's licensed music library (uploader DistrokidOfficial), free for any experience.
+-- Day tracks play in turn, and the night track takes over at night. Players can mute it on the HUD.
+Config.Music = {
+	Volume = 0.3,
+	Day = {
+		140331368291861, -- Cozy Autumn Cafe Vibes with Smooth Jazz
+		135272444646832, -- Cozy Piano Mornings
+		138035341510456, -- Accordion Breeze
+	},
+	Night = {
+		80900515881139, -- Moonlight Through the Restaurant Window
+	},
+}
+
 -- Game passes. 0 = not created yet. Create the pass in Creator Hub, paste its ID here.
 Config.GamePasses = {
 	DoubleCash = 0,

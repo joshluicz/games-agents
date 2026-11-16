@@ -1,0 +1,7 @@
+# Keep LF everywhere so StyLua and Rojo see the same files on Windows and Mac.
+* text=auto eol=lf
+*.rbxm binary
+*.rbxl binary
+*.rbxmx text eol=lf
+*.png binary
+*.jpg binary

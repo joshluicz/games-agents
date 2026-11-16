@@ -17,6 +17,20 @@ function Kitchen.start(station: BasePart)
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = station
 
+	-- A little sparkle burst when something is made
+	local sparkles = Instance.new("ParticleEmitter")
+	sparkles.Name = "MakeSparkles"
+	sparkles.Enabled = false
+	sparkles.Color = ColorSequence.new(Color3.fromRGB(255, 220, 120), Color3.fromRGB(255, 170, 200))
+	sparkles.LightEmission = 0.6
+	sparkles.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+	sparkles.Lifetime = NumberRange.new(0.5, 0.9)
+	sparkles.Speed = NumberRange.new(4, 8)
+	sparkles.SpreadAngle = Vector2.new(60, 60)
+	sparkles.Acceleration = Vector3.new(0, -6, 0)
+	sparkles.EmissionDirection = Enum.NormalId.Top
+	sparkles.Parent = station
+
 	local holdStarted: { [Player]: number } = {}
 	local holdEnded: { [Player]: number } = {}
 
@@ -43,6 +57,7 @@ function Kitchen.start(station: BasePart)
 			return
 		end
 		Economy.setCarrying(player, carrying + 1)
+		sparkles:Emit(14)
 	end)
 end
 

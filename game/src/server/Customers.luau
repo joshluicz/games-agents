@@ -23,6 +23,7 @@ type Customer = {
 
 local queue: { Customer } = {}
 local folder: Folder
+local counterPrompt: ProximityPrompt? = nil
 
 local SKIN_TONES = {
 	Color3.fromRGB(255, 224, 189),
@@ -71,7 +72,7 @@ local function makeBubble(head: BasePart, isNight: boolean): (BillboardGui, Fram
 	bubble.Enabled = false
 
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, 0, 0.62, 0)
+	label.Size = UDim2.fromScale(1, 0.62)
 	label.BackgroundColor3 = isNight and Color3.fromRGB(70, 40, 110) or Color3.fromRGB(255, 255, 255)
 	label.TextColor3 = isNight and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(40, 40, 40)
 	label.Font = Enum.Font.FredokaOne
@@ -83,8 +84,8 @@ local function makeBubble(head: BasePart, isNight: boolean): (BillboardGui, Fram
 	corner.Parent = label
 
 	local track = Instance.new("Frame")
-	track.Position = UDim2.new(0.1, 0, 0.72, 0)
-	track.Size = UDim2.new(0.8, 0, 0.18, 0)
+	track.Position = UDim2.fromScale(0.1, 0.72)
+	track.Size = UDim2.fromScale(0.8, 0.18)
 	track.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 	track.BorderSizePixel = 0
 	track.Parent = bubble
@@ -126,6 +127,46 @@ local function leave(shop, customer: Customer, happy: boolean)
 		end
 		customer.Model:Destroy()
 	end)
+end
+
+local function serve(shop, customer: Customer, player: Player)
+	if customer.State ~= "waiting" then
+		return
+	end
+	local carrying = Economy.carrying(player)
+	if carrying <= 0 then
+		Economy.toast(player, "You need a " .. Config.ProductName .. ". Make one at the station!")
+		return
+	end
+	Economy.setCarrying(player, carrying - 1)
+	local earned = Economy.payFor(player, customer.PatienceLeft, customer.IsNight)
+	Economy.toast(player, "+" .. earned .. " " .. Config.CurrencyName)
+	leave(shop, customer, true)
+end
+
+-- With a Counter, players serve from behind it: one Serve prompt on the Counter for whoever is at the front.
+-- It's easier to hit on a phone than a prompt on a moving customer. Without a Counter, each customer has a prompt.
+local function makeCounterPrompt(shop)
+	local counter: BasePart? = shop.Counter
+	if not counter then
+		return
+	end
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "CounterServePrompt"
+	prompt.ActionText = "Serve"
+	prompt.ObjectText = "Customer"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Enabled = false
+	prompt.Parent = counter
+	prompt.Triggered:Connect(function(player)
+		local first = queue[1]
+		if first then
+			serve(shop, first, player)
+		end
+	end)
+	counterPrompt = prompt
 end
 
 local function spawnCustomer(shop): Customer?
@@ -201,18 +242,7 @@ local function spawnCustomer(shop): Customer?
 	}
 
 	prompt.Triggered:Connect(function(player)
-		if customer.State ~= "waiting" then
-			return
-		end
-		local carrying = Economy.carrying(player)
-		if carrying <= 0 then
-			Economy.toast(player, "You need a " .. Config.ProductName .. ". Make one at the station!")
-			return
-		end
-		Economy.setCarrying(player, carrying - 1)
-		local earned = Economy.payFor(player, customer.PatienceLeft, customer.IsNight)
-		Economy.toast(player, "+" .. earned .. " " .. Config.CurrencyName)
-		leave(shop, customer, true)
+		serve(shop, customer, player)
 	end)
 
 	humanoid.Died:Connect(function()
@@ -236,7 +266,7 @@ local function tick(shop, dt: number)
 			customer.Humanoid:MoveTo(target)
 			if arrived and index == 1 then
 				customer.State = "waiting"
-				customer.Prompt.Enabled = true
+				customer.Prompt.Enabled = counterPrompt == nil
 				customer.Bubble.Enabled = true
 			end
 		elseif customer.State == "waiting" then
@@ -250,12 +280,22 @@ local function tick(shop, dt: number)
 			end
 		end
 	end
+
+	if counterPrompt then
+		local first = queue[1]
+		local ready = first ~= nil and first.State == "waiting"
+		counterPrompt.Enabled = ready
+		if ready then
+			counterPrompt.ObjectText = first.IsNight and "Night Customer" or "Customer"
+		end
+	end
 end
 
 function Customers.start(shop)
 	folder = Instance.new("Folder")
 	folder.Name = "Customers"
 	folder.Parent = Workspace
+	makeCounterPrompt(shop)
 
 	local TICK = 0.25
 	task.spawn(function()

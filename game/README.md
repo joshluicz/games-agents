@@ -22,15 +22,18 @@ No `Shop` model in Workspace yet? The server builds a grey placeholder shop, so 
 | `src/server/Economy.luau` | ServerScriptService.Server.Economy | Pay maths, carrying, upgrades, the 2× Cash pass |
 | `src/server/DayNight.luau` | ServerScriptService.Server.DayNight | Day/night cycle, night customers |
 | `src/client/Hud.client.luau` | StarterPlayerScripts.Client.Hud | The screen: cash, carrying, timer, upgrades, toasts |
+| `src/client/Music.client.luau` | StarterPlayerScripts.Client.Music | Background music (`Config.Music`), day and night playlists, Music On/Off button |
+| `src/client/RoofFade.client.luau` | StarterPlayerScripts.Client.RoofFade | Fades a Model named `Roof` inside `Shop` while you're inside the shop |
 
 ## The loop
 Customer walks in → queues at `QueueStart` → shows an order and a patience bar → you **hold E at the Station** to make
-the product → walk to the customer → **press E to Serve** → cash. Spend cash on **Upgrades** (bottom-left).
+the product (sparkles) → **press E to Serve at the Counter** → cash. With no `Counter`, the Serve prompt sits on the
+customer instead. Spend cash on **Upgrades** (bottom-left).
 
-## Checklist for the first playtest
-- [ ] Output shows `[Main] Shop is open.` and no red errors
-- [ ] Customers spawn, walk to the counter and queue behind each other
-- [ ] Holding at the station gives "Carrying: 1/1", and serving pays cash
+## Checklist for the first playtest (first run 2026-11-16, Joshua's PC)
+- [x] Output shows `[Main] Shop is open.` and no red errors
+- [x] Customers spawn, walk to the counter and queue behind each other
+- [x] Holding at the station gives "Carrying: 1/1", and serving pays cash (3 served, 41 Cash)
 - [ ] Upgrades buy, and the tray capacity and hold time change
 - [ ] Night comes after 3 minutes (set `Config.DaySeconds = 20` to test faster), and night customers glow and pay 2×
 - [ ] Rejoin and the cash is still there (needs **Game Settings → Security → Enable Studio Access to API Services**)
