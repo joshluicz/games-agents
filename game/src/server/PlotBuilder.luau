@@ -1279,9 +1279,9 @@ local LANE_TILE_TOP = 0.25
 local LANE_SPOT_TOP = 0.3
 local LANE_NUMBER_TOP = 0.33
 local LANE_EDGE_TOP = 0.35
--- A SurfaceGui on a Top face draws with its top toward the part's front (-Z, its LookVector). Spots face the counter,
--- so the numbers read upright for someone walking in from the gate. (If they ever show upside down, turn them here.)
-local NUMBER_TURN = CFrame.identity
+-- Spots face the counter. A Top-face SurfaceGui on a part turned that way draws sideways, so the plate turns a
+-- quarter: then the numbers read upright for someone walking in from the gate (checked in Studio, 2026-11-16).
+local NUMBER_TURN = CFrame.Angles(0, -math.pi / 2, 0)
 
 -- How far a point can go along a flat world direction before it leaves the part's footprint (its own X and Z).
 -- math.huge when it never does, or when the point isn't over the part.
