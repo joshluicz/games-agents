@@ -21,9 +21,9 @@ Config.FrostyMultiplier = 1.5
 -- Patients
 Config.PatienceSeconds = 60 -- how long a patient waits at the counter before leaving (no penalty)
 Config.ChairsPatienceBonus = 10 -- extra seconds of patience per Comfy Chairs level
-Config.MaxQueue = 4 -- patients waiting at one clinic at once
+Config.MaxQueue = 3 -- patients at one clinic at once: the one being treated + 2 waiting (calmer for kids)
 Config.QueueSpacing = 7 -- studs between patients in the queue (creatures are player-sized)
-Config.QueueDepth = 7 -- studs the line runs straight back from the counter before it turns sideways
+Config.QueueDepth = 14 -- studs the line runs straight back from the counter before it turns sideways (3 fit straight)
 Config.CreatureSize = 1.6 -- every creature's size multiplier (about a player's height)
 Config.CreatureSizeJitter = 0.08 -- each patient is up to 8% smaller or bigger than its species (Logic/CreatureSize)
 Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7)
