@@ -6,7 +6,8 @@
 --   top right     ☀️/🌙 day-night timer (×2 at night) · ⭐ Today's Visitor (tap: what it means), only when it
 --                 can come to your clinic, ✅ once cured today (the Snapshot's VisitorStatus)
 --   right middle  ⚙️ settings: a small panel with the comfort switches 🎵 music and ✨ calm effects (the client-only
---                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion)
+--                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion),
+--                 plus 🛠️ Admin (opens UI/AdminPanel) only while the server has set the player attribute IsAdmin
 --   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty) above
 --                 the 🛒 📖 📬 🎯 buttons, each with a dot when something waits there (a room you can buy or decor to
 --                 place · new pages · mail · a goal)
@@ -45,7 +46,7 @@
 --
 -- Client bus (ctx.on / ctx.fire):
 --   listens  "BookNew" (count)                      BookPanel: unseen new pages, for the 📖 dot
---   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals"
+--   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Admin"
 --   fires    "ModalOpened" (name) · "ModalClosed" (name)
 --   fires    "Sound" (name, volume?)                Whoosh on open, Nope on a shake, Pop when icons land
 
@@ -1570,6 +1571,25 @@ function Hud.init(ctx: Types.Ctx)
 	local musicSwitch = switch("Music", "Pink", 1)
 	local effectsSwitch = switch("Effects", "Cyan", 2)
 	settings.Focus = musicSwitch
+	-- 🛠️ Admin: only for the accounts the server marks IsAdmin (Server/Admin). It just opens UI/AdminPanel, whose every
+	-- button the server checks again. The card grows to fit it.
+	local adminButton = switch("Admin", "Purple", 3)
+	adminButton.Text = "🛠️ Admin"
+	local settingsLimit = settings.Root:FindFirstChildOfClass("UISizeConstraint")
+	local function renderAdmin()
+		local isAdmin = player:GetAttribute("IsAdmin") == true
+		adminButton.Visible = isAdmin
+		if settingsLimit then
+			settingsLimit.MaxSize = Vector2.new(380, if isAdmin then 354 else 280)
+		end
+	end
+	player:GetAttributeChangedSignal("IsAdmin"):Connect(renderAdmin)
+	renderAdmin()
+	adminButton.Activated:Connect(function()
+		if player:GetAttribute("IsAdmin") == true then
+			ctx.fire("Open", "Admin") -- a Panel: opening it closes ⚙️
+		end
+	end)
 	local function paintSwitch(button: TextButton, on: boolean, color: Color3)
 		local switchFill = if on then Kit.lighten(color, 0.08) else Theme.Colors.Quiet
 		button.BackgroundColor3 = switchFill

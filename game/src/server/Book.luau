@@ -9,6 +9,10 @@
 --   Book.placeReward(p, decorId): boolean
 --       puts an earned decor into the first empty decor slot on the player's plot, so a reward shows at once.
 --       Story uses it too. False (and nothing changes) when there's no plot or no empty slot.
+--   Book.completeAll(p): number?
+--       the 🛠️ Admin panel only (Server/Admin): every Data/Patients page not yet cured is stamped once, in one save
+--       update with the set rewards that completes, as if each had been cured. Returns the pages added (nil: not
+--       loaded).
 --
 -- On load, any completed set whose reward is missing (say, a set grew a reward later) is granted quietly.
 
@@ -114,6 +118,31 @@ function Book.placeReward(player: Player, decorId: string): boolean
 		end
 	end
 	return false
+end
+
+function Book.completeAll(player: Player): number?
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then
+		return nil
+	end
+	local added = 0
+	local granted: { string } = {}
+	local ok = PlayerData.update(player, function(data)
+		for _, patientId in Patients.Order do
+			local page = data.Book[patientId]
+			if not (page and page.Cured >= 1) then
+				BookLogic.stamp(data.Book, patientId, nil)
+				added += 1
+			end
+		end
+		granted = grantSetRewards(data)
+	end)
+	if not ok then
+		return nil
+	end
+	for _, decorId in granted do
+		celebrateSet(player, decorId)
+	end
+	return added
 end
 
 function Book.start()

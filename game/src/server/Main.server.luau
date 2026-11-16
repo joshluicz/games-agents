@@ -55,6 +55,7 @@ local START_ORDER = {
 	"Patients",
 	"Visits",
 	"DayNight",
+	"Admin", -- last: the 🛠️ Admin remote calls into the systems above
 }
 
 for _, name in START_ORDER do

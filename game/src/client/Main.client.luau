@@ -11,8 +11,9 @@
 --   ctx.on(event, fn) / ctx.fire(event, ...)   a tiny client bus between modules; on() returns a disconnect
 -- Bus events:
 --   "Toast" (text)                             every toast, server or local; UI.Toasts shows them
---   "Open" (name, tab?)                        name = "Shop" | "Book" | "Mailbox" | "Goals"; Shop tab = "Upgrades" |
---                                              "Rooms" | "Decor" (Hud buttons, DayReportPanel's Go button)
+--   "Open" (name, tab?)                        name = "Shop" | "Book" | "Mailbox" | "Goals" | "Admin"; Shop tab =
+--                                              "Upgrades" | "Rooms" | "Decor" (Hud buttons, DayReportPanel's Go
+--                                              button; "Admin" from the ⚙️ panel's 🛠️, admins only)
 --   "ModalOpened" (name) · "ModalClosed" (name)   a panel opened or closed (Hud.modal)
 --   "BookNew" (count)                          unseen new Book pages, for the 📖 dot (BookPanel -> Hud)
 --   "Purchased" (kind, id)                     a Purchase the server said yes to (Shop)
@@ -48,8 +49,18 @@ local Signal = require(Shared:WaitForChild("Signal"))
 local Types = require(Shared:WaitForChild("Types"))
 local Schema = require(Shared:WaitForChild("Logic"):WaitForChild("Schema"))
 
-local UI_MODULES =
-	{ "Toasts", "Hud", "Shop", "BookPanel", "DayReportPanel", "Mailbox", "Guide", "PromptFilter", "Tutorial" }
+local UI_MODULES = {
+	"Toasts",
+	"Hud",
+	"Shop",
+	"BookPanel",
+	"DayReportPanel",
+	"Mailbox",
+	"Guide",
+	"PromptFilter",
+	"AdminPanel",
+	"Tutorial",
+}
 local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere" }
 local DATA_NAMES = {
 	"Ailments",

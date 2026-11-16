@@ -31,6 +31,9 @@
 --   Tutorial.queueCap(owner): number?         at most this many in line, nil = Config.MaxQueue
 --   Tutorial.onFrontArrived(owner) · Tutorial.onMade(p, itemId, plot) · Tutorial.onTreated(owner) ·
 --   Tutorial.onCured(owner)                   the hooks above
+--   Tutorial.finish(p): boolean · Tutorial.restart(p): boolean
+--                                             the 🛠️ Admin panel only (Server/Admin): straight to DONE, or back to
+--                                             the welcome card; each is a normal step change (old timers stop)
 
 local Players = game:GetService("Players")
 
@@ -223,6 +226,28 @@ function Tutorial.onCured(owner: Player)
 	else
 		apply(owner, "Cured")
 	end
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The 🛠️ Admin panel (Server/Admin checks the caller is an admin; nothing else calls these)
+------------------------------------------------------------------------------------------------------------------
+
+-- Straight to the end. False when there's nothing to do (not loaded, or already done).
+function Tutorial.finish(player: Player): boolean
+	if not isPlayer(player) then
+		return false
+	end
+	return move(player, Logic.DONE)
+end
+
+-- Back to the welcome card, with the step-6 count cleared. True once the player is on the welcome card.
+function Tutorial.restart(player: Player): boolean
+	if not isPlayer(player) or not PlayerData.get(player) then
+		return false
+	end
+	setCures(player, nil)
+	move(player, Logic.WELCOME)
+	return Tutorial.step(player) == Logic.WELCOME
 end
 
 ------------------------------------------------------------------------------------------------------------------

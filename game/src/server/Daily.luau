@@ -5,6 +5,9 @@
 --   Daily.onCure(p, ctx)              p is the helper: their goals move; ctx.Visitor marks the OWNER's visitor done
 --   Daily.onMake(p, itemId)           Stations calls it after a treatment is made
 --   Daily.today(): number             the current UTC day (Visits and anything else that needs "today")
+--   Daily.resetToday(p): boolean      the 🛠️ Admin panel only (Server/Admin): today starts over for p, as if they'd
+--                                     just come in: the goals handed out today go, today's goal is handed out again
+--                                     (when the bank has room) and the mailbox opens. Older banked goals stay
 --   start(): goals on join, wires ClaimGoal and ClaimMailbox, keeps Workspace.UtcDay and TodaysVisitor up to date
 --
 -- The day. A story/daily day is a real UTC calendar day (os.time() // 86400). Workspace.UtcDay is checked every
@@ -335,6 +338,29 @@ function Daily.onMake(player: Player, itemId: string)
 	end
 	refreshDay()
 	progress(player, "Make", {})
+end
+
+function Daily.resetToday(player: Player): boolean
+	if not isPlayer(player) or not PlayerData.get(player) then
+		return false
+	end
+	local today = refreshDay()
+	local reset = PlayerData.update(player, function(d)
+		local kept: { Types.Goal } = {}
+		for _, goal in d.Daily.Goals do
+			if goal.Day < today then
+				table.insert(kept, goal)
+			end
+		end
+		d.Daily.Goals = kept
+		d.Daily.LastGrantDay = math.min(d.Daily.LastGrantDay, today - 1)
+		d.Mailbox.LastSeenDay = math.min(d.Mailbox.LastSeenDay, today - 1)
+	end)
+	if not reset then
+		return false
+	end
+	grantFor(player)
+	return true
 end
 
 ------------------------------------------------------------------------------------------------------------------

@@ -1,6 +1,12 @@
 --!strict
 -- Patients: the line of creatures at every clinic, the Treat prompt on the Counter, beds and the cure
 -- (build plan §B5 "Patients", Task 1). Server only. API: Patients.start().
+-- For the 🛠️ Admin panel only (Server/Admin checks the caller is an admin):
+--   Patients.sendNext(owner, patientId): (ok, message)   that Data/Patients patient comes next at the owner's clinic
+--       (before the usual pick and whatever the tutorial's plan says) once there's room in line; up to
+--       Config.MaxQueue picks wait their turn. Refused when no station on the plot can treat it.
+--   Patients.reopen(owner): boolean   empties the owner's clinic and opens it again, as on a fresh join (a patient
+--       already treated is cured on the spot first, exactly as when an owner leaves)
 --
 -- A visit, step by step:
 --   1. Arrive. Each owned plot gets a patient every Config.SpawnEverySeconds while fewer than Config.MaxQueue
@@ -168,6 +174,7 @@ type PlotState = {
 	FrontItem: string,
 	Loop: thread?,
 	SecondSpawned: boolean, -- the tutorial's 🩹 patient came this session
+	Forced: { string }, -- the admin panel's picks (Patients.sendNext), first come first
 }
 
 type Patient = {
@@ -1242,11 +1249,19 @@ local function tick(state: PlotState, now: number, dt: number)
 	local cap = tutorialAsk("queueCap", nil, state.Owner)
 	local maxQueue = if type(cap) == "number" then math.min(cap, Config.MaxQueue) else Config.MaxQueue
 	if now >= state.NextSpawn and #state.Queue < maxQueue then
-		local plan = tutorialAsk("spawnPlan", "Normal", state.Owner, next(state.All) == nil, state.SecondSpawned)
-		-- A spawn the tutorial holds back keeps its turn, so the patient comes the moment the tutorial is ready.
-		if plan ~= "Wait" then
-			state.NextSpawn = now + Config.SpawnEverySeconds * rng:NextNumber(0.85, 1.15)
-			trySpawn(state, if type(plan) == "string" then plan else "Normal")
+		local forced = table.remove(state.Forced, 1)
+		if forced then
+			-- An admin's pick (Patients.sendNext) comes first; more picks follow REFILL_SECONDS apart.
+			state.NextSpawn = now
+				+ (if #state.Forced > 0 then REFILL_SECONDS else Config.SpawnEverySeconds * rng:NextNumber(0.85, 1.15))
+			spawnPatient(state, forced, nil, false, nil)
+		else
+			local plan = tutorialAsk("spawnPlan", "Normal", state.Owner, next(state.All) == nil, state.SecondSpawned)
+			-- A spawn the tutorial holds back keeps its turn, so the patient comes the moment the tutorial is ready.
+			if plan ~= "Wait" then
+				state.NextSpawn = now + Config.SpawnEverySeconds * rng:NextNumber(0.85, 1.15)
+				trySpawn(state, if type(plan) == "string" then plan else "Normal")
+			end
 		end
 	end
 	refreshFront(state)
@@ -1419,6 +1434,7 @@ local function activate(owner: Player, plot: Plot)
 		FrontItem = "",
 		Loop = nil,
 		SecondSpawned = false,
+		Forced = {},
 	}
 	active[plot] = state
 	plot.Model:SetAttribute("FrontItem", "")
@@ -1457,6 +1473,43 @@ deactivate = function(plot: Plot)
 	state.Prompt.ObjectText = ""
 	plot.Model:SetAttribute("FrontItem", "")
 	plot.Model:SetAttribute("FrontStation", "")
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The 🛠️ Admin panel (Server/Admin checks the caller is an admin; nothing else calls these)
+------------------------------------------------------------------------------------------------------------------
+
+function Patients.sendNext(owner: Player, patientId: string): (boolean, string)
+	local plot = Plots.getPlot(owner)
+	local state = if plot then active[plot] else nil
+	if not state then
+		return false, "🏠 No clinic yet!"
+	end
+	local entry = if type(patientId) == "string" then rawget(PatientsData :: any, patientId) else nil
+	local ailment = if entry then AilmentsData[entry.Ailment] else nil
+	local station = if ailment then StationsData[ailment.Station] else nil
+	if not (entry and ailment and station) then
+		return false, Remotes.OOPS
+	end
+	if not stationsOnPlot(state.Plot)[ailment.Station] then
+		return false, "🔒 Needs " .. station.Icon .. " first!"
+	end
+	if #state.Forced >= Config.MaxQueue then
+		return false, "⏳ Line is full!"
+	end
+	table.insert(state.Forced, patientId)
+	state.NextSpawn = math.min(state.NextSpawn, os.clock())
+	return true, ailment.Icon .. " " .. entry.Name .. " is next!"
+end
+
+function Patients.reopen(owner: Player): boolean
+	local plot = Plots.getPlot(owner)
+	if not plot or not active[plot] or plot.Owner ~= owner then
+		return false
+	end
+	deactivate(plot)
+	activate(owner, plot)
+	return true
 end
 
 function Patients.start()

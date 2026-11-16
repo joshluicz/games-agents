@@ -28,10 +28,10 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 ### Shared (server and client)
 | File | Does |
 |---|---|
-| `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs |
+| `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs. Also who's an admin: `AdminUserIds`, `AdminNames` ([Admin panel](#admin-panel)) |
 | `shared/Palette.luau` | The candy-pop colours and fonts shared by the world and the UI (`memory-20261116-007`). Change colours here |
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids) |
-| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
+| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck` and `Admin`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
 | `shared/Data/*.luau` | **Content**: `Ailments`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`. Keyed maps carry `.Order`, and everything is frozen |
 | `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done), `isNewer(saved)` |
@@ -42,6 +42,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Logic/Book.luau` | Patient Book stamps and set completion |
 | `shared/Logic/Story.luau` | Regulars: who's unlocked, whether a beat is due today, advancing a beat |
 | `shared/Logic/Daily.luau` | UTC day, Today's Visitor, banked goals, mailbox |
+| `shared/Logic/Admin.luau` | The admin panel's rules: who is an admin, the fixed action list and the argument each takes, the alone-in-server rule ([Admin panel](#admin-panel)) |
 
 `Logic/*` is **pure**: no Roblox services and no requires, so Lune can test it. The server passes `Config` in as
 `cfg`.
@@ -70,6 +71,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Cure.luau` | One cure, in order: pay, cash, ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` |
 | `server/Visits.luau` | Hearts on the sign (once per owner per UTC day), the owner's `OpenHelpers` toggle, the friend referral reward |
+| `server/Admin.luau` | The 🛠️ Admin panel's server side ([Admin panel](#admin-panel)): decides who is an admin (sets the `IsAdmin` player attribute), looks up `Config.AdminNames` at startup, and wires the `Admin` remote: re-checks admin on every call, validates the action and its argument, logs `[Admin] <name> <action>`, then calls the systems' own APIs. Admin-only hooks it uses: `Tutorial.finish`/`restart`, `Patients.sendNext`/`reopen`, `Book.completeAll`, `Story.makeDue`, `Daily.resetToday` |
 
 ### Client
 | File | Does |
@@ -77,7 +79,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/Main.client.luau` | Builds `ctx` (Remotes, Config, Data, State, `onState`, `toast`, `on`/`fire`), then loads each UI and Feel module in a pcall and calls `init(ctx)` |
 | `client/UI/Theme.luau` · `client/UI/Kit.luau` | The look tokens, and building blocks (panel, button with press bounce, label...). Libraries, not inited |
 | `client/UI/Toasts.luau` | The toast stack at the top centre |
-| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, what you hold (nothing when your hands are empty), the day/night timer, the big 🛒 📖 📬 🎯 buttons, and ⚙️ settings (the 🎵 music and ✨ calm-effects switches). A new player's HUD reveals itself with the tutorial step; everyone else sees it all |
+| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, what you hold (nothing when your hands are empty), the day/night timer, the big 🛒 📖 📬 🎯 buttons, and ⚙️ settings (the 🎵 music and ✨ calm-effects switches, plus 🛠️ Admin for admins only). A new player's HUD reveals itself with the tutorial step; everyone else sees it all |
 | `client/UI/Shop.luau` | Upgrades, Rooms and Decor tabs, plus decor place mode |
 | `client/UI/BookPanel.luau` | The Patient Book: cards by wing, silhouettes for patients not yet seen |
 | `client/UI/DayReportPanel.luau` | The end-of-night pop-up (never during the tutorial) |
@@ -85,6 +87,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/UI/Guide.luau` | The first-cures arrow: to the right station, then to the Counter (the tutorial steers it with `Guide.setSteer`). Also sets each station prompt's hold time from your own Faster Hands level |
 | `client/UI/Tutorial.luau` | The tutorial's step card, its pointer, the welcome title card and the first-join camera sweep; turns the camera to your clinic when you arrive |
 | `client/UI/PromptFilter.luau` | Hides world prompts that aren't for you: the helpers switch for visitors, "Send a heart" for the owner, and the Make and Treat prompts on clinics you can't work at (the server still checks) |
+| `client/UI/AdminPanel.luau` | The 🛠️ Admin panel ([Admin panel](#admin-panel)): buttons only, each one asks the `Admin` remote and toasts the reply; a second page picks a patient to spawn |
 | `client/Feel/Sounds.luau` | One table of built-in `rbxasset://` sound cues; any module plays one with `ctx.fire("Sound", name)` |
 | `client/Feel/CureFX.luau` | Cure sparkles, the "💰 +n" / "⭐ +n" pop, the NEW PAGE banner, new-room and placed-decor celebrations, hearts on your sign |
 | `client/Feel/Atmosphere.luau` | Snow while `IsWinter`, fireflies at night, gentle decor sway, the calm-effects setting (`ReduceEffects`; its switch is in the HUD's ⚙️) |
@@ -95,28 +98,29 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `tests/run.luau` | Runs every `tests/*.spec.luau`, prints PASS/FAIL and exits 1 on any failure |
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
-| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial` |
+| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin` |
 
 ## Boot order
 **Server (`Main.server.luau`):**
 1. `Remotes` is required first, so every remote exists before anything else runs.
 2. The collision groups `Patients` and `Players` are set up. Patients walk through players and each other.
 3. Then `start()`, in this order: `PlayerData` → `State` → `Events` → `Plots` → `Carry` → `Economy` → `Progress` →
-   `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Stations` → `Patients` → `Visits` → `DayNight`.
+   `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Stations` → `Patients` → `Visits` → `DayNight` → `Admin`.
    - `Tutorial` starts before `Stations` and `Patients`, so its quiet toasts and listeners are set before any
      patient comes. `Stations`, `Patients` and `Cure` call its hooks; it requires none of them.
    - `Plots.start()` builds the whole town (`PlotBuilder.buildTown`), with a `Room_Stand` on every plot, before
      `Stations` and `Patients` start.
    - `CreatureBuilder`, `DecorBuilder` and `Cure` are libraries that other systems require, so they're not in the
      list.
+   - `Admin` starts last: its remote calls into the systems above.
    - Each `start()` runs in `xpcall`. One that errors prints `[Main] <Name>.start() failed` and the rest still start.
 4. It prints `[Main] Clinic is open.`
 
 **Client (`Main.client.luau`):** waits for `game.Loaded` and builds `ctx`. Then it loads `UI.Toasts`, `Hud`, `Shop`,
-`BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter` and `Tutorial`, then `Feel.Sounds`, `CureFX` and
-`Atmosphere`. Each one is loaded in its own pcall, and its `init(ctx)` runs. A missing or broken module warns
-`[Client] ...` and is skipped. `Music.client` and `RoofFade.client` are separate LocalScripts. Until the server's
-first snapshot arrives, `ctx.State.Tutorial` is 0 ("not known yet"), so the HUD starts calm (only 💰).
+`BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter`, `AdminPanel` and `Tutorial`, then `Feel.Sounds`,
+`CureFX` and `Atmosphere`. Each one is loaded in its own pcall, and its `init(ctx)` runs. A missing or broken module
+warns `[Client] ...` and is skipped. `Music.client` and `RoofFade.client` are separate LocalScripts. Until the
+server's first snapshot arrives, `ctx.State.Tutorial` is 0 ("not known yet"), so the HUD starts calm (only 💰).
 
 ## The loop
 A patient walks in and queues at `QueueStart`, with its ailment icon and a patience ring → you **hold at the matching
@@ -148,7 +152,56 @@ fresh save starts at 1. A save from before the tutorial (no `Tutorial` field) wi
 - **Quiet:** while it runs, ambient toasts wait (`Remotes.news`, `Remotes.toastAll`), and there's no Day Report and
   no Mailbox pop-up. Replies and warnings still show.
 - **Rejoining:** steps 3-5 go back to 2 (the patient left with you); step 6 counts its 2 cures from 0 again.
-- **No skip button.** The HUD reveals itself with the step (see `client/UI/Hud.luau`).
+- **No skip button.** The HUD reveals itself with the step (see `client/UI/Hud.luau`). Only admins can jump it, from
+  the [Admin panel](#admin-panel).
+
+## Admin panel
+For the two developer accounts, to test progression quickly in the **live game** and in Studio:
+`server/Admin.luau` (rules in `shared/Logic/Admin.luau`, spec `tests/Admin.spec.luau`) and `client/UI/AdminPanel.luau`.
+
+**Who is an admin** is decided on the server only, never by the client:
+1. a UserId in `Config.AdminUserIds` (checked first; empty for now);
+2. the game's owner: `game.CreatorType == Enum.CreatorType.User` and `player.UserId == game.CreatorId` (JokingPuzzle);
+3. a username in `Config.AdminNames` (`Dandlepeeps`). At startup the server looks each one up with
+   `Players:GetUserIdFromNameAsync` (in a pcall, retried) and prints `[Admin] Dandlepeeps = <id>` in Output. **Copy
+   that id into `Config.AdminUserIds`**: a username can change hands, an id can't;
+4. in Studio (`RunService:IsStudio()`), anyone playing.
+
+An admin gets the player attribute `IsAdmin = true`, and the ⚙️ Settings panel then shows a **🛠️ Admin** button. The
+attribute only steers the UI: every button calls one RemoteFunction, `Admin(action, arg)`, served with
+`Remotes.serve`, and on **every** call the server checks admin again, checks `action` against a fixed list and `arg`
+strictly, and prints `[Admin] <name> <action> [arg]`. A non-admin gets `false` and nothing happens (Output warns
+once per player). Replies come back as toasts.
+
+| Button | Action (`arg`) | Does |
+|---|---|---|
+| +1,000 💰 · +10,000 💰 | `AddCash` (1000 or 10000) | `Economy.addCash` on your save |
+| +10 ⭐ · +100 ⭐ | `AddStars` (10 or 100) | `Progress.addStars` (room and regular unlock toasts as usual) |
+| 🏠 All rooms | `UnlockRooms` | every room, free, via `Plots.unlockRoom` (no purchase, so the tutorial doesn't move) |
+| 🌸 All decor | `AllDecor` | owns every decor item (place it from 🛒 Decor) |
+| 📖 Full Book | `CompleteBook` | stamps every patient page not yet cured, and grants each completed wing set's reward |
+| 💌 Stories today | `StoriesDue` | every regular who told a beat today may tell the next one today; the gap between regulars ends |
+| 🎯 Reset goals + 📬 | `ResetDaily` | today starts over: goals handed out today go, today's goal comes again, the mailbox opens |
+| 🤧 Spawn patient… | `SpawnPatient` (a `Data/Patients` id) | a page of every patient: tap one and it's next in your own line, once there's room (up to 4 wait; it needs its station on your plot) |
+| ✅ Finish | `FinishTutorial` | the tutorial is done (step 9) |
+| 🔄 Restart | `RestartTutorial` | empties your line, back to the welcome card, and respawns you so the title card and sweep play |
+| 🌙 Night · ☀️ Day | `SkipToNight` · `SkipToDay` | the whole server: ends the current phase now (`SkipPhase`); day after night sends the Day Report |
+| ❄️ Winter on/off | `ToggleWinter` | the whole server: toggles `ForceWinter` (off still leaves winter inside `Config.Winter`'s dates) |
+
+- **The alone-in-server rule.** Night, day and winter change everyone's game, so they work only when the admin is
+  the **only player in the server**, or in Studio. Otherwise the reply toast says "👥 Only when you're alone!".
+- **Everything else touches only your own save**, through the same server APIs play uses, so saving, snapshots and
+  toasts behave as in play. In the live game it's your real save: there's no undo.
+- **Testing it.** Studio: Play, ⚙️ → 🛠️ Admin; Output shows `[Admin] Studio: everyone playing is an admin` and
+  `[Admin] Dandlepeeps = <id>`. Live: join alone as JokingPuzzle or Dandlepeeps, and a non-admin account sees no 🛠️.
+  From a non-admin client's command bar each of these must print `false` and change nothing:
+  ```lua
+  local R = game.ReplicatedStorage.Remotes
+  print(R.Admin:InvokeServer("AddCash", 10000))
+  print(R.Admin:InvokeServer("SkipToNight"))
+  ```
+  As an admin, junk must also return `false` and change nothing: `R.Admin:InvokeServer("AddCash", 1e9)`,
+  `("SpawnPatient", "Order")`, `("GiveRobux")`. In a 2-player Studio test both players are admins (Studio).
 
 ## Rules the code keeps
 - **The server owns all data and money.** Every RemoteFunction is wired with `Remotes.serve` (10 calls/s per player

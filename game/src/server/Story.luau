@@ -13,6 +13,9 @@
 -- Extras:
 --   Story.left(owner, regularId)   a regular left without a cure (patience ran out): they come back later
 --   Story.today(): number          the UTC story day
+--   Story.makeDue(owner): number?  the 🛠️ Admin panel only (Server/Admin): every regular who told a beat today may
+--                                  tell the next one today, and the gap between regulars ends now (unless one is on
+--                                  the plot). Returns how many were held back by today's beat (nil: not loaded)
 --
 -- Rules (design §5.7):
 --   · A story day is a real UTC day. Each regular visits at most once per day; missed days skip nothing.
@@ -359,6 +362,41 @@ function Story.left(owner: Player, regularId: string)
 	if isPlayer(owner) and regularOf(regularId) then
 		endVisit(owner, regularId)
 	end
+end
+
+function Story.makeDue(owner: Player): number?
+	if not isPlayer(owner) then
+		return nil
+	end
+	local data = PlayerData.get(owner)
+	if not data then
+		return nil
+	end
+	local today = Story.today()
+	local held = 0
+	for _, entry in data.Story do
+		if entry.LastBeatDay >= today then
+			held += 1
+		end
+	end
+	if held > 0 then
+		local saved = PlayerData.update(owner, function(d)
+			for _, entry in d.Story do
+				if entry.LastBeatDay >= today then
+					entry.LastBeatDay = today - 1 -- as if their last beat was yesterday: no beat is skipped
+				end
+			end
+		end)
+		if not saved then
+			return nil
+		end
+	end
+	-- The next regular may walk in now, unless one is on the plot (one regular per plot at a time).
+	local visit = visits[owner]
+	if visit and not (visit.Id and onPlot(owner, visit.Id)) then
+		visits[owner] = nil
+	end
+	return held
 end
 
 function Story.start()

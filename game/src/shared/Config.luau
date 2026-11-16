@@ -55,6 +55,13 @@ Config.AutosaveSeconds = 90
 -- Remotes: per player, per remote
 Config.RemoteRatePerSecond = 10
 
+-- The 🛠️ Admin panel (Server/Admin, game/README.md "Admin panel"). The server decides who is an admin, never the
+-- client: a UserId here (checked first), the game's owner, or a username below, which the server turns into a
+-- UserId at startup and prints in Output as "[Admin] <name> = <id>". Copy that id into AdminUserIds: a username
+-- can change hands, an id can't. In Studio everyone playing is an admin.
+Config.AdminUserIds = { 311718381 } :: { number } -- Dandlepeeps (looked up in-game 2026-11-16)
+Config.AdminNames = { "Dandlepeeps" } -- Joshua's brother
+
 -- Town: two rows of three plots facing a central street.
 Config.Town = {
 	Origin = Vector3.new(0, 0, 300),
