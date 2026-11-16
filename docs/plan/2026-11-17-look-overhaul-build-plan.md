@@ -199,10 +199,11 @@ before any task lands.
 | **T6 Chrome and core panels** | ✚ `src/client/UI/Modal.luau` · `src/client/UI/{Kit,Shop,BookPanel,Boards,BadgeBook,Mailbox,PlayGifts,DayReportPanel,AdminPanel,MiniGames}.luau` · `tests/{Juice,MiniGamesPure}.spec.luau` · ✚ `tests/Chrome.spec.luau` |
 | **T7 Progression panels** | `src/client/UI/{NursePanel,AgencyPanel,MarketPanel,BranchPanel,LiftPanel}.luau` · `tests/{NurseUI,BranchUI}.spec.luau` · ✚ `tests/ProgressionPanels.spec.luau` |
 | **T8 Tutorial** | `src/server/Tutorial.luau` · `src/client/UI/{Tutorial,Guide,Celebrate}.luau` · ✚ `src/client/UI/Wayfinder.luau` · `src/client/Feel/Sounds.luau` · ✚ `tests/TutorialFlow.spec.luau` |
+| **T9 Blocky creatures** (added 2026-11-17, `memory-20261117-004`) | `src/server/CreatureBuilder.luau` · `src/server/NurseBuilder.luau` · ✚ `tests/BlockyCreatures.spec.luau` |
 | **Integrator (lead)** | anything, to fix integration bugs; the requests · ✚ `tests/UiRules.spec.luau` · `tests/PartBudget.spec.luau` · `docs/plan/2026-11-16-perf-budget.md` · the Studio-only setup (§D I-2) · `logs/`, `STATE.md`, `memory/records/`, `context/OPEN-QUESTIONS.md` · commits |
 
 **Untouched by everyone (unless the lead):**
-- Server: `Patients`, `Treatment`, `Cure`, `Nurses`, `NurseBuilder`, `CreatureBuilder`, `Abilities`, `Rebirth`,
+- Server: `Patients`, `Treatment`, `Cure`, `Nurses`, `Abilities`, `Rebirth`,
   `Lift`, `Levels`, `Stations`, `Plots`, `Carry`, `Economy`, `Visits`, `Playtime`, `Leaderboards`, `Admin`, `Book`,
   `Badges`, `Daily`, `DayReport`, `Events`, `Progress`, `Story`, `Boosts`, `PlayerData`.
 - Client: `Feel/{Atmosphere,CreatureActing,CreatureMotion,CreatureProps,CureFX,HospitalFX}`, `UI/PromptFilter`,
@@ -1284,6 +1285,39 @@ and Theme).
   - [ ] One Highlight.
   - [ ] The beam aims only while it shows.
   - [ ] Nothing loops after the Guide finishes.
+
+### T9: Blocky creatures (added 2026-11-17, `memory-20261117-004`). Load `roblox-luau`, `roblox-characters`.
+Joshua chose blocky creatures after seeing the prototype: `logs/playtests/2026-11-17-look-spike/4-*.jpg`, `5-*.jpg`
+and `6-*.jpg`.
+
+**Build.** Rebuild `CreatureBuilder.build` and `buildLook` so every patient and nurse is made of blocks.
+- **The body:**
+  - a chunky body block and a head block, from each species' `Look` (colours, Scale, ears, hat, extra, Bits);
+  - Plastic with `TopSurface` Studs on the big upward faces only, through `World/Studs`;
+  - SmoothPlastic for small parts, so there are no cut-off studs on 1-stud blocks.
+- **Colours:** mid-value. Use the art spec's no-lerp-to-white rule: Candy colours are brought down to world values.
+- **The face:** flat blocks. Big dark eyes with two white glints, blush, a nose and a pixel mouth.
+  - `setMood` swaps the mouth and brows and the eyelids ("Sick": a half-lid and a little o; "Happy"; "Sad"; "Sleep").
+- **Ears:** each species keeps its own shape (rounded stacks, flops, tufts), because square ears read cat-like.
+  - Each species keeps its own silhouette and Bits, so the cast stays original (red line 2).
+- **Night glow and the Sparkly and Frosty variants** keep working.
+- **Parts:** under 40 per creature, as now.
+
+**The rig contract stays exactly the same.** `Root` as PrimaryPart and pivot (LookVector = face), `Core` on
+`Root.PoseJoint`, the limb Motor6Ds, the sockets the acting props attach to, `IconAnchor`, `MOTION_TAG`, `badge`,
+`setRing`, `setRecipe`, `setEffect`, `effectAt`, `hop`, `shake`, `tilt`, `scale`, `rigKit`, and the CollisionGroup
+"Patients". Patients, Nurses, Feel/CreatureActing, CreatureMotion and CreatureProps must work unchanged.
+
+**NurseBuilder:** the nurse cap, tray and rarity glow sit on the blocky head and body.
+
+**Acceptance.**
+- `BlockyCreatures.spec`:
+  - every species in Data/Patients, Data/Regulars and Data/Nurses builds (pure layout, if there is a testable block)
+    with fewer than 40 parts;
+  - every socket and `IconAnchor` exists;
+  - no Highlight anywhere, and no shadow-casting light.
+- `NurseServer`, `HospitalPatients` and `Motion` stay green.
+- Concerns list the species the lead should screenshot in Studio.
 
 ### Integration (lead)
 - [ ] **I-1.** Apply the Requests, boot (`[Main] Clinic is open.`, no red errors), and run every gate.
