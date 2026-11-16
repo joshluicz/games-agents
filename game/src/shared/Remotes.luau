@@ -13,6 +13,8 @@
 --                   non-admin gets false and nothing happens) and validates action and arg (Logic/Admin)
 --   GetBoards() -> Payload?   the 🏆 leaderboards from the server's cache, with your own rank (Server/Leaderboards;
 --                   never a DataStore call, nil when rate-limited)
+--   SetHelpers(on)  the owner's ⚙️ "👥 Friends only / 🤝 Anyone can help" switch: sets their own plot's OpenHelpers
+--                   (Server/Visits; `on` must be a boolean, the caller must own a plot, 1 s cooldown)
 --
 -- Server helpers (call only on the server):
 --   Remotes.serve(name, handler)  wires a RemoteFunction with the rate limit and error safety built in
@@ -44,6 +46,7 @@ local FUNCTIONS = {
 	"Discard",
 	"GetBoards",
 	"ClaimPlayGift",
+	"SetHelpers",
 }
 
 local IS_SERVER = RunService:IsServer()
@@ -93,6 +96,7 @@ local Remotes = {
 	Discard = folder:WaitForChild("Discard") :: RemoteFunction,
 	GetBoards = folder:WaitForChild("GetBoards") :: RemoteFunction,
 	ClaimPlayGift = folder:WaitForChild("ClaimPlayGift") :: RemoteFunction,
+	SetHelpers = folder:WaitForChild("SetHelpers") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.

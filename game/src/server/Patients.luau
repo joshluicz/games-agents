@@ -75,6 +75,7 @@ local Cure = require(script.Parent.Cure)
 local Daily = require(script.Parent.Daily)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
+local PlotBuilder = require(script.Parent.PlotBuilder) -- queueSpot: shared with the queue lane's numbered spots
 local Story = require(script.Parent.Story)
 local Tutorial = require(script.Parent.Tutorial)
 local Boosts = require(script.Parent.Boosts) -- playtime branch: the owner's Patience boosts
@@ -364,20 +365,11 @@ local function markerGround(marker: BasePart): CFrame
 	return marker.CFrame * CFrame.new(0, -marker.Size.Y / 2, 0)
 end
 
--- Place `index` in line (1 = the front). The line grows away from the counter, Config.QueueSpacing apart. Once it
--- is Config.QueueDepth studs long it turns sideways (away from where patients arrive), so big creatures spaced
--- out still fit on the plot's path instead of spilling into the street.
+-- Place `index` in line (1 = the front): straight back from QueueStart, Config.QueueSpacing apart, turning sideways
+-- past Config.QueueDepth. PlotBuilder.queueSpot works it out, and paints the queue lane's numbered spots from the
+-- same function, so the pavement always lines up with where patients stand.
 local function queueSpot(plot: Plot, index: number): CFrame
-	local start = markerGround(plot.QueueStart)
-	local spacing = Config.QueueSpacing
-	local straight = math.max(1, math.floor(Config.QueueDepth / spacing) + 1)
-	if index <= straight then
-		return start * CFrame.new(0, 0, (index - 1) * spacing)
-	end
-	local spawnMarker = plot.Spawn
-	local arriveX = if spawnMarker then start:PointToObjectSpace(spawnMarker.Position).X else 0
-	local side = if arriveX > 0 then -1 else 1
-	return start * CFrame.new(side * (index - straight) * spacing, 0, (straight - 1) * spacing)
+	return PlotBuilder.queueSpot(plot.QueueStart, plot.Spawn, index)
 end
 
 -- On the floor just past the foot of a bed (Bed_<n> is the mattress; its pillow end is +Z).

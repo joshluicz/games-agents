@@ -49,6 +49,9 @@ Palette.World = table.freeze({
 	Trunk = Color3.fromRGB(150, 92, 52),
 	Water = Color3.fromRGB(40, 196, 255),
 	Floor = Color3.fromRGB(255, 244, 222),
+	Pavement = Color3.fromRGB(252, 246, 234), -- the queue lane's tiles: warm cream ...
+	PavementAlt = Color3.fromRGB(228, 226, 240), -- ... checkered with a soft lilac grey ...
+	PavementGrout = Color3.fromRGB(196, 192, 216), -- ... and the lines between them
 	Wall = Color3.fromRGB(255, 255, 255),
 	Lamp = Color3.fromRGB(255, 232, 140),
 })

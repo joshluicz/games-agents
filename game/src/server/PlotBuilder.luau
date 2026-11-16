@@ -6,7 +6,13 @@
 -- Extra helpers (Plots uses them):
 --   PlotBuilder.placeRoom(plotModel, roomId): Model?      build + place in its slot (Floor.CFrame == slot CFrame)
 --   PlotBuilder.setPreview(plotModel, slotId, roomId?)    the "for sale" outline in an empty slot (nil = none)
+--   PlotBuilder.queueSpot(queueStart, spawn?, index): CFrame   place `index` in line (Patients stands patients there)
 --   PlotBuilder.NIGHT_LIGHT_TAG                            tag a lamp Part: Neon + PointLight on only at night
+--
+-- Every plot (kit or placeholder) also gets a QueueLane Model: pavement under the patients' line, from the Counter
+-- out toward the gate, with a coloured edge on each side and a numbered spot at each place in line (queueSpot), so
+-- it reads as "the line" (Joshua: "make a pavement outside of the place where they line up"). Walk-through and
+-- ray-ignored. A kit Plot with its own QueueLane child keeps that one.
 --
 -- Coordinates. Each plot has a CFrame at the centre of its ground's TOP face, LookVector pointing at the street
 -- (that CFrame is also the plot Model's WorldPivot). In plot-local space +X is right as you face the street, -Z is
@@ -85,6 +91,9 @@ local COLORS = {
 	Water = WORLD.Water,
 	Flag = CANDY.Red,
 	ForSale = CANDY.Yellow,
+	Pavement = WORLD.Pavement,
+	PavementAlt = WORLD.PavementAlt,
+	PavementGrout = WORLD.PavementGrout,
 }
 -- Tree crowns, biggest ball first. Some trees are pink blossom trees, for a bit of candy in the green.
 local LEAVES =
@@ -980,14 +989,35 @@ local function plotCFrame(index: number, count: number): CFrame
 	return CFrame.lookAt(centre, centre + facing)
 end
 
--- The clinic sign: a glossy board in the plot's accent inside an accent frame, white posts, and the owner's name in
--- white outlined display text. OwnerName and HeartCount stay direct children of SignGui (Plots and Visits set them),
--- and so does RankBadge, the owner's Doctor rank on a white pill beside the hearts (Server/Playtime sets it).
+-- The clinic sign: a glossy board in the plot's accent inside an accent frame, and the owner's name in white
+-- outlined display text. It stands beside the gate facing the street, raised on two tall white posts (candy balls
+-- on top) so the whole board, frame and all, clears the 3-stud fence in front of it (Joshua: "the signboard is
+-- behind the fence so i cant see it well"). OwnerName and HeartCount stay direct children of SignGui (Plots and
+-- Visits set them), and so does RankBadge, the owner's Doctor rank on a white pill beside the hearts
+-- (Server/Playtime sets it).
+local SIGN_SIZE = Vector3.new(10, 4, 0.5)
+local SIGN_X = -13 -- plot-local: beside the gate (the gate posts stand at x = ±6.2)
+local SIGN_Z = -34 -- just behind the front fence (z = -34.6), the board's face 0.2 behind its rails
+local SIGN_BOTTOM = 4 -- the board's bottom edge; its frame starts 0.6 above the fence's 3-stud top
+
 local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color3)
-	local sign = part(model, "Sign", Vector3.new(9, 3.4, 0.5), cf * CFrame.new(-13, 3.4, -33.6), darken(accent, 0.15))
-	soft(part(scenery, "SignTrim", Vector3.new(9.8, 4.2, 0.4), cf * CFrame.new(-13, 3.4, -33.2), accent))
-	for _, x in { -17.2, -8.8 } do
-		part(scenery, "SignPost", Vector3.new(0.7, 5.6, 0.7), cf * CFrame.new(x, 2.8, -33.2), WHITE)
+	local w, h = SIGN_SIZE.X, SIGN_SIZE.Y
+	local y = SIGN_BOTTOM + h / 2
+	local sign = part(model, "Sign", SIGN_SIZE, cf * CFrame.new(SIGN_X, y, SIGN_Z), darken(accent, 0.15))
+	soft(
+		part(scenery, "SignTrim", Vector3.new(w + 0.8, h + 0.8, 0.4), cf * CFrame.new(SIGN_X, y, SIGN_Z + 0.45), accent)
+	)
+	local postHeight = y + h / 2 + 0.4 -- up to the frame's top edge
+	for _, side in { -1, 1 } do
+		local x = SIGN_X + side * (w / 2 - 0.6)
+		part(
+			scenery,
+			"SignPost",
+			Vector3.new(0.7, postHeight, 0.7),
+			cf * CFrame.new(x, postHeight / 2, SIGN_Z + 1),
+			WHITE
+		)
+		soft(ball(scenery, "SignPostCap", 1.1, cf * CFrame.new(x, postHeight + 0.4, SIGN_Z + 1), accent))
 	end
 
 	local gui = Instance.new("SurfaceGui")
@@ -1202,6 +1232,281 @@ local function kitPlot(index: number, cf: CFrame): Model?
 end
 
 ------------------------------------------------------------------------------------------------------------------
+-- The line: where patients stand, and the queue lane paved under them
+------------------------------------------------------------------------------------------------------------------
+
+-- Markers are 2x1x2 and rest on the ground: their bottom face is the ground, facing as they face.
+local function markerGround(markerPart: BasePart): CFrame
+	return markerPart.CFrame * CFrame.new(0, -markerPart.Size.Y / 2, 0)
+end
+
+-- How many places run straight back from the counter before the line turns.
+local function straightPlaces(): number
+	return math.max(1, math.floor(Config.QueueDepth / Config.QueueSpacing) + 1)
+end
+
+-- Place `index` in line (1 = the front), on the ground, facing the counter as QueueStart does. Patients stand
+-- exactly here (Patients.queueSpot calls this) and the queue lane paints its numbered spots here, so the two always
+-- agree, kit plots included. The line grows away from the counter, Config.QueueSpacing apart. Once it is
+-- Config.QueueDepth studs long it turns sideways (away from where patients arrive), so big creatures spaced out
+-- still fit on the plot's path instead of spilling into the street.
+function PlotBuilder.queueSpot(queueStart: BasePart, spawn: BasePart?, index: number): CFrame
+	local start = markerGround(queueStart)
+	local spacing = Config.QueueSpacing
+	local straight = straightPlaces()
+	if index <= straight then
+		return start * CFrame.new(0, 0, (index - 1) * spacing)
+	end
+	local arriveX = if spawn then start:PointToObjectSpace(spawn.Position).X else 0
+	local side = if arriveX > 0 then -1 else 1
+	return start * CFrame.new(side * (index - straight) * spacing, 0, (straight - 1) * spacing)
+end
+
+-- The lane, in the frame of the ground under QueueStart: +Z runs back from the counter toward the gate.
+local LANE_WIDTH = 6 -- the pavement between its edges (the biggest creature is about 5 studs wide)
+local LANE_EDGE = 0.45 -- each coloured edge
+local LANE_TILE = 3 -- tiles are about this square
+local LANE_GROUT = 0.14 -- the gap between tiles
+local LANE_FAR = 3 -- the pavement runs this far past the last place in line ...
+local LANE_GATE_GAP = 0.9 -- ... but stops this short of the plot's edge (inside the fence, in the gate)
+local LANE_NEAR_GAP = 0.25 -- it starts this far in front of the Counter ...
+local LANE_NEAR_MAX = 3.5 -- ... or at most this far ahead of the front place
+local SPOT_DIAMETER = 3.6
+-- Heights of each layer's top above the ground. The placeholder path's top is at 0.15; each layer sits a visible
+-- step above the one under it so nothing flickers. A creature standing in line sinks only a little into it.
+local LANE_BASE_TOP = 0.2
+local LANE_TILE_TOP = 0.25
+local LANE_SPOT_TOP = 0.3
+local LANE_NUMBER_TOP = 0.33
+local LANE_EDGE_TOP = 0.35
+-- A SurfaceGui on a Top face draws with its top toward the part's front (-Z, its LookVector). Spots face the counter,
+-- so the numbers read upright for someone walking in from the gate. (If they ever show upside down, turn them here.)
+local NUMBER_TURN = CFrame.identity
+
+-- How far a point can go along a flat world direction before it leaves the part's footprint (its own X and Z).
+-- math.huge when it never does, or when the point isn't over the part.
+local function distanceToEdge(boxPart: BasePart, origin: Vector3, direction: Vector3): number
+	local o = boxPart.CFrame:PointToObjectSpace(origin)
+	local d = boxPart.CFrame:VectorToObjectSpace(direction)
+	local halfX, halfZ = boxPart.Size.X / 2, boxPart.Size.Z / 2
+	if math.abs(o.X) > halfX or math.abs(o.Z) > halfZ then
+		return math.huge
+	end
+	local function exit(p: number, v: number, half: number): number
+		if v > 1e-6 then
+			return (half - p) / v
+		elseif v < -1e-6 then
+			return (-half - p) / v
+		end
+		return math.huge
+	end
+	return math.min(exit(o.X, d.X, halfX), exit(o.Z, d.Z, halfZ))
+end
+
+-- The Counter's half depth along a flat world direction (its box projected on it).
+local function halfDepth(boxPart: BasePart, direction: Vector3): number
+	local cf, size = boxPart.CFrame, boxPart.Size
+	return math.abs(direction:Dot(cf.RightVector)) * size.X / 2
+		+ math.abs(direction:Dot(cf.UpVector)) * size.Y / 2
+		+ math.abs(direction:Dot(cf.LookVector)) * size.Z / 2
+end
+
+-- A flat strip in lane space from (a.X, a.Y) to (b.X, b.Y) (x, z on the ground), `width` across, its top at `top`.
+local function laneStrip(
+	lane: Model,
+	start: CFrame,
+	name: string,
+	a: Vector2,
+	b: Vector2,
+	width: number,
+	top: number,
+	color: Color3
+): BasePart
+	local from = Vector3.new(a.X, top / 2, a.Y)
+	local to = Vector3.new(b.X, top / 2, b.Y)
+	local length = (to - from).Magnitude
+	local middle = (from + to) / 2
+	local cf = start * (if length > 1e-3 then CFrame.lookAt(middle, to) else CFrame.new(middle))
+	return paint(part(lane, name, Vector3.new(width, top, math.max(length, 0.05)), cf, color))
+end
+
+-- Pavement over the rectangle from (a) to (b) in lane space, LANE_WIDTH across: a grout slab with checkered tiles.
+local function lanePaving(lane: Model, start: CFrame, a: Vector2, b: Vector2)
+	local length = (b - a).Magnitude
+	if length < 0.1 then
+		return
+	end
+	laneStrip(lane, start, "LaneBase", a, b, LANE_WIDTH, LANE_BASE_TOP, COLORS.PavementGrout)
+	local along = (b - a) / length
+	local across = Vector2.new(-along.Y, along.X)
+	local rows = math.max(1, math.floor(length / LANE_TILE + 0.5))
+	local columns = math.max(1, math.floor(LANE_WIDTH / LANE_TILE + 0.5))
+	local tileLength, tileWidth = length / rows, LANE_WIDTH / columns
+	for row = 1, rows do
+		for column = 1, columns do
+			local centre = a
+				+ along * ((row - 0.5) * tileLength)
+				+ across * ((column - 0.5) * tileWidth - LANE_WIDTH / 2)
+			local half = along * ((tileLength - LANE_GROUT) / 2)
+			local color = if (row + column) % 2 == 0 then COLORS.Pavement else COLORS.PavementAlt
+			laneStrip(
+				lane,
+				start,
+				"LaneTile",
+				centre - half,
+				centre + half,
+				tileWidth - LANE_GROUT,
+				LANE_TILE_TOP,
+				color
+			)
+		end
+	end
+end
+
+-- A numbered spot where a patient waits: a candy disc in the plot's colour with a big white outlined number.
+local function laneSpot(lane: Model, spot: CFrame, index: number, accent: Color3)
+	paint(
+		cylinder(
+			lane,
+			"LaneSpot",
+			0.1,
+			SPOT_DIAMETER,
+			spot * CFrame.new(0, LANE_SPOT_TOP - 0.05, 0),
+			lighten(accent, 0.25)
+		)
+	)
+	local plate = marker(
+		lane,
+		"LaneNumber",
+		spot * CFrame.new(0, LANE_NUMBER_TOP - 0.02, 0) * NUMBER_TURN,
+		Vector3.new(2.6, 0.04, 2.6)
+	)
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "NumberGui"
+	gui.Face = Enum.NormalId.Top
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.LightInfluence = 1 -- lit like the ground, so it dims at night with everything else
+	gui.MaxDistance = 100
+	candyLabel(gui, "Number", tostring(index), UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.1, 0.1), 4)
+	gui.Parent = plate
+end
+
+-- Paves the plot's line from just in front of the Counter out toward the gate, worked out from the QueueStart,
+-- PatientSpawn, Counter and Ground parts and PlotBuilder.queueSpot, so it lines up on a kit plot too.
+local function buildQueueLane(plotModel: Model, accent: Color3)
+	if plotModel:FindFirstChild("QueueLane") then
+		return -- the brother's own
+	end
+	local queueStart = plotModel:FindFirstChild("QueueStart")
+	if not (queueStart and queueStart:IsA("BasePart")) then
+		return
+	end
+	local spawnMarker = plotModel:FindFirstChild("PatientSpawn")
+	local spawn = if spawnMarker and spawnMarker:IsA("BasePart") then spawnMarker else nil
+	local start = markerGround(queueStart)
+	local back = start:VectorToWorldSpace(Vector3.zAxis) -- from the counter toward the gate
+
+	local lane = Instance.new("Model")
+	lane.Name = "QueueLane"
+
+	-- The front end: just short of the Counter's face.
+	local near = 1.5
+	local counter = plotModel:FindFirstChild("Counter")
+	if counter and counter:IsA("BasePart") then
+		local gap = -start:PointToObjectSpace(counter.Position).Z - halfDepth(counter, back)
+		if gap > 0 then
+			near = math.clamp(gap - LANE_NEAR_GAP, 0.5, LANE_NEAR_MAX)
+		end
+	end
+
+	-- Every place in line, in lane space.
+	local count = math.max(1, Config.MaxQueue)
+	local spots: { CFrame } = {}
+	for index = 1, count do
+		spots[index] = start:ToObjectSpace(PlotBuilder.queueSpot(queueStart, spawn, index))
+	end
+	local last = spots[count].Position
+
+	-- The far end: LANE_FAR past the last place, inside the plot's edge.
+	local turned = count > straightPlaces()
+	local cornerZ = spots[math.min(count, straightPlaces())].Position.Z
+	local outward = if turned then Vector2.new(if last.X > 0 then 1 else -1, 0) else Vector2.new(0, 1)
+	local far = LANE_FAR
+	local ground = plotModel:FindFirstChild("Ground")
+	if ground and ground:IsA("BasePart") then
+		local room = distanceToEdge(
+			ground,
+			start:PointToWorldSpace(last),
+			start:VectorToWorldSpace(Vector3.new(outward.X, 0, outward.Y))
+		)
+		far = math.max(math.min(far, room - LANE_GATE_GAP), SPOT_DIAMETER / 2 + 0.3)
+	end
+	local tip = Vector2.new(last.X, last.Z) + outward * far
+
+	local h, e = LANE_WIDTH / 2, LANE_EDGE
+	local frontZ = -near
+	if not turned then
+		lanePaving(lane, start, Vector2.new(0, frontZ), tip)
+		for _, side in { -1, 1 } do
+			local x = side * (h + e / 2)
+			laneStrip(lane, start, "LaneEdge", Vector2.new(x, frontZ), Vector2.new(x, tip.Y), e, LANE_EDGE_TOP, accent)
+		end
+	else
+		-- Straight back to the corner, then sideways (Patients turns the line once it's Config.QueueDepth long).
+		local s = outward.X
+		lanePaving(lane, start, Vector2.new(0, frontZ), Vector2.new(0, cornerZ + h))
+		lanePaving(lane, start, Vector2.new(s * h, cornerZ), Vector2.new(tip.X, cornerZ))
+		local outer, inner = -s * (h + e / 2), s * (h + e / 2)
+		laneStrip(
+			lane,
+			start,
+			"LaneEdge",
+			Vector2.new(outer, frontZ),
+			Vector2.new(outer, cornerZ + h + e),
+			e,
+			LANE_EDGE_TOP,
+			accent
+		)
+		laneStrip(
+			lane,
+			start,
+			"LaneEdge",
+			Vector2.new(-s * h, cornerZ + h + e / 2),
+			Vector2.new(tip.X, cornerZ + h + e / 2),
+			e,
+			LANE_EDGE_TOP,
+			accent
+		)
+		laneStrip(
+			lane,
+			start,
+			"LaneEdge",
+			Vector2.new(inner, frontZ),
+			Vector2.new(inner, cornerZ - h - e),
+			e,
+			LANE_EDGE_TOP,
+			accent
+		)
+		laneStrip(
+			lane,
+			start,
+			"LaneEdge",
+			Vector2.new(s * h, cornerZ - h - e / 2),
+			Vector2.new(tip.X, cornerZ - h - e / 2),
+			e,
+			LANE_EDGE_TOP,
+			accent
+		)
+	end
+
+	for index, spot in spots do
+		laneSpot(lane, start * spot, index, accent)
+	end
+	lane.Parent = plotModel
+end
+
+------------------------------------------------------------------------------------------------------------------
 -- The town
 ------------------------------------------------------------------------------------------------------------------
 
@@ -1400,6 +1705,7 @@ function PlotBuilder.buildTown(): { Model }
 		local cf = plotCFrame(index, count)
 		local model = kitPlot(index, cf) or buildPlaceholderPlot(index, cf)
 		model.WorldPivot = cf
+		buildQueueLane(model, plotAccentFor(index))
 		model:SetAttribute("PlotIndex", index)
 		model:SetAttribute("OwnerUserId", 0)
 		model:SetAttribute("OpenHelpers", false)

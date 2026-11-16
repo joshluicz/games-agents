@@ -31,7 +31,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs. Also who's an admin: `AdminUserIds`, `AdminNames` ([Admin panel](#admin-panel)); the `Leaderboards` timings and board lists ([Leaderboards](#leaderboards)); the idle time, boost caps and the Roblox badge ids ([Play gifts...](#play-gifts-doctor-ranks-boosts-and-badges)): `PlaytimeIdleSeconds`, `BoostCaps`, `BoostMaxMinutes`, `BoostMinMakeSeconds`, `Badges` |
 | `shared/Palette.luau` | The candy-pop colours and fonts shared by the world and the UI (`memory-20261116-007`). Change colours here |
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids) |
-| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`, `Admin`, `GetBoards` and `ClaimPlayGift`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet), `setActivity` (every served call marks the player active: Server/Playtime) |
+| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`, `Admin`, `GetBoards`, `ClaimPlayGift` and `SetHelpers(on: boolean)`, the owner's helpers switch). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet), `setActivity` (every served call marks the player active: Server/Playtime) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
 | `shared/Data/*.luau` | **Content**: `Ailments`, `AilmentActing`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`, `Playtime` (the play gifts and Doctor ranks), `Boosts` (timed boosts), `Badges` (tiers, categories, the badge list). Keyed maps carry `.Order`, and everything is frozen |
 | `shared/Data/AilmentActing.luau` | How a waiting patient **acts out its ailment** (Joshua: "animations corresponding to their illness or need for attention ... visible with perhaps props. but not gory"): per ailment its Motion (the beat), how often, its Props, a particle Burst, an Ambient, the Face on the beat, Squint, cold Cheeks, a dimmed night Glow. Plus `Attention` (wave at ≤ 50% patience, both arms + a "!" at ≤ 25%), `Default`, and the `Vocabulary` the client can play (specs check it) |
@@ -65,7 +65,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Tutorial.luau` | The first-session tutorial ([below](#the-first-session-tutorial)): the saved step, moved on only by real server events, the one-time shop top-up, `TutorialAck`, and the quiet toasts while it runs |
 | `server/Events.luau` | Winter: `Config.Winter` dates or the `ForceWinter` Workspace attribute → `Workspace.IsWinter` |
 | `server/Plots.luau` | Assigns a plot once data loads, frees it on leave, rebuilds rooms and decor from the save, `canWork` (owner, friend or `OpenHelpers`), `unlockRoom`, `placeDecor`. Owners (re)spawn in front of the Counter, beside the line, facing the clinic |
-| `server/PlotBuilder.luau` | Builds the town, the plots and placeholder rooms, or clones the brother's `ServerStorage.ClinicKit` models. Night lamps (tag `ClinicNightLight`). Station icons and for-sale boards stop growing up close (`DistanceLowerLimit`). The sign has `OwnerName`, `HeartCount` and `RankBadge` (the Doctor rank pill) |
+| `server/PlotBuilder.luau` | Builds the town, the plots and placeholder rooms, or clones the brother's `ServerStorage.ClinicKit` models. Night lamps (tag `ClinicNightLight`). Station icons and for-sale boards stop growing up close (`DistanceLowerLimit`). The sign stands beside the gate facing the street, raised on two tall posts so the whole board clears the fence; it has `OwnerName`, `HeartCount` and `RankBadge` (the Doctor rank pill). Every plot (kit too) gets a `QueueLane` Model: checkered cream and lilac pavement under the patients' line, from just in front of the Counter out to the gate, with an edge in the plot's colour on each side and a numbered spot (1, 2, 3) at each place in line, all walk-through and ray-ignored. `PlotBuilder.queueSpot` says where each place in line is, for the lane and for `Patients`, so they always line up |
 | `server/Carry.luau` | What each player is carrying (`Carry`, `CarryMax` attributes) and the icon above their head |
 | `server/Economy.luau` | Cash, upgrades and purchases. Wires `Purchase` and `PlaceDecor` |
 | `server/Progress.luau` | Clinic ⭐ Stars and the next goal |
@@ -75,11 +75,11 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/DayReport.luau` | Counts each player's cures and new pages, and sends the Day Report when night ends |
 | `server/DayNight.luau` | The day/night cycle (`IsNight`, `PhaseEndsAt`) and the candy-pop lighting grade (the `CandyColor` ColorCorrection, Atmosphere, Bloom), set from code by day and by night |
 | `server/Stations.luau` | A hold-to-make prompt on every `Station_*`, with the hold time checked on the server (`Boosts.makeSeconds`: Faster Hands, then MakeSpeed boosts); each make counts for its station badge |
-| `server/Patients.luau` | A queue per plot, the `Treat` prompt on the Counter, beds, patience (times the owner's Patience boosts), night patients, variants, visitors and regulars. Sets the patient attributes the client acts from (`Ailment`, `State`, `PatienceFraction` in 0.05 steps, only on change). During an owner's tutorial: its two patients, one at a time, no patience running out (steps 1-6), no regulars or visitor |
+| `server/Patients.luau` | A queue per plot (each place in line from `PlotBuilder.queueSpot`), the `Treat` prompt on the Counter, beds, patience (times the owner's Patience boosts), night patients, variants, visitors and regulars. Sets the patient attributes the client acts from (`Ailment`, `State`, `PatienceFraction` in 0.05 steps, only on change). During an owner's tutorial: its two patients, one at a time, no patience running out (steps 1-6), no regulars or visitor |
 | `server/CreatureBuilder.luau` | A creature Model from its `Look` (29-35 parts: a glossy toy body, shiny eyes with a coloured glow, brows, cheeks, a mouth that is sick / happy / sad / a sleepy smile, little arms, ears, a hat, an extra and the species' `Bits`), or a clone of `ServerStorage.Creatures.<PatientId>`. Sized by `Logic/CreatureSize`. Rigged for client acting: every part welds to `Core`, which hangs on `Root.PoseJoint` (Motor6D); arms/wings/flippers and tails on their own Motor6Ds; prop sockets (Attachments) on `Core`; tag `ClinicCreature`. The badge and bubble stop growing up close (`DistanceLowerLimit`) |
 | `server/Cure.luau` | One cure, in order: pay (with the helper's Cash/Tips and the owner's Stars boosts), cash (with `Cured` and this UTC week's `WeekCures`), badge counters, ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` |
-| `server/Visits.luau` | Hearts on the sign (once per owner per UTC day; each one sent counts for ❤️ Friendly), the owner's `OpenHelpers` toggle, the friend referral reward |
+| `server/Visits.luau` | Hearts on the sign (once per owner per UTC day; each one sent counts for ❤️ Friendly): a small "❤️ Send a heart" prompt (within 6 studs, hold 0.3 s, low beside the board and nudged off its words; hidden from the owner). The owner's helpers switch: the `SetHelpers(on)` remote from ⚙️ Settings (a boolean, your own plot only, rate-limited with a 1 s cooldown) sets the plot's `OpenHelpers` and toasts. The friend referral reward |
 | `server/Leaderboards.luau` | The global leaderboards ([Leaderboards](#leaderboards)): throttled OrderedDataStore writes from the server's save, cached reads every 2 minutes, DisplayName lookups, admins kept off, the `GetBoards` remote, the Hall of Fame boards' contents |
 | `server/BoardBuilder.luau` | Builds the 🏆 Hall of Fame garden past the street's west end, off the main road, with the four world leaderboards in it (`Workspace.TownBoards`), and draws their rows. A library `Leaderboards` uses |
 | `server/Admin.luau` | The 🛠️ Admin panel's server side ([Admin panel](#admin-panel)): decides who is an admin (sets the `IsAdmin` player attribute), looks up `Config.AdminNames` at startup, and wires the `Admin` remote: re-checks admin on every call, validates the action and its argument, logs `[Admin] <name> <action>`, then calls the systems' own APIs. Admin-only hooks it uses: `Tutorial.finish`/`restart`, `Patients.sendNext`/`reopen`, `Book.completeAll`, `Story.makeDue`, `Daily.resetToday`, `Playtime.addToday`/`addTotal`, `Badges.maxAll` |
@@ -90,7 +90,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/Main.client.luau` | Builds `ctx` (Remotes, Config, Data, State, `onState`, `toast`, `on`/`fire`), then loads each UI and Feel module in a pcall and calls `init(ctx)` |
 | `client/UI/Theme.luau` · `client/UI/Kit.luau` | The look tokens, and building blocks (panel, button with press bounce, label...). Libraries, not inited |
 | `client/UI/Toasts.luau` | The toast stack at the top centre |
-| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, the 🎁 play gifts button (a ring of 12 dots fills toward the next gift) under them, what you hold (nothing when your hands are empty), the day/night timer with timed boost chips beside it, the big 🛒 📖 📬 🎯 🏅 🏆 buttons (scaled to fit between a phone's thumbstick and jump button, never under 56 px), and ⚙️ settings (the 🎵 music and ✨ calm-effects switches, plus 🛠️ Admin for admins only). A new player's HUD reveals itself with the tutorial step (🎁, 🏅, 🏆 and the boost chips come at its end); everyone else sees it all. Shared helpers `livePlay`, `liveBoosts`, `boostLine` |
+| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, the 🎁 play gifts button (a ring of 12 dots fills toward the next gift) under them, what you hold (nothing when your hands are empty), the day/night timer with timed boost chips beside it, the big 🛒 📖 📬 🎯 🏅 🏆 buttons (scaled to fit between a phone's thumbstick and jump button, never under 56 px), and ⚙️ settings (the 🎵 music and ✨ calm-effects switches; for a clinic owner the helpers switch "👥 Friends only" / "🤝 Anyone can help", which asks the server through `SetHelpers` and follows your plot's `OpenHelpers`; plus 🛠️ Admin for admins only; the card grows a row for each and scales down on a short screen). A new player's HUD reveals itself with the tutorial step (🎁, 🏅, 🏆 and the boost chips come at its end); everyone else sees it all. Shared helpers `livePlay`, `liveBoosts`, `boostLine` |
 | `client/UI/PlayGifts.luau` | The 🎁 panel: the Doctor rank card ("Doctor rank: Resident", time played, next rank), your boosts, the six gift cards (🔒 time left · Open! · ✅) |
 | `client/UI/BadgeBook.luau` | The 🏅 Badge Book (category tabs, a card per badge with its tier frame, progress, next tier's boost and rewards), and the reward banner for tier-ups and Doctor ranks |
 | `client/UI/Shop.luau` | Upgrades, Rooms and Decor tabs, plus decor place mode |
@@ -99,7 +99,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/UI/Mailbox.luau` | The daily gift and the goals list. The letter pops once a session, never over a panel, and after the tutorial ends |
 | `client/UI/Guide.luau` | The first-cures arrow: to the right station, then to the Counter (the tutorial steers it with `Guide.setSteer`). Also sets each station prompt's hold time from the Snapshot's `MakeSeconds` (your Faster Hands level and boosts, per station) |
 | `client/UI/Tutorial.luau` | The tutorial's step card, its pointer, the welcome title card and the first-join camera sweep; turns the camera to your clinic when you arrive |
-| `client/UI/PromptFilter.luau` | Hides world prompts that aren't for you: the helpers switch for visitors, "Send a heart" for the owner, and the Make and Treat prompts on clinics you can't work at (the server still checks) |
+| `client/UI/PromptFilter.luau` | Hides world prompts that aren't for you: "Send a heart" for the owner, and the Make and Treat prompts on clinics you can't work at (the server still checks) |
 | `client/UI/Boards.luau` | The 🏆 leaderboards panel: a tab per board, the top 10, and your own bar ("You: #12"), from `GetBoards` |
 | `client/UI/AdminPanel.luau` | The 🛠️ Admin panel ([Admin panel](#admin-panel)): buttons only, each one asks the `Admin` remote and toasts the reply; a second page picks a patient to spawn |
 | `client/Feel/Sounds.luau` | One table of built-in `rbxasset://` sound cues; any module plays one with `ctx.fire("Sound", name)` |
@@ -422,7 +422,7 @@ the outer boards stand just outside the arch's posts. The street's end and the l
 | Put a Model here | And the game uses it instead of |
 |---|---|
 | `ClinicKit.Stand`, `.BathRoom`, `.Ward`, `.WinterWing`, `.Garden` | The placeholder room. It needs a `Floor` Part plus its `Station_*`, `Bed_<n>` and `DecorSlot_<n>` parts |
-| `ClinicKit.Plot` | The placeholder plot. It needs `Ground`, `Sign`/`SignGui`, `Counter`, the 3 markers and `Slots.RoomSlot_*` |
+| `ClinicKit.Plot` | The placeholder plot. It needs `Ground`, `Sign`/`SignGui`, `Counter`, the 3 markers and `Slots.RoomSlot_*`. The game paves its `QueueLane` from those markers; a `QueueLane` Model of the brother's own inside the Plot is kept instead. Keep the sign's board higher than the fence in front of it |
 | `ClinicKit.Decor.<DecorId>` | The placeholder decor (4×4 footprint, pivot at the bottom centre) |
 | `Creatures.<PatientId>` | The placeholder creature. It still acts its ailment: props go on sockets guessed from its bounding box, and the whole body leans and bobs (no separate arms or tail to wave) |
 
@@ -483,6 +483,8 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   print(R.TutorialAck:InvokeServer(8))                  -- only ever moves the welcome card (step 1) on
   print(R.ClaimPlayGift:InvokeServer(6))                -- locked: "⏳ Keep playing!"
   print(R.ClaimPlayGift:InvokeServer(0), R.ClaimPlayGift:InvokeServer("1"), R.ClaimPlayGift:InvokeServer(1.5))
+  print(R.SetHelpers:InvokeServer("yes"), R.SetHelpers:InvokeServer(1)) -- not a boolean: OpenHelpers unchanged
+  print(R.SetHelpers:InvokeServer(true))                -- from a player with no clinic: "🏠 No clinic yet!"
   ```
 
 ## Playtest checklist (build plan §D)
@@ -513,7 +515,11 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
 - [ ] 10. ShySprout appears and the bubble shows beat 1. A second cure the same UTC day doesn't advance it. Simulate
   the next day (set `LastBeatDay` back) and it advances.
 - [ ] 11. Hearts: a heart from a second client counts once a day, and the sign's count is still there after the owner
-  rejoins. The OpenHelpers toggle works. A non-friend can't treat when it's closed.
+  rejoins. The "❤️ Send a heart" prompt shows only within ~6 studs of the sign, needs a short hold, sits below and to
+  the side of the board (never over its words), and the owner never sees it. Helpers: the owner's ⚙️ Settings shows
+  "👥 Friends only"; a tap turns it to "🤝 Anyone can help" with the toast "🤝 Anyone can help now!", and back with
+  "🔒 Only friends can help now". A visitor's ⚙️ (no clinic of their own) has no helpers row, and nothing about
+  helpers floats on the sign. A non-friend can't treat while it's "Friends only".
 - [ ] 12. Rejoin keeps everything. Junk remote calls are rejected.
 - [ ] 13. Leaderboards: the 🏆 Hall of Fame garden stands past the street's west end, nothing of it on the street,
   curbs, plots, arches or plaza; its boards face the spawn down the street and are readable up close and at night.
@@ -533,6 +539,15 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   save with cures gets its seeded tiers on first join. 🛠️ "Max badges": one "15 badges up!" banner, every card Mythic.
 - [ ] 18. **Six bottom tabs on a phone** (Device emulator, a small landscape phone and a 667 px one): 🛒 📖 📬 🎯 🏅
   🏆 all show after the tutorial, each at least 56 px, none under the thumbstick or the jump button.
+- [ ] 19. **The queue lane:** on every plot a checkered cream-and-lilac pavement with an edge in the plot's colour on
+  each side runs from just in front of the Counter out to the gate, with spots 1, 2, 3 under the line; the numbers
+  read upright walking in from the gate. Patients wait exactly on the numbered spots (1 at the Counter), you and
+  the patients walk across the edges freely, and nothing flickers from the street or at night.
+- [ ] 20. **The sign:** from the street and from the front path the whole clinic sign (name, ❤️ count, rank pill)
+  shows above the fence, beside the gate; the comet star (once DizzyComet's story is finished) still sits on top of
+  it.
+- [ ] 21. **Settings on a phone** (a small landscape phone): as an admin who owns a clinic, ⚙️ shows 🎵, ✨, 👥 and
+  🛠️, all on the card (scaled down if needed), none cut off.
 
 **Edge cases (build plan, Review Focus):**
 - [ ] The plot owner leaves mid-cure: patients, carry visuals and prompts on that plot clean up with no errors, a

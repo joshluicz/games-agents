@@ -7,7 +7,9 @@
 --                 can come to your clinic, ✅ once cured today (the Snapshot's VisitorStatus)
 --   right middle  ⚙️ settings: a small panel with the comfort switches 🎵 music and ✨ calm effects (the client-only
 --                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion),
---                 plus 🛠️ Admin (opens UI/AdminPanel) only while the server has set the player attribute IsAdmin
+--                 the owner's helpers switch "👥 Friends only" / "🤝 Anyone can help" (your plot's OpenHelpers, set by
+--                 the server through SetHelpers; only while you own a clinic), plus 🛠️ Admin (opens UI/AdminPanel)
+--                 only while the server has set the player attribute IsAdmin
 --   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty) above
 --                 the 🛒 📖 📬 🎯 🏅 🏆 buttons, each of the first four with a dot when something waits there (a
 --                 room you can buy or decor to place · new pages · mail · a goal); 🏅 Badges opens UI/BadgeBook (no
@@ -1726,7 +1728,8 @@ function Hud.init(ctx: Types.Ctx)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Right edge, half way down: ⚙️ settings, a small panel with the two comfort switches (what used to be the 🎵 and
-	-- ✨ buttons). Music.client follows MusicMuted and Feel/Atmosphere follows ReduceEffects, as before.
+	-- ✨ buttons), the owner's 👥 helpers switch and, for admins, 🛠️ Admin. Music.client follows MusicMuted and
+	-- Feel/Atmosphere follows ReduceEffects, as before.
 	--------------------------------------------------------------------------------------------------------------
 	local settingsButton = Kit.iconButton({
 		Name = "Settings",
@@ -1744,13 +1747,18 @@ function Hud.init(ctx: Types.Ctx)
 		Accent = Theme.Colors.Cyan,
 		MaxSize = Vector2.new(380, 280),
 	})
+	-- One column of switches, scaled down to fit a short landscape phone when the 👥 and 🛠️ rows both show.
 	local switches = Instance.new("Frame")
 	switches.Name = "Switches"
 	switches.BackgroundTransparency = 1
-	switches.Size = UDim2.fromScale(1, 1)
+	switches.AnchorPoint = Vector2.new(0.5, 0)
+	switches.Position = UDim2.fromScale(0.5, 0)
+	switches.Size = UDim2.fromScale(1, 0)
+	switches.AutomaticSize = Enum.AutomaticSize.Y
 	switches.Parent = settings.Body
 	local switchList = Kit.list(switches, Enum.FillDirection.Vertical, gap)
 	switchList.VerticalAlignment = Enum.VerticalAlignment.Top
+	Hud.fitHeight(switches, settings.Body)
 	local function switch(name: string, kind: string, order: number): TextButton
 		local button = Kit.button({
 			Name = name,
@@ -1765,17 +1773,29 @@ function Hud.init(ctx: Types.Ctx)
 	local musicSwitch = switch("Music", "Pink", 1)
 	local effectsSwitch = switch("Effects", "Cyan", 2)
 	settings.Focus = musicSwitch
+	-- 👥 Who may work at your clinic: only while you own one (see below).
+	local helpersSwitch = switch("Helpers", "Good", 3)
+	helpersSwitch.Visible = false
 	-- 🛠️ Admin: only for the accounts the server marks IsAdmin (Server/Admin). It just opens UI/AdminPanel, whose every
-	-- button the server checks again. The card grows to fit it.
-	local adminButton = switch("Admin", "Purple", 3)
+	-- button the server checks again.
+	local adminButton = switch("Admin", "Purple", 4)
 	adminButton.Text = "🛠️ Admin"
+	-- The card is two rows tall, and grows a row for each of 👥 and 🛠️ that shows.
 	local settingsLimit = settings.Root:FindFirstChildOfClass("UISizeConstraint")
-	local function renderAdmin()
-		local isAdmin = player:GetAttribute("IsAdmin") == true
-		adminButton.Visible = isAdmin
-		if settingsLimit then
-			settingsLimit.MaxSize = Vector2.new(380, if isAdmin then 354 else 280)
+	local function fitSettings()
+		local rows = 0
+		for _, extra in { helpersSwitch, adminButton } do
+			if extra.Visible then
+				rows += 1
+			end
 		end
+		if settingsLimit then
+			settingsLimit.MaxSize = Vector2.new(380, 280 + rows * (Theme.Size.ButtonHeight + 8 + gap))
+		end
+	end
+	local function renderAdmin()
+		adminButton.Visible = player:GetAttribute("IsAdmin") == true
+		fitSettings()
 	end
 	player:GetAttributeChangedSignal("IsAdmin"):Connect(renderAdmin)
 	renderAdmin()
@@ -1789,6 +1809,61 @@ function Hud.init(ctx: Types.Ctx)
 		button.BackgroundColor3 = switchFill
 		button:SetAttribute("KitColor", switchFill)
 	end
+
+	-- 👥 The helpers switch (it used to be a prompt on the sign, which covered the scene). Off = "👥 Friends only"
+	-- (only you and your Roblox friends may work at your clinic), on = "🤝 Anyone can help". It shows your plot's
+	-- OpenHelpers attribute; a tap asks the server (SetHelpers, Server/Visits), which checks you own the plot, switches
+	-- it and toasts. Hidden while you have no clinic.
+	local function myClinic(): Model?
+		local index = player:GetAttribute("PlotIndex")
+		local clinics = Workspace:FindFirstChild("Clinics")
+		local plot = if type(index) == "number" and clinics then clinics:FindFirstChild("Plot_" .. index) else nil
+		return if plot and plot:IsA("Model") then plot else nil
+	end
+	local function renderHelpers()
+		local plot = myClinic()
+		local open = plot ~= nil and plot:GetAttribute("OpenHelpers") == true
+		helpersSwitch.Visible = plot ~= nil
+		helpersSwitch.Text = if open then "🤝 Anyone can help" else "👥 Friends only"
+		paintSwitch(helpersSwitch, open, Theme.Colors.Good)
+		fitSettings()
+	end
+	local helpersWatch: RBXScriptConnection? = nil
+	local function watchHelpers()
+		if helpersWatch then
+			helpersWatch:Disconnect()
+			helpersWatch = nil
+		end
+		local plot = myClinic()
+		if plot then
+			helpersWatch = plot:GetAttributeChangedSignal("OpenHelpers"):Connect(renderHelpers)
+		end
+		renderHelpers()
+	end
+	player:GetAttributeChangedSignal("PlotIndex"):Connect(watchHelpers)
+	task.spawn(function()
+		if Workspace:WaitForChild("Clinics", 30) then -- the town may arrive after the HUD
+			watchHelpers()
+		end
+	end)
+	local helpersBusy = false
+	helpersSwitch.Activated:Connect(function()
+		local plot = myClinic()
+		if helpersBusy or not plot then
+			return
+		end
+		helpersBusy = true
+		Hud.pop(helpersSwitch, 1.06)
+		local ok, message = Hud.ask(ctx.Remotes.SetHelpers, plot:GetAttribute("OpenHelpers") ~= true)
+		helpersBusy = false
+		if not ok then
+			Hud.shake(helpersSwitch)
+			if message ~= "" then
+				ctx.toast(message)
+			end
+		end
+		renderHelpers()
+	end)
 	local function calmOn(): boolean
 		local value = player:GetAttribute("ReduceEffects")
 		return if value == nil then Kit.reducedMotion() else value == true
@@ -1814,6 +1889,7 @@ function Hud.init(ctx: Types.Ctx)
 	renderSettings()
 	settingsButton.Activated:Connect(function()
 		renderSettings()
+		watchHelpers() -- in case your clinic streamed in since
 		settings.toggle()
 	end)
 

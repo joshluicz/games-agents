@@ -2,15 +2,19 @@
 -- Visiting other clinics: hearts, the helpers switch and the friend referral (build plan §B5, design §5.9).
 -- Server only.
 --
--- Two prompts on every plot's Sign, on while the plot has an owner:
---   HeartPrompt   (E / ButtonX, Audience "Visitor")  anyone but the owner leaves a heart: once per owner per UTC
---                 day (saved in the giver's HeartsGiven). The owner's saved HeartsReceived, the plot's Hearts
---                 attribute and the sign's "❤️ <n>" go up, the sign sparkles, and the owner gets a toast.
---   HelpersPrompt (F / ButtonY, Audience "Owner")    the owner switches OpenHelpers: off = only the owner and their
---                 Roblox friends may work the clinic, on = anyone (Plots.canWork reads it). Off on every new owner.
--- A ProximityPrompt shows for everyone, so each also answers the wrong person kindly ("Only the owner can
--- switch"). Both carry the CollectionService tag SIGN_PROMPT_TAG and an `Audience` attribute, so a client
--- script can hide the prompts that aren't for you (see the build report's requests).
+-- Hearts: one small prompt on every plot's Sign, on while the plot has an owner.
+--   HeartPrompt (E / ButtonX, hold 0.3 s, Audience "Visitor")  anyone but the owner leaves a heart: once per owner
+--               per UTC day (saved in the giver's HeartsGiven). The owner's saved HeartsReceived, the plot's Hearts
+--               attribute and the sign's "❤️ <n>" go up, the sign sparkles, and the owner gets a toast.
+--   It shows only within 6 studs, low and to one side of the board (HeartAnchor) and nudged off it (UIOffset), so it
+--   never covers the sign's words or the scene (Joshua: "the pop up is so obvious that it hides the rest of the
+--   things behind"). A ProximityPrompt shows for everyone, so it also answers the owner kindly; it carries the
+--   CollectionService tag SIGN_PROMPT_TAG and an `Audience` attribute, so Client/UI/PromptFilter hides it from the
+--   owner.
+-- The helpers switch: the RemoteFunction SetHelpers(on: boolean), from the owner's ⚙️ Settings panel (Client/UI/Hud
+--   "👥 Friends only" / "🤝 Anyone can help"). Only a plot's owner may call it; it sets the plot's OpenHelpers (off =
+--   only the owner and their Roblox friends may work the clinic, on = anyone; Plots.canWork reads it) and toasts.
+--   Rate-limited (Remotes.serve) with a 1 s cooldown per player. Off on every new owner (Plots).
 --
 -- Referral: a player who joins through a friend's invite (Player:GetJoinData().ReferredByPlayerId) gets the
 -- FriendBench decor once per account (Data.ReferralRewarded), and the friend who invited them gets one too if
@@ -34,7 +38,10 @@ local Visits = {}
 Visits.SIGN_PROMPT_TAG = "ClinicSignPrompt"
 Visits.REFERRAL_DECOR = "FriendBench"
 
-local PROMPT_DISTANCE = 12
+local PROMPT_DISTANCE = 6 -- the heart prompt shows only once you've walked up to the sign
+local PROMPT_HOLD = 0.3 -- a short hold, so walking past with the key down never sends one
+local PROMPT_HEIGHT = 2.6 -- its anchor sits about this high above the plot's ground (never above the board's middle)
+local PROMPT_NUDGE = Vector2.new(64, 0) -- and its pop-up this many pixels further out, away from the words
 local DISTANCE_SLACK = 8 -- lag and the prompt's own reach
 local TOGGLE_COOLDOWN = 1
 local BURST_SECONDS = 0.3
@@ -77,26 +84,9 @@ end
 
 type SignPrompts = {
 	Heart: ProximityPrompt,
-	Helpers: ProximityPrompt,
 	HeartAnchor: Attachment,
-	HelpersAnchor: Attachment,
 	Burst: ParticleEmitter,
 }
-
-local function makePrompt(anchor: Attachment, name: string, audience: string, key: Enum.KeyCode, pad: Enum.KeyCode)
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = name
-	prompt.KeyboardKeyCode = key
-	prompt.GamepadKeyCode = pad
-	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = PROMPT_DISTANCE
-	prompt.RequiresLineOfSight = false
-	prompt.Enabled = false
-	prompt:SetAttribute("Audience", audience)
-	CollectionService:AddTag(prompt, Visits.SIGN_PROMPT_TAG)
-	prompt.Parent = anchor
-	return prompt
-end
 
 local function makeBurst(anchor: Attachment): ParticleEmitter
 	local burst = Instance.new("ParticleEmitter")
@@ -122,47 +112,55 @@ local function makeBurst(anchor: Attachment): ParticleEmitter
 	return burst
 end
 
-local function buildPrompts(sign: BasePart): SignPrompts
-	-- Just in front of the face the SignGui is drawn on (the street side), one on each side so both show at once.
+local function buildPrompts(plot: Types.Plot, sign: BasePart): SignPrompts
+	-- In front of the face the SignGui is drawn on (the street side).
 	local gui = sign:FindFirstChild("SignGui")
 	local face = if gui and gui:IsA("SurfaceGui") then gui.Face else Enum.NormalId.Front
 	local normal = Vector3.FromNormalId(face)
 	local across = if math.abs(normal.X) > 0.5 then Vector3.zAxis else Vector3.xAxis
 	local front = normal * (math.abs(normal:Dot(sign.Size)) / 2 + 0.4)
-	local side = across * (math.abs(across:Dot(sign.Size)) * 0.3)
+	-- The heart prompt's anchor: toward the right end of the board as you face it (away from the gate on the
+	-- placeholder plot), and dropped to about chest height, so under a raised board its pop-up sits below and beside
+	-- the words. On a low sign it stays level with the board's middle. Its UIOffset pushes it further right.
+	local beside = front - across * (math.abs(across:Dot(sign.Size)) * 0.3)
+	local groundY = plot.Model:GetPivot().Y
+	local drop = math.min(0, groundY + PROMPT_HEIGHT - sign.CFrame:PointToWorldSpace(beside).Y)
 
 	local heartAnchor = Instance.new("Attachment")
 	heartAnchor.Name = "HeartAnchor"
-	heartAnchor.Position = front - side
+	heartAnchor.Position = beside + sign.CFrame:VectorToObjectSpace(Vector3.new(0, drop, 0))
 	heartAnchor.Parent = sign
 
-	local helpersAnchor = Instance.new("Attachment")
-	helpersAnchor.Name = "HelpersAnchor"
-	helpersAnchor.Position = front + side
-	helpersAnchor.Parent = sign
+	local burstAnchor = Instance.new("Attachment") -- the heart sparkles come off the board itself
+	burstAnchor.Name = "HeartBurstAnchor"
+	burstAnchor.Position = front
+	burstAnchor.Parent = sign
 
-	local heart = makePrompt(heartAnchor, "HeartPrompt", "Visitor", Enum.KeyCode.E, Enum.KeyCode.ButtonX)
-	heart.ActionText = "Send a heart"
-	heart.ObjectText = "❤️"
-
-	local helpers = makePrompt(helpersAnchor, "HelpersPrompt", "Owner", Enum.KeyCode.F, Enum.KeyCode.ButtonY)
+	local heart = Instance.new("ProximityPrompt")
+	heart.Name = "HeartPrompt"
+	heart.ActionText = "❤️ Send a heart"
+	heart.ObjectText = "" -- one line: a smaller pop-up
+	heart.KeyboardKeyCode = Enum.KeyCode.E
+	heart.GamepadKeyCode = Enum.KeyCode.ButtonX
+	heart.HoldDuration = PROMPT_HOLD
+	heart.MaxActivationDistance = PROMPT_DISTANCE
+	heart.RequiresLineOfSight = false -- the fence rails would make it flicker
+	heart.UIOffset = PROMPT_NUDGE
+	heart.Enabled = false
+	heart:SetAttribute("Audience", "Visitor") -- PromptFilter hides it from the owner
+	CollectionService:AddTag(heart, Visits.SIGN_PROMPT_TAG)
+	heart.Parent = heartAnchor
 
 	return {
 		Heart = heart,
-		Helpers = helpers,
 		HeartAnchor = heartAnchor,
-		HelpersAnchor = helpersAnchor,
-		Burst = makeBurst(heartAnchor),
+		Burst = makeBurst(burstAnchor),
 	}
 end
 
 local function refreshSign(plot: Types.Plot, prompts: SignPrompts)
 	local owned = isOwned(plot)
 	prompts.Heart.Enabled = owned
-	prompts.Helpers.Enabled = owned
-	local open = plot.Model:GetAttribute("OpenHelpers") == true
-	prompts.Helpers.ObjectText = if open then "🤝 Anyone helps" else "🔒 Friends help"
-	prompts.Helpers.ActionText = if open then "Friends only" else "Let anyone help"
 	local label = heartLabel(plot)
 	if label then
 		label.Text = if owned then "❤️ " .. hearts(plot) else ""
@@ -223,41 +221,40 @@ local function onHeart(plot: Types.Plot, prompts: SignPrompts, player: Player)
 	Remotes.news(owner, "❤️ " .. player.DisplayName .. " loves your clinic!")
 end
 
-local function onHelpers(plot: Types.Plot, prompts: SignPrompts, player: Player)
-	if not Remotes.allow(player, "Helpers") then
-		return
+------------------------------------------------------------------------------------------------------------------
+-- The helpers switch (SetHelpers, from the owner's ⚙️ Settings)
+------------------------------------------------------------------------------------------------------------------
+
+-- SetHelpers(on): the caller's own clinic only. `on` must be a boolean: true = anyone may help, false = friends.
+local function setHelpers(player: Player, on: any): (boolean, string)
+	if type(on) ~= "boolean" then
+		return false, Remotes.OOPS
 	end
-	if plot.Owner ~= player then
-		Remotes.toast(player, "🔒 Only the owner can switch")
-		return
-	end
-	if not near(player, prompts.HelpersAnchor) then
-		return
+	local plot = Plots.getPlot(player)
+	if not plot or plot.Owner ~= player then
+		return false, "🏠 No clinic yet!"
 	end
 	local now = os.clock()
 	if now - (lastToggle[player] or 0) < TOGGLE_COOLDOWN then
-		return
+		return false, Remotes.TOO_FAST
 	end
 	lastToggle[player] = now
-	local open = plot.Model:GetAttribute("OpenHelpers") ~= true
-	plot.Model:SetAttribute("OpenHelpers", open)
-	Remotes.toast(player, if open then "🤝 Anyone can help now!" else "🔒 Only friends can help now")
+	plot.Model:SetAttribute("OpenHelpers", on)
+	Remotes.toast(player, if on then "🤝 Anyone can help now!" else "🔒 Only friends can help now")
+	return true, ""
 end
 
 local function wireSign(plot: Types.Plot)
 	local sign = plot.Model:FindFirstChild("Sign")
 	if not (sign and sign:IsA("BasePart")) then
-		warn("[Visits] Plot_" .. plot.Index .. " has no Sign part: no hearts or helpers switch there")
+		warn("[Visits] Plot_" .. plot.Index .. " has no Sign part: no hearts there")
 		return
 	end
-	local prompts = buildPrompts(sign)
+	local prompts = buildPrompts(plot, sign)
 	prompts.Heart.Triggered:Connect(function(player: Player)
 		onHeart(plot, prompts, player)
 	end)
-	prompts.Helpers.Triggered:Connect(function(player: Player)
-		onHelpers(plot, prompts, player)
-	end)
-	for _, attribute in { "OwnerUserId", "OpenHelpers", "Hearts" } do
+	for _, attribute in { "OwnerUserId", "Hearts" } do
 		plot.Model:GetAttributeChangedSignal(attribute):Connect(function()
 			refreshSign(plot, prompts)
 		end)
@@ -325,6 +322,7 @@ function Visits.start()
 	for _, plot in Plots.all() do
 		wireSign(plot)
 	end
+	Remotes.serve("SetHelpers", setHelpers)
 
 	PlayerData.Loaded:Connect(function(player: Player)
 		if isPlayer(player) then

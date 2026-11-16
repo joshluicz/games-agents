@@ -5,8 +5,9 @@
 -- A ProximityPrompt made on the server shows for everyone, so the server answers the wrong person with a kind
 -- toast. This module hides those prompts on this screen by setting MaxActivationDistance to 0 (the server writes
 -- Enabled, never MaxActivationDistance after creating a prompt, so the two never clash):
---   ClinicSignPrompt (Visits)                Audience "Owner": only the plot's owner sees it (the helpers switch).
---                                            Audience "Visitor": everyone but the owner (send a heart).
+--   ClinicSignPrompt (Visits)                Audience "Visitor": everyone but the owner (send a heart).
+--                                            Audience "Owner": only the plot's owner (none today: the helpers
+--                                            switch moved to the HUD's ⚙️ Settings, the SetHelpers remote).
 --   StationPrompt (Stations) and the         only players who may work the clinic: the owner, the owner's Roblox
 --   Counter's TreatPrompt (Patients)         friends, or anyone while the plot's OpenHelpers is on.
 -- Friend status comes from LocalPlayer:IsFriendsWith, cached per owner. Until it's known (or if it can't be
