@@ -18,6 +18,10 @@ was filed. Don't re-ask an answered question.
    since DevEx pays an individual's account. ⬜ **Joshua.**
 9. 🛠️ **Admin abuse events: when, how often, and who hosts?** They're a must for a future update (`-022`). An event
    announced for a time needs one of you online then (hours: `../joshua-hq`). ⬜ **Both, before the event update.**
+10. 📈 **Nurse copies level too fast?** In Progression v2, every extra copy of a nurse is a whole level at a flat price.
+    So a Common can go from Lv 1 to 10 for about 💰1,300-1,900 in under an hour. The plan aimed for 4-7 hours. The
+    fixes are a fixed amount of XP per copy, or copy prices that grow with the nurse's level. Claude's lean: XP per
+    copy, re-tuned after real play data. ⬜ **Joshua (or Claude's call).**
 
 ## ✅ Answered
 - #8, the depth update review fixes (build plan §E5-E7): 2026-11-16, Joshua: "your call for all" → Claude's calls:
