@@ -8,15 +8,18 @@
 --               through Hud.ask; plays "Sparkle" (listed), "Click" (unlisted) and Hud.shake's "Nope" over the bus
 --               (a buy's "Bought" and a sale's "Sold" come with the server's NurseNews, Feel/Sounds).
 --
--- Inside (a Hud.modal Panel, orange like the kiosk):
+-- Inside (a Hud.modal Panel on the one template: the navy header, Modal.tabs down the left, neutral cards, buttons by
+-- role; look build plan §B8, §D T7):
 --   badges   "🏷️ Only this server" and "🚫 No swaps. No chat." (same server only; no free text anywhere)
 --   🛒 Buy   every listing as a card: the nurse in its rarity frame, its level, the price and "by DisplayName",
---            and Buy (or why not: "Yours", "🏥 Lv 3", "🏢 R1", "You have one!", "Roster full", "Need 💰420").
---            Buy asks first: "Buy 🐶 Lv 7 for 💰420?" (Not now is the default), then BuyListing with exactly the
---            price shown, so a changed price changes nothing ("Price changed! Look again")
+--            and Buy (Primary; or why not: "Yours", "🏥 Lv 3", "🏢 R1", "You have one!", "Roster full", "Need 💰420").
+--            Buy asks first through THE confirm (Hud.confirm, Pure.buyConfirm: "Buy 🐶 Lv 7 for 💰420?"; Not now is
+--            the default), then BuyListing with exactly the price shown, so a changed price changes nothing ("Price
+--            changed! Look again")
 --   🏷️ Sell  your nurses that may be listed (not rebirth-only, not listed), then a price picker locked to the band
 --            (Logic/Market.band at its level; the min and max shown), − / + steps and a slider, "You get 💰378"
---            (after the 10% fee) shown big, and List it! (asks first: "List 🐶 Lv 7 for 💰420?")
+--            (after the 10% fee) shown big, and List it! (Primary; THE confirm first, Pure.listConfirm: "List 🐶 Lv 7
+--            for 💰420?")
 --   📋 Mine  your listings (n/3) with Unlist. A listed nurse keeps working until it's sold
 -- No clocks, no countdowns, no Robux. Every motion is Kit's or Hud's (both honour Kit.reducedMotion()). The server
 -- decides everything; this panel only shows and asks.
@@ -27,28 +30,34 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
 local MarketLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Market"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
+local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
 
 local MarketPanel = {}
 
-local ACCENT = Theme.Colors.Primary -- the kiosk's orange
 local SLOT = Theme.Size.ButtonHeight
-local GAP = Theme.Size.Gap
-local BADGE_HEIGHT = 30
-local PAGES_TOP = BADGE_HEIGHT + 8
-local TAB_SIZE = Theme.Size.IconButton -- the tabs stand in a column on the left, so a short phone keeps its height
-local TABS_WIDTH = TAB_SIZE + 6
+local GAP = Theme.Space.Gap
+local BADGE_HEIGHT = 34
+local PAGES_TOP = BADGE_HEIGHT + GAP
 local MIN_CARD = 128
 local CARD_GAP = 10
--- Under each card's face: 4 + name 22 + seller 18 + price 26 + 4 + the button + 6, plus the face's 6 on top.
-local CARD_FIXED = 6 + 4 + 22 + 18 + 26 + 4 + SLOT + 6
+-- Under each card's face: 4 + name 40 + seller 22 + price 28 + 4 + the button + 6, plus the face's 6 on top.
+local NAME_HEIGHT = 40 -- two lines: "Cuddle Cub · Lv 15" at the 18 px floor
+local SELLER_HEIGHT = 22
+local PRICE_HEIGHT = 28
+local CARD_FIXED = 6 + 4 + NAME_HEIGHT + SELLER_HEIGHT + PRICE_HEIGHT + 4 + SLOT + 6
 local STRIP_CARD = 96
 local STRIP_HEIGHT = STRIP_CARD + 34 + 12
 local ROW_HEIGHT = 76
+-- THE tab pattern: a left column of square tabs (Modal.tabs), so a short phone keeps its height.
+local TABS: { Modal.TabSpec } = {
+	{ Id = "Buy", Icon = "🛒", Caption = "Buy" },
+	{ Id = "Sell", Icon = "🏷️", Caption = "Sell" },
+	{ Id = "Mine", Icon = "📋", Caption = "Mine" },
+}
 local KIOSK_ATTRIBUTE = "Kiosk"
 local KIOSK_MODEL = "PlayerMarket"
 
@@ -225,6 +234,28 @@ function Pure.confirmList(icon: string, level: number, price: number): string
 	return "List " .. icon .. " Lv " .. tostring(level) .. " for " .. Pure.money(price) .. "?"
 end
 
+export type ConfirmSpec = { Title: string, Line: string, Yes: string, Kind: string, Hold: number }
+
+-- THE confirm (Hud.confirm) before a buy: the question and who sells it. Buy is the Primary; no hold.
+function Pure.buyConfirm(icon: string, level: number, price: number, sellerName: any): ConfirmSpec
+	local line = Pure.confirmBuy(icon, level, price)
+	if type(sellerName) == "string" and sellerName ~= "" then
+		line ..= "\nby " .. sellerName
+	end
+	return { Title = "🛒 Buy?", Line = line, Yes = "✅ Yes!", Kind = "Primary", Hold = 0 }
+end
+
+-- THE confirm before a listing: the question and what you get after the fee. List is the Primary; no hold.
+function Pure.listConfirm(icon: string, level: number, price: number, payout: number): ConfirmSpec
+	return {
+		Title = "🏷️ List?",
+		Line = Pure.confirmList(icon, level, price) .. "\nYou get " .. Pure.money(payout),
+		Yes = "✅ Yes!",
+		Kind = "Primary",
+		Hold = 0,
+	}
+end
+
 -- The List button: (ok, text). Your cap first, then the server's (Config.Market).
 function Pure.listButton(mine: number, total: number, cfg: any): (boolean, string)
 	local market = if type(cfg) == "table" and type(cfg.Market) == "table" then cfg.Market else {}
@@ -294,13 +325,6 @@ local function frame(props: { [string]: any }): Frame
 	return f
 end
 
-local function textLimit(label: TextLabel | TextButton, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 9
-	limit.Parent = label
-end
-
 local function padButton(button: GuiObject, x: number, y: number)
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, x)
@@ -333,7 +357,14 @@ local function scroller(name: string, parent: Instance): ScrollingFrame
 	return scroll
 end
 
--- A nurse cap in the rarity's colour, tipped on the portrait's head (as the Journal draws it).
+local function rounded(gui: GuiObject): UICorner
+	local corner = Kit.corner(gui)
+	corner.CornerRadius = Theme.Radius.Round
+	return corner
+end
+
+-- A nurse cap in the rarity's colour, tipped on the portrait's head (as the Journal draws it). Its mark is a white
+-- heart, never a cross (look build plan, Global constraints: no cross emblem on anything).
 local function addCap(portrait: Frame, color: Color3)
 	local cap = Instance.new("Frame")
 	cap.Name = "Cap"
@@ -344,11 +375,11 @@ local function addCap(portrait: Frame, color: Color3)
 	cap.BackgroundColor3 = color
 	cap.BorderSizePixel = 0
 	cap.ZIndex = 7
-	Kit.corner(cap, 6)
-	Kit.stroke(cap, Theme.Colors.Outline, 2)
-	local cross = Kit.label({
-		Name = "Cross",
-		Text = "✚",
+	Kit.corner(cap, Theme.Radius.Small)
+	Kit.stroke(cap, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	local mark = Kit.label({
+		Name = "Mark",
+		Text = "♥",
 		TextScaled = true,
 		Outlined = true,
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -357,25 +388,25 @@ local function addCap(portrait: Frame, color: Color3)
 		ZIndex = 7,
 		Parent = cap,
 	})
-	cross.TextColor3 = Theme.Colors.OnColor
+	mark.TextColor3 = Theme.Colors.OnColor
 	cap.Parent = portrait
 end
 
--- The nurse's face on its rarity's tint, with a cap.
-local function face(parent: Instance, nurse: any, props: { [string]: any }): Frame
-	local color = Kit.rarityColor(if nurse then nurse.Rarity else "Common")
-	props.BackgroundColor3 = Kit.lighten(color, 0.45)
+-- The nurse's face: the image well (the template's tile) in its rarity frame, with a cap. Returns the frame's stop.
+local function face(parent: Instance, nurse: any, props: { [string]: any }): (Frame, () -> ())
+	local rarity = if nurse then nurse.Rarity else "Common"
+	props.BackgroundColor3 = Theme.Colors.Well
 	props.Parent = parent
 	local holder = frame(props)
-	Kit.corner(holder, 12)
-	Palette.candyGradient(holder)
+	Kit.corner(holder, Theme.Radius.Medium)
+	local stop = Kit.rarityFrame(holder, rarity)
 	local portrait = Hud.portrait(if nurse then nurse.Look else nil, false)
 	portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 	portrait.Position = UDim2.fromScale(0.5, 0.5)
 	portrait.Size = UDim2.fromScale(0.95, 0.95)
 	portrait.Parent = holder
-	addCap(portrait, color)
-	return holder
+	addCap(portrait, Kit.rarityColor(rarity))
+	return holder, stop
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -394,6 +425,7 @@ type BuyCard = {
 
 type SellCard = {
 	Button: TextButton,
+	Border: UIStroke,
 	Level: TextLabel,
 	StopFrame: () -> (),
 }
@@ -428,43 +460,26 @@ function MarketPanel.init(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = "Market",
 		Title = "🏷️ Market",
-		Accent = ACCENT,
 		MaxSize = Vector2.new(720, 620),
 	})
-	local body = modal.Body
+	local render: () -> ()
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The tabs: a column of big icon buttons on the left
+	-- The tabs: THE tab pattern (Modal.tabs: a column of square tabs on the left, painted by Kit.tab)
 	--------------------------------------------------------------------------------------------------------------
-	local tabColumn = frame({
-		Name = "Tabs",
-		BackgroundTransparency = 1,
-		Size = UDim2.new(0, TABS_WIDTH, 1, 0),
-		Parent = body,
-	})
-	local tabList = Kit.list(tabColumn, Enum.FillDirection.Vertical, 8)
-	tabList.VerticalAlignment = Enum.VerticalAlignment.Top
-	local tabButtons: { [string]: TextButton } = {}
-	for index, spec in { { "Buy", "🛒", "Buy" }, { "Sell", "🏷️", "Sell" }, { "Mine", "📋", "Mine" } } do
-		local button = Kit.iconButton({
-			Name = spec[1],
-			Icon = spec[2],
-			Caption = spec[3],
-			Kind = "Card",
-			Size = UDim2.fromOffset(TAB_SIZE, TAB_SIZE),
-			LayoutOrder = index,
-			Parent = tabColumn,
-		})
-		tabButtons[spec[1]] = button
+	local tabs = Modal.tabs(modal, TABS, function(id: string)
+		tab = id
+		render()
+	end)
+	local content = tabs.Content
+	local function tabButton(id: string): GuiObject?
+		local found = tabs.Column:FindFirstChild("Tab_" .. id, true)
+		return if found and found:IsA("GuiObject") then found else nil
 	end
-
-	local content = frame({
-		Name = "Content",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(TABS_WIDTH + GAP, 0),
-		Size = UDim2.new(1, -(TABS_WIDTH + GAP), 1, 0),
-		Parent = body,
-	})
+	-- Switches the tab (and paints the column): Modal.tabs' select calls the callback above.
+	local function setTab(name: string)
+		tabs.select(name)
+	end
 
 	--------------------------------------------------------------------------------------------------------------
 	-- The badges: same server only, no swaps, no chat
@@ -482,16 +497,16 @@ function MarketPanel.init(ctx: Types.Ctx)
 			Name = "Badge" .. index,
 			Text = text,
 			TextScaled = true,
-			BackgroundColor3 = if index == 1 then Kit.lighten(ACCENT, 0.7) else Theme.Colors.Card,
+			BackgroundColor3 = Theme.Colors.Card,
 			BackgroundTransparency = 0,
-			Size = UDim2.new(0.5, -4, 1, 0),
+			Size = UDim2.new(0.5, -GAP / 2, 1, 0),
 			LayoutOrder = index,
 			Parent = badges,
 		})
-		Kit.corner(badge, BADGE_HEIGHT // 2)
-		Kit.stroke(badge, Theme.Colors.Outline, 2)
+		rounded(badge)
+		Kit.stroke(badge, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		padButton(badge, 10, 4)
-		textLimit(badge, 18)
+		Kit.textLimit(badge, Theme.TextSize.Caption)
 	end
 
 	local pagesArea = frame({
@@ -503,90 +518,8 @@ function MarketPanel.init(ctx: Types.Ctx)
 	})
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The confirm popup (Not now is the default)
-	--------------------------------------------------------------------------------------------------------------
-	local confirm = Hud.modal(ctx, {
-		Name = "MarketConfirm",
-		Title = "🏷️ Sure?",
-		Accent = ACCENT,
-		Layer = "Popup",
-		MaxSize = Vector2.new(440, 300),
-		Scale = Vector2.new(0.86, 0.8),
-	})
-	local question = Kit.label({
-		Name = "Question",
-		Text = "",
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		Size = UDim2.fromScale(1, 0.42),
-		Parent = confirm.Body,
-	})
-	textLimit(question, Theme.TextSize.Title)
-	local note = Kit.label({
-		Name = "Note",
-		Text = "",
-		TextScaled = true,
-		TextColor3 = Theme.Colors.InkSoft,
-		Position = UDim2.fromScale(0, 0.44),
-		Size = UDim2.fromScale(1, 0.18),
-		Parent = confirm.Body,
-	})
-	textLimit(note, Theme.TextSize.Body)
-	local answers = frame({
-		Name = "Answers",
-		BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.fromScale(0, 1),
-		Size = UDim2.new(1, 0, 0, SLOT),
-		Parent = confirm.Body,
-	})
-	Kit.list(answers, Enum.FillDirection.Horizontal, GAP)
-	local notNow = Kit.button({
-		Name = "NotNow",
-		Kind = "Quiet",
-		Text = "Not now",
-		TextScaled = true,
-		Size = UDim2.new(0.5, -GAP / 2, 1, 0),
-		LayoutOrder = 1,
-		Parent = answers,
-	})
-	padButton(notNow, 10, 12)
-	local yes = Kit.button({
-		Name = "Yes",
-		Kind = "Good",
-		Text = "✅ Yes!",
-		TextScaled = true,
-		Size = UDim2.new(0.5, -GAP / 2, 1, 0),
-		LayoutOrder = 2,
-		Parent = answers,
-	})
-	padButton(yes, 10, 12)
-	confirm.Focus = notNow
-	local onYes: (() -> ())? = nil
-	notNow.Activated:Connect(function()
-		onYes = nil
-		confirm.close()
-	end)
-	yes.Activated:Connect(function()
-		local fn = onYes
-		onYes = nil
-		confirm.close()
-		if fn then
-			fn()
-		end
-	end)
-	local function ask(text: string, sub: string, fn: () -> ())
-		question.Text = text
-		note.Text = sub
-		onYes = fn
-		confirm.open()
-	end
-
-	--------------------------------------------------------------------------------------------------------------
 	-- Server calls
 	--------------------------------------------------------------------------------------------------------------
-	local render: () -> ()
-
 	local function refresh()
 		task.spawn(function()
 			local ok, _, payload = Hud.ask(ctx.Remotes.GetMarket)
@@ -639,7 +572,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 1,
 		Parent = buyPage,
 	})
-	textLimit(buyEmpty, Theme.TextSize.Title)
+	Kit.textLimit(buyEmpty, Theme.TextSize.Title)
 	local buyHint = Kit.button({
 		Name = "SellHint",
 		Kind = "Secondary",
@@ -649,7 +582,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 2,
 		Parent = buyPage,
 	})
-	padButton(buyHint, 12, 12)
+	Kit.textLimit(buyHint, Theme.TextSize.Button)
 	local grid = frame({
 		Name = "Grid",
 		BackgroundTransparency = 1,
@@ -688,7 +621,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		if busy or not nurse then
 			return
 		end
-		ask(Pure.confirmBuy(nurse.Icon, listing.Level, listing.Price), "by " .. listing.SellerName, function()
+		Hud.confirm(ctx, Pure.buyConfirm(nurse.Icon, listing.Level, listing.Price, listing.SellerName), function()
 			call(ctx.Remotes.BuyListing, card.Action, nil, listing.Id, listing.Price)
 		end)
 	end
@@ -697,12 +630,12 @@ function MarketPanel.init(ctx: Types.Ctx)
 		local nurse = nurseOf(listing.NurseId)
 		local card = frame({
 			Name = "Listing_" .. tostring(listing.Id),
-			BackgroundColor3 = Theme.Colors.Paper,
+			BackgroundColor3 = Theme.Colors.Card,
 			Parent = grid,
 		})
-		Kit.corner(card, 16)
-		local stop = Kit.rarityFrame(card, listing.Rarity)
-		face(card, nurse, {
+		Kit.corner(card, Theme.Radius.Medium)
+		Kit.stroke(card, Theme.Colors.CardLine, Theme.Stroke.Fine)
+		local _, stop = face(card, nurse, {
 			Name = "Face",
 			AnchorPoint = Vector2.new(0.5, 0),
 			Position = UDim2.new(0.5, 0, 0, 6),
@@ -714,37 +647,36 @@ function MarketPanel.init(ctx: Types.Ctx)
 			TextScaled = true,
 			Font = Theme.DisplayFont,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4 + 26 + 18)),
-			Size = UDim2.new(1, -10, 0, 22),
+			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4 + PRICE_HEIGHT + SELLER_HEIGHT)),
+			Size = UDim2.new(1, -10, 0, NAME_HEIGHT),
 			Parent = card,
 		})
-		textLimit(title, 20)
+		Kit.textLimit(title, Theme.TextSize.Body)
 		local seller = Kit.label({
 			Name = "Seller",
 			Text = "",
 			TextScaled = true,
 			TextColor3 = Theme.Colors.InkSoft,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4 + 26)),
-			Size = UDim2.new(1, -10, 0, 18),
+			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4 + PRICE_HEIGHT)),
+			Size = UDim2.new(1, -10, 0, SELLER_HEIGHT),
 			Parent = card,
 		})
-		textLimit(seller, 16)
+		Kit.textLimit(seller, Theme.TextSize.Caption)
 		local priceLabel = Kit.label({
 			Name = "Price",
 			Text = "",
 			TextScaled = true,
-			Outlined = true,
+			Font = Theme.DisplayFont,
 			AnchorPoint = Vector2.new(0.5, 1),
 			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4)),
-			Size = UDim2.new(1, -10, 0, 26),
+			Size = UDim2.new(1, -10, 0, PRICE_HEIGHT),
 			Parent = card,
 		})
-		priceLabel.TextColor3 = Theme.Colors.Cash
-		textLimit(priceLabel, 24)
+		Kit.textLimit(priceLabel, Theme.TextSize.Button)
 		local action = Kit.button({
 			Name = "Buy",
-			Kind = "Good",
+			Kind = "Primary",
 			Text = "Buy",
 			TextScaled = true,
 			AnchorPoint = Vector2.new(0.5, 1),
@@ -752,7 +684,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -12, 0, SLOT),
 			Parent = card,
 		})
-		padButton(action, 8, 14)
+		Kit.textLimit(action, Theme.TextSize.Button)
 		local entry: BuyCard = {
 			Frame = card,
 			Title = title,
@@ -816,7 +748,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 1,
 		Parent = sellPage,
 	})
-	textLimit(pickLabel, Theme.TextSize.Body)
+	Kit.textLimit(pickLabel, Theme.TextSize.Body)
 	local sellEmpty = Kit.label({
 		Name = "Empty",
 		Text = "No nurses to sell",
@@ -828,7 +760,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		Visible = false,
 		Parent = sellPage,
 	})
-	textLimit(sellEmpty, Theme.TextSize.Title)
+	Kit.textLimit(sellEmpty, Theme.TextSize.Title)
 	local strip = Instance.new("ScrollingFrame")
 	strip.Name = "Strip"
 	strip.BackgroundTransparency = 1
@@ -854,16 +786,16 @@ function MarketPanel.init(ctx: Types.Ctx)
 	-- The price card
 	local priceCard = frame({
 		Name = "PriceCard",
-		BackgroundColor3 = Theme.Colors.Paper,
+		BackgroundColor3 = Theme.Colors.Card,
 		Size = UDim2.new(1, -12, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		LayoutOrder = 4,
 		Parent = sellPage,
 	})
-	Kit.corner(priceCard, 16)
-	Kit.stroke(priceCard, Theme.Colors.Outline, Theme.Size.Stroke)
-	Kit.pad(priceCard, 10)
-	local priceList = Kit.list(priceCard, Enum.FillDirection.Vertical, 8)
+	Kit.corner(priceCard, Theme.Radius.Medium)
+	Kit.stroke(priceCard, Theme.Colors.CardLine, Theme.Stroke.Fine)
+	Kit.pad(priceCard, Theme.Space.PadCard)
+	local priceList = Kit.list(priceCard, Enum.FillDirection.Vertical, GAP)
 	priceList.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pickedTitle = Kit.label({
 		Name = "Picked",
@@ -874,17 +806,17 @@ function MarketPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 1,
 		Parent = priceCard,
 	})
-	textLimit(pickedTitle, Theme.TextSize.Body)
+	Kit.textLimit(pickedTitle, Theme.TextSize.Button)
 	local bandLabel = Kit.label({
 		Name = "Band",
 		Text = "",
 		TextScaled = true,
 		TextColor3 = Theme.Colors.InkSoft,
-		Size = UDim2.new(1, 0, 0, 22),
+		Size = UDim2.new(1, 0, 0, 24),
 		LayoutOrder = 2,
 		Parent = priceCard,
 	})
-	textLimit(bandLabel, 20)
+	Kit.textLimit(bandLabel, Theme.TextSize.Body)
 	local stepper = frame({
 		Name = "Stepper",
 		BackgroundTransparency = 1,
@@ -914,14 +846,13 @@ function MarketPanel.init(ctx: Types.Ctx)
 		Name = "Price",
 		Text = "",
 		TextScaled = true,
-		Outlined = true,
+		Font = Theme.DisplayFont,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.new(1, -2 * (SLOT + 8) - 2 * GAP, 1, -4),
 		Parent = stepper,
 	})
-	priceText.TextColor3 = Theme.Colors.Cash
-	textLimit(priceText, Theme.TextSize.Big)
+	Kit.textLimit(priceText, Theme.TextSize.Number)
 
 	-- The slider: a wide hit area (so a thumb finds it) around a thin track, its fill and a knob.
 	local slider = Instance.new("TextButton")
@@ -938,18 +869,18 @@ function MarketPanel.init(ctx: Types.Ctx)
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.new(1, -36, 0, 14),
-		BackgroundColor3 = Theme.Colors.Quiet,
+		BackgroundColor3 = Theme.Colors.Well,
 		Parent = slider,
 	})
-	Kit.corner(track, 7)
-	Kit.stroke(track, Theme.Colors.Outline, 2)
+	rounded(track)
+	Kit.stroke(track, Theme.Colors.Stroke, Theme.Stroke.Fine)
 	local fill = frame({
 		Name = "Fill",
 		Size = UDim2.fromScale(0, 1),
 		BackgroundColor3 = Theme.Colors.Cash,
 		Parent = track,
 	})
-	Kit.corner(fill, 7)
+	rounded(fill)
 	local knob = frame({
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -959,17 +890,17 @@ function MarketPanel.init(ctx: Types.Ctx)
 		ZIndex = 2,
 		Parent = track,
 	})
-	Kit.corner(knob, 16)
-	Kit.stroke(knob, Theme.Colors.Outline, 3)
+	rounded(knob)
+	Kit.stroke(knob, Theme.Colors.Stroke, Theme.Stroke.Bold)
 
 	local getRow = frame({
 		Name = "YouGet",
-		BackgroundColor3 = Kit.lighten(Theme.Colors.Cash, 0.6),
+		BackgroundColor3 = Theme.Colors.Well,
 		Size = UDim2.new(1, 0, 0, 48),
 		LayoutOrder = 5,
 		Parent = priceCard,
 	})
-	Kit.corner(getRow, 14)
+	Kit.corner(getRow, Theme.Radius.Medium)
 	local getText = Kit.label({
 		Name = "Text",
 		Text = "",
@@ -979,27 +910,27 @@ function MarketPanel.init(ctx: Types.Ctx)
 		Position = UDim2.fromOffset(10, 4),
 		Parent = getRow,
 	})
-	textLimit(getText, Theme.TextSize.Title)
+	Kit.textLimit(getText, Theme.TextSize.Title)
 	local feeNote = Kit.label({
 		Name = "Fee",
 		Text = "",
 		TextScaled = true,
 		TextColor3 = Theme.Colors.InkSoft,
-		Size = UDim2.new(1, 0, 0, 20),
+		Size = UDim2.new(1, 0, 0, 24),
 		LayoutOrder = 6,
 		Parent = priceCard,
 	})
-	textLimit(feeNote, 18)
+	Kit.textLimit(feeNote, Theme.TextSize.Caption)
 	local listButton = Kit.button({
 		Name = "List",
-		Kind = "Good",
+		Kind = "Primary",
 		Text = "🏷️ List it!",
 		TextScaled = true,
 		Size = UDim2.new(1, 0, 0, SLOT),
 		LayoutOrder = 7,
 		Parent = priceCard,
 	})
-	padButton(listButton, 12, 12)
+	Kit.textLimit(listButton, Theme.TextSize.Button)
 
 	local sellCards: { [string]: SellCard } = {}
 	local band = { Min = 0, Max = 0, Step = 1 }
@@ -1077,13 +1008,13 @@ function MarketPanel.init(ctx: Types.Ctx)
 		button.Name = nurseId
 		button.Text = ""
 		button.AutoButtonColor = false
-		button.BackgroundColor3 = Theme.Colors.Paper
+		button.BackgroundColor3 = Theme.Colors.Card
 		button.BorderSizePixel = 0
 		button.Size = UDim2.fromOffset(STRIP_CARD, STRIP_CARD + 30)
 		button.Parent = strip
-		Kit.corner(button, 14)
-		local stop = Kit.rarityFrame(button, if nurse then nurse.Rarity else "Common")
-		face(button, nurse, {
+		Kit.corner(button, Theme.Radius.Medium)
+		local border = Kit.stroke(button, Theme.Colors.CardLine, Theme.Stroke.Fine)
+		local _, stop = face(button, nurse, {
 			Name = "Face",
 			AnchorPoint = Vector2.new(0.5, 0),
 			Position = UDim2.new(0.5, 0, 0, 5),
@@ -1099,11 +1030,11 @@ function MarketPanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -10, 0, 26),
 			Parent = button,
 		})
-		textLimit(level, 20)
+		Kit.textLimit(level, Theme.TextSize.Body)
 		button.Activated:Connect(function()
 			pick(nurseId)
 		end)
-		return { Button = button, Level = level, StopFrame = stop }
+		return { Button = button, Border = border, Level = level, StopFrame = stop }
 	end
 
 	local function renderSell()
@@ -1124,9 +1055,11 @@ function MarketPanel.init(ctx: Types.Ctx)
 			card.Button.LayoutOrder = order
 			local entry = ctx.State.Nurses[nurseId]
 			card.Level.Text = "Lv " .. tostring(if type(entry.Level) == "number" then entry.Level else 1)
-			card.Button.BackgroundColor3 = if nurseId == selected
-				then Kit.lighten(Theme.Colors.Good, 0.55)
-				else Theme.Colors.Paper
+			-- The picked nurse: the image well's fill and the bold ink outline (no colour of its own).
+			local picked = nurseId == selected
+			card.Button.BackgroundColor3 = if picked then Theme.Colors.Well else Theme.Colors.Card
+			card.Border.Color = if picked then Theme.Colors.Stroke else Theme.Colors.CardLine
+			card.Border.Thickness = if picked then Theme.Stroke.Bold else Theme.Stroke.Fine
 		end
 		for nurseId, card in sellCards do
 			if not seen[nurseId] then
@@ -1200,11 +1133,10 @@ function MarketPanel.init(ctx: Types.Ctx)
 		end
 		local level = if type(entry.Level) == "number" then entry.Level else 1
 		local asking = price
-		ask(Pure.confirmList(nurse.Icon, level, asking), "You get " .. Pure.money(Pure.payout(asking, cfg)), function()
+		Hud.confirm(ctx, Pure.listConfirm(nurse.Icon, level, asking, Pure.payout(asking, cfg)), function()
 			if call(ctx.Remotes.ListNurse, listButton, "Sparkle", nurseId, asking) then
 				selected = nil
-				tab = "Mine"
-				render()
+				setTab("Mine")
 			end
 		end)
 	end)
@@ -1224,7 +1156,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 0,
 		Parent = minePage,
 	})
-	textLimit(mineCount, Theme.TextSize.Body)
+	Kit.textLimit(mineCount, Theme.TextSize.Body)
 	local mineEmpty = Kit.label({
 		Name = "Empty",
 		Text = "Nothing listed yet",
@@ -1234,7 +1166,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 1,
 		Parent = minePage,
 	})
-	textLimit(mineEmpty, Theme.TextSize.Body)
+	Kit.textLimit(mineEmpty, Theme.TextSize.Body)
 	local mineNote = Kit.label({
 		Name = "Note",
 		Text = "💼 Listed nurses keep working",
@@ -1244,7 +1176,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 100,
 		Parent = minePage,
 	})
-	textLimit(mineNote, 18)
+	Kit.textLimit(mineNote, Theme.TextSize.Caption)
 	local mineRows: { [number]: MineRow } = {}
 
 	local function newMineRow(listing: any): MineRow
@@ -1255,8 +1187,8 @@ function MarketPanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -12, 0, ROW_HEIGHT),
 			Parent = minePage,
 		})
-		Kit.corner(row, 14)
-		Kit.stroke(row, Theme.Colors.Outline, 2)
+		Kit.corner(row, Theme.Radius.Medium)
+		Kit.stroke(row, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		face(row, nurse, {
 			Name = "Face",
 			Position = UDim2.fromOffset(8, 8),
@@ -1264,7 +1196,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 		})
 		local unlist = Kit.button({
 			Name = "Unlist",
-			Kind = "Quiet",
+			Kind = "Secondary",
 			Text = "Unlist",
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -1272,7 +1204,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(120, SLOT),
 			Parent = row,
 		})
-		padButton(unlist, 10, 14)
+		Kit.textLimit(unlist, Theme.TextSize.Button)
 		local textLeft = ROW_HEIGHT + 2
 		local title = Kit.label({
 			Name = "Title",
@@ -1284,7 +1216,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -(textLeft + 120 + 16), 0, 28),
 			Parent = row,
 		})
-		textLimit(title, 22)
+		Kit.textLimit(title, Theme.TextSize.Body)
 		local info = Kit.label({
 			Name = "Info",
 			Text = "",
@@ -1295,7 +1227,7 @@ function MarketPanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -(textLeft + 120 + 16), 0, 24),
 			Parent = row,
 		})
-		textLimit(info, 18)
+		Kit.textLimit(info, Theme.TextSize.Caption)
 		local entry: MineRow = { Frame = row, Title = title, Info = info, Unlist = unlist, Listing = listing }
 		unlist.Activated:Connect(function()
 			if not busy then
@@ -1340,17 +1272,9 @@ function MarketPanel.init(ctx: Types.Ctx)
 	local pages: { [string]: ScrollingFrame } = { Buy = buyPage, Sell = sellPage, Mine = minePage }
 
 	render = function()
-		-- The open tab in full candy with outlined text; the others a pale tint.
+		-- Modal.tabs paints the column (Kit.tab); this shows the open tab's page.
 		for name, page in pages do
-			local open = name == tab
-			page.Visible = open
-			local button = tabButtons[name]
-			button.BackgroundColor3 = if open then Kit.lighten(ACCENT, 0.08) else Kit.lighten(ACCENT, 0.78)
-			local caption = button:FindFirstChild("Caption")
-			if caption and caption:IsA("TextLabel") then
-				caption.TextColor3 = if open then Theme.Colors.OnColor else Theme.Colors.Ink
-				Kit.outline(caption, 2).Enabled = open
-			end
+			page.Visible = name == tab
 		end
 		if tab == "Buy" then
 			renderBuy()
@@ -1359,35 +1283,27 @@ function MarketPanel.init(ctx: Types.Ctx)
 		else
 			renderMine()
 		end
-		modal.Focus = tabButtons[tab]
+		modal.Focus = tabButton(tab)
 	end
 
-	for name, button in tabButtons do
-		button.Activated:Connect(function()
-			if tab ~= name then
-				tab = name
-				render()
-			end
-		end)
-	end
 	buyHint.Activated:Connect(function()
-		tab = "Sell"
-		render()
+		setTab("Sell")
 	end)
 
 	local function openTo(which: string?, nurseId: string?)
+		local goTo = tab
 		if which == "Sell" or which == "Mine" or which == "Buy" then
-			tab = which
+			goTo = which
 		end
 		if nurseId then
-			tab = "Sell"
+			goTo = "Sell"
 			if selected ~= nurseId then
 				selected = nurseId
 				band.Min, band.Max = 0, 0
 				syncBand(true)
 			end
 		end
-		render()
+		setTab(goTo) -- paints the column and renders the page
 		modal.open()
 		refresh()
 	end

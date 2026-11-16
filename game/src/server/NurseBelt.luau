@@ -16,28 +16,36 @@
 -- the next nurse nears (the belt model's NextArrivalAt attribute: a GetServerTimeNow time; never a number on
 -- screen, §E9).
 --
--- Where (Joshua, 2026-11-16: "conveyor belt should be on the main road"): Config.Belt.Offset puts its start (the
--- nurse house) just inside the east welcome arch, on the street's row-1 half; it runs Config.Belt.Length studs west
--- (Config.Belt.Heading 180) to the cloud just inside the west arch, past every plot's gate, so a rider is in hire reach
--- (HireDistance) of every gate as it passes. The Hall of Fame garden (past the west arch) and both arches stay clear.
--- The conveyor's top is BELT_TOP (0.9 studs) above the street and its rails and rollers don't collide, so anyone can
--- step over it anywhere: crossing the street between the two rows stays easy. The odds Sign stands apart from the
--- belt, at Config.Belt.SignOffset (the plaza's row-1 edge), facing the spawn and the street's centre.
+-- Where (Joshua, 2026-11-16: "conveyor belt should be on the main road"; 2026-11-17, memory-20261117-001 #3: down the
+-- road's CENTRE line): Config.Belt.Offset puts its start (the nurse house) just inside the east welcome arch, on the
+-- centre line (z = 0); it runs Config.Belt.Length studs west (Config.Belt.Heading 180) to the cloud just inside the
+-- west arch, past every plot's gate, so a rider is in hire reach (HireDistance) of every gate as it passes. The Hall
+-- of Fame garden (past the west arch), both arches and the spawn plaza (the street's row-2 half) stay clear. The
+-- conveyor's top is BELT_TOP (0.9 studs) above the street and its rails and rollers don't collide, so anyone can step
+-- over it anywhere: crossing the street between the two rows stays easy. Riders face the plaza (+z, toward
+-- TownSpawn: Pure.riderFacing).
+-- The look (look build plan §B5, T2; art-direction §4.1/§4.4): a warm-white bed with a yellow stripe, a dark conveyor,
+-- yellow rails, the nurse house in studded purple under a dark roof with "👩‍⚕️ NURSES" floating over its door. The odds
+-- Sign stands apart from the belt at Config.Belt.SignOffset (the plaza's west end), facing TownSpawn: a navy plate
+-- (World/Parts.navyPlate) with "🎲 NURSE ODDS" floating above it, every odd (day and Night Rush, the Golden Hour odd),
+-- the gate lines and the pity count, Pure.SIGN wide (it fits the 9.2 studs tests/TownLayout.spec allows), and a
+-- "🎲 See odds" ProximityPrompt (OddsPrompt) that only opens UI/BeltView's odds popup on the client.
 --
 --   NurseBelt.start()
 --       builds Workspace.NurseBelt from Config.Town.Origin + Config.Belt.Offset (riders move along Heading for
 --       Config.Belt.Length studs): BeltStart and BeltEnd (invisible anchored markers on the conveyor's top: a rider
 --       stands at BeltStart.Position:Lerp(BeltEnd.Position, alpha)), Conveyor (its top face carries the SurfaceGui
 --       ConveyorGui > Clip > Stripes for the client to scroll; attributes StripeStuds and StudsPerSecond), Sign
---       (SurfaceGui OddsGui: every odd now, day and night, the Golden Hour odds, the Lv 3 and R1 gates, the pity
---       count), NextLamp (a Part with a PointLight over the house door; added to a kit belt that lacks one) and
---       Riders (Folder). A Model at ServerStorage.ClinicKit.NurseBelt with the same child names replaces the
---       placeholder (its pivot = the belt's start on the street, its +X along the belt; no scripts; its Sign stays
---       where the kit put it).
+--       (SurfaceGui OddsGui: the floating title and a navy Plate with every odd now, day and night, the Golden Hour
+--       odds, the Lv 3 and R1 gates, the pity count; its ProximityPrompt OddsPrompt "🎲 See odds"), NextLamp (a Part
+--       with a PointLight over the house door; added to a kit belt that lacks one) and Riders (Folder). A Model at
+--       ServerStorage.ClinicKit.NurseBelt with the same child names replaces the placeholder (its pivot = the belt's
+--       start on the street, its +X along the belt; no scripts; its Sign stays where the kit put it and gets the same
+--       plate and prompt).
 --       Then it runs the belt: a rider every Config.Belt.ArriveSeconds (Logic/Belt.roll with the Night Rush and
 --       Golden Hour odds and the server-wide pity), Workspace attributes NightRush (= IsNight), GoldenHour,
 --       GoldenStartsAt, GoldenEndsAt (GetServerTimeNow times of the current or next window) and BeltPity (arrivals
---       left before a guaranteed Rare+), the Shout remote, and HireNurse. Riders face the street's centre line.
+--       left before a guaranteed Rare+), the Shout remote, and HireNurse. Riders face the plaza (TownSpawn's side).
 --   NurseBelt.hire(p, riderId): (ok, message)
 --       the rider exists and isn't hired or leaving · Config.Belt.HireCooldown per player · the player is within
 --       HireDistance of the rider's formula position (Logic/Belt.alpha, never the part) · Logic/Belt.gate (Epic and
@@ -91,6 +99,8 @@ local NurseBuilder = require(script.Parent.NurseBuilder)
 local Nurses = require(script.Parent.Nurses)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
+local Parts = require(script.Parent.World.Parts)
+local Studs = require(script.Parent.World.Studs)
 
 local NurseBelt = {}
 
@@ -114,11 +124,11 @@ local STRIPE_STUDS = 4
 local STRIPE_PIXELS_PER_STUD = 4 -- the conveyor's stripes (a 240-stud belt stays under 1,000 px wide)
 local FALLBACK_GROUND_TOP = 0.5 -- PlotBuilder's street top above Config.Town.Origin.Y (if ClinicTown is missing)
 local SIGN_PIXELS_PER_STUD = 30
-local SIGN_SIZE = Vector2.new(12, 11) -- studs (wide, tall)
-local SIGN_BOTTOM = 4.5 -- the board's bottom edge: riders passing in front never hide its rows
+local PROMPT_NAME = "OddsPrompt" -- the sign's "🎲 See odds" prompt (UI/BeltView opens the odds popup)
 
 local WHITE = Palette.White
-local CANDY = Palette.Candy
+local WORLD = Palette.World
+local ACCENT = Palette.Accent
 
 local MSG = {
 	Gone = "Missed it! Next one 💛",
@@ -255,6 +265,35 @@ function Pure.gateMessage(gate: string): string
 	end
 	return gate .. " first!"
 end
+
+-- The look overhaul (look build plan §B5). The odds sign, in studs: the navy plate (Width x Height, its bottom edge
+-- Bottom above the ground) with the floating title (Title tall) above it. Facing TownSpawn from Config.Belt.SignOffset,
+-- its width runs along the plaza's depth: tests/TownLayout.spec allows at most 9.2 there.
+Pure.SIGN = table.freeze({ Width = 9, Height = 8.5, Bottom = 1.6, Title = 1.8, Depth = 0.3 })
+
+-- A flat unit direction from (fromX, fromZ) toward (toX, toZ), or the fallback when they're under a stud apart.
+function Pure.toward(fromX: number, fromZ: number, toX: number, toZ: number, fallbackX: number, fallbackZ: number)
+	local dx, dz = toX - fromX, toZ - fromZ
+	local length = math.sqrt(dx * dx + dz * dz)
+	if length < 1 then
+		return fallbackX, fallbackZ
+	end
+	return dx / length, dz / length
+end
+
+-- Which way riders face (memory-20261117-001 #3): across the belt, toward the plaza (TownSpawn at (toX, toZ)). With
+-- the belt running along (dirX, dirZ) from (fromX, fromZ), that is the part of the way to the spawn that crosses the
+-- belt; a spawn on the belt's own line (under a stud off it) leaves them facing back up the belt.
+function Pure.riderFacing(dirX: number, dirZ: number, fromX: number, fromZ: number, toX: number, toZ: number)
+	local dx, dz = toX - fromX, toZ - fromZ
+	local along = dx * dirX + dz * dirZ
+	local ax, az = dx - dirX * along, dz - dirZ * along
+	local length = math.sqrt(ax * ax + az * az)
+	if length <= 1 then
+		return -dirX, -dirZ
+	end
+	return ax / length, az / length
+end
 -- PURE-END
 
 NurseBelt.Pure = Pure
@@ -297,7 +336,7 @@ type Belt = {
 	GroundY: number,
 	Dir: Vector3, -- along the belt
 	Side: Vector3, -- across it
-	Facing: CFrame, -- a rider's rotation: looking across the street, toward its centre line
+	Facing: CFrame, -- a rider's rotation: looking across the belt, toward the plaza (TownSpawn)
 	Sign: SignView?,
 }
 
@@ -410,13 +449,13 @@ end
 
 -- The nurse house's "next nurse" lamp: a soft ball with a dim light (no shadows). The client sets how bright it is.
 local function addLamp(parent: Instance, cf: CFrame): Part
-	local lamp = ball(parent, LAMP_NAME, 1.1, cf, CANDY.Yellow)
+	local lamp = ball(parent, LAMP_NAME, 1.1, cf, ACCENT.Yellow)
 	lamp.CanCollide = false
 	lamp.CanQuery = false
 	lamp.CanTouch = false
 	local light = Instance.new("PointLight")
 	light.Name = "Glow"
-	light.Color = CANDY.Yellow
+	light.Color = WORLD.Lamp
 	light.Brightness = 0.3
 	light.Range = 9
 	light.Shadows = false
@@ -480,28 +519,29 @@ local function placeholderBelt(frame: CFrame): Model
 	model.Name = MODEL_NAME
 	local bedHeight = BELT_TOP - 0.2
 
-	-- The bed: white with a pink candy stripe, a soft plum conveyor on top, yellow rails, pink rollers at the ends. Only
-	-- the bed and the conveyor collide, and the top is BELT_TOP (0.9) above the street: a step anyone walks over.
+	-- The bed: warm white with a yellow stripe, a dark conveyor on top (its white stripes scroll), yellow rails, dark
+	-- rollers at the ends. Only the bed and the conveyor collide, and the top is BELT_TOP (0.9) above the street: a step
+	-- anyone walks over. It reads clearly on the dark road (art-direction §4.1: warm whites, never pure white).
 	part(
 		model,
 		"BeltBed",
 		Vector3.new(length + 3, bedHeight, BELT_WIDTH + 1.6),
 		frame * CFrame.new(length / 2, bedHeight / 2, 0),
-		WHITE
+		WORLD.Trim
 	)
 	part(
 		model,
 		"BedStripe",
-		Vector3.new(length + 3.05, 0.45, BELT_WIDTH + 1.65),
-		frame * CFrame.new(length / 2, bedHeight * 0.55, 0),
-		CANDY.Pink
+		Vector3.new(length + 3.05, 0.3, BELT_WIDTH + 1.65),
+		frame * CFrame.new(length / 2, bedHeight * 0.5, 0),
+		ACCENT.Yellow
 	)
 	local conveyor = part(
 		model,
 		"Conveyor",
 		Vector3.new(length + 2, 0.2, BELT_WIDTH),
 		frame * CFrame.new(length / 2, BELT_TOP - 0.1, 0),
-		Palette.InkSoft
+		WORLD.Roof
 	)
 	addStripes(conveyor)
 	for _, side in { -1, 1 } do
@@ -511,7 +551,7 @@ local function placeholderBelt(frame: CFrame): Model
 			length + 2,
 			0.4,
 			frame * CFrame.new(length / 2, BELT_TOP + 0.2, side * (BELT_WIDTH / 2 + 0.35)),
-			CANDY.Yellow
+			ACCENT.Yellow
 		)
 		rail.CanCollide = false -- walk-through: the rails never stop anyone crossing
 		rail.CanQuery = false
@@ -524,41 +564,57 @@ local function placeholderBelt(frame: CFrame): Model
 			BELT_WIDTH + 1.7,
 			bedHeight + 0.3,
 			frame * CFrame.new(x, (bedHeight + 0.3) / 2, 0) * alongZ,
-			CANDY.Pink
+			WORLD.Roof
 		)
 		roller.CanCollide = false
 	end
 
-	-- The nurse house at the start: riders step out of its door onto the belt. (The odds sign stands on its own at
-	-- the plaza: buildSignStand.)
-	local houseX, houseDepth, houseHeight = -4.4, BELT_WIDTH + 3, 9
-	part(
+	-- The nurse house at the start: riders step out of its door onto the belt. Studded purple walls (whole studs: 5 x 8,
+	-- the alignment rule), a warm-white band, a dark flat roof, and its name floating over the door. (The odds sign
+	-- stands on its own at the plaza: buildSignStand.)
+	local houseX, houseWidth, houseDepth, houseHeight = -4.5, 5, BELT_WIDTH + 3, 9
+	local house = part(
 		model,
 		"NurseHouse",
-		Vector3.new(5, houseHeight, houseDepth),
+		Vector3.new(houseWidth, houseHeight, houseDepth),
 		frame * CFrame.new(houseX, houseHeight / 2, 0),
-		WHITE
+		ACCENT.Purple
 	)
+	house.CastShadow = true
+	Studs.apply(house)
 	part(
 		model,
 		"HouseStripe",
-		Vector3.new(5.05, 0.6, houseDepth + 0.05),
-		frame * CFrame.new(houseX, houseHeight - 0.6, 0),
-		CANDY.Pink
+		Vector3.new(houseWidth + 0.05, 0.6, houseDepth + 0.05),
+		frame * CFrame.new(houseX, houseHeight - 0.5, 0),
+		WORLD.Trim
 	)
-	cylinder(model, "Roof", houseDepth + 0.6, 5.4, frame * CFrame.new(houseX, houseHeight, 0) * alongZ, CANDY.Pink)
-	ball(model, "RoofBall", 1.6, frame * CFrame.new(houseX, houseHeight + 3, 0), CANDY.Yellow)
+	local roof = part(
+		model,
+		"Roof",
+		Vector3.new(houseWidth + 0.6, 0.6, houseDepth + 0.6),
+		frame * CFrame.new(houseX, houseHeight + 0.3, 0),
+		WORLD.Roof
+	)
+	roof.CastShadow = true
 	local door = part(
 		model,
 		"Door",
 		Vector3.new(0.2, 4.2, BELT_WIDTH - 0.6),
-		frame * CFrame.new(houseX + 2.55, 2.4, 0),
+		frame * CFrame.new(houseX + houseWidth / 2 + 0.05, 2.4, 0),
 		Palette.Ink
 	)
 	door.CanCollide = false
+	-- Its name in floating outlined letters on the door's face, over the lamp (art-direction §4.4: no board).
+	local nameGui = Parts.surface(house, "HouseGui", Enum.NormalId.Right, 30, 220, 0)
+	Parts.floatText(nameGui, "👩‍⚕️ NURSES", {
+		Shadow = true,
+		Size = UDim2.fromScale(0.9, 0.17),
+		Position = UDim2.fromScale(0.05, 0.12),
+	})
 
 	-- The "next nurse" lamp over the door (§E9): BeltView brightens it as the next nurse nears. No numbers anywhere.
-	addLamp(model, frame * CFrame.new(houseX + 2.85, 5.4, 0))
+	addLamp(model, frame * CFrame.new(houseX + houseWidth / 2 + 0.35, 5.4, 0))
 
 	-- The cloud cushion at the far end: unhired nurses hop off into it and poof home.
 	local endX = length + 4.6
@@ -569,7 +625,7 @@ local function placeholderBelt(frame: CFrame): Model
 		{ At = Vector3.new(1.7, 0.8, 0.2), Size = 2 },
 	}
 	for _, puff in puffs do
-		local cloud = ball(model, "Cloud", puff.Size, frame * CFrame.new(Vector3.new(endX, 0, 0) + puff.At), WHITE)
+		local cloud = ball(model, "Cloud", puff.Size, frame * CFrame.new(Vector3.new(endX, 0, 0) + puff.At), WORLD.Trim)
 		cloud.CanCollide = false
 	end
 
@@ -582,25 +638,41 @@ local function placeholderBelt(frame: CFrame): Model
 	return model
 end
 
--- The odds sign on two candy posts, its board raised (SIGN_BOTTOM) so nurses riding past never hide a row. `at` is
--- the ground under its middle, its LookVector the way its Front (the odds) faces.
+-- The odds sign: a navy plate on two dark posts, the title floating above it (Pure.SIGN). The Sign part itself is
+-- see-through (it only carries OddsGui, so the plate's round corners show); a dark backing just inside the plate's
+-- edge keeps the plate solid from the front. `at` is the ground under its middle, its LookVector the way its Front
+-- (the odds) faces: TownSpawn.
 local function buildSignStand(model: Model, at: CFrame)
-	local w, h = SIGN_SIZE.X, SIGN_SIZE.Y
-	local sign = part(model, "Sign", Vector3.new(w, h, 0.3), at * CFrame.new(0, SIGN_BOTTOM + h / 2, 0), CANDY.Pink)
-	sign.CanCollide = false
-	local trim = part(
+	local S = Pure.SIGN
+	local tall = S.Height + S.Title
+	local sign = part(
 		model,
-		"SignTrim",
-		Vector3.new(w + 0.8, h + 0.8, 0.25),
-		at * CFrame.new(0, SIGN_BOTTOM + h / 2, 0.28),
-		WHITE
+		"Sign",
+		Vector3.new(S.Width, tall, S.Depth),
+		at * CFrame.new(0, S.Bottom + tall / 2, 0),
+		Palette.Navy
 	)
-	trim.CanCollide = false
-	local postHeight = SIGN_BOTTOM + h + 0.4
+	sign.Transparency = 1
+	sign.CanCollide = false
+	local back = part(
+		model,
+		"SignBack",
+		Vector3.new(S.Width - 1.2, S.Height - 1.2, 0.2),
+		at * CFrame.new(0, S.Bottom + S.Height / 2, S.Depth / 2 + 0.1),
+		WORLD.Roof
+	)
+	back.CanCollide = false
+	local postHeight = S.Bottom + S.Height - 0.4
 	for _, side in { -1, 1 } do
-		local x = side * (w / 2 - 0.8)
-		part(model, "SignPost", Vector3.new(0.7, postHeight, 0.7), at * CFrame.new(x, postHeight / 2, 0.6), WHITE)
-		ball(model, "SignPostCap", 1.1, at * CFrame.new(x, postHeight + 0.4, 0.6), CANDY.Yellow)
+		local x = side * (S.Width / 2 - 1.2)
+		local post = part(
+			model,
+			"SignPost",
+			Vector3.new(0.6, postHeight, 0.6),
+			at * CFrame.new(x, postHeight / 2, S.Depth / 2 + 0.5),
+			WORLD.Roof
+		)
+		post.CastShadow = true
 	end
 	return sign
 end
@@ -693,30 +765,31 @@ local function buildSign(sign: BasePart): SignView
 	gui.LightInfluence = 0 -- the odds never dim at night
 	gui.MaxDistance = 180
 
-	local board = Instance.new("Frame")
-	board.Name = "Board"
-	board.Size = UDim2.fromScale(1, 1)
-	board.BackgroundColor3 = CANDY.Pink
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.06, 0)
-	corner.Parent = board
-	local rim = Instance.new("UIStroke")
-	rim.Color = WHITE
-	rim.Thickness = 6
-	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	rim.Parent = board
+	-- The title floats over the plate (art-direction §4.4); the table sits on the navy plate (a board only where there
+	-- is a table to read). A kit sign of another size keeps the same shares.
+	local S = Pure.SIGN
+	local titleShare = S.Title / (S.Title + S.Height)
+	Parts.floatText(gui, "🎲 NURSE ODDS", {
+		Gold = true,
+		Shadow = true,
+		Size = UDim2.fromScale(1, titleShare * 0.92),
+		Position = UDim2.fromScale(0, 0),
+	})
+	local board = Parts.navyPlate(gui, {
+		Size = UDim2.new(1, -8, 1 - titleShare, -8),
+		Position = UDim2.fromScale(0.5, titleShare + (1 - titleShare) / 2),
+	})
 	local padding = Instance.new("UIPadding")
-	padding.PaddingTop = UDim.new(0.03, 0)
+	padding.PaddingTop = UDim.new(0.035, 0)
 	padding.PaddingBottom = UDim.new(0.03, 0)
-	padding.PaddingLeft = UDim.new(0.05, 0)
-	padding.PaddingRight = UDim.new(0.05, 0)
+	padding.PaddingLeft = UDim.new(0.06, 0)
+	padding.PaddingRight = UDim.new(0.06, 0)
 	padding.Parent = board
 	local list = Instance.new("UIListLayout")
 	list.SortOrder = Enum.SortOrder.LayoutOrder
 	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	list.Padding = UDim.new(0.008, 0)
 	list.Parent = board
-	board.Parent = gui
 
 	local order = 0
 	local function row(height: number): Frame
@@ -739,10 +812,9 @@ local function buildSign(sign: BasePart): SignView
 		return UDim2.fromScale(0.5, 1), UDim2.fromScale(0.23, 0.92), UDim2.fromScale(0.23, 0.92)
 	end
 
-	textLabel(row(0.12), "Title", "👩‍⚕️ Nurse Belt", UDim2.fromScale(1, 1))
-	local status = textLabel(row(0.08), "Status", "", UDim2.fromScale(1, 1), CANDY.Yellow)
+	local status = textLabel(row(0.09), "Status", "", UDim2.fromScale(1, 1), Palette.Gold)
 
-	local head = row(0.07)
+	local head = row(0.075)
 	local nameSize, daySize, nightSize = columns(head)
 	textLabel(head, "Name", "", nameSize).LayoutOrder = 1
 	local dayHead = textLabel(head, "Day", "☀️", daySize)
@@ -762,7 +834,7 @@ local function buildSign(sign: BasePart): SignView
 	}
 	for _, rarity in Rarities.Order do
 		local info = rarityInfo(rarity)
-		local line = row(0.067)
+		local line = row(0.075)
 		local a, b, c = columns(line)
 		local name =
 			textLabel(line, "Name", (if info then info.Icon .. " " .. info.Name else rarity), a, rarityColor(rarity))
@@ -777,11 +849,31 @@ local function buildSign(sign: BasePart): SignView
 		view.Day[rarity] = day
 		view.Night[rarity] = night
 	end
-	view.Golden = textLabel(row(0.07), "Golden", "", UDim2.fromScale(1, 1), CANDY.Yellow)
-	view.Gate = textLabel(row(0.095), "Gate", "", UDim2.fromScale(1, 1)) -- two lines: the level and rebirth gates
+	view.Golden = textLabel(row(0.075), "Golden", "", UDim2.fromScale(1, 1), Palette.Gold)
+	view.Gate = textLabel(row(0.11), "Gate", "", UDim2.fromScale(1, 1)) -- two lines: the level and rebirth gates
 	view.Pity = textLabel(row(0.075), "Pity", "", UDim2.fromScale(1, 1))
 	gui.Parent = sign
 	return view
+end
+
+-- The sign's "🎲 See odds" prompt: it only opens UI/BeltView's odds popup on the client (no server action), so it
+-- never needs a remote. Low on the plate, where a kid reading it stands. Added once (a kit sign keeps its own).
+local function addOddsPrompt(sign: BasePart)
+	if sign:FindFirstChild(PROMPT_NAME, true) then
+		return
+	end
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "OddsAttachment"
+	attachment.Position = Vector3.new(0, -sign.Size.Y / 2 + math.min(3, sign.Size.Y / 2), 0)
+	attachment.Parent = sign
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = PROMPT_NAME
+	prompt.ActionText = "🎲 See odds"
+	prompt.ObjectText = ""
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = attachment
 end
 
 local function setCell(label: TextLabel, text: string, active: boolean)
@@ -1291,25 +1383,25 @@ function NurseBelt.start()
 		old:Destroy()
 	end
 	local model = kitBelt(frame) or placeholderBelt(frame)
+	-- TownSpawn (the plaza's middle): the sign and the riders turn to it.
+	local spawnAt = town + Config.Town.SpawnOffset
 	if not model:FindFirstChild("Sign") then
-		-- The placeholder's odds sign: at the plaza's edge, facing the street's centre line (and the spawn).
+		-- The placeholder's odds sign: at the plaza's west end (Config.Belt.SignOffset), facing TownSpawn.
 		local offset = (Config.Belt :: any).SignOffset
 		local at = if typeof(offset) == "Vector3" then town + offset else origin
 		local foot = Vector3.new(at.X, ground, at.Z)
-		local toward = Vector3.new(0, 0, town.Z - at.Z)
-		local face = if toward.Magnitude > 0.5 then toward.Unit else -frame.XVector
-		buildSignStand(model, CFrame.lookAt(foot, foot + face))
+		local fx, fz = Pure.toward(at.X, at.Z, spawnAt.X, spawnAt.Z, -frame.XVector.X, -frame.XVector.Z)
+		buildSignStand(model, CFrame.lookAt(foot, foot + Vector3.new(fx, 0, fz)))
 	end
 	local start = model:FindFirstChild("BeltStart") :: BasePart
 	local finish = model:FindFirstChild("BeltEnd") :: BasePart
 	local along = finish.Position - start.Position
 	local dir = Vector3.new(along.X, 0, along.Z)
 	dir = if dir.Magnitude > 0.1 then dir.Unit else Vector3.xAxis
-	-- Riders face the street's centre line (where the plaza, the spawn and the other row of gates are); a belt on the
-	-- centre line itself faces back up the belt.
-	local toCentre = Vector3.new(town.X - start.Position.X, 0, town.Z - start.Position.Z)
-	local across = toCentre - dir * toCentre:Dot(dir)
-	local facing = if across.Magnitude > 1 then across.Unit else -dir
+	-- Riders face the plaza (memory-20261117-001 #3: the belt runs down the centre line, the plaza and the spawn are on
+	-- the street's row-2 half): across the belt, toward TownSpawn.
+	local faceX, faceZ = Pure.riderFacing(dir.X, dir.Z, start.Position.X, start.Position.Z, spawnAt.X, spawnAt.Z)
+	local facing = Vector3.new(faceX, 0, faceZ)
 	local b: Belt = {
 		Model = model,
 		Start = start,
@@ -1324,6 +1416,7 @@ function NurseBelt.start()
 	local sign = model:FindFirstChild("Sign")
 	if sign and sign:IsA("BasePart") then
 		b.Sign = buildSign(sign)
+		addOddsPrompt(sign)
 	end
 	if not model:FindFirstChild(LAMP_NAME) then
 		-- A kit belt without the "next nurse" lamp gets one above where riders step on, a little back toward the house.

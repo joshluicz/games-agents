@@ -509,66 +509,33 @@ end
 
 ------------------------------------------------------------------------------------------------------------------
 -- The kiosk (Workspace.PlayerMarket, §B4): ≤ 25 parts, no Highlight, no shadow-casting light, on the plaza's row-2
--- half at Config.Town.Origin + Config.Market.Offset, facing the street's centre line (and the spawn). Its prompt
--- only opens the panel on the client (ProximityPrompt attribute Kiosk = "Market"); the server decides everything.
+-- half at Config.Town.Origin + Config.Market.Offset, facing TownSpawn (like the Agency's). Its prompt only opens the
+-- panel on the client (ProximityPrompt attribute Kiosk = "Market"); the server decides everything.
 -- The brother's ServerStorage.ClinicKit.PlayerMarket replaces the placeholder (pivot = the ground under its middle,
 -- facing the spawn); a ProximityPrompt named Prompt in it is used, else one is added.
+-- The look overhaul (look build plan §B5, T2): the town's kiosk shell from World/Props.kiosk (shared with the
+-- Agency): studded walls in the Orange accent, a dark roof instead of the striped candy awning, the name floating
+-- over it in outlined letters with "Only this server" and "No swaps · No chat" under it. The prompt (on the counter)
+-- and its attribute are unchanged.
 ------------------------------------------------------------------------------------------------------------------
 
-local function part(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3): Part
-	local p = Instance.new("Part")
-	p.Name = name
-	p.Anchored = true
-	p.Size = size
-	p.CFrame = cf
-	p.Color = color
-	p.Material = Enum.Material.SmoothPlastic
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.CastShadow = false
-	p.Parent = parent
-	return p
-end
-
-local function soft(p: BasePart): BasePart
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	return p
-end
-
-local function streetTop(): number
+-- The street's top (the kiosk's floor) where it stands: the town's floor under it (the plaza), else the street.
+local function groundY(at: Vector3): number
 	local town = Workspace:FindFirstChild("ClinicTown")
-	local street = town and town:FindFirstChild("Street")
-	if street and street:IsA("BasePart") then
-		return street.Position.Y + street.Size.Y / 2
+	if town then
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { town }
+		local hit = Workspace:Raycast(Vector3.new(at.X, at.Y + 30, at.Z), Vector3.new(0, -60, 0), params)
+		if hit then
+			return hit.Position.Y
+		end
+		local street = town:FindFirstChild("Street")
+		if street and street:IsA("BasePart") then
+			return street.Position.Y + street.Size.Y / 2
+		end
 	end
 	return Config.Town.Origin.Y + FALLBACK_GROUND_TOP
-end
-
-local function signLabel(parent: Instance, text: string, size: UDim2, position: UDim2, color: Color3)
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = size
-	label.Position = position
-	label.Font = Palette.DisplayFont
-	label.TextScaled = true
-	label.TextColor3 = color
-	label.Text = text
-	Palette.outlineText(label, 3)
-	label.Parent = parent
-end
-
-local function surfaceGui(parent: BasePart, name: string): SurfaceGui
-	local gui = Instance.new("SurfaceGui")
-	gui.Name = name
-	gui.Face = Enum.NormalId.Front
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = 40
-	gui.LightInfluence = 0 -- readable at night too
-	gui.MaxDistance = 160
-	gui.Parent = parent
-	return gui
 end
 
 local function addPrompt(parent: Instance): ProximityPrompt
@@ -583,69 +550,28 @@ local function addPrompt(parent: Instance): ProximityPrompt
 	return prompt
 end
 
--- A paler tint (the stall's back panel).
-local function paler(color: Color3): Color3
-	return color:Lerp(Palette.White, 0.45)
+-- The kiosk's floating words: its name and the two same-server rules (each 6 words or fewer).
+local function buildSign(): (string, { string })
+	return "🏷️ MARKET", { "Only this server", "No swaps · No chat" }
 end
 
--- The placeholder stall: a candy counter under a striped awning, a sign on top. 19 parts. `frame` is the ground
--- under its middle; its LookVector (local -Z) faces the street's centre line.
+-- The placeholder stall: World/Props.kiosk's shell in the Orange accent, the prompt on its counter. `frame` is the
+-- ground under its middle; its LookVector (local -Z) faces TownSpawn.
 local function placeholderKiosk(frame: CFrame): Model
-	local candy = Palette.Candy
-	local white = Palette.White
-	local model = Instance.new("Model")
-	model.Name = MODEL_NAME
-
-	local base = part(model, "Base", Vector3.new(7.4, 0.4, 4.6), frame * CFrame.new(0, 0.2, 0), Palette.World.Path)
-	model.PrimaryPart = base
-	local counter =
-		part(model, "Counter", Vector3.new(6.4, 2.8, 1.6), frame * CFrame.new(0, 0.4 + 1.4, -1.3), candy.Orange)
-	part(model, "CounterTop", Vector3.new(6.8, 0.3, 2), frame * CFrame.new(0, 3.35, -1.3), white)
-	part(model, "Back", Vector3.new(6.4, 4.4, 0.3), frame * CFrame.new(0, 2.6, 2.05), paler(candy.Orange))
-	for _, x in { -3.45, 3.45 } do
-		for _, z in { -1.9, 1.9 } do
-			part(model, "Post", Vector3.new(0.5, 7, 0.5), frame * CFrame.new(x, 3.9, z), white)
-			local cap = part(model, "PostCap", Vector3.new(0.8, 0.8, 0.8), frame * CFrame.new(x, 7.6, z), candy.Yellow)
-			cap.Shape = Enum.PartType.Ball
-			soft(cap)
-		end
-	end
-	-- The awning: four stripes, tipped down toward the front.
-	local tilt = CFrame.Angles(math.rad(-11.5), 0, 0)
-	for index = 1, 4 do
-		local x = -3.7 + (index - 0.5) * 1.85
-		soft(
-			part(
-				model,
-				"Awning",
-				Vector3.new(1.85, 0.25, 5.1),
-				frame * CFrame.new(x, 6.95, -0.15) * tilt,
-				if index % 2 == 1 then candy.Pink else white
-			)
-		)
-	end
-	local sign = soft(part(model, "Sign", Vector3.new(5.2, 1.8, 0.3), frame * CFrame.new(0, 7.35, -2.75), candy.Pink))
-	local signGui = surfaceGui(sign, "SignGui")
-	signLabel(signGui, "🏷️ MARKET", UDim2.fromScale(0.94, 0.62), UDim2.fromScale(0.03, 0.04), white)
-	signLabel(signGui, "Only this server", UDim2.fromScale(0.8, 0.3), UDim2.fromScale(0.1, 0.66), candy.Yellow)
-	local front = surfaceGui(counter, "CounterGui")
-	signLabel(front, "🐶 Buy & sell nurses", UDim2.fromScale(0.9, 0.36), UDim2.fromScale(0.05, 0.12), white)
-	signLabel(front, "No swaps · No chat", UDim2.fromScale(0.7, 0.26), UDim2.fromScale(0.15, 0.6), candy.Yellow)
-	-- Two price tags on the counter.
-	for _, x in { -2.2, 2.2 } do
-		soft(
-			part(
-				model,
-				"Tag",
-				Vector3.new(0.9, 0.6, 0.12),
-				frame * CFrame.new(x, 3.8, -1.6) * CFrame.Angles(0, 0, math.rad(if x < 0 then 12 else -12)),
-				candy.Yellow
-			)
-		)
-	end
-	addPrompt(counter)
-	model.WorldPivot = frame
-	return model
+	-- Required here, not at the top: tests/MarketServer.spec runs this module without Roblox's world (the kiosk
+	-- can't build there and only warns).
+	local Props = require(script.Parent.World.Props)
+	local width, depth = 7, 4.5
+	local title, lines = buildSign()
+	local kiosk = Props.kiosk(nil, frame, {
+		Name = MODEL_NAME,
+		Title = title,
+		Lines = lines,
+		Accent = Palette.Accent.Orange,
+		Size = Vector2.new(width, depth),
+	})
+	addPrompt(kiosk.Counter)
+	return kiosk.Model
 end
 
 -- The brother's kiosk, if there is one: cloned clean (no scripts, no Highlights, no shadows), with a Prompt.
@@ -691,8 +617,10 @@ local function buildKiosk()
 	local town = Config.Town.Origin
 	local offset = (Config.Market :: any).Offset
 	local at = if typeof(offset) == "Vector3" then town + offset else town
-	local foot = Vector3.new(at.X, streetTop(), at.Z)
-	local toward = Vector3.new(0, 0, town.Z - at.Z)
+	local foot = Vector3.new(at.X, groundY(at), at.Z)
+	local spawn = Workspace:FindFirstChild("TownSpawn")
+	local target = if spawn and spawn:IsA("BasePart") then spawn.Position else town + Config.Town.SpawnOffset
+	local toward = Vector3.new(target.X - foot.X, 0, target.Z - foot.Z)
 	local face = if toward.Magnitude > 0.5 then toward.Unit else Vector3.new(0, 0, -1)
 	local frame = CFrame.lookAt(foot, foot + face)
 	local old = Workspace:FindFirstChild(MODEL_NAME)

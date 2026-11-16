@@ -5,31 +5,36 @@
 --   init(ctx)   opens on ctx.fire("Open", "Nurses", "Team" | "Branch" | rarity?) (the Hud's 👩‍⚕️ button, anyone);
 --               listens for "NurseNews" and "MarketNews" (🏷️ on your listed nurses); fires "NursesNew" (count) for
 --               the button's dot, "Open" ("NurseOdds") for UI/BeltView's odds popup, "Open" ("Agency") / "Open"
---               ("Market") from the strip, "Sell" (nurseId) / "List" (nurseId) from a Team card (UI/AgencyPanel's
---               sell confirm, UI/MarketPanel's list flow), and "Sound" (Sparkle, Click; Hire and Job cues come with
---               NurseNews in Feel/Sounds). Asks SetJob(nurseId, job), ClaimBranchNurse() and, once, GetMarket().
+--               ("Market") from the Team page's links, "Sell" (nurseId) / "List" (nurseId) from a Team card
+--               (UI/AgencyPanel's sell confirm, UI/MarketPanel's list flow), and "Sound" (Sparkle, Click; Hire and Job
+--               cues come with NurseNews in Feel/Sounds). Asks SetJob(nurseId, job), ClaimBranchNurse() and, once,
+--               GetMarket().
 --   NursePanel.Pure   the pure helpers below (tests/NurseUI.spec loads the block on its own)
 --
--- Inside (a Hud.modal Panel, cyan like its HUD button):
---   header    "👩‍⚕️ Journal" / "👩‍⚕️ Team" and a completion pill "📔 n%" (hired out of all, Logic/Nurse.journal;
+-- Inside (a Hud.modal Panel on the one template: the navy header, Modal.tabs down the left, neutral cards, buttons by
+-- role; look build plan §B8, §D T7):
+--   header    "👩‍⚕️ Journal" / "👩‍⚕️ Team" and its one meta chip "📔 n%" (hired out of all, Logic/Nurse.journal;
 --             rebirth-only nurses are left out of it)
---   strip     👩‍⚕️ Team n/cap · 📔 Journal (the two views) · 🏢 Agency · 🏷️ Market
---   Journal   (stays first) tabs down the left, one per rarity (Data/Rarities.Order) with hired/total (✅ when the
+--   tabs      ONE column (Modal.tabs; it scrolls when a phone is too short for all eight): 👩‍⚕️ Team ("n/cap"), then
+--             the Journal's rarities, then 🏢. The old strip's 🏢 Agency and 🏷️ Market links head the Team page
+--   Journal   one tab per rarity (Data/Rarities.Order, its colour as the tab's stripe) with hired/total (✅ when the
 --             group is done) and a dot for news inside, plus a 🏢 tab for rebirth-only nurses (FounderFennec):
 --               a rarity page: its header (icon, "Night Rush only" / "Golden Hour only", a progress bar, the group
---               reward 💰 + decor with ✅ and rays once JournalSets has it, a 🎲 chip with the odds right now) and a
+--               reward 💰 + decor with ✅ and a gold badge once JournalSets has it, a 🎲 link with the odds right now
+--               that opens THE belt odds popup (UI/BeltView's, on Hud.oddsPopup)) and a
 --               card per nurse: unseen (a silhouette, "???", where to find it) · seen (greyed, its name, job, belt
 --               price) · hired (full colour with a cap in the rarity's colour, level and stat, 👩‍⚕️ Team; ✅ while it
 --               works, 💤 while it rests)
 --               the 🏢 page: a card per rebirth-only nurse: "🏢 R5" until then, 🎁 Claim while it waits for a roster
 --               place (Rebirth.Pending), then hired
---   Team      the roster "👩‍⚕️ n/cap" (Logic/Nurse.rosterCap: 3, +1 a rebirth, at most 8), "💤 n resting" for an
---             over-cap save, the team chips ("🛎️ ×2 +10% 💰", Logic/Jobs.teams/Data/Departments) or a hint, the 🎁 gift
+--   Team      the Team row (🏢 Agency · 🏷️ Market), the roster "👩‍⚕️ n/cap" (Logic/Nurse.rosterCap: 3, +1 a rebirth,
+--             at most 8), "💤 n resting" for an over-cap save, the team chips ("🛎️ ×2 +10% 💰", Logic/Jobs.teams /
+--             Data/Departments) or a hint, the 🎁 gift
 --             row, then one big card per nurse (working first, then resting): its face and level, an XP bar (⭐ MAX at
 --             the level cap), its specialty, its ability with a Kit.ring that fills as it recharges (from the plot
 --             nurse's AbilityReadyAt / AbilityCooldown; never seconds), the job button (opens the job picker), and
---             💰 Sell → "Sell" · 🏷️ List → "List" (🏷️ Listed opens the Market); a rebirth-only nurse "🏢 Stays with
---             you". Cards with news wear NEW! / ⬆️.
+--             💰 Sell → "Sell" · 🏷️ List → "List" (🏷️ Listed opens the Market; both Secondary: the Agency's and the
+--             Market's own confirms ask first); a rebirth-only nurse "🏢 Stays with you". Cards with news wear NEW! / ⬆️.
 --   job picker  a Popup over the panel: every job (Data/Jobs) with its icon, name and words, ✅ on the one it works,
 --             "🏥 Lv 2" for one not open yet, 💤 for a resting nurse while the roster is full, ⭐ where its specialty
 --             gives +40%. Tapping an open job asks SetJob.
@@ -48,7 +53,6 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
 local Logic = Shared:WaitForChild("Logic")
 local BeltLogic = require(Logic:WaitForChild("Belt"))
 local NurseLogic = require(Logic:WaitForChild("Nurse"))
@@ -58,38 +62,35 @@ local TutorialLogic = require(Logic:WaitForChild("Tutorial"))
 local BeltView = require(script.Parent.BeltView)
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
+local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
 
 local BeltPure = BeltView.Pure
 
 local NursePanel = {}
 
-local ACCENT = Theme.Colors.Cyan
-local TAB_WIDTH = Theme.Size.IconButton
 local SLOT = Theme.Size.ButtonHeight
-local STRIP_HEIGHT = SLOT + 8
-local MODE_WIDTH = 158
-local LINK_WIDTH = 136
-local PILL_WIDTH = 118
+local GAP = Theme.Space.Gap
+local LINK_WIDTH = 170
 local MIN_CARD = 112
 local CARD_GAP = 10
--- Under each card's face: 4 gap + name 22 + info 20 + 4 gap + the button + 6, plus the face's 6 on top.
-local CARD_FIXED = 6 + 4 + 22 + 20 + 4 + SLOT + 6
+local NAME_HEIGHT = 22
+local INFO_HEIGHT = 40 -- two lines: a narrow card's "🧪 Lv 3  ⚡ 11s" at the 18 px floor
+-- Under each card's face: 4 gap + name + info + 4 gap + the button + 6, plus the face's 6 on top.
+local CARD_FIXED = 6 + 4 + NAME_HEIGHT + INFO_HEIGHT + 4 + SLOT + 6
 local HEADER_HEIGHT = 8 + 44 + 6 + 14 + 8 + SLOT + 8
 local BRANCH_HEADER_HEIGHT = 8 + 44 + 6 + 14 + 8
-local ODDS_WIDTH = 100
+local ODDS_WIDTH = 120
 local STAMP_SIZE = Vector2.new(132, 156)
 local STAMP_SECONDS = 1.7
 local STAMP_QUEUE_MAX = 4
-local UNSEEN_FILL = Kit.lighten(Theme.Colors.Disabled, 0.55)
-local UNSEEN_FACE = Kit.lighten(Theme.Colors.Disabled, 0.2)
-local SEEN_FACE = Kit.lighten(Theme.Colors.Disabled, 0.45)
-local RESTING_FILL = Kit.lighten(Theme.Colors.Disabled, 0.62)
+local RESTING_FILL = Kit.lighten(Theme.Colors.Disabled, 0.62) -- a resting nurse's card: muted
 -- The Team card: a face on the left, name / XP / chips beside it, the ability ring top right, buttons along the foot.
-local FACE = 72
+local FACE = 76
 local LEFT = 8 + FACE + 10
 local RING = 56
-local ACTION_WIDTH = 96
+local RING_COLOR = Theme.Colors.Collect -- the ability ring's beads (full = ready)
+local ACTION_WIDTH = 110
 local TEAM_CARD_HEIGHT = 8 + FACE + 8 + SLOT + 8
 local TEAM_TWO_UP = 680 -- two cards a row from this width
 local RING_STEP = 0.25
@@ -602,6 +603,24 @@ function Pure.branchCard(nurseId: string, state: any): string
 	return "Locked"
 end
 
+-- The tab column's ids, top first (Modal.tabs): the Team page, the Journal's rarities, then 🏢 when there are
+-- rebirth-only nurses.
+function Pure.tabIds(order: { string }, hasBranch: boolean): { string }
+	local ids = { "Team" }
+	for _, rarity in order do
+		table.insert(ids, rarity)
+	end
+	if hasBranch then
+		table.insert(ids, "Branch")
+	end
+	return ids
+end
+
+-- The header's meta chip: the Journal's completion, "📔 n%".
+function Pure.metaText(percent: any): string
+	return "📔 " .. tostring(whole(percent)) .. "%"
+end
+
 -- The rebirth-only nurses, in Data order.
 function Pure.branchNurses(roster: any): { string }
 	local out: { string } = {}
@@ -617,7 +636,9 @@ end
 NursePanel.Pure = Pure -- for tests/NurseUI.spec
 
 ------------------------------------------------------------------------------------------------------------------
--- Look helpers
+-- Look helpers: the one template (look build plan §B8). Neutral cards on white paper, the rarity frame on the face
+-- tile only, a rarity's colour only as its tab's stripe and its page's own tile, buttons by role, radii, strokes
+-- and text sizes from Theme.
 ------------------------------------------------------------------------------------------------------------------
 
 local function hexColor(value: any, fallback: Color3): Color3
@@ -626,13 +647,6 @@ local function hexColor(value: any, fallback: Color3): Color3
 	end
 	local ok, color = pcall(Color3.fromHex, value)
 	return if ok then color else fallback
-end
-
-local function textLimit(label: TextLabel | TextButton, max: number, min: number?)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = min or 9
-	limit.Parent = label
 end
 
 local function frame(props: { [string]: any }): Frame
@@ -647,9 +661,10 @@ local function frame(props: { [string]: any }): Frame
 	return f
 end
 
-local function childOf(parent: Instance, name: string, class: string): Instance?
-	local found = parent:FindFirstChild(name)
-	return if found and found:IsA(class) then found else nil
+local function rounded(gui: GuiObject): UICorner
+	local corner = Kit.corner(gui)
+	corner.CornerRadius = Theme.Radius.Round
+	return corner
 end
 
 -- The shape outline Kit draws round a button (not the Contextual one round its text).
@@ -671,43 +686,50 @@ local function padButton(button: GuiObject, x: number, y: number)
 	pad.Parent = button
 end
 
--- A tab in its rarity's colour: a pale tint while it waits, full candy with outlined text when it's open.
-local function paintTab(button: TextButton, selected: boolean, color: Color3)
-	button.BackgroundColor3 = if selected then Kit.lighten(color, 0.08) else Kit.lighten(color, 0.78)
-	local border = borderOf(button)
-	if border then
-		border.Color = Theme.Colors.Outline
-		border.Thickness = if selected then Theme.Size.StrokeLarge else Theme.Size.Stroke
-	end
-	local caption = childOf(button, "Caption", "TextLabel") :: TextLabel?
-	if caption then
-		caption.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
-		Kit.outline(caption, 2).Enabled = selected
-	end
-end
-
--- A button's colour (and its text style) after it was made: Kit.button picks them from its Kind once.
-local function paint(button: TextButton, color: Color3, light: boolean)
-	local fill = if light then color else Kit.lighten(color, 0.08)
+-- A button's role after it was made (Kit.button reads its Kind once): the role's fill, and white outlined text on a
+-- strong fill or ink on a light one. "Disabled" is the gated grey; it stays tappable, so a tap can still say why.
+local ROLE_FILL: { [string]: Color3 } = {
+	Primary = Theme.Colors.Primary,
+	Collect = Theme.Colors.Collect,
+	Destructive = Theme.Colors.Destructive,
+	Secondary = Theme.Colors.Secondary,
+	Disabled = Theme.Colors.Disabled,
+}
+local function setRole(button: TextButton, role: string)
+	local fill = ROLE_FILL[role] or Theme.Colors.Secondary
+	local light = role == "Secondary" or role == "Disabled"
 	button.BackgroundColor3 = fill
 	button:SetAttribute("KitColor", fill)
-	button.TextColor3 = if light then Theme.Colors.Ink else Theme.Colors.OnColor
-	local outline = childOf(button, "TextOutline", "UIStroke") :: UIStroke?
-	if outline then
-		outline.Enabled = not light
+	button.TextColor3 = if role == "Disabled"
+		then Theme.Colors.DisabledText
+		elseif light then Theme.Colors.Ink
+		else Theme.Colors.OnColor
+	local outline = button:FindFirstChild("TextOutline")
+	if light then
+		if outline and outline:IsA("UIStroke") then
+			outline.Enabled = false
+		end
+	else
+		Kit.outline(button).Enabled = true
 	end
 end
 
--- The strip's view buttons: full candy when it's the view you're on, a pale tint otherwise.
-local function paintMode(button: TextButton, selected: boolean)
-	paint(button, if selected then ACCENT else Kit.lighten(ACCENT, 0.78), not selected)
-	local border = borderOf(button)
-	if border then
-		border.Thickness = if selected then Theme.Size.StrokeLarge else Theme.Size.Stroke
+-- A Kit button used as a card (a job row): a flat fill, no gloss (as Kit.tab does for tabs).
+local function flatCard(button: TextButton, fill: Color3)
+	button.BackgroundColor3 = fill
+	button:SetAttribute("KitColor", fill)
+	for _, name in { "Gloss", "CandyGradient" } do
+		local shine = button:FindFirstChild(name)
+		if shine and shine:IsA("GuiObject") then
+			shine.Visible = false
+		elseif shine and shine:IsA("UIGradient") then
+			shine.Enabled = false
+		end
 	end
 end
 
--- A nurse cap in the rarity's colour, tipped on the portrait's head (the 3D nurses wear the same).
+-- A nurse cap in the rarity's colour, tipped on the portrait's head (the 3D nurses wear one too). Its mark is a white
+-- heart, never a cross (look build plan, Global constraints: no cross emblem on anything).
 local function addCap(portrait: Frame, color: Color3)
 	local cap = Instance.new("Frame")
 	cap.Name = "Cap"
@@ -718,16 +740,11 @@ local function addCap(portrait: Frame, color: Color3)
 	cap.BackgroundColor3 = color
 	cap.BorderSizePixel = 0
 	cap.ZIndex = 7
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.4, 0)
-	corner.Parent = cap
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Theme.Colors.Outline
-	stroke.Thickness = 2
-	stroke.Parent = cap
-	local cross = Kit.label({
-		Name = "Cross",
-		Text = "✚",
+	Kit.corner(cap, Theme.Radius.Small)
+	Kit.stroke(cap, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	local mark = Kit.label({
+		Name = "Mark",
+		Text = "♥",
 		TextScaled = true,
 		Outlined = true,
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -736,11 +753,11 @@ local function addCap(portrait: Frame, color: Color3)
 		ZIndex = 7,
 		Parent = cap,
 	})
-	cross.TextColor3 = Theme.Colors.OnColor
+	mark.TextColor3 = Theme.Colors.OnColor
 	cap.Parent = portrait
 end
 
--- A pill of text on a pale tint ("🛎️ ×2 +10% 💰"), sized to its words.
+-- A chip of text ("🛎️ ×2 +10% 💰"), sized to its words.
 local function chip(parent: Instance, order: number, text: string, color: Color3): Frame
 	local pill = frame({
 		Name = "Chip" .. order,
@@ -750,16 +767,16 @@ local function chip(parent: Instance, order: number, text: string, color: Color3
 		AutomaticSize = Enum.AutomaticSize.X,
 		Parent = parent,
 	})
-	Kit.corner(pill, 18)
-	Kit.stroke(pill, Theme.Colors.Outline, 2)
+	rounded(pill)
+	Kit.stroke(pill, Theme.Colors.CardLine, Theme.Stroke.Fine)
 	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, 12)
-	pad.PaddingRight = UDim.new(0, 12)
+	pad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
+	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
 	pad.Parent = pill
 	Kit.label({
 		Name = "Text",
 		Text = text,
-		TextSize = Theme.TextSize.Small,
+		TextSize = Theme.TextSize.Caption,
 		TextWrapped = false,
 		AutomaticSize = Enum.AutomaticSize.X,
 		Size = UDim2.fromOffset(0, 36),
@@ -801,14 +818,13 @@ type Page = {
 	Id: string, -- a rarity, or "Branch"
 	Color: Color3,
 	Frame: ScrollingFrame,
-	Tab: TextButton,
+	Tab: GuiObject?,
 	Count: TextLabel,
 	Fill: Frame,
 	Reward: Frame?,
 	RewardText: TextLabel?,
 	Badge: Frame?,
 	BadgeIcon: TextLabel?,
-	Rays: Frame?,
 	Claimed: boolean,
 	Odds: TextButton?,
 	Cards: { Card },
@@ -854,7 +870,6 @@ function NursePanel.init(ctx: Types.Ctx)
 	local marketAsked = false
 	local busy = false
 	local view = "" -- "Team" | "Branch" | a rarity: what the panel shows
-	local lastPage = "" -- the Journal page shown last (📔 Journal goes back to it)
 
 	local stationIcons: { [string]: string } = {}
 	if type(data.Stations) == "table" and type(data.Stations.Order) == "table" then
@@ -897,175 +912,113 @@ function NursePanel.init(ctx: Types.Ctx)
 		return clinics:FindFirstChild("Plot_" .. index)
 	end
 
+	-- The header: "👩‍⚕️ Journal" / "👩‍⚕️ Team", and its one meta chip "📔 n%" (modal.setMeta).
 	local modal = Hud.modal(ctx, {
 		Name = "Nurses",
 		Title = T.TitleJournal,
-		Accent = ACCENT,
+		Meta = Pure.metaText(0),
 		MaxSize = Vector2.new(780, 620),
 	})
-
-	--------------------------------------------------------------------------------------------------------------
-	-- The header's completion pill
-	--------------------------------------------------------------------------------------------------------------
 	local title = modal.Panel:FindFirstChild("Title")
 	local titleLabel: TextLabel? = if title and title:IsA("TextLabel") then title :: TextLabel else nil
-	if titleLabel then
-		titleLabel.Size = UDim2.new(1, -(SLOT + Theme.Size.Gap + PILL_WIDTH + Theme.Size.Gap), 0, SLOT)
-		titleLabel.TextScaled = true
-		titleLabel.TextWrapped = false
-		textLimit(titleLabel, Theme.TextSize.Title)
+
+	--------------------------------------------------------------------------------------------------------------
+	-- THE tab pattern: one column down the left (Modal.tabs, painted by Kit.tab): 👩‍⚕️ Team ("n/cap"), then the
+	-- Journal's rarities (each its colour as the tab's stripe, hired/total), then 🏢 for the rebirth-only nurses
+	--------------------------------------------------------------------------------------------------------------
+	local branchIds = Pure.branchNurses(data.Nurses)
+	local totals: { [string]: number } = {}
+	for _, nurseId in data.Nurses.Order do
+		local nurse = rawget(data.Nurses, nurseId)
+		if nurse and nurse.Source == nil then
+			totals[nurse.Rarity] = (totals[nurse.Rarity] or 0) + 1
+		end
 	end
-	local pill = frame({
-		Name = "Completion",
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -(SLOT + Theme.Size.Gap), 0, 8),
-		Size = UDim2.fromOffset(PILL_WIDTH, 40),
-		BackgroundColor3 = Theme.Colors.Paper,
-		ZIndex = 2,
-		Parent = modal.Panel,
-	})
-	Kit.corner(pill, 20)
-	Kit.stroke(pill, Theme.Colors.Outline, Theme.Size.Stroke)
-	pill.ClipsDescendants = true
-	local pillFill = frame({
-		Name = "Fill",
-		BackgroundColor3 = Kit.lighten(Theme.Colors.Cash, 0.05),
-		Size = UDim2.fromScale(0, 1),
-		ZIndex = 2,
-		Parent = pill,
-	})
-	Kit.corner(pillFill, 20)
-	Palette.candyGradient(pillFill)
-	local pillText = Kit.label({
-		Name = "Percent",
-		Text = "📔 0%",
-		TextScaled = true,
-		Outlined = true,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, -14, 1, -10),
-		ZIndex = 3,
-		Parent = pill,
-	})
-	textLimit(pillText, 24)
-
-	--------------------------------------------------------------------------------------------------------------
-	-- The strip: the two views, then the Agency and the Market
-	--------------------------------------------------------------------------------------------------------------
-	local strip = Instance.new("ScrollingFrame")
-	strip.Name = "Strip"
-	strip.BackgroundTransparency = 1
-	strip.BorderSizePixel = 0
-	strip.Size = UDim2.new(1, 0, 0, STRIP_HEIGHT)
-	strip.CanvasSize = UDim2.new()
-	strip.AutomaticCanvasSize = Enum.AutomaticSize.X
-	strip.ScrollingDirection = Enum.ScrollingDirection.X
-	strip.ScrollBarThickness = 0
-	strip.Selectable = false
-	strip.Parent = modal.Body
-	local stripList = Kit.list(strip, Enum.FillDirection.Horizontal, 8)
-	stripList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	local stripPad = Instance.new("UIPadding")
-	stripPad.PaddingLeft = UDim.new(0, 4)
-	stripPad.PaddingRight = UDim.new(0, 4)
-	stripPad.Parent = strip
-
-	local function stripButton(name: string, order: number, kind: string, text: string, width: number): TextButton
-		local button = Kit.button({
-			Name = name,
-			Kind = kind,
-			Text = text,
-			TextScaled = true,
-			LayoutOrder = order,
-			Size = UDim2.fromOffset(width, SLOT),
-			Parent = strip,
-		})
-		padButton(button, 10, 12)
-		textLimit(button, Theme.TextSize.Body, 12)
-		return button
+	local tabSpecs: { Modal.TabSpec } = {}
+	for _, id in Pure.tabIds(rarityOrder, #branchIds > 0) do
+		if id == "Team" then
+			table.insert(tabSpecs, { Id = id, Icon = "👩‍⚕️", Caption = "0/0" })
+		elseif id == "Branch" then
+			table.insert(tabSpecs, {
+				Id = id,
+				Icon = T.BranchTab,
+				Caption = "0/" .. #branchIds,
+				Stripe = Theme.Colors.Purple,
+			})
+		else
+			local info = rarityInfo(id)
+			table.insert(tabSpecs, {
+				Id = id,
+				Icon = info.Icon,
+				Caption = "0/" .. tostring(totals[id] or 0),
+				Stripe = hexColor(info.Color, Theme.Colors.Card),
+			})
+		end
 	end
-	local teamTab = stripButton("TeamView", 1, "Cyan", T.TitleTeam, MODE_WIDTH)
-	local journalTab = stripButton("JournalView", 2, "Cyan", T.Journal, MODE_WIDTH)
-	local agencyButton = stripButton("Agency", 3, "Purple", T.Agency, LINK_WIDTH)
-	local marketButton = stripButton("Market", 4, "Pink", T.Market, LINK_WIDTH)
-	agencyButton.Activated:Connect(function()
-		ctx.fire("Open", "Agency")
-	end)
-	marketButton.Activated:Connect(function()
-		ctx.fire("Open", "Market")
-	end)
-
-	--------------------------------------------------------------------------------------------------------------
-	-- The Journal: tabs and pages
-	--------------------------------------------------------------------------------------------------------------
-	local lower = frame({
-		Name = "Journal",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, STRIP_HEIGHT + 6),
-		Size = UDim2.new(1, 0, 1, -(STRIP_HEIGHT + 6)),
-		Parent = modal.Body,
-	})
-	local tabColumn = Instance.new("ScrollingFrame")
-	tabColumn.Name = "Tabs"
-	tabColumn.BackgroundTransparency = 1
-	tabColumn.BorderSizePixel = 0
-	tabColumn.Size = UDim2.new(0, TAB_WIDTH + 10, 1, 0) -- room for the selected tab's thick outline
-	tabColumn.CanvasSize = UDim2.new()
-	tabColumn.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	tabColumn.ScrollBarThickness = 0
-	tabColumn.Selectable = false
-	tabColumn.Parent = lower
-	local tabList = Kit.list(tabColumn, Enum.FillDirection.Vertical, 8)
-	tabList.VerticalAlignment = Enum.VerticalAlignment.Top
-	local tabPad = Instance.new("UIPadding")
-	tabPad.PaddingTop = UDim.new(0, 5)
-	tabPad.PaddingBottom = UDim.new(0, 5)
-	tabPad.Parent = tabColumn
-
-	local pagesArea = frame({
-		Name = "Pages",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(TAB_WIDTH + 10 + Theme.Size.Gap, 0),
-		Size = UDim2.new(1, -(TAB_WIDTH + 10 + Theme.Size.Gap), 1, 0),
-		Parent = lower,
-	})
 
 	local pages: { [string]: Page } = {}
-	local pageOrder: { string } = {}
 	local cardsById: { [string]: Card } = {}
 	local render: (state: Types.Snapshot) -> ()
-	local showView: (id: string) -> ()
+	local applyView: (id: string) -> ()
 	local claimGift: (button: GuiObject?) -> ()
 	local popTeamCard: (nurseId: string) -> ()
 
+	local tabs = Modal.tabs(modal, tabSpecs, function(id: string)
+		applyView(id)
+		if modal.isOpen() then
+			render(ctx.State)
+		end
+	end)
+	-- Eight tabs (👩‍⚕️, six rarities, 🏢): Modal.tabs' own list scrolls when they don't fit a short phone at 56 px.
+	local pagesArea = tabs.Content
+	local function tabButton(id: string): GuiObject?
+		local found = tabs.Column:FindFirstChild("Tab_" .. id, true)
+		return if found and found:IsA("GuiObject") then found else nil
+	end
+	local function setCaption(id: string, text: string)
+		local button = tabButton(id)
+		local caption = if button then button:FindFirstChild("Caption") else nil
+		if caption and caption:IsA("TextLabel") and caption.Text ~= text then
+			caption.Text = text
+		end
+	end
+	-- Switches the view (and paints the column): Modal.tabs' select calls the callback above.
+	local function showView(id: string)
+		tabs.select(id)
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The Journal's pages
+	--------------------------------------------------------------------------------------------------------------
 	local function newCard(parent: Instance, order: number, nurseId: string, rarity: string, color: Color3): Card
 		local card = frame({
 			Name = nurseId,
 			LayoutOrder = order,
-			BackgroundColor3 = UNSEEN_FILL,
+			BackgroundColor3 = Theme.Colors.Card,
 			Parent = parent,
 		})
-		Kit.corner(card, 16)
+		Kit.corner(card, Theme.Radius.Medium)
+		Kit.stroke(card, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		local face = frame({
 			Name = "Face",
 			AnchorPoint = Vector2.new(0.5, 0),
 			Position = UDim2.new(0.5, 0, 0, 6),
 			Size = UDim2.new(1, -12, 1, -CARD_FIXED),
-			BackgroundColor3 = UNSEEN_FACE,
+			BackgroundColor3 = Theme.Colors.Well,
 			Parent = card,
 		})
-		Kit.corner(face, 12)
+		Kit.corner(face, Theme.Radius.Medium)
 		local name = Kit.label({
 			Name = "NurseName",
 			Text = "???",
 			TextScaled = true,
 			Font = Theme.DisplayFont,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4 + 20)),
-			Size = UDim2.new(1, -10, 0, 22),
+			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4 + INFO_HEIGHT)),
+			Size = UDim2.new(1, -10, 0, NAME_HEIGHT),
 			Parent = card,
 		})
-		textLimit(name, 20)
+		Kit.textLimit(name, Theme.TextSize.Body)
 		local info = Kit.label({
 			Name = "Info",
 			Text = "",
@@ -1073,28 +1026,28 @@ function NursePanel.init(ctx: Types.Ctx)
 			TextColor3 = Theme.Colors.InkSoft,
 			AnchorPoint = Vector2.new(0.5, 1),
 			Position = UDim2.new(0.5, 0, 1, -(6 + SLOT + 4)),
-			Size = UDim2.new(1, -10, 0, 20),
+			Size = UDim2.new(1, -10, 0, INFO_HEIGHT),
 			Parent = card,
 		})
-		textLimit(info, 18)
+		Kit.textLimit(info, Theme.TextSize.Caption)
 		local hint = Kit.label({
 			Name = "Hint",
 			Text = "",
 			TextScaled = true,
 			TextColor3 = Theme.Colors.InkSoft,
-			BackgroundColor3 = Theme.Colors.Card,
+			BackgroundColor3 = Theme.Colors.Well,
 			BackgroundTransparency = 0,
 			AnchorPoint = Vector2.new(0.5, 1),
 			Position = UDim2.new(0.5, 0, 1, -6),
 			Size = UDim2.new(1, -12, 0, SLOT),
 			Parent = card,
 		})
-		Kit.corner(hint, 12)
-		padButton(hint, 6, 14)
-		textLimit(hint, 20)
+		Kit.corner(hint, Theme.Radius.Medium)
+		padButton(hint, 6, 6)
+		Kit.textLimit(hint, Theme.TextSize.Body)
 		local teamButton = Kit.button({
 			Name = "Team",
-			Kind = "Quiet",
+			Kind = "Secondary",
 			Text = T.SeeTeam,
 			TextScaled = true,
 			AnchorPoint = Vector2.new(0.5, 1),
@@ -1103,10 +1056,10 @@ function NursePanel.init(ctx: Types.Ctx)
 			Visible = false,
 			Parent = card,
 		})
-		padButton(teamButton, 8, 14)
+		Kit.textLimit(teamButton, Theme.TextSize.Button)
 		local claimButton = Kit.button({
 			Name = "Claim",
-			Kind = "Good",
+			Kind = "Collect",
 			Text = T.Claim,
 			TextScaled = true,
 			AnchorPoint = Vector2.new(0.5, 1),
@@ -1115,7 +1068,7 @@ function NursePanel.init(ctx: Types.Ctx)
 			Visible = false,
 			Parent = card,
 		})
-		padButton(claimButton, 8, 14)
+		Kit.textLimit(claimButton, Theme.TextSize.Button)
 		local duty = Kit.label({
 			Name = "OnDuty",
 			Text = "✅",
@@ -1127,24 +1080,24 @@ function NursePanel.init(ctx: Types.Ctx)
 			ZIndex = 4,
 			Parent = card,
 		})
-		-- A red "NEW!" sticker, tipped at an angle, on news you haven't opened yet.
+		-- A red "NEW!" sticker, tipped at an angle, on news you haven't opened yet (still: it never loops).
 		local ribbon = Kit.label({
 			Name = "New",
 			Text = T.New,
-			TextSize = Theme.TextSize.Small,
+			TextSize = Theme.TextSize.Caption,
 			TextWrapped = false,
 			Outlined = true,
 			BackgroundColor3 = Theme.Colors.Dot,
 			BackgroundTransparency = 0,
 			Position = UDim2.fromOffset(2, 2),
-			Size = UDim2.fromOffset(58, 26),
+			Size = UDim2.fromOffset(62, 26),
 			Rotation = -8,
 			Visible = false,
 			ZIndex = 4,
 			Parent = card,
 		})
-		Kit.corner(ribbon, 13)
-		Kit.stroke(ribbon, Theme.Colors.Outline, 2.5)
+		rounded(ribbon)
+		Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Fine)
 
 		local entry: Card = {
 			Id = nurseId,
@@ -1163,8 +1116,7 @@ function NursePanel.init(ctx: Types.Ctx)
 			StopFrame = nil,
 		}
 		teamButton.Activated:Connect(function()
-			showView("Team")
-			render(ctx.State)
+			showView("Team") -- Modal.tabs' select: the Team page, drawn
 			popTeamCard(nurseId)
 		end)
 		claimButton.Activated:Connect(function()
@@ -1173,53 +1125,40 @@ function NursePanel.init(ctx: Types.Ctx)
 		return entry
 	end
 
-	-- Unseen: a flat grey card, a soft outline and a dark silhouette. Seen: the rarity frame, the creature greyed
-	-- out. Hired: a white card in its rarity frame, the creature in full colour on its rarity's tint, with a cap.
+	-- Unseen: a dark silhouette in the image well. Seen: the rarity frame (faded) round the well, the creature
+	-- greyed out. Hired: the creature in full colour in its rarity frame, with a cap.
 	local function setFace(card: Card, look: any, shown: string)
 		if card.Shown == shown then
 			return
 		end
 		card.Shown = shown
 		local face = card.Face
+		local stop = card.StopFrame
+		if stop then
+			stop()
+			card.StopFrame = nil
+		end
 		face:ClearAllChildren()
-		Kit.corner(face, 12)
+		Kit.corner(face, Theme.Radius.Medium)
 		local dark = shown == "Unseen"
 		local portrait = Hud.portrait(look, dark)
 		portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 		portrait.Position = UDim2.fromScale(0.5, 0.5)
 		portrait.Size = UDim2.fromScale(0.95, 0.95)
 		portrait.Parent = face
-		if not dark then
-			addCap(portrait, card.Color)
-		end
-
-		local stop = card.StopFrame
-		if stop then
-			stop()
-			card.StopFrame = nil
-		end
-		local plain = card.Frame:FindFirstChild("Plain")
-		if plain then
-			plain:Destroy()
-		end
+		face.BackgroundColor3 = Theme.Colors.Well
 		if dark then
-			local stroke = Kit.stroke(card.Frame, Theme.Colors.Outline, 2)
-			stroke.Name = "Plain"
-			stroke.Transparency = 0.6
-			card.Frame.BackgroundColor3 = UNSEEN_FILL
-			face.BackgroundColor3 = UNSEEN_FACE
 			card.Name.TextColor3 = Theme.Colors.InkSoft
 			return
 		end
-		card.StopFrame = Kit.rarityFrame(card.Frame, card.Rarity)
-		card.Frame.BackgroundColor3 = Theme.Colors.Paper
+		addCap(portrait, card.Color)
+		card.StopFrame = Kit.rarityFrame(face, card.Rarity)
 		card.Name.TextColor3 = Theme.Colors.Ink
 		if shown == "Seen" then
-			local frameStroke = card.Frame:FindFirstChild("RarityFrame")
+			local frameStroke = face:FindFirstChild("RarityFrame")
 			if frameStroke and frameStroke:IsA("UIStroke") then
 				frameStroke.Transparency = 0.45
 			end
-			face.BackgroundColor3 = SEEN_FACE
 			-- Greyed out: a grey veil over the creature (a sibling above the portrait).
 			local veil = frame({
 				Name = "Veil",
@@ -1229,11 +1168,7 @@ function NursePanel.init(ctx: Types.Ctx)
 				ZIndex = 8,
 				Parent = face,
 			})
-			Kit.corner(veil, 12)
-		else
-			face.BackgroundColor3 = Kit.lighten(card.Color, 0.45)
-			Palette.candyGradient(face)
-			Kit.stroke(face, Theme.Colors.Outline, 2)
+			Kit.corner(veil, Theme.Radius.Medium)
 		end
 	end
 
@@ -1280,7 +1215,7 @@ function NursePanel.init(ctx: Types.Ctx)
 		scroll.Selectable = false
 		scroll.Visible = false
 		scroll.Parent = pagesArea
-		local list = Kit.list(scroll, Enum.FillDirection.Vertical, 10)
+		local list = Kit.list(scroll, Enum.FillDirection.Vertical, Theme.Space.Gap)
 		list.VerticalAlignment = Enum.VerticalAlignment.Top
 		list.HorizontalAlignment = Enum.HorizontalAlignment.Left
 		local pad = Instance.new("UIPadding")
@@ -1291,19 +1226,18 @@ function NursePanel.init(ctx: Types.Ctx)
 		return scroll
 	end
 
-	-- A page header's top part: the icon tile, the name (and a note), the count and the progress bar.
+	-- A page header's top part: the section's own tile (in its colour), the name (and a note), the count and the
+	-- progress bar.
 	local function headerTop(header: Frame, icon: string, nameText: string, note: string, color: Color3)
 		local tile = frame({
 			Name = "Tile",
 			Position = UDim2.fromOffset(8, 8),
 			Size = UDim2.fromOffset(44, 44),
-			BackgroundColor3 = Kit.lighten(color, 0.08),
+			BackgroundColor3 = color,
 			Parent = header,
 		})
-		Kit.corner(tile, 12)
-		Kit.stroke(tile, Theme.Colors.Outline, Theme.Size.Stroke)
-		Palette.candyGradient(tile)
-		Kit.gloss(tile, 4)
+		Kit.corner(tile, Theme.Radius.Medium)
+		Kit.stroke(tile, Theme.Colors.Stroke, Theme.Stroke.Fine)
 		Kit.label({
 			Name = "Icon",
 			Text = icon,
@@ -1323,7 +1257,7 @@ function NursePanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -60 - 64, 0, 26),
 			Parent = header,
 		})
-		textLimit(name, 24)
+		Kit.textLimit(name, Theme.TextSize.Button)
 		if note ~= "" then
 			local noteLabel = Kit.label({
 				Name = "Note",
@@ -1331,66 +1265,65 @@ function NursePanel.init(ctx: Types.Ctx)
 				TextScaled = true,
 				TextColor3 = Theme.Colors.InkSoft,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				Position = UDim2.fromOffset(60, 33),
-				Size = UDim2.new(1, -60 - 64, 0, 18),
+				Position = UDim2.fromOffset(60, 32),
+				Size = UDim2.new(1, -60 - 64, 0, 22),
 				Parent = header,
 			})
-			textLimit(noteLabel, 16)
+			Kit.textLimit(noteLabel, Theme.TextSize.Caption)
 		end
 		local count = Kit.label({
 			Name = "Count",
 			Text = "0/0",
 			TextScaled = true,
-			Outlined = true,
+			Font = Theme.DisplayFont,
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, -8, 0, 14),
 			Size = UDim2.fromOffset(56, 26),
 			Parent = header,
 		})
-		textLimit(count, 22)
+		Kit.textLimit(count, Theme.TextSize.Body)
 		local track = frame({
 			Name = "Track",
-			BackgroundColor3 = Theme.Colors.Paper,
+			BackgroundColor3 = Theme.Colors.Well,
 			Position = UDim2.fromOffset(8, 58),
 			Size = UDim2.new(1, -16, 0, 14),
 			Parent = header,
 		})
-		Kit.corner(track, 7)
-		Kit.stroke(track, Theme.Colors.Outline, 2)
+		rounded(track)
+		Kit.stroke(track, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		local fill = frame({
 			Name = "Fill",
-			BackgroundColor3 = Kit.lighten(color, 0.08),
+			BackgroundColor3 = color,
 			Size = UDim2.fromScale(0, 1),
 			Parent = track,
 		})
-		Kit.corner(fill, 7)
-		Palette.candyGradient(fill)
+		rounded(fill)
 		return count, fill
 	end
 
 	local function pageHeader(parent: ScrollingFrame, rarity: string, info: any, color: Color3): Page
 		local header = frame({
 			Name = "Header",
-			BackgroundColor3 = Theme.Colors.Paper,
+			BackgroundColor3 = Theme.Colors.Card,
 			Size = UDim2.new(1, -12, 0, HEADER_HEIGHT),
 			LayoutOrder = 1,
 			Parent = parent,
 		})
-		Kit.corner(header, 16)
-		Kit.rarityFrame(header, rarity)
+		Kit.corner(header, Theme.Radius.Medium)
+		Kit.stroke(header, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		local count, fill = headerTop(header, info.Icon, info.Name, Pure.eventNote(info), color)
 
-		-- The group reward, then the 🎲 odds-now chip.
+		-- The group reward, then the 🎲 odds-now link (THE belt odds popup).
 		local rowTop = 58 + 14 + 8
 		local reward = frame({
 			Name = "Reward",
-			BackgroundColor3 = Theme.Colors.Card,
+			BackgroundColor3 = Theme.Colors.Paper,
 			Position = UDim2.fromOffset(8, rowTop),
 			Size = UDim2.new(1, -(8 + 8 + 8 + ODDS_WIDTH), 0, SLOT),
 			Parent = header,
 		})
-		Kit.corner(reward, 14)
-		Kit.stroke(reward, Theme.Colors.Outline, 2)
+		Kit.corner(reward, Theme.Radius.Medium)
+		Kit.stroke(reward, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		local holder = frame({
 			Name = "BadgeHolder",
 			BackgroundTransparency = 1,
@@ -1406,8 +1339,8 @@ function NursePanel.init(ctx: Types.Ctx)
 			ZIndex = 1,
 			Parent = holder,
 		})
-		Kit.corner(badge, 21)
-		Kit.stroke(badge, Theme.Colors.Outline, Theme.Size.Stroke)
+		rounded(badge)
+		Kit.stroke(badge, Theme.Colors.Stroke, Theme.Stroke.Fine)
 		local decor = rawget(data.Decor, info.Journal and info.Journal.Decor or "")
 		local badgeIcon = Kit.label({
 			Name = "Icon",
@@ -1427,10 +1360,10 @@ function NursePanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -62, 1, -16),
 			Parent = reward,
 		})
-		textLimit(rewardText, 22)
+		Kit.textLimit(rewardText, Theme.TextSize.Body)
 		local odds = Kit.button({
 			Name = "Odds",
-			Kind = "Purple",
+			Kind = "Quiet",
 			Text = "🎲",
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 0),
@@ -1438,8 +1371,10 @@ function NursePanel.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(ODDS_WIDTH, SLOT),
 			Parent = header,
 		})
-		padButton(odds, 8, 12)
+		Kit.textLimit(odds, Theme.TextSize.Button)
 		odds.Activated:Connect(function()
+			-- THE belt odds popup (UI/BeltView's, on Hud.oddsPopup): the sign, the hire card and the Journal open the
+			-- same one.
 			ctx.fire("Open", "NurseOdds")
 		end)
 
@@ -1447,45 +1382,22 @@ function NursePanel.init(ctx: Types.Ctx)
 			Id = rarity,
 			Color = color,
 			Frame = parent,
-			Tab = nil :: any,
+			Tab = nil,
 			Count = count,
 			Fill = fill,
 			Reward = reward,
 			RewardText = rewardText,
 			Badge = badge,
 			BadgeIcon = badgeIcon,
-			Rays = nil,
 			Claimed = false,
 			Odds = odds,
 			Cards = {},
 		}
 	end
 
-	local function addTab(page: Page, order: number, icon: string, total: number)
-		local tab = Kit.iconButton({
-			Name = "Tab_" .. page.Id,
-			Icon = icon,
-			Caption = "0/" .. total,
-			LayoutOrder = order,
-			Size = UDim2.fromOffset(TAB_WIDTH, TAB_WIDTH),
-			Parent = tabColumn,
-		})
-		local caption = childOf(tab, "Caption", "TextLabel") :: TextLabel?
-		if caption then
-			caption.Font = Theme.DisplayFont -- the count is a number: chunky
-		end
-		tab.Activated:Connect(function()
-			showView(page.Id)
-			render(ctx.State)
-		end)
-		page.Tab = tab
-		pages[page.Id] = page
-		table.insert(pageOrder, page.Id)
-	end
-
-	for order, rarity in rarityOrder do
+	for _, rarity in rarityOrder do
 		local info = rarityInfo(rarity)
-		local color = hexColor(info.Color, Theme.Colors.Quiet)
+		local color = hexColor(info.Color, Theme.Colors.Card)
 		local scroll = pageScroll(rarity)
 		local page = pageHeader(scroll, rarity, info, color)
 		local grid = cardGrid(scroll)
@@ -1499,36 +1411,35 @@ function NursePanel.init(ctx: Types.Ctx)
 				cardsById[nurseId] = card
 			end
 		end
-		addTab(page, order, info.Icon, index)
+		page.Tab = tabButton(rarity)
+		pages[rarity] = page
 	end
 
 	-- 🏢 The rebirth-only nurses: their own page, outside every rarity group and the Journal %.
-	local branchIds = Pure.branchNurses(data.Nurses)
 	if #branchIds > 0 then
 		local color = Theme.Colors.Purple
 		local scroll = pageScroll("Branch")
 		local header = frame({
 			Name = "Header",
-			BackgroundColor3 = Theme.Colors.Paper,
+			BackgroundColor3 = Theme.Colors.Card,
 			Size = UDim2.new(1, -12, 0, BRANCH_HEADER_HEIGHT),
 			LayoutOrder = 1,
 			Parent = scroll,
 		})
-		Kit.corner(header, 16)
-		Kit.stroke(header, Theme.Colors.Outline, Theme.Size.Stroke)
+		Kit.corner(header, Theme.Radius.Medium)
+		Kit.stroke(header, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		local count, fill = headerTop(header, T.BranchTab, T.BranchName, T.BranchNote, color)
 		local page: Page = {
 			Id = "Branch",
 			Color = color,
 			Frame = scroll,
-			Tab = nil :: any,
+			Tab = tabButton("Branch"),
 			Count = count,
 			Fill = fill,
 			Reward = nil,
 			RewardText = nil,
 			Badge = nil,
 			BadgeIcon = nil,
-			Rays = nil,
 			Claimed = false,
 			Odds = nil,
 			Cards = {},
@@ -1540,13 +1451,8 @@ function NursePanel.init(ctx: Types.Ctx)
 			table.insert(page.Cards, card)
 			cardsById[nurseId] = card
 		end
-		addTab(page, #rarityOrder + 1, T.BranchTab, #branchIds)
+		pages.Branch = page
 	end
-	local tabs = {}
-	for _, id in pageOrder do
-		table.insert(tabs, pages[id].Tab)
-	end
-	Hud.fitTabs(tabColumn, tabs, 8)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- The Team view
@@ -1555,8 +1461,7 @@ function NursePanel.init(ctx: Types.Ctx)
 	teamScroll.Name = "Team"
 	teamScroll.BackgroundTransparency = 1
 	teamScroll.BorderSizePixel = 0
-	teamScroll.Position = UDim2.fromOffset(0, STRIP_HEIGHT + 6)
-	teamScroll.Size = UDim2.new(1, 0, 1, -(STRIP_HEIGHT + 6))
+	teamScroll.Size = UDim2.fromScale(1, 1)
 	teamScroll.CanvasSize = UDim2.new()
 	teamScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	teamScroll.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -1564,7 +1469,7 @@ function NursePanel.init(ctx: Types.Ctx)
 	teamScroll.ScrollBarImageColor3 = Theme.Colors.Stroke
 	teamScroll.Selectable = false
 	teamScroll.Visible = false
-	teamScroll.Parent = modal.Body
+	teamScroll.Parent = pagesArea
 	local teamList = Kit.list(teamScroll, Enum.FillDirection.Vertical, 10)
 	teamList.VerticalAlignment = Enum.VerticalAlignment.Top
 	teamList.HorizontalAlignment = Enum.HorizontalAlignment.Left
@@ -1574,6 +1479,32 @@ function NursePanel.init(ctx: Types.Ctx)
 	teamPad.PaddingLeft = UDim.new(0, 4)
 	teamPad.PaddingRight = UDim.new(0, 14)
 	teamPad.Parent = teamScroll
+
+	-- The Team row: the Agency and the Market, one tap away (the old strip's links).
+	local links = frame({
+		Name = "Links",
+		LayoutOrder = 0,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, SLOT),
+		Parent = teamScroll,
+	})
+	local linkList = Kit.list(links, Enum.FillDirection.Horizontal, GAP)
+	linkList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	for order, entry in { { "Agency", T.Agency }, { "Market", T.Market } } do
+		local link = Kit.button({
+			Name = entry[1],
+			Kind = "Secondary",
+			Text = entry[2],
+			TextScaled = true,
+			LayoutOrder = order,
+			Size = UDim2.fromOffset(LINK_WIDTH, SLOT),
+			Parent = links,
+		})
+		Kit.textLimit(link, Theme.TextSize.Button)
+		link.Activated:Connect(function()
+			ctx.fire("Open", entry[1])
+		end)
+	end
 
 	-- The roster, resting, and team chips.
 	local summary = frame({
@@ -1593,22 +1524,22 @@ function NursePanel.init(ctx: Types.Ctx)
 	local giftRow = frame({
 		Name = "Gift",
 		LayoutOrder = 2,
-		BackgroundColor3 = Kit.lighten(Theme.Colors.Good, 0.82),
+		BackgroundColor3 = Theme.Colors.Card,
 		Size = UDim2.new(1, 0, 0, 76),
 		Visible = false,
 		Parent = teamScroll,
 	})
-	Kit.corner(giftRow, 16)
-	Kit.stroke(giftRow, Theme.Colors.Outline, Theme.Size.Stroke)
+	Kit.corner(giftRow, Theme.Radius.Medium)
+	Kit.stroke(giftRow, Theme.Colors.CardLine, Theme.Stroke.Fine)
 	local giftFace = frame({
 		Name = "Face",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 10, 0.5, 0),
 		Size = UDim2.fromOffset(56, 56),
-		BackgroundColor3 = Theme.Colors.Paper,
+		BackgroundColor3 = Theme.Colors.Well,
 		Parent = giftRow,
 	})
-	Kit.corner(giftFace, 14)
+	Kit.corner(giftFace, Theme.Radius.Medium)
 	local giftText = Kit.label({
 		Name = "Text",
 		Text = T.GiftHead,
@@ -1619,10 +1550,10 @@ function NursePanel.init(ctx: Types.Ctx)
 		Size = UDim2.new(1, -(76 + 150 + 12), 1, -20),
 		Parent = giftRow,
 	})
-	textLimit(giftText, Theme.TextSize.Body)
+	Kit.textLimit(giftText, Theme.TextSize.Body)
 	local giftClaim = Kit.button({
 		Name = "Claim",
-		Kind = "Good",
+		Kind = "Collect",
 		Text = T.Claim,
 		TextScaled = true,
 		AnchorPoint = Vector2.new(1, 0.5),
@@ -1630,7 +1561,7 @@ function NursePanel.init(ctx: Types.Ctx)
 		Size = UDim2.fromOffset(150, SLOT),
 		Parent = giftRow,
 	})
-	textLimit(giftClaim, Theme.TextSize.Body)
+	Kit.textLimit(giftClaim, Theme.TextSize.Button)
 	giftClaim.Activated:Connect(function()
 		claimGift(giftClaim)
 	end)
@@ -1645,8 +1576,8 @@ function NursePanel.init(ctx: Types.Ctx)
 		Visible = false,
 		Parent = teamScroll,
 	})
-	Kit.corner(emptyCard, 16)
-	Kit.stroke(emptyCard, Theme.Colors.Outline, 2)
+	Kit.corner(emptyCard, Theme.Radius.Medium)
+	Kit.stroke(emptyCard, Theme.Colors.CardLine, Theme.Stroke.Fine)
 	local emptyText = Kit.label({
 		Name = "Text",
 		Text = T.Empty,
@@ -1655,10 +1586,10 @@ function NursePanel.init(ctx: Types.Ctx)
 		Size = UDim2.new(1, -24, 0, 40),
 		Parent = emptyCard,
 	})
-	textLimit(emptyText, Theme.TextSize.Body)
+	Kit.textLimit(emptyText, Theme.TextSize.Body)
 	local emptyAgency = Kit.button({
 		Name = "Agency",
-		Kind = "Purple",
+		Kind = "Secondary",
 		Text = T.Agency,
 		TextScaled = true,
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -1666,7 +1597,7 @@ function NursePanel.init(ctx: Types.Ctx)
 		Size = UDim2.fromOffset(200, SLOT),
 		Parent = emptyCard,
 	})
-	textLimit(emptyAgency, Theme.TextSize.Body)
+	Kit.textLimit(emptyAgency, Theme.TextSize.Button)
 	emptyAgency.Activated:Connect(function()
 		ctx.fire("Open", "Agency")
 	end)
@@ -1706,27 +1637,27 @@ function NursePanel.init(ctx: Types.Ctx)
 		if type(nurse) ~= "table" then
 			return nil
 		end
-		local color = hexColor(rarityInfo(nurse.Rarity).Color, Theme.Colors.Quiet)
+		local color = hexColor(rarityInfo(nurse.Rarity).Color, Theme.Colors.Card)
 		local stops: { () -> () } = {}
 		local card = frame({
 			Name = nurseId,
 			LayoutOrder = order,
-			BackgroundColor3 = Theme.Colors.Paper,
+			BackgroundColor3 = Theme.Colors.Card,
 			Parent = teamGrid,
 		})
-		Kit.corner(card, 16)
-		table.insert(stops, Kit.rarityFrame(card, nurse.Rarity))
+		Kit.corner(card, Theme.Radius.Medium)
+		Kit.stroke(card, Theme.Colors.CardLine, Theme.Stroke.Fine)
 
+		-- The face tile: the image well, in its rarity frame (the template's one place for it).
 		local face = frame({
 			Name = "Face",
 			Position = UDim2.fromOffset(8, 8),
 			Size = UDim2.fromOffset(FACE, FACE),
-			BackgroundColor3 = Kit.lighten(color, 0.45),
+			BackgroundColor3 = Theme.Colors.Well,
 			Parent = card,
 		})
-		Kit.corner(face, 12)
-		Palette.candyGradient(face)
-		Kit.stroke(face, Theme.Colors.Outline, 2)
+		Kit.corner(face, Theme.Radius.Medium)
+		table.insert(stops, Kit.rarityFrame(face, nurse.Rarity))
 		local portrait = Hud.portrait(nurse.Look, false)
 		portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 		portrait.Position = UDim2.fromScale(0.5, 0.5)
@@ -1738,17 +1669,17 @@ function NursePanel.init(ctx: Types.Ctx)
 			Text = "Lv 1",
 			TextScaled = true,
 			Outlined = true,
-			BackgroundColor3 = Kit.lighten(ACCENT, 0.05),
+			BackgroundColor3 = Theme.Colors.Header,
 			BackgroundTransparency = 0,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, 6),
-			Size = UDim2.new(1, -10, 0, 22),
+			Position = UDim2.new(0.5, 0, 1, 8),
+			Size = UDim2.new(1, -10, 0, 24),
 			ZIndex = 9,
 			Parent = face,
 		})
-		Kit.corner(levelBadge, 11)
-		Kit.stroke(levelBadge, Theme.Colors.Outline, 2)
-		padButton(levelBadge, 4, 2)
+		rounded(levelBadge)
+		Kit.stroke(levelBadge, Theme.Colors.Stroke, Theme.Stroke.Fine)
+		Kit.textLimit(levelBadge, Theme.TextSize.Caption)
 		local status = Kit.label({
 			Name = "Status",
 			Text = "",
@@ -1767,29 +1698,28 @@ function NursePanel.init(ctx: Types.Ctx)
 			TextScaled = true,
 			Font = Theme.DisplayFont,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(LEFT, 8),
-			Size = UDim2.new(1, -(LEFT + RING + 16), 0, 24),
+			Position = UDim2.fromOffset(LEFT, 6),
+			Size = UDim2.new(1, -(LEFT + RING + 16), 0, 26),
 			Parent = card,
 		})
-		textLimit(name, 22)
+		Kit.textLimit(name, Theme.TextSize.Body)
 		local track = frame({
 			Name = "Xp",
-			BackgroundColor3 = Theme.Colors.Card,
+			BackgroundColor3 = Theme.Colors.Well,
 			Position = UDim2.fromOffset(LEFT, 36),
-			Size = UDim2.new(1, -(LEFT + RING + 16), 0, 18),
+			Size = UDim2.new(1, -(LEFT + RING + 16), 0, 22),
 			Parent = card,
 		})
-		Kit.corner(track, 9)
-		Kit.stroke(track, Theme.Colors.Outline, 2)
+		rounded(track)
+		Kit.stroke(track, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		track.ClipsDescendants = true
 		local xpFill = frame({
 			Name = "Fill",
-			BackgroundColor3 = Kit.lighten(Theme.Colors.Good, 0.05),
+			BackgroundColor3 = Theme.Colors.Collect,
 			Size = UDim2.fromScale(0, 1),
 			Parent = track,
 		})
-		Kit.corner(xpFill, 9)
-		Palette.candyGradient(xpFill)
+		rounded(xpFill)
 		local xpText = Kit.label({
 			Name = "Text",
 			Text = "",
@@ -1799,7 +1729,7 @@ function NursePanel.init(ctx: Types.Ctx)
 			ZIndex = 3,
 			Parent = track,
 		})
-		textLimit(xpText, 14)
+		Kit.textLimit(xpText, Theme.TextSize.Caption)
 
 		-- The specialty and the ability, side by side under the bar.
 		local chipsLeft = LEFT
@@ -1809,29 +1739,29 @@ function NursePanel.init(ctx: Types.Ctx)
 			Text = "",
 			TextScaled = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			BackgroundColor3 = Theme.Colors.Card,
+			BackgroundColor3 = Theme.Colors.Well,
 			BackgroundTransparency = 0,
-			Position = UDim2.fromOffset(chipsLeft, 58),
-			Size = UDim2.new(0.5, -(chipsLeft + chipsRight) / 2 - 3, 0, 24),
+			Position = UDim2.fromOffset(chipsLeft, 62),
+			Size = UDim2.new(0.5, -(chipsLeft + chipsRight) / 2 - 3, 0, 26),
 			Parent = card,
 		})
-		Kit.corner(specialty, 12)
-		padButton(specialty, 8, 3)
-		textLimit(specialty, 16)
+		rounded(specialty)
+		padButton(specialty, 8, 2)
+		Kit.textLimit(specialty, Theme.TextSize.Caption)
 		local ability = Kit.label({
 			Name = "Ability",
 			Text = "",
 			TextScaled = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			BackgroundColor3 = Theme.Colors.Card,
+			BackgroundColor3 = Theme.Colors.Well,
 			BackgroundTransparency = 0,
-			Position = UDim2.new(0.5, (chipsLeft - chipsRight) / 2 + 3, 0, 58),
-			Size = UDim2.new(0.5, -(chipsLeft + chipsRight) / 2 - 3, 0, 24),
+			Position = UDim2.new(0.5, (chipsLeft - chipsRight) / 2 + 3, 0, 62),
+			Size = UDim2.new(0.5, -(chipsLeft + chipsRight) / 2 - 3, 0, 26),
 			Parent = card,
 		})
-		Kit.corner(ability, 12)
-		padButton(ability, 8, 3)
-		textLimit(ability, 16)
+		rounded(ability)
+		padButton(ability, 8, 2)
+		Kit.textLimit(ability, Theme.TextSize.Caption)
 
 		-- The ability ring: fills as it recharges (never seconds); full = ready.
 		local ringHolder = frame({
@@ -1842,8 +1772,8 @@ function NursePanel.init(ctx: Types.Ctx)
 			BackgroundColor3 = Theme.Colors.Paper,
 			Parent = card,
 		})
-		Kit.corner(ringHolder, RING)
-		local setRing = Kit.ring(ringHolder, ACCENT)
+		rounded(ringHolder)
+		local setRing = Kit.ring(ringHolder, RING_COLOR)
 		local abilityDef = rawget(data.Abilities, nurse.Ability or "")
 		local ringIcon = Kit.label({
 			Name = "Icon",
@@ -1858,6 +1788,8 @@ function NursePanel.init(ctx: Types.Ctx)
 
 		-- The foot: the job button, then Sell and List (or "🏢 Stays with you").
 		local footTop = 8 + FACE + 8
+		-- The foot: the job button, then Sell and List (Secondary here: they open the Agency's and the Market's own
+		-- flows, where the Destructive Sell and the Primary List it! ask first), or "🏢 Stays with you".
 		local job = Kit.button({
 			Name = "Job",
 			Kind = "Secondary",
@@ -1867,11 +1799,11 @@ function NursePanel.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -(16 + 2 * (ACTION_WIDTH + 6)), 0, SLOT),
 			Parent = card,
 		})
-		padButton(job, 10, 12)
-		textLimit(job, 22, 11)
+		padButton(job, 8, 6)
+		Kit.textLimit(job, Theme.TextSize.Body)
 		local sell = Kit.button({
 			Name = "Sell",
-			Kind = "Cash",
+			Kind = "Secondary",
 			Text = T.Sell,
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 0),
@@ -1879,11 +1811,11 @@ function NursePanel.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(ACTION_WIDTH, SLOT),
 			Parent = card,
 		})
-		padButton(sell, 8, 12)
-		textLimit(sell, 20, 11)
+		padButton(sell, 6, 6)
+		Kit.textLimit(sell, Theme.TextSize.Body)
 		local listButton = Kit.button({
 			Name = "List",
-			Kind = "Pink",
+			Kind = "Secondary",
 			Text = T.List,
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 0),
@@ -1891,14 +1823,14 @@ function NursePanel.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(ACTION_WIDTH, SLOT),
 			Parent = card,
 		})
-		padButton(listButton, 8, 12)
-		textLimit(listButton, 20, 11)
+		padButton(listButton, 6, 6)
+		Kit.textLimit(listButton, Theme.TextSize.Body)
 		local stays = Kit.label({
 			Name = "Stays",
 			Text = T.Stays,
 			TextScaled = true,
 			TextColor3 = Theme.Colors.InkSoft,
-			BackgroundColor3 = Theme.Colors.Card,
+			BackgroundColor3 = Theme.Colors.Well,
 			BackgroundTransparency = 0,
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, -8, 0, footTop),
@@ -1906,27 +1838,27 @@ function NursePanel.init(ctx: Types.Ctx)
 			Visible = false,
 			Parent = card,
 		})
-		Kit.corner(stays, 12)
-		padButton(stays, 8, 14)
-		textLimit(stays, 20)
+		Kit.corner(stays, Theme.Radius.Medium)
+		padButton(stays, 8, 6)
+		Kit.textLimit(stays, Theme.TextSize.Body)
 
 		local ribbon = Kit.label({
 			Name = "New",
 			Text = T.New,
-			TextSize = Theme.TextSize.Small,
+			TextSize = Theme.TextSize.Caption,
 			TextWrapped = false,
 			Outlined = true,
 			BackgroundColor3 = Theme.Colors.Dot,
 			BackgroundTransparency = 0,
 			Position = UDim2.fromOffset(-6, -8),
-			Size = UDim2.fromOffset(64, 26),
+			Size = UDim2.fromOffset(70, 26),
 			Rotation = -8,
 			Visible = false,
 			ZIndex = 10,
 			Parent = card,
 		})
-		Kit.corner(ribbon, 13)
-		Kit.stroke(ribbon, Theme.Colors.Outline, 2.5)
+		rounded(ribbon)
+		Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Fine)
 
 		local entry: TeamCard = {
 			Id = nurseId,
@@ -2016,29 +1948,28 @@ function NursePanel.init(ctx: Types.Ctx)
 		card.LevelBadge.Text = "Lv " .. xp.Level
 		card.XpText.Text = Pure.xpText(xp)
 		card.XpFill.BackgroundColor3 = if xp.Max
-			then Kit.lighten(Theme.Colors.Cash, 0.05)
+			then Theme.Colors.Cash
 			elseif resting then Theme.Colors.Disabled
-			else Kit.lighten(Theme.Colors.Good, 0.05)
+			else Theme.Colors.Collect
 		setXp(card, xp.Fraction)
 		card.Specialty.Text = Pure.specialtyText(nurse.Specialty, data.Departments)
 		card.Ability.Text = Pure.abilityText(nurse.Ability, xp.Level, data.Abilities, cfg)
 		card.Job.Text = Pure.jobButton(entry, nurse, state.Level, data.Jobs, resting)
-		paint(card.Job, if resting then Theme.Colors.Quiet else Theme.Colors.Secondary, resting)
-		card.Frame.BackgroundColor3 = if resting then RESTING_FILL else Theme.Colors.Paper
+		card.Frame.BackgroundColor3 = if resting then RESTING_FILL else Theme.Colors.Card
 
 		local actions = Pure.actions(card.Id, data.Nurses, listed)
 		card.Sell.Visible = actions.Sell
 		card.List.Visible = actions.List
 		card.Stays.Visible = actions.Stays -- in the same place as Sell + List, so the job button keeps its width
 		card.List.Text = if actions.Listed then T.Listed else T.List
-		paint(card.Sell, if actions.Listed then Theme.Colors.Disabled else Theme.Colors.Cash, false)
+		setRole(card.Sell, if actions.Listed then "Disabled" else "Secondary")
 		card.Status.Visible = resting or actions.Listed
 		card.Status.Text = if resting then "💤" else "🏷️"
 
 		local news = fresh[card.Id]
 		card.Ribbon.Visible = news == "Level" or news == "Hired"
 		card.Ribbon.Text = if news == "Level" then T.LevelUp .. " Lv " .. xp.Level else T.New
-		card.Ribbon.BackgroundColor3 = if news == "Level" then Theme.Colors.Good else Theme.Colors.Dot
+		card.Ribbon.BackgroundColor3 = if news == "Level" then Theme.Colors.Collect else Theme.Colors.Dot
 	end
 
 	local function renderSummary(state: Types.Snapshot, roster: RosterView)
@@ -2051,13 +1982,14 @@ function NursePanel.init(ctx: Types.Ctx)
 		if key ~= summaryKey then
 			summaryKey = key
 			clearGui(summary)
-			local rosterChip = chip(summary, 1, roster.Text, Kit.lighten(ACCENT, if roster.Full then 0.55 else 0.8))
+			local rosterChip =
+				chip(summary, 1, roster.Text, if roster.Full then Theme.Colors.Cash else Theme.Colors.Well)
 			Kit.bump(rosterChip)
 			if roster.RestText ~= "" then
-				chip(summary, 2, roster.RestText, Kit.lighten(Theme.Colors.Disabled, 0.5))
+				chip(summary, 2, roster.RestText, Theme.Colors.Card)
 			end
 			for index, teamChip in chips do
-				chip(summary, 2 + index, teamChip.Text, Kit.lighten(Theme.Colors.Cash, 0.6))
+				chip(summary, 2 + index, teamChip.Text, Theme.Colors.Card)
 			end
 			if #chips == 0 and roster.Owned >= 2 then
 				chip(summary, 99, T.TeamHint, Theme.Colors.Card)
@@ -2069,7 +2001,7 @@ function NursePanel.init(ctx: Types.Ctx)
 		if gift and gift.NurseId ~= giftShown then
 			giftShown = gift.NurseId
 			giftFace:ClearAllChildren()
-			Kit.corner(giftFace, 14)
+			Kit.corner(giftFace, Theme.Radius.Medium)
 			local nurse = rawget(data.Nurses, gift.NurseId)
 			local portrait = Hud.portrait(if nurse then nurse.Look else nil, false)
 			portrait.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2238,7 +2170,6 @@ function NursePanel.init(ctx: Types.Ctx)
 	local picker = Hud.modal(ctx, {
 		Name = "NurseJob",
 		Title = T.PickJob,
-		Accent = ACCENT,
 		Layer = "Popup",
 		MaxSize = Vector2.new(540, 600),
 		Scale = Vector2.new(0.9, 0.94),
@@ -2252,7 +2183,7 @@ function NursePanel.init(ctx: Types.Ctx)
 		Size = UDim2.new(1, 0, 0, 26),
 		Parent = picker.Body,
 	})
-	textLimit(pickerNote, 20)
+	Kit.textLimit(pickerNote, Theme.TextSize.Body)
 	local pickerList = Instance.new("ScrollingFrame")
 	pickerList.Name = "Jobs"
 	pickerList.BackgroundTransparency = 1
@@ -2314,30 +2245,34 @@ function NursePanel.init(ctx: Types.Ctx)
 			local closed = option.State == "Closed" or option.State == "Full"
 			local button = Kit.button({
 				Name = option.Id,
-				Kind = "Card",
+				Kind = "Secondary",
 				LayoutOrder = index,
 				Size = UDim2.new(1, 0, 0, JOB_ROW_HEIGHT),
 				Parent = pickerList,
 			})
-			paint(
+			-- A card per job: the one it works in the well's fill with the bold ink outline; a closed one greyed.
+			flatCard(
 				button,
 				if current
-					then Kit.lighten(ACCENT, 0.6)
+					then Theme.Colors.Well
 					elseif closed then Kit.lighten(Theme.Colors.Disabled, 0.55)
-					else Theme.Colors.Paper,
-				true
+					else Theme.Colors.Paper
 			)
+			local border = borderOf(button)
+			if border then
+				border.Color = if current then Theme.Colors.Stroke else Theme.Colors.CardLine
+				border.Thickness = if current then Theme.Stroke.Bold else Theme.Stroke.Fine
+			end
 			local tile = frame({
 				Name = "Tile",
 				AnchorPoint = Vector2.new(0, 0.5),
 				Position = UDim2.new(0, 8, 0.5, 0),
 				Size = UDim2.fromOffset(50, 50),
-				BackgroundColor3 = if closed then Theme.Colors.Disabled else Kit.lighten(ACCENT, 0.08),
+				BackgroundColor3 = if closed then Theme.Colors.Disabled else Theme.Colors.Well,
 				ZIndex = 2,
 				Parent = button,
 			})
-			Kit.corner(tile, 12)
-			Kit.stroke(tile, Theme.Colors.Outline, 2.5)
+			Kit.corner(tile, Theme.Radius.Medium)
 			Kit.label({
 				Name = "Icon",
 				Text = option.Icon,
@@ -2359,7 +2294,7 @@ function NursePanel.init(ctx: Types.Ctx)
 				ZIndex = 2,
 				Parent = button,
 			})
-			textLimit(name, 22)
+			Kit.textLimit(name, Theme.TextSize.Body)
 			local words = Kit.label({
 				Name = "Words",
 				Text = option.Text,
@@ -2371,7 +2306,7 @@ function NursePanel.init(ctx: Types.Ctx)
 				ZIndex = 2,
 				Parent = button,
 			})
-			textLimit(words, 18)
+			Kit.textLimit(words, Theme.TextSize.Caption)
 			if option.Caption ~= "" then
 				local caption = Kit.label({
 					Name = "Caption",
@@ -2383,7 +2318,7 @@ function NursePanel.init(ctx: Types.Ctx)
 					ZIndex = 2,
 					Parent = button,
 				})
-				textLimit(caption, 20)
+				Kit.textLimit(caption, Theme.TextSize.Body)
 			end
 			button.Activated:Connect(function()
 				if pickerFor ~= nurseId then
@@ -2430,19 +2365,19 @@ function NursePanel.init(ctx: Types.Ctx)
 	end)
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Switching views
+	-- Switching views (Modal.tabs paints the column and calls this)
 	--------------------------------------------------------------------------------------------------------------
-	showView = function(id: string)
+	applyView = function(id: string)
 		if id == "Team" then
 			view = "Team"
-			lower.Visible = false
+			for _, page in pages do
+				page.Frame.Visible = false
+			end
 			teamScroll.Visible = true
 			if titleLabel then
 				titleLabel.Text = T.TitleTeam
 			end
-			paintMode(teamTab, true)
-			paintMode(journalTab, false)
-			modal.Focus = teamTab
+			modal.Focus = tabButton("Team")
 			askMarketOnce()
 			if modal.isOpen() then
 				startRings()
@@ -2454,31 +2389,16 @@ function NursePanel.init(ctx: Types.Ctx)
 			return
 		end
 		view = id
-		lastPage = id
 		ringToken += 1 -- the rings sleep while the Journal shows
-		lower.Visible = true
 		teamScroll.Visible = false
 		if titleLabel then
 			titleLabel.Text = T.TitleJournal
 		end
-		paintMode(teamTab, false)
-		paintMode(journalTab, true)
 		for pageId, p in pages do
-			local selected = pageId == id
-			p.Frame.Visible = selected
-			paintTab(p.Tab, selected, p.Color)
+			p.Frame.Visible = pageId == id
 		end
-		modal.Focus = page.Tab
+		modal.Focus = page.Tab or tabButton(id)
 	end
-
-	teamTab.Activated:Connect(function()
-		showView("Team")
-		render(ctx.State)
-	end)
-	journalTab.Activated:Connect(function()
-		showView(if pages[lastPage] then lastPage else Pure.openView(nil, {}, data.Nurses, rarityOrder, nil))
-		render(ctx.State)
-	end)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Drawing the Journal from the Snapshot
@@ -2557,10 +2477,7 @@ function NursePanel.init(ctx: Types.Ctx)
 			end
 			page.Count.Text = hired .. "/" .. total
 			page.Fill.Size = UDim2.fromScale(if total > 0 then hired / total else 0, 1)
-			local caption = page.Tab:FindFirstChild("Caption")
-			if caption and caption:IsA("TextLabel") then
-				caption.Text = if complete then "✅" else hired .. "/" .. total
-			end
+			setCaption(pageId, if complete then "✅" else hired .. "/" .. total)
 			local news = false
 			for _, card in page.Cards do
 				local kind = fresh[card.Id]
@@ -2569,12 +2486,16 @@ function NursePanel.init(ctx: Types.Ctx)
 				end
 				renderCard(card, state, roster)
 			end
-			Kit.setDot(page.Tab, news)
+			local tab = page.Tab
+			if tab then
+				Kit.setDot(tab, news)
+			end
 			if page.Odds then
 				page.Odds.Text = "🎲 " .. BeltPure.percent(oddsNow[pageId])
 			end
 
-			-- Still to earn: a faded icon on white. Earned: ✅, a gold badge on turning rays.
+			-- Still to earn: a faded icon on white. Earned: ✅ and a gold badge (still: the motion budget keeps loops
+			-- for the one Collect button).
 			local badge, reward, rewardText, badgeIcon = page.Badge, page.Reward, page.RewardText, page.BadgeIcon
 			if badge and reward and rewardText and badgeIcon then
 				local claimed = claimedSets[pageId] == true
@@ -2583,16 +2504,8 @@ function NursePanel.init(ctx: Types.Ctx)
 				rewardText.Text = (if claimed then "✅ " else "🎁 ")
 					.. Pure.rewardText(info, if decor then decor.Icon else nil)
 				badgeIcon.TextTransparency = if claimed then 0 else 0.5
-				badge.BackgroundColor3 = if claimed then Kit.lighten(Theme.Colors.Cash, 0.08) else Theme.Colors.Paper
-				reward.BackgroundColor3 = if claimed then Kit.lighten(Theme.Colors.Cash, 0.6) else Theme.Colors.Card
-				local holder = badge.Parent
-				if claimed and not page.Rays and holder and holder:IsA("GuiObject") then
-					page.Rays = Kit.rays(holder, Theme.Colors.Cash)
-				end
-				local rays = page.Rays
-				if rays then
-					rays.Visible = claimed
-				end
+				badge.BackgroundColor3 = if claimed then Theme.Colors.Cash else Theme.Colors.Paper
+				reward.BackgroundColor3 = if claimed then Theme.Colors.Well else Theme.Colors.Paper
 				if claimed and not page.Claimed then
 					Kit.bump(badge)
 				end
@@ -2608,9 +2521,8 @@ function NursePanel.init(ctx: Types.Ctx)
 			data.Nurses,
 			data.Rarities
 		)
-		pillText.Text = "📔 " .. journal.Percent .. "%"
-		pillFill.Size = UDim2.fromScale(math.clamp(journal.Percent / 100, 0, 1), 1)
-		teamTab.Text = T.TitleTeam .. " " .. roster.Owned .. "/" .. roster.Cap
+		modal.setMeta(Pure.metaText(journal.Percent))
+		setCaption("Team", roster.Owned .. "/" .. roster.Cap)
 		if view == "Team" then
 			renderTeam(state)
 		else
@@ -2662,7 +2574,7 @@ function NursePanel.init(ctx: Types.Ctx)
 		local gui = stampGui or Kit.screen("NurseStamps", Theme.DisplayOrder.Fx)
 		stampGui = gui
 		local info = rarityInfo(nurse.Rarity)
-		local color = hexColor(info.Color, Theme.Colors.Quiet)
+		local color = hexColor(info.Color, Theme.Colors.Card)
 		local target = Hud.target("Nurses")
 		local shown = target ~= nil and target.Visible and target.AbsoluteSize.X > 0
 		local origin = gui.AbsolutePosition
@@ -2688,7 +2600,7 @@ function NursePanel.init(ctx: Types.Ctx)
 		else
 			card.Position = UDim2.new(1, -(STAMP_SIZE.X / 2 + 16), 1, -120)
 		end
-		Kit.corner(card, 18)
+		Kit.corner(card, Theme.Radius.Large)
 		Kit.rarityFrame(card, nurse.Rarity)
 		local stopRays = Kit.celebrate(card, color)
 		local face = frame({
@@ -2696,12 +2608,11 @@ function NursePanel.init(ctx: Types.Ctx)
 			AnchorPoint = Vector2.new(0.5, 0),
 			Position = UDim2.new(0.5, 0, 0, 10),
 			Size = UDim2.new(1, -20, 0, 96),
-			BackgroundColor3 = Kit.lighten(color, 0.45),
+			BackgroundColor3 = Theme.Colors.Well,
 			ZIndex = 1,
 			Parent = card,
 		})
-		Kit.corner(face, 12)
-		Palette.candyGradient(face)
+		Kit.corner(face, Theme.Radius.Medium)
 		local portrait = Hud.portrait(nurse.Look, false)
 		portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 		portrait.Position = UDim2.fromScale(0.5, 0.5)
@@ -2719,23 +2630,24 @@ function NursePanel.init(ctx: Types.Ctx)
 			ZIndex = 1,
 			Parent = card,
 		})
-		textLimit(name, 22)
+		Kit.textLimit(name, Theme.TextSize.Body)
 		local ribbon = Kit.label({
 			Name = "New",
 			Text = if item.Kind == "Level" then T.LevelUp .. " Lv " .. tostring(item.Level or 2) else T.New,
 			TextScaled = true,
 			Outlined = true,
-			BackgroundColor3 = if item.Kind == "Level" then Theme.Colors.Good else Theme.Colors.Dot,
+			BackgroundColor3 = if item.Kind == "Level" then Theme.Colors.Collect else Theme.Colors.Dot,
 			BackgroundTransparency = 0,
 			Position = UDim2.fromOffset(-10, -12),
-			Size = UDim2.fromOffset(78, 28),
+			Size = UDim2.fromOffset(84, 30),
 			Rotation = -10,
 			ZIndex = 3,
 			Parent = card,
 		})
-		Kit.corner(ribbon, 14)
-		Kit.stroke(ribbon, Theme.Colors.Outline, 2.5)
-		padButton(ribbon, 6, 3)
+		rounded(ribbon)
+		Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Fine)
+		padButton(ribbon, 6, 2)
+		Kit.textLimit(ribbon, Theme.TextSize.Body)
 
 		Kit.popIn(card)
 		if item.Kind == "Seen" then

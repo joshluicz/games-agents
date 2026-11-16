@@ -5,17 +5,19 @@
 --               (NursePanel's Sell button: the Sell tab and that nurse's confirm); listens to the bus "AgencyNews"
 --               (view), "MarketNews" (which of yours are listed) and "NurseNews". Asks GetAgency, AgencyBuy(slot,
 --               nurseId, expect) and SellNurse(nurseId, expect); `expect` is always the price the server showed.
--- Inside (a Hud.modal Panel, cyan like the 👩‍⚕️ button):
---   · 🛒 Hire: the stock, one row per nurse (4, or 6 with 🍀 Lucky Stock: those wear a 🍀): portrait, rarity frame,
---     name, its job, specialty and ability icons, and one button: "Hire 💰150" · "✅ Bought" · "🏥 Lv 3" / "🏢 R1"
---     (a gate: no lock, no price) · "Roster full" (opens the 👩‍⚕️ Team page) · "⭐ MAX". Over it: "🔄 New nurses
---     every 5 min", never a clock (§E9).
---   · 💰 Sell: every nurse you own with what the Agency pays (30% of the belt's base price per copy): "Sell 💰30" ·
---     "🏷️ Listed" (unlist it on the Market first) · "🏢 Stays" (rebirth-only).
---   · 🎲: the odds popup, from the server's own table (AgencyView.Odds): 70 / 26 / 4, "🚫 Never Legendary+", the
---     Lucky Stock uses the same odds, and the Epic gate.
---   · Every buy and sell asks first ("Hire 🐶 Puff Pup for 💰150?" · "Sell 🐶 Lv 7 for 💰30?"); "Not now" is the
---     default button, and selling an Epic or rarer is a 1 s hold (Kit.holdButton).
+-- Inside (a Hud.modal Panel on the one template: the navy header, Modal.tabs down the left, neutral cards, buttons by
+-- role; look build plan §B8, §D T7):
+--   · 🛒 Hire: the stock, one card per nurse (4, or 6 with 🍀 Lucky Stock: those wear a 🍀): portrait in its rarity
+--     frame, name, its job, specialty and ability icons, and one button: "Hire 💰150" (Primary) · "✅ Bought" ·
+--     "🏥 Lv 3" / "🏢 R1" (a gate: no lock, no price) · "Roster full" (opens the 👩‍⚕️ Team page) · "⭐ MAX". Over it:
+--     "🔄 New nurses every 5 min", never a clock (§E9), and the Quiet "🎲 Odds" link.
+--   · 💰 Sell: every nurse you own with what the Agency pays (30% of the belt's base price per copy): "Sell 💰30"
+--     (Destructive) · "🏷️ Listed" (unlist it on the Market first) · "🏢 Stays" (rebirth-only).
+--   · 🎲: THE odds popup (Hud.oddsPopup, Pure.oddsSpec), from the server's own table (AgencyView.Odds): every rarity
+--     with its word and number (70 / 26 / 4), "🚫 Never Legendary+", Lucky Stock uses the same odds, the Epic gate.
+--   · Every buy and sell asks first through THE confirm (Hud.confirm, Pure.confirmSpec: "Hire 🐶 Puff Pup for
+--     💰150?" · "Sell 🐶 Lv 7 for 💰30?"); "Not now" is the default button, and selling an Epic or rarer (or any
+--     nurse at Lv 2+) is a 1 s hold (Hud.confirm's Hold: Kit.holdButton).
 -- Cash only, no Robux, no "hurry" words, no countdowns (red line 3). Every motion goes through Hud.pop / Kit (they
 -- honour Kit.reducedMotion()). Buttons are 56 px tall and every label is 6 words or fewer.
 
@@ -24,7 +26,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
 local Logic = Shared:WaitForChild("Logic")
 local AgencyLogic = require(Logic:WaitForChild("Agency"))
 local BeltLogic = require(Logic:WaitForChild("Belt"))
@@ -32,6 +33,7 @@ local NurseLogic = require(Logic:WaitForChild("Nurse"))
 local RebirthLogic = require(Logic:WaitForChild("Rebirth"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
+local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
 
 local AgencyPanel = {}
@@ -213,6 +215,75 @@ function Pure.priceKey(state: any, effects: any): string
 	return table.concat({ tostring(level), tostring(count), tostring(bargain), tostring(lucky) }, "|")
 end
 
+-- Selling a nurse that needsHold waits on a hold this long (Kit.holdButton, through Hud.confirm's Hold).
+Pure.HOLD_SECONDS = 1
+
+export type ConfirmSpec = { Title: string, Line: string, Yes: string, Kind: string, Hold: number }
+
+-- THE confirm (Hud.confirm) for a hire or a sell: a two-word title, the question (Pure.confirmText, 6 words or
+-- fewer), the yes button, its role (Hire is Primary; Sell is Destructive) and the hold (a sell that needsHold).
+function Pure.confirmSpec(
+	kind: string,
+	icon: string,
+	name: string,
+	level: number,
+	price: number,
+	rarity: any
+): ConfirmSpec
+	if kind == "Sell" then
+		local hold = Pure.needsHold(rarity, level)
+		return {
+			Title = "💰 Sell?",
+			Line = Pure.confirmText("Sell", icon, name, level, price),
+			Yes = if hold then "✋ Hold to sell" else "✅ Yes!",
+			Kind = "Destructive",
+			Hold = if hold then Pure.HOLD_SECONDS else 0,
+		}
+	end
+	return {
+		Title = "🏢 Hire?",
+		Line = Pure.confirmText("Hire", icon, name, 1, price),
+		Yes = "✅ Yes!",
+		Kind = "Primary",
+		Hold = 0,
+	}
+end
+
+-- The 🎲 popup's notes: "🚫 Never Legendary+", Lucky Stock rolls the same odds, the Epic gate ("🏥 Epic: hospital
+-- Lv 3+", only while the Agency can stock Epics) and how often new nurses come.
+function Pure.oddsNotes(odds: any, epicLevel: any, restockSeconds: any): { string }
+	local notes: { string } = {}
+	local never = Pure.neverText(odds)
+	if never then
+		table.insert(notes, never)
+	end
+	table.insert(notes, "🍀 Lucky Stock: same odds")
+	local epic = if type(odds) == "table" then odds.Epic else nil
+	if finite(epicLevel) and epicLevel > 1 and finite(epic) and epic > 0 then
+		table.insert(notes, "🏥 Epic: hospital Lv " .. tostring(math.floor(epicLevel)) .. "+")
+	end
+	table.insert(notes, Pure.everyText(restockSeconds))
+	return notes
+end
+
+export type OddsSpec = { Title: string, Rows: { { Icon: string, Name: string, Percent: number } }, Notes: { string } }
+
+-- THE odds popup (Hud.oddsPopup): every rarity the Agency can stock, lowest first, each with its word and the
+-- server's own number (AgencyView.Odds), and the notes. `rarities` is Data/Rarities (its Icon and Name).
+function Pure.oddsSpec(odds: any, rarities: any, notes: { string }?): OddsSpec
+	local rows: { { Icon: string, Name: string, Percent: number } } = {}
+	for _, row in Pure.oddsRows(odds) do
+		local info = if type(rarities) == "table" then rawget(rarities, row.Rarity) else nil
+		local known = type(info) == "table"
+		table.insert(rows, {
+			Icon = if known and type(info.Icon) == "string" then info.Icon else "🎲",
+			Name = if known and type(info.Name) == "string" then info.Name else row.Rarity,
+			Percent = row.Odds,
+		})
+	end
+	return { Title = "🎲 Odds", Rows = rows, Notes = notes or {} }
+end
+
 -- The Sell tab's nurses: the ones you own that this game knows, in the Journal's order (Data/Nurses.Order).
 function Pure.sellList(nurses: any, roster: any): { string }
 	local out: { string } = {}
@@ -231,30 +302,46 @@ end
 AgencyPanel.Pure = Pure -- for a scratch harness and the spec
 
 ------------------------------------------------------------------------------------------------------------------
--- Look helpers
+-- Look helpers: the one template (look build plan §B8). Neutral cards on white paper, the rarity frame on the face
+-- tile only, buttons by role, radii, strokes and text sizes from Theme.
 ------------------------------------------------------------------------------------------------------------------
 
-local ROW_HEIGHT = 76
-local FACE = 60
+local ROW_HEIGHT = 80
+local FACE = 64
 local BAR_HEIGHT = Theme.Size.ButtonHeight
-local NOTE_HEIGHT = 28
-local ODDS_WIDTH = 64
-local GAP = Theme.Size.Gap
-local HOLD_SECONDS = 1
+local ODDS_WIDTH = 132
+local GAP = Theme.Space.Gap
+local TABS: { Modal.TabSpec } = {
+	{ Id = "Hire", Icon = "🛒", Caption = "Hire" },
+	{ Id = "Sell", Icon = "💰", Caption = "Sell" },
+}
 
-local function hexColor(value: any, fallback: Color3): Color3
-	if type(value) ~= "string" then
-		return fallback
+-- A button's role after it was made (Kit.button reads its Kind once): the role's fill, and white outlined text on a
+-- strong fill or ink on a light one. "Disabled" is the gated grey; it stays tappable, so a tap can still say why.
+local ROLE_FILL: { [string]: Color3 } = {
+	Primary = Theme.Colors.Primary,
+	Collect = Theme.Colors.Collect,
+	Destructive = Theme.Colors.Destructive,
+	Secondary = Theme.Colors.Secondary,
+	Disabled = Theme.Colors.Disabled,
+}
+local function setRole(button: TextButton, role: string)
+	local fill = ROLE_FILL[role] or Theme.Colors.Secondary
+	local light = role == "Secondary" or role == "Disabled"
+	button.BackgroundColor3 = fill
+	button:SetAttribute("KitColor", fill)
+	button.TextColor3 = if role == "Disabled"
+		then Theme.Colors.DisabledText
+		elseif light then Theme.Colors.Ink
+		else Theme.Colors.OnColor
+	local outline = button:FindFirstChild("TextOutline")
+	if light then
+		if outline and outline:IsA("UIStroke") then
+			outline.Enabled = false
+		end
+	else
+		Kit.outline(button).Enabled = true
 	end
-	local ok, color = pcall(Color3.fromHex, value)
-	return if ok then color else fallback
-end
-
-local function textLimit(label: TextLabel | TextButton, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 9
-	limit.Parent = label
 end
 
 local function frame(props: { [string]: any }): Frame
@@ -269,13 +356,10 @@ local function frame(props: { [string]: any }): Frame
 	return f
 end
 
-local function padButton(button: GuiObject, x: number, y: number)
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, x)
-	pad.PaddingRight = UDim.new(0, x)
-	pad.PaddingTop = UDim.new(0, y)
-	pad.PaddingBottom = UDim.new(0, y)
-	pad.Parent = button
+local function rounded(gui: GuiObject): UICorner
+	local corner = Kit.corner(gui)
+	corner.CornerRadius = Theme.Radius.Round
+	return corner
 end
 
 local function scrollPage(name: string, parent: Instance): ScrollingFrame
@@ -283,8 +367,8 @@ local function scrollPage(name: string, parent: Instance): ScrollingFrame
 	scroll.Name = name
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
-	scroll.Position = UDim2.fromOffset(0, BAR_HEIGHT + GAP + NOTE_HEIGHT + 4)
-	scroll.Size = UDim2.new(1, 0, 1, -(BAR_HEIGHT + GAP + NOTE_HEIGHT + 4))
+	scroll.Position = UDim2.fromOffset(0, BAR_HEIGHT + GAP)
+	scroll.Size = UDim2.new(1, 0, 1, -(BAR_HEIGHT + GAP))
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -292,12 +376,12 @@ local function scrollPage(name: string, parent: Instance): ScrollingFrame
 	scroll.ScrollBarImageColor3 = Theme.Colors.Stroke
 	scroll.Selectable = false
 	scroll.Parent = parent
-	local list = Kit.list(scroll, Enum.FillDirection.Vertical, 8)
+	local list = Kit.list(scroll, Enum.FillDirection.Vertical, GAP)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
 	pad.PaddingTop = UDim.new(0, 4)
 	pad.PaddingBottom = UDim.new(0, 8)
-	pad.PaddingLeft = UDim.new(0, 3)
+	pad.PaddingLeft = UDim.new(0, 4)
 	pad.PaddingRight = UDim.new(0, 12)
 	pad.Parent = scroll
 	return scroll
@@ -333,10 +417,6 @@ function AgencyPanel.init(ctx: Types.Ctx)
 	local hireKey = ""
 	local sellKey = ""
 
-	local function rarityInfo(rarity: string): any
-		return rawget(data.Rarities, rarity) or rawget(data.Rarities, "Common")
-	end
-
 	local function nurseOf(nurseId: any): any
 		local nurse = if type(nurseId) == "string" then rawget(data.Nurses, nurseId) else nil
 		return if type(nurse) == "table" then nurse else nil
@@ -370,62 +450,55 @@ function AgencyPanel.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The modal and its bar
+	-- The modal, its tab column and its bar
 	--------------------------------------------------------------------------------------------------------------
 	local modal = Hud.modal(ctx, {
 		Name = "Agency",
 		Title = "🏢 Agency",
-		Accent = Theme.Colors.Cyan,
 	})
-	local body = modal.Body
+	local render: () -> ()
+	local fetchListed: () -> ()
 
-	local tabWidth = UDim2.new(0.5, -(ODDS_WIDTH + GAP * 2) / 2, 0, BAR_HEIGHT)
-	local hireTab = Kit.button({
-		Name = "HireTab",
-		Kind = "Cyan",
-		Text = "🛒 Hire",
-		TextScaled = true,
-		Position = UDim2.fromOffset(0, 0),
-		Size = tabWidth,
-		Parent = body,
-	})
-	padButton(hireTab, 10, 10)
-	local sellTab = Kit.button({
-		Name = "SellTab",
-		Kind = "Cyan",
-		Text = "💰 Sell",
-		TextScaled = true,
-		Position = UDim2.new(0.5, -(ODDS_WIDTH + GAP * 2) / 2 + GAP, 0, 0),
-		Size = tabWidth,
-		Parent = body,
-	})
-	padButton(sellTab, 10, 10)
-	local oddsButton = Kit.button({
-		Name = "Odds",
-		Kind = "Purple",
-		Text = "🎲",
-		TextScaled = true,
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(1, 0),
-		Size = UDim2.fromOffset(ODDS_WIDTH, BAR_HEIGHT),
-		Parent = body,
-	})
-	padButton(oddsButton, 8, 8)
-	modal.Focus = hireTab
+	-- THE tab pattern: 🛒 Hire and 💰 Sell down the left (Modal.tabs paints them with Kit.tab).
+	local tabs = Modal.tabs(modal, TABS, function(id: string)
+		tab = if id == "Sell" then "Sell" else "Hire"
+		render()
+		if tab == "Sell" and modal.isOpen() then
+			task.spawn(fetchListed)
+		end
+	end)
+	local content = tabs.Content
+	local function tabButton(id: string): GuiObject?
+		local found = tabs.Column:FindFirstChild("Tab_" .. id, true)
+		return if found and found:IsA("GuiObject") then found else nil
+	end
+	modal.Focus = tabButton("Hire")
 
+	-- The bar: how often new nurses come (never a clock) and the 🎲 Odds link (a Quiet button: THE odds popup).
 	local note = Kit.label({
 		Name = "Note",
 		Text = Pure.everyText(cfg.Agency.RestockSeconds),
 		TextScaled = true,
 		TextColor3 = Theme.Colors.InkSoft,
-		Position = UDim2.fromOffset(0, BAR_HEIGHT + GAP),
-		Size = UDim2.new(1, 0, 0, NOTE_HEIGHT),
-		Parent = body,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Size = UDim2.new(1, -(ODDS_WIDTH + GAP), 0, BAR_HEIGHT),
+		Parent = content,
 	})
-	textLimit(note, 22)
+	Kit.textLimit(note, Theme.TextSize.Body)
+	local oddsButton = Kit.button({
+		Name = "Odds",
+		Kind = "Quiet",
+		Text = "🎲 Odds",
+		TextScaled = true,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(ODDS_WIDTH, BAR_HEIGHT),
+		Parent = content,
+	})
+	Kit.textLimit(oddsButton, Theme.TextSize.Button)
 
-	local hirePage = scrollPage("HirePage", body)
-	local sellPage = scrollPage("SellPage", body)
+	local hirePage = scrollPage("HirePage", content)
+	local sellPage = scrollPage("SellPage", content)
 	local emptyLabel = Kit.label({
 		Name = "Empty",
 		Text = "",
@@ -435,237 +508,41 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		LayoutOrder = 999,
 		Visible = false,
 	})
-	textLimit(emptyLabel, 24)
-
-	-- A tab in the panel's colour: a pale tint while it waits, full candy when it's open.
-	local function paintTab(button: TextButton, selected: boolean)
-		local color = Theme.Colors.Cyan
-		button.BackgroundColor3 = if selected then Kit.lighten(color, 0.08) else Kit.lighten(color, 0.7)
-		button.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
-		Kit.outline(button, 2).Enabled = selected
-	end
+	Kit.textLimit(emptyLabel, Theme.TextSize.Button)
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The confirm popup ("Not now" first) and the odds popup
+	-- THE odds popup: the server's own table (the one its rolls use); before the first view, the same Logic on the
+	-- same Config
 	--------------------------------------------------------------------------------------------------------------
-	local confirm = Hud.modal(ctx, {
-		Name = "AgencyConfirm",
-		Title = "🏢 Agency",
-		Accent = Theme.Colors.Cyan,
-		Layer = "Popup",
-		MaxSize = Vector2.new(420, 340),
-	})
-	local confirmFace = frame({
-		Name = "Face",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0),
-		Size = UDim2.fromOffset(92, 92),
-		BackgroundColor3 = Theme.Colors.Card,
-		Parent = confirm.Body,
-	})
-	Kit.corner(confirmFace, 16)
-	local question = Kit.label({
-		Name = "Question",
-		Text = "",
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 100),
-		Size = UDim2.new(1, -8, 0, 52),
-		Parent = confirm.Body,
-	})
-	textLimit(question, 28)
-	local buttonRow = UDim2.new(0.5, -GAP / 2, 0, Theme.Size.ButtonHeight)
-	local notNow = Kit.button({
-		Name = "NotNow",
-		Kind = "Quiet",
-		Text = "Not now",
-		TextScaled = true,
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.fromScale(0, 1),
-		Size = buttonRow,
-		Parent = confirm.Body,
-	})
-	padButton(notNow, 10, 12)
-	local yesTap = Kit.button({
-		Name = "Yes",
-		Kind = "Good",
-		Text = "✅ Yes!",
-		TextScaled = true,
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.fromScale(1, 1),
-		Size = buttonRow,
-		Parent = confirm.Body,
-	})
-	padButton(yesTap, 10, 12)
-	local yesHold = Kit.button({
-		Name = "Hold",
-		Kind = "Primary",
-		Text = "✋ Hold to sell",
-		TextScaled = true,
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.fromScale(1, 1),
-		Size = buttonRow,
-		Visible = false,
-		Parent = confirm.Body,
-	})
-	padButton(yesHold, 10, 12)
-	confirm.Focus = notNow
-
-	local pending: (() -> ())? = nil
-	local function accept()
-		local fn = pending
-		pending = nil
-		if fn then
-			confirm.close()
-			task.spawn(fn)
-		end
-	end
-	notNow.Activated:Connect(function()
-		pending = nil
-		confirm.close()
-	end)
-	yesTap.Activated:Connect(accept)
-	Kit.holdButton(yesHold, HOLD_SECONDS, accept)
-
-	local function ask(nurse: any, text: string, hold: boolean, onYes: () -> ())
-		for _, child in confirmFace:GetChildren() do
-			if child:IsA("GuiObject") then
-				child:Destroy()
-			end
-		end
-		local color = hexColor(rarityInfo(nurse.Rarity).Color, Theme.Colors.Quiet)
-		confirmFace.BackgroundColor3 = Kit.lighten(color, 0.45)
-		Kit.rarityFrame(confirmFace, nurse.Rarity)
-		local portrait = Hud.portrait(nurse.Look, false)
-		portrait.AnchorPoint = Vector2.new(0.5, 0.5)
-		portrait.Position = UDim2.fromScale(0.5, 0.5)
-		portrait.Size = UDim2.fromScale(0.92, 0.92)
-		portrait.Parent = confirmFace
-		question.Text = text
-		yesTap.Visible = not hold
-		yesHold.Visible = hold
-		pending = onYes
-		confirm.open()
-	end
-
-	local odds = Hud.modal(ctx, {
-		Name = "AgencyOdds",
-		Title = "🎲 Odds",
-		Accent = Theme.Colors.Purple,
-		Layer = "Popup",
-		MaxSize = Vector2.new(420, 460),
-	})
-	local oddsScroll = scrollPage("Rows", odds.Body)
-	oddsScroll.Position = UDim2.new()
-	oddsScroll.Size = UDim2.fromScale(1, 1)
-
-	local function renderOdds()
-		for _, child in oddsScroll:GetChildren() do
-			if child:IsA("GuiObject") then
-				child:Destroy()
-			end
-		end
-		-- The server's own table (the one its rolls use); before the first view, the same Logic on the same Config.
-		local shown = if view and type(view.Odds) == "table" then view.Odds else AgencyLogic.odds(cfg)
-		for order, row in Pure.oddsRows(shown) do
-			local info = rarityInfo(row.Rarity)
-			local color = hexColor(info.Color, Theme.Colors.Quiet)
-			local line = frame({
-				Name = row.Rarity,
-				BackgroundColor3 = Theme.Colors.Paper,
-				Size = UDim2.new(1, 0, 0, 44),
-				LayoutOrder = order,
-				Parent = oddsScroll,
-			})
-			Kit.corner(line, 12)
-			Kit.rarityFrame(line, row.Rarity)
-			local chip = frame({
-				Name = "Rarity",
-				BackgroundColor3 = Kit.lighten(color, 0.1),
-				Position = UDim2.fromOffset(4, 4),
-				Size = UDim2.new(0.62, -8, 1, -8),
-				Parent = line,
-			})
-			Kit.corner(chip, 10)
-			Palette.candyGradient(chip)
-			local name = Kit.label({
-				Name = "Name",
-				Text = info.Icon .. " " .. info.Name,
-				TextScaled = true,
-				Outlined = true,
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.new(1, -8, 1, -6),
-				Parent = chip,
-			})
-			textLimit(name, 22)
-			local percent = Kit.label({
-				Name = "Odds",
-				Text = Pure.percent(row.Odds),
-				TextScaled = true,
-				Font = Theme.DisplayFont,
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -8, 0.5, 0),
-				Size = UDim2.new(0.38, -8, 1, -12),
-				Parent = line,
-			})
-			textLimit(percent, 24)
-		end
-		local notes: { string } = {}
-		local never = Pure.neverText(shown)
-		if never then
-			table.insert(notes, never)
-		end
-		table.insert(notes, "🍀 Lucky Stock: same odds")
-		local epicLevel = BeltLogic.minLevel(cfg, "Epic")
-		if epicLevel > 1 and (shown.Epic or 0) > 0 then
-			table.insert(notes, "🏥 Epic: hospital Lv " .. epicLevel .. "+")
-		end
-		table.insert(notes, Pure.everyText(cfg.Agency.RestockSeconds))
-		for index, text in notes do
-			local label = Kit.label({
-				Name = "Note" .. index,
-				Text = text,
-				TextScaled = true,
-				TextColor3 = Theme.Colors.InkSoft,
-				Size = UDim2.new(1, 0, 0, 26),
-				LayoutOrder = 100 + index,
-				Parent = oddsScroll,
-			})
-			textLimit(label, 20)
-		end
-	end
-
 	oddsButton.Activated:Connect(function()
-		renderOdds()
-		odds.open()
+		local shown = if view and type(view.Odds) == "table" then view.Odds else AgencyLogic.odds(cfg)
+		local notes = Pure.oddsNotes(shown, BeltLogic.minLevel(cfg, "Epic"), cfg.Agency.RestockSeconds)
+		Hud.oddsPopup(ctx, Pure.oddsSpec(shown, data.Rarities, notes))
 	end)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Rows
 	--------------------------------------------------------------------------------------------------------------
 	local function newRow(parent: Instance, key: string, nurse: any, nurseId: string, order: number): Row
-		local color = hexColor(rarityInfo(nurse.Rarity).Color, Theme.Colors.Quiet)
 		local row = frame({
 			Name = "Row_" .. key,
-			BackgroundColor3 = Theme.Colors.Paper,
+			BackgroundColor3 = Theme.Colors.Card,
 			Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
 			LayoutOrder = order,
 			Parent = parent,
 		})
-		Kit.corner(row, 16)
-		Kit.rarityFrame(row, nurse.Rarity)
+		Kit.corner(row, Theme.Radius.Medium)
+		Kit.stroke(row, Theme.Colors.CardLine, Theme.Stroke.Fine)
+		-- The face tile: the image well, with the rarity frame (the template's one place for it).
 		local face = frame({
 			Name = "Face",
 			Position = UDim2.fromOffset(8, (ROW_HEIGHT - FACE) / 2),
 			Size = UDim2.fromOffset(FACE, FACE),
-			BackgroundColor3 = Kit.lighten(color, 0.45),
+			BackgroundColor3 = Theme.Colors.Well,
 			Parent = row,
 		})
-		Kit.corner(face, 12)
-		Palette.candyGradient(face)
-		Kit.stroke(face, Theme.Colors.Outline, 2)
+		Kit.corner(face, Theme.Radius.Medium)
+		Kit.rarityFrame(face, nurse.Rarity)
 		local portrait = Hud.portrait(nurse.Look, false)
 		portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 		portrait.Position = UDim2.fromScale(0.5, 0.5)
@@ -679,49 +556,44 @@ function AgencyPanel.init(ctx: Types.Ctx)
 			Font = Theme.DisplayFont,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Position = UDim2.fromOffset(textLeft, 8),
-			Size = UDim2.new(0.62, -textLeft - 6, 0, 30),
+			Size = UDim2.new(0.6, -textLeft - 6, 0, 30),
 			Parent = row,
 		})
-		textLimit(name, 24)
+		Kit.textLimit(name, Theme.TextSize.Body)
 		local sub = Kit.label({
 			Name = "Sub",
 			Text = "",
 			TextScaled = true,
 			TextColor3 = Theme.Colors.InkSoft,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(textLeft, 40),
-			Size = UDim2.new(0.62, -textLeft - 6, 0, 26),
+			Position = UDim2.fromOffset(textLeft, 42),
+			Size = UDim2.new(0.6, -textLeft - 6, 0, 28),
 			Parent = row,
 		})
-		textLimit(sub, 20)
+		Kit.textLimit(sub, Theme.TextSize.Caption)
 		local button = Kit.button({
 			Name = "Act",
-			Kind = "Cash",
+			Kind = "Primary",
 			Text = "",
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -10, 0.5, 0),
-			Size = UDim2.new(0.38, -14, 0, Theme.Size.ButtonHeight),
+			Size = UDim2.new(0.4, -14, 0, Theme.Size.ButtonHeight),
 			Parent = row,
 		})
-		padButton(button, 8, 12)
+		Kit.textLimit(button, Theme.TextSize.Button)
 		local limits = Instance.new("UISizeConstraint")
-		limits.MinSize = Vector2.new(112, Theme.Size.ButtonHeight)
-		limits.MaxSize = Vector2.new(190, Theme.Size.ButtonHeight)
+		limits.MinSize = Vector2.new(120, Theme.Size.ButtonHeight)
+		limits.MaxSize = Vector2.new(200, Theme.Size.ButtonHeight)
 		limits.Parent = button
 		return { Key = key, NurseId = nurseId, Frame = row, Name = name, Sub = sub, Button = button }
 	end
 
-	local function paint(button: TextButton, text: string, fill: Color3, active: boolean)
+	local function paint(button: TextButton, text: string, role: string)
 		if button.Text ~= text then
 			button.Text = text
 		end
-		button.BackgroundColor3 = fill
-		for _, child in button:GetChildren() do
-			if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
-				child.Transparency = if active then 0 else 0.3
-			end
-		end
+		setRole(button, role)
 	end
 
 	local function clearRows(rows: { Row })
@@ -760,15 +632,15 @@ function AgencyPanel.init(ctx: Types.Ctx)
 							Name = "Lucky",
 							Text = "🍀",
 							TextScaled = true,
-							BackgroundColor3 = Theme.Colors.Good,
+							BackgroundColor3 = Theme.Colors.Plate,
 							BackgroundTransparency = 0,
 							Position = UDim2.fromOffset(2, 2),
-							Size = UDim2.fromOffset(26, 26),
+							Size = UDim2.fromOffset(28, 28),
 							ZIndex = 3,
 							Parent = row.Frame,
 						})
-						Kit.corner(clover, 13)
-						Kit.stroke(clover, Theme.Colors.Outline, 2)
+						rounded(clover)
+						Kit.stroke(clover, Theme.Colors.Stroke, Theme.Stroke.Fine)
 					end
 					local slotNumber = slot.Slot
 					row.Button.Activated:Connect(function()
@@ -788,12 +660,13 @@ function AgencyPanel.init(ctx: Types.Ctx)
 			if slot then
 				local state = Pure.cardState(slot, ctx.State, cfg, isKnown)
 				local text = if busy then "⏳" else Pure.buttonText(state, slot)
-				local fill = if state == "Ready"
-					then Kit.lighten(Theme.Colors.Cash, 0.08)
-					elseif state == "Bought" then Kit.lighten(Theme.Colors.Good, 0.08)
-					elseif state == "Full" then Kit.lighten(Theme.Colors.Secondary, 0.08)
-					else Theme.Colors.Disabled
-				paint(row.Button, text, fill, state == "Ready" or state == "Bought" or state == "Full")
+				-- Hire is the Primary; "✅ Bought" and "Roster full" (it opens the Team page) are Secondary; a gate,
+				-- MAX or short of cash is the gated grey (a tap still says why).
+				local role = if state == "Ready"
+					then "Primary"
+					elseif state == "Bought" or state == "Full" then "Secondary"
+					else "Disabled"
+				paint(row.Button, text, role)
 			end
 		end
 		if #hireRows == 0 then
@@ -842,8 +715,8 @@ function AgencyPanel.init(ctx: Types.Ctx)
 				elseif state == "Listed" then "🏷️ Listed"
 				elseif state == "Stays" then "🏢 Stays"
 				else "⏳"
-			local fill = if state == "Sell" then Kit.lighten(Theme.Colors.Primary, 0.08) else Theme.Colors.Disabled
-			paint(row.Button, text, fill, state == "Sell")
+			-- Sell is Destructive (always behind THE confirm, a hold for Epic and up); the rest is the gated grey.
+			paint(row.Button, text, if state == "Sell" then "Destructive" else "Disabled")
 		end
 		if #sellRows == 0 then
 			showEmpty(sellPage, "👩‍⚕️ No nurses yet!")
@@ -852,14 +725,12 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		end
 	end
 
-	local function render()
+	render = function()
 		if not modal.isOpen() then
 			return
 		end
 		hirePage.Visible = tab == "Hire"
 		sellPage.Visible = tab == "Sell"
-		paintTab(hireTab, tab == "Hire")
-		paintTab(sellTab, tab == "Sell")
 		note.Text = if tab == "Hire" then Pure.everyText(cfg.Agency.RestockSeconds) else "💰 The Agency buys nurses"
 		if tab == "Hire" then
 			renderHire()
@@ -915,7 +786,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		return view ~= nil
 	end
 
-	local function fetchListed()
+	fetchListed = function()
 		local ok, _, payload = Hud.ask(ctx.Remotes.GetMarket)
 		if ok and type(payload) == "table" then
 			listed = Pure.listed(payload, player.UserId)
@@ -923,20 +794,8 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		end
 	end
 
-	local function selectTab(name: string)
-		tab = if name == "Sell" then "Sell" else "Hire"
-		render()
-	end
-	hireTab.Activated:Connect(function()
-		selectTab("Hire")
-	end)
-	sellTab.Activated:Connect(function()
-		selectTab("Sell")
-		task.spawn(fetchListed)
-	end)
-
 	--------------------------------------------------------------------------------------------------------------
-	-- Buying and selling (always ask first; the server checks everything again)
+	-- Buying and selling (always THE confirm first; the server checks everything again)
 	--------------------------------------------------------------------------------------------------------------
 	local function slotOf(number: number): any
 		if view then
@@ -1011,7 +870,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 			ctx.toast("Need 💰" .. Pure.commas(math.max(1, slot.Price - cash)) .. " more!")
 			Hud.shake(button)
 		else
-			ask(nurse, Pure.confirmText("Hire", nurse.Icon, nurse.Name, 1, slot.Price), false, function()
+			Hud.confirm(ctx, Pure.confirmSpec("Hire", nurse.Icon, nurse.Name, 1, slot.Price, nurse.Rarity), function()
 				buy(slot)
 			end)
 		end
@@ -1059,21 +918,18 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		end
 		local price = sellBack[nurseId]
 		local level = if type(entry.Level) == "number" then entry.Level else 1
-		ask(
-			nurse,
-			Pure.confirmText("Sell", nurse.Icon, nurse.Name, level, price),
-			Pure.needsHold(nurse.Rarity, level),
-			function()
-				sell(nurseId, price)
-			end
-		)
+		-- Selling an Epic or rarer, or any nurse at Lv 2+, is a 1 s hold (Pure.needsHold): Hud.confirm's Hold.
+		Hud.confirm(ctx, Pure.confirmSpec("Sell", nurse.Icon, nurse.Name, level, price, nurse.Rarity), function()
+			sell(nurseId, price)
+		end)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Opening, news and the kiosk
 	--------------------------------------------------------------------------------------------------------------
 	local function open(name: string?)
-		tab = if name == "Sell" then "Sell" else "Hire"
+		tabs.select(if name == "Sell" then "Sell" else "Hire")
+		modal.Focus = tabButton(tab)
 		modal.open()
 		render()
 		task.spawn(fetch)

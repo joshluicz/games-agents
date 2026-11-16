@@ -6,12 +6,20 @@
 -- one", which opens the 👩‍⚕️ Team page; every price takes 🏷️ Bargain off (Pure.bargainPrice, the server's formula);
 -- 🔭 Belt Scout owners see a "🔭 Next: <rarity>" chip over the nurse house (the bus "BeltScout"); and the house's
 -- NextLamp glows brighter as the next nurse nears (the belt's NextArrivalAt), with no numbers anywhere (§E9).
+-- The look overhaul (look build plan §B5, T2): the odds open in THE odds popup (Hud.oddsPopup, every row the word and
+-- the number) from three places: the sign's "🎲 See odds" ProximityPrompt (NurseBelt's OddsPrompt, heard through
+-- ProximityPromptService so streaming never matters), the focused hire card's Quiet "🎲 Odds" button, and the bus
+-- "Open" ("NurseOdds") (UI/NursePanel). The old floating 🎲 chip over the sign (BeltOddsChip: an AlwaysOnTop,
+-- fixed-pixel fake HUD button, ux audit E1) is gone. Text fits through Kit.textLimit (never under 18 px), corners
+-- come from Theme.Radius, and the Hire button is the Primary role.
 -- The shared Nurse Belt as THIS player sees it: smooth riders, a Hire card over each one, the odds popup, and the
 -- Golden Hour / Night Rush / big-arrival banners.
 --   init(ctx)   binds Workspace.NurseBelt (and a belt that replaces it later); listens for the bus "Shout" and
---               "Open" ("NurseOdds"); watches the Workspace attributes GoldenHour, NightRush (IsNight when
---               NurseBelt hasn't set it) and BeltPity; fires "Banner" (Types.BannerSpec) and
---               "Sound" (Arrival, Golden, Pop; the Hire cue comes with NurseNews in Feel/Sounds)
+--               "Open" ("NurseOdds") and the sign's OddsPrompt; watches the Workspace attributes GoldenHour,
+--               NightRush (IsNight when NurseBelt hasn't set it) and BeltPity; fires "Banner" (Types.BannerSpec)
+--               and "Sound" (Arrival, Golden, Pop; the Hire cue comes with NurseNews in Feel/Sounds)
+--   BeltView.Pure  the pure helpers (tests/NurseUI, AgencyServer, TownWorld); popupRows / popupNotes build the odds
+--               popup's rows (UI/NursePanel may reuse them)
 --
 -- Riders (Workspace.NurseBelt.Riders.Rider_<RiderId>):
 --   · Smooth: every frame each rider's Root goes to BeltStart:Lerp(BeltEnd, Logic/Belt.alpha(StartAt, now,
@@ -24,8 +32,9 @@
 --     Phone first: the rider you tapped, or whose prompt is up, or the nearest one within FOCUS_REACH, shows the
 --     FULL card (drawn on top, a fixed pixel size): the rarity band
 --     and frame (Kit.rarityFrame), its name, the role icon and level-1 stat (Logic/Nurse.stats), "⬆️ Lv n" when you
---     own it, a NEW! sticker until it's in your Journal as hired, and a big Hire button with YOUR price
---     (Logic/Belt.price at your hospital level). Every other rider shows a small chip (its icon and your price),
+--     own it, a NEW! sticker until it's in your Journal as hired, a big Hire button with YOUR price
+--     (Logic/Belt.price at your hospital level) and beside it a Quiet "🎲 Odds" button (the odds popup, one tap
+--     from the card: red line 3). Every other rider shows a small chip (its icon and your price),
 --     sized in studs (it shrinks with distance, never above CHIP_SIZE px) and not on top, so the world hides it;
 --     tap one to open its card. Hired riders show ✅; yours at max level show ⭐ MAX. An Epic+ rider when your
 --     hospital is under Config.Belt.MinLevel (Lv 3) shows "🏥 Lv 3" instead of a price and Hire (it rides for
@@ -37,11 +46,10 @@
 --   · Glow: Epic and up get a soft PointLight (no shadows) and a few sparkles in the rarity's colour, unless the
 --     model already has its own (NurseBuilder's RarityGlow / RarityFX). Reduced motion switches every sparkle on a
 --     rider off here (NurseBuilder's too, client-only) and stops the card's halo pulse.
--- The odds popup ("🎲 Odds", a Hud.modal Popup over any panel): every rarity's odds by day, in Night Rush and in
--- Golden Hour (now's column marked), your price for each ("🏥 Lv 3" for a rarity your hospital can't hire yet), a
--- line saying Epic and up need hospital Lv 3, and the pity count (BeltPity). A 🎲 chip floats over the
--- belt's Sign to open it (it reads 🌙 / 👑 during the events, never a clock); UI/NursePanel opens it too
--- (ctx.fire("Open", "NurseOdds")).
+-- The odds popup (Hud.oddsPopup, "🎲 Nurse odds", a Popup over any panel): the same odds as the sign, one block per
+-- time of day with now's block first (☀️ day, 🌙 Night Rush; Golden Hour's odds while it's on), every rarity that can
+-- come then as "word number" ("Rare ☀️ 20%"), then notes: what's on now, the Golden Hour's Secret odd, the gates
+-- ("🏥 Epic+ from Lv 3", "🏢 Mythic/Secret from R1") and the pity count (BeltPity). Pure.popupRows / popupNotes.
 -- Banners (UI/Toasts shows them): Golden Hour (once per window, for a few seconds, with the real Secret odds), Night
 -- Rush (8 s when the night starts), an Epic+ arrival (only for players whose hospital may hire it) and a Legendary+
 -- hire from "Shout". None while the first-session
@@ -50,6 +58,7 @@
 -- countdowns at all: not to the next Golden Hour, not to the end of one or of a Night Rush.
 
 local CollectionService = game:GetService("CollectionService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -78,8 +87,12 @@ local MOVE_MAX_DISTANCE = 320 -- studs from the camera: farther riders keep the 
 local BOUNCE_HEIGHT = 0.2
 local BOUNCE_SECONDS = 0.85
 local HALO = 6 -- px of rarity halo round the full card
-local FULL_SIZE = Vector2.new(176, 164)
+local FULL_SIZE = Vector2.new(240, 164) -- wide enough for Hire and "🎲 Odds" side by side (both 56 px tall)
+local ODDS_SHARE = 0.38 -- the "🎲 Odds" button's share of the card's button row
+local ODDS_PROMPT = "OddsPrompt" -- the sign's "🎲 See odds" prompt (Server/NurseBelt)
+local ODDS_TITLE = "🎲 Nurse odds"
 local CHIP_SIZE = Vector2.new(120, 64) -- px: the most a chip ever shows (up close)
+local CHIP_MIN = Vector2.new(100, 53) -- px: the least, so its price fits at 18 px (chips show within ~50 studs)
 local CHIP_STUDS = Vector2.new(6, 3.2) -- the chip's canvas in studs (the same shape), so it shrinks with distance
 local CHIP_MARGIN = 10 -- studs past Config.Belt.HireDistance that a rider's chip still shows
 local SOFT_DOT = "rbxasset://textures/particles/explosion01_implosion_main.dds" -- built in (as Feel/Atmosphere)
@@ -367,6 +380,58 @@ function Pure.lampLevel(nextAt: any, now: number, every: any): number
 	local span = if finite(every) and every > 0 then every else 40
 	return math.clamp(1 - (nextAt - now) / span, 0, 1)
 end
+
+-- The look overhaul (look build plan §B5). The odds popup's rows for Hud.oddsPopup (the word and the number, red
+-- line 3): the same odds as the sign, one block per time of day, now's block first (☀️ day, 🌙 Night Rush), each
+-- with every rarity that can come then, at exactly the belt's odds (Logic/Belt.odds; Golden Hour's while it's on, as
+-- the sign shows). `infos` are Data/Rarities rows ({ Icon, Name }) by rarity.
+export type PopupRow = { Icon: string, Name: string, Percent: number }
+function Pure.popupRows(cfg: any, rarities: { string }, infos: any, night: boolean, golden: boolean): { PopupRow }
+	local blocks = { { Icon = "☀️", Night = false }, { Icon = "🌙", Night = true } }
+	if night then
+		blocks = { blocks[2], blocks[1] }
+	end
+	local rows: { PopupRow } = {}
+	for _, block in blocks do
+		local odds = BeltLogic.odds(cfg, block.Night, golden)
+		for _, rarity in rarities do
+			local percent = odds[rarity]
+			if finite(percent) and percent > 0 then
+				local info = if type(infos) == "table" then infos[rarity] else nil
+				local icon = if type(info) == "table" and type(info.Icon) == "string" then info.Icon else "❔"
+				local name = if type(info) == "table" and type(info.Name) == "string" then info.Name else rarity
+				table.insert(rows, { Icon = icon, Name = name .. " " .. block.Icon, Percent = percent })
+			end
+		end
+	end
+	return rows
+end
+
+-- The popup's notes (each 6 words or fewer): what's on now, the Golden Hour's Secret odd (while it isn't on: then
+-- it's in the rows), who may hire what, and the pity count (BeltPity).
+function Pure.popupNotes(cfg: any, rarities: { string }, night: boolean, golden: boolean, pityLeft: any): { string }
+	local notes: { string } = {}
+	table.insert(
+		notes,
+		if golden then "👑 Golden Hour now!" elseif night then "🌙 Night Rush now!" else "☀️ Day odds now"
+	)
+	if not golden then
+		table.insert(notes, "👑 Golden Hour: Secret " .. Pure.percent(BeltLogic.odds(cfg, night, true).Secret))
+	end
+	local level = BeltLogic.minLevel(cfg, "Epic")
+	if level > 1 then
+		table.insert(notes, "🏥 Epic+ from Lv " .. level)
+	end
+	local rebirth = Pure.rebirthNote(cfg, rarities)
+	if rebirth then
+		table.insert(notes, rebirth)
+	end
+	table.insert(
+		notes,
+		if finite(pityLeft) and pityLeft > 0 then "🎁 Rare+ in " .. math.floor(pityLeft) else "🎁 Rare+ next!"
+	)
+	return notes
+end
 -- PURE-END
 
 BeltView.Pure = Pure -- for a scratch harness and for UI/NursePanel's shared wording
@@ -381,13 +446,6 @@ local function hexColor(value: any, fallback: Color3): Color3
 	end
 	local ok, color = pcall(Color3.fromHex, value)
 	return if ok then color else fallback
-end
-
-local function textLimit(label: TextLabel, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 9
-	limit.Parent = label
 end
 
 local function frame(props: { [string]: any }): Frame
@@ -488,8 +546,6 @@ function BeltView.init(ctx: Types.Ctx)
 	local beltStart: BasePart? = nil
 	local beltEnd: BasePart? = nil
 	local beltConnections: { RBXScriptConnection } = {}
-	local infoGui: BillboardGui? = nil
-	local infoButton: TextButton? = nil
 	local focusId: number? = nil
 	local tappedId: number? = nil
 	local moveConnection: RBXScriptConnection? = nil
@@ -547,311 +603,33 @@ function BeltView.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The odds popup
+	-- The odds popup: THE odds popup (Hud.oddsPopup), the same odds as the sign. One at a time: a second tap, the
+	-- sign's prompt again or the bus while it's up does nothing.
 	--------------------------------------------------------------------------------------------------------------
-	type OddsCells = { Row: Frame, Day: TextLabel, Night: TextLabel, Golden: TextLabel, Price: TextLabel }
-	local odds: Hud.Modal? = nil
-	local oddsCells: { [string]: OddsCells } = {}
-	local oddsHeaders: { [string]: Frame } = {}
-	local oddsStatus: TextLabel? = nil
-	local oddsPity: TextLabel? = nil
-
-	local COLUMNS = { "Day", "Night", "Golden", "Price" }
-	local COLUMN_ICONS = { Day = "☀️", Night = "🌙", Golden = "👑", Price = "💰" }
-	local NAME_SHARE = 0.36
-	local CELL_SHARE = (1 - NAME_SHARE) / #COLUMNS
-
-	local function cell(parent: Instance, column: number, text: string, bold: boolean): (Frame, TextLabel)
-		local holder = frame({
-			Name = "Cell" .. column,
-			BackgroundColor3 = Kit.lighten(Theme.Colors.Cash, 0.55),
-			BackgroundTransparency = 1,
-			Position = UDim2.new(NAME_SHARE + CELL_SHARE * (column - 1), 2, 0, 0),
-			Size = UDim2.new(CELL_SHARE, -4, 1, 0),
-			Parent = parent,
-		})
-		Kit.corner(holder, 10)
-		local label = Kit.label({
-			Name = "Text",
-			Text = text,
-			TextScaled = true,
-			Font = if bold then Theme.DisplayFont else Theme.Font,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.new(1, -6, 1, -10),
-			Parent = holder,
-		})
-		textLimit(label, 22)
-		return holder, label
-	end
-
-	local function buildOdds(): Hud.Modal
-		local modal = Hud.modal(ctx, {
-			Name = "NurseOdds",
-			Title = "🎲 Odds",
-			Accent = Theme.Colors.Purple,
-			Layer = "Popup",
-			MaxSize = Vector2.new(500, 560),
-		})
-		local scroll = Instance.new("ScrollingFrame")
-		scroll.Name = "Scroll"
-		scroll.BackgroundTransparency = 1
-		scroll.BorderSizePixel = 0
-		scroll.Size = UDim2.fromScale(1, 1)
-		scroll.CanvasSize = UDim2.new()
-		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-		scroll.ScrollBarThickness = 8
-		scroll.ScrollBarImageColor3 = Theme.Colors.Stroke
-		scroll.Selectable = false
-		scroll.Parent = modal.Body
-		local list = Kit.list(scroll, Enum.FillDirection.Vertical, 6)
-		list.VerticalAlignment = Enum.VerticalAlignment.Top
-		local pad = Instance.new("UIPadding")
-		pad.PaddingTop = UDim.new(0, 4)
-		pad.PaddingBottom = UDim.new(0, 8)
-		pad.PaddingLeft = UDim.new(0, 3)
-		pad.PaddingRight = UDim.new(0, 12)
-		pad.Parent = scroll
-
-		-- What's on now, and the pity count.
-		local status = frame({
-			Name = "Status",
-			BackgroundColor3 = Theme.Colors.Card,
-			Size = UDim2.new(1, 0, 0, 44),
-			LayoutOrder = 1,
-			Parent = scroll,
-		})
-		Kit.corner(status, 14)
-		Kit.stroke(status, Theme.Colors.Outline, 2)
-		oddsStatus = Kit.label({
-			Name = "Now",
-			Text = "",
-			TextScaled = true,
-			Font = Theme.DisplayFont,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(10, 6),
-			Size = UDim2.new(0.55, -10, 1, -12),
-			Parent = status,
-		})
-		textLimit(oddsStatus :: TextLabel, 24)
-		oddsPity = Kit.label({
-			Name = "Pity",
-			Text = "",
-			TextScaled = true,
-			TextXAlignment = Enum.TextXAlignment.Right,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -10, 0, 6),
-			Size = UDim2.new(0.45, -10, 1, -12),
-			Parent = status,
-		})
-		textLimit(oddsPity :: TextLabel, 22)
-
-		-- The table: a header row of icons, then one row per rarity.
-		local head = frame({
-			Name = "Head",
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 0, 36),
-			LayoutOrder = 2,
-			Parent = scroll,
-		})
-		for index, column in COLUMNS do
-			local holder = cell(head, index, COLUMN_ICONS[column], true)
-			oddsHeaders[column] = holder
-		end
-		for order, rarity in rarityOrder do
-			local info = rarityInfo(rarity)
-			local color = hexColor(info.Color, Theme.Colors.Quiet)
-			local row = frame({
-				Name = rarity,
-				BackgroundColor3 = Theme.Colors.Paper,
-				Size = UDim2.new(1, 0, 0, 42),
-				LayoutOrder = 2 + order,
-				Parent = scroll,
-			})
-			Kit.corner(row, 12)
-			Kit.rarityFrame(row, rarity)
-			local chip = frame({
-				Name = "Rarity",
-				BackgroundColor3 = Kit.lighten(color, 0.1),
-				Position = UDim2.fromOffset(4, 4),
-				Size = UDim2.new(NAME_SHARE, -8, 1, -8),
-				Parent = row,
-			})
-			Kit.corner(chip, 10)
-			Palette.candyGradient(chip)
-			local name = Kit.label({
-				Name = "Name",
-				Text = info.Icon .. " " .. info.Name,
-				TextScaled = true,
-				Outlined = true,
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.new(1, -8, 1, -6),
-				Parent = chip,
-			})
-			textLimit(name, 20)
-			local _, day = cell(row, 1, "", false)
-			local _, night = cell(row, 2, "", false)
-			local _, golden = cell(row, 3, "", false)
-			local _, price = cell(row, 4, "", false)
-			oddsCells[rarity] = { Row = row, Day = day, Night = night, Golden = golden, Price = price }
-		end
-
-		-- What the icons mean (≤ 6 words).
-		local legend = Kit.label({
-			Name = "Legend",
-			Text = "🌙 Night Rush  ·  👑 Golden Hour",
-			TextScaled = true,
-			TextColor3 = Theme.Colors.InkSoft,
-			Size = UDim2.new(1, 0, 0, 26),
-			LayoutOrder = 20,
-			Parent = scroll,
-		})
-		textLimit(legend, 20)
-		local gate = BeltLogic.minLevel(cfg, "Epic")
-		if gate > 1 then
-			local gateNote = Kit.label({
-				Name = "Gate",
-				Text = "🏥 Epic and up: hospital Lv " .. gate .. "+",
-				TextScaled = true,
-				TextColor3 = Theme.Colors.InkSoft,
-				Size = UDim2.new(1, 0, 0, 26),
-				LayoutOrder = 21,
-				Parent = scroll,
-			})
-			textLimit(gateNote, 20)
-		end
-		local rebirthNote = Pure.rebirthNote(cfg, rarityOrder)
-		if rebirthNote then
-			local note = Kit.label({
-				Name = "RebirthGate",
-				Text = rebirthNote,
-				TextScaled = true,
-				TextColor3 = Theme.Colors.InkSoft,
-				Size = UDim2.new(1, 0, 0, 26),
-				LayoutOrder = 22,
-				Parent = scroll,
-			})
-			textLimit(note, 20)
-		end
-		return modal
-	end
-
-	local function renderOdds()
-		local modal = odds
-		if not modal or not modal.isOpen() then
-			return
-		end
-		local night = nightRush()
-		local golden = goldenHour()
-		local mode = Pure.mode(golden, night)
-		for _, row in Pure.oddsRows(cfg, rarityOrder, night, myLevel()) do
-			local cells = oddsCells[row.Rarity]
-			if cells then
-				cells.Day.Text = Pure.percent(row.Day)
-				cells.Night.Text = Pure.percent(row.Night)
-				cells.Golden.Text = Pure.percent(row.Golden)
-				cells.Price.Text = Pure.gatedPrice(Pure.bargainPrice(row.Price, branch.Bargain), gateFor(row.Rarity))
-				for _, column in { "Day", "Night", "Golden" } do
-					local label = (cells :: any)[column] :: TextLabel
-					local holder = label.Parent :: Frame
-					holder.BackgroundTransparency = if column == mode then 0 else 1
-					label.Font = if column == mode then Theme.DisplayFont else Theme.Font
-				end
-			end
-		end
-		for column, holder in oddsHeaders do
-			holder.BackgroundTransparency = if column == mode then 0 else 1
-		end
-		local status = oddsStatus
-		if status then
-			if golden then
-				status.Text = "👑 Golden Hour"
-			elseif night then
-				status.Text = "🌙 Night Rush"
-			else
-				status.Text = "☀️ Day"
-			end
-		end
-		local pity = oddsPity
-		if pity then
-			local left = Workspace:GetAttribute("BeltPity")
-			pity.Text = if type(left) == "number" and left > 0
-				then "🎁 Rare+ in " .. math.floor(left)
-				else "🎁 Rare+ next!"
-		end
-	end
-
 	local function openOdds()
-		local modal = odds or buildOdds()
-		odds = modal
-		modal.open()
-		renderOdds()
-	end
-
-	--------------------------------------------------------------------------------------------------------------
-	-- The 🎲 chip over the belt's sign
-	--------------------------------------------------------------------------------------------------------------
-	local function renderInfo()
-		local button = infoButton
-		if not button then
+		if Hud.isOpen("Odds") then
 			return
 		end
-		if goldenHour() then
-			button.Text = "👑 Golden Hour!"
-		elseif nightRush() then
-			button.Text = "🌙 Odds"
-		else
-			button.Text = "🎲 Odds"
+		local night, golden = nightRush(), goldenHour()
+		local infos: { [string]: any } = {}
+		for _, rarity in rarityOrder do
+			infos[rarity] = rarityInfo(rarity)
 		end
-	end
-
-	local function buildInfo(belt: Instance)
-		if infoGui then
-			infoGui:Destroy()
-			infoGui = nil
-			infoButton = nil
-		end
-		local sign = belt:FindFirstChild("Sign")
-		local anchor: BasePart? = if sign and sign:IsA("BasePart") then sign else beltStart
-		if not anchor then
-			return
-		end
-		local gui = Instance.new("BillboardGui")
-		gui.Name = "BeltOddsChip"
-		gui.Adornee = anchor
-		gui.AlwaysOnTop = true
-		gui.Active = true
-		gui.LightInfluence = 0
-		gui.MaxDistance = INFO_MAX_DISTANCE
-		gui.ResetOnSpawn = false
-		gui.Size = UDim2.fromOffset(170, 60)
-		gui.SizeOffset = Vector2.new(0, 0.5)
-		gui.StudsOffsetWorldSpace = Vector3.new(0, anchor.Size.Y / 2 + 0.8, 0)
-		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-		local button = Kit.button({
-			Name = "Odds",
-			Kind = "Purple",
-			Text = "🎲 Odds",
-			TextScaled = true,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.new(1, -8, 0, Theme.Size.ButtonHeight),
-			Parent = gui,
+		Hud.oddsPopup(ctx, {
+			Title = ODDS_TITLE,
+			Rows = Pure.popupRows(cfg, rarityOrder, infos, night, golden),
+			Notes = Pure.popupNotes(cfg, rarityOrder, night, golden, Workspace:GetAttribute("BeltPity")),
 		})
-		local pad = Instance.new("UIPadding")
-		pad.PaddingLeft = UDim.new(0, 10)
-		pad.PaddingRight = UDim.new(0, 10)
-		pad.PaddingTop = UDim.new(0, 8)
-		pad.PaddingBottom = UDim.new(0, 8)
-		pad.Parent = button
-		button.Activated:Connect(openOdds)
-		gui.Parent = playerGui
-		infoGui = gui
-		infoButton = button
-		renderInfo()
 	end
+
+	-- The sign's "🎲 See odds" prompt (Server/NurseBelt's OddsPrompt in Workspace.NurseBelt): heard through
+	-- ProximityPromptService on this client, so streaming never matters. The server does nothing with it.
+	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, who: Player)
+		if who == player and prompt.Name == ODDS_PROMPT and prompt:FindFirstAncestor("NurseBelt") ~= nil then
+			Hud.sound("Pop")
+			openOdds()
+		end
+	end)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Rider cards
@@ -922,6 +700,7 @@ function BeltView.init(ctx: Types.Ctx)
 			Parent = card,
 		})
 		Kit.corner(band, Theme.Size.Corner)
+		Kit.textLimit(band, 24)
 		Palette.candyGradient(band)
 		local bandPad = Instance.new("UIPadding")
 		bandPad.PaddingTop = UDim.new(0, 4)
@@ -944,7 +723,7 @@ function BeltView.init(ctx: Types.Ctx)
 			ZIndex = 5,
 			Parent = card,
 		})
-		Kit.corner(sticker, 12)
+		Kit.corner(sticker, Theme.Radius.Small)
 		Kit.stroke(sticker, Theme.Colors.Outline, 2.5)
 		local name = Kit.label({
 			Name = "NurseName",
@@ -957,7 +736,7 @@ function BeltView.init(ctx: Types.Ctx)
 			ZIndex = 2,
 			Parent = card,
 		})
-		textLimit(name, 22)
+		Kit.textLimit(name, 22)
 		local stat = Kit.label({
 			Name = "Stat",
 			Text = "",
@@ -969,18 +748,35 @@ function BeltView.init(ctx: Types.Ctx)
 			ZIndex = 2,
 			Parent = card,
 		})
-		textLimit(stat, 18)
+		Kit.textLimit(stat, 20)
+		-- The button row: Hire (the Primary role: one per view) and, beside it, the Quiet "🎲 Odds" link.
+		local hireSize = UDim2.new(1 - ODDS_SHARE, -10, 0, Theme.Size.ButtonHeight)
 		local button = Kit.button({
 			Name = "Hire",
-			Kind = "Cash",
+			Kind = "Primary",
 			Text = "Hire",
 			TextScaled = true,
-			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -8),
-			Size = UDim2.new(1, -14, 0, Theme.Size.ButtonHeight),
+			TextWrapped = true,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 7, 1, -8),
+			Size = hireSize,
 			ZIndex = 2,
 			Parent = card,
 		})
+		Kit.textLimit(button, 24)
+		local odds = Kit.button({
+			Name = "Odds",
+			Kind = "Quiet",
+			Text = "🎲 Odds",
+			TextScaled = true,
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -7, 1, -8),
+			Size = UDim2.new(ODDS_SHARE, -4, 0, Theme.Size.ButtonHeight),
+			ZIndex = 2,
+			Parent = card,
+		})
+		Kit.textLimit(odds, 22)
+		odds.Activated:Connect(openOdds)
 		local buttonPad = Instance.new("UIPadding")
 		buttonPad.PaddingLeft = UDim.new(0, 8)
 		buttonPad.PaddingRight = UDim.new(0, 8)
@@ -1001,7 +797,8 @@ function BeltView.init(ctx: Types.Ctx)
 			ZIndex = 4,
 			Parent = card,
 		})
-		Kit.corner(key, 8)
+		Kit.corner(key, Theme.Radius.Small)
+		Kit.textLimit(key, 22)
 		local pill = Kit.label({
 			Name = "Done",
 			Text = "",
@@ -1009,13 +806,14 @@ function BeltView.init(ctx: Types.Ctx)
 			Outlined = true,
 			BackgroundColor3 = Theme.Colors.Good,
 			BackgroundTransparency = 0,
-			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -8),
-			Size = UDim2.new(1, -14, 0, Theme.Size.ButtonHeight),
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 7, 1, -8),
+			Size = hireSize,
 			Visible = false,
 			ZIndex = 2,
 			Parent = card,
 		})
+		Kit.textLimit(pill, 24)
 		Kit.corner(pill, Theme.Size.Corner)
 		Kit.stroke(pill, Theme.Colors.Outline, Theme.Size.Stroke)
 		local pillPad = Instance.new("UIPadding")
@@ -1037,6 +835,7 @@ function BeltView.init(ctx: Types.Ctx)
 		})
 		local chipMax = Instance.new("UISizeConstraint")
 		chipMax.MaxSize = CHIP_SIZE
+		chipMax.MinSize = CHIP_MIN -- its price never shrinks under 18 px (Kit.textLimit's floor)
 		chipMax.Parent = chipFrame
 		local chipShape = Instance.new("UIAspectRatioConstraint")
 		chipShape.AspectRatio = CHIP_SIZE.X / CHIP_SIZE.Y
@@ -1073,7 +872,7 @@ function BeltView.init(ctx: Types.Ctx)
 			ZIndex = 2,
 			Parent = chip,
 		})
-		textLimit(chipPrice, 24)
+		Kit.textLimit(chipPrice, 24)
 		local chipDot = frame({
 			Name = "Dot",
 			AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1084,7 +883,7 @@ function BeltView.init(ctx: Types.Ctx)
 			ZIndex = 3,
 			Parent = chip,
 		})
-		Kit.corner(chipDot, 8)
+		Kit.corner(chipDot, Theme.Radius.Round)
 		Kit.stroke(chipDot, Theme.Colors.Outline, 2)
 		chip.Activated:Connect(function()
 			tappedId = rider.Id
@@ -1707,11 +1506,6 @@ function BeltView.init(ctx: Types.Ctx)
 		for model in table.clone(riders) do
 			removeRider(model)
 		end
-		if infoGui then
-			infoGui:Destroy()
-			infoGui = nil
-			infoButton = nil
-		end
 		beltStart, beltEnd = nil, nil
 		stopStripes()
 	end
@@ -1733,7 +1527,6 @@ function BeltView.init(ctx: Types.Ctx)
 			return
 		end
 		beltStart, beltEnd = start, finish
-		buildInfo(belt)
 		task.spawn(bindStripes, belt)
 		table.insert(
 			beltConnections,
@@ -1797,8 +1590,6 @@ function BeltView.init(ctx: Types.Ctx)
 			goldenShown = false
 			ctx.fire("Banner", { Id = "GoldenHour", Icon = "👑", Text = "", Seconds = 0 })
 		end
-		renderInfo()
-		renderOdds()
 	end
 
 	local function syncNight()
@@ -1818,8 +1609,6 @@ function BeltView.init(ctx: Types.Ctx)
 				Seconds = NIGHT_BANNER_SECONDS,
 			})
 		end
-		renderInfo()
-		renderOdds()
 	end
 
 	local function syncGoldenFromAttributes()
@@ -1829,7 +1618,6 @@ function BeltView.init(ctx: Types.Ctx)
 	Workspace:GetAttributeChangedSignal("GoldenHour"):Connect(syncGoldenFromAttributes)
 	Workspace:GetAttributeChangedSignal("NightRush"):Connect(syncNight)
 	Workspace:GetAttributeChangedSignal("IsNight"):Connect(syncNight)
-	Workspace:GetAttributeChangedSignal("BeltPity"):Connect(renderOdds)
 
 	ctx.on("Shout", function(info: any)
 		if type(info) ~= "table" then
@@ -1922,7 +1710,8 @@ function BeltView.init(ctx: Types.Ctx)
 				Size = UDim2.new(1, -8, 1, -8),
 				Parent = made,
 			})
-			Kit.corner(chip, 14)
+			Kit.corner(chip, Theme.Radius.Medium)
+			Kit.textLimit(chip, 26)
 			Kit.stroke(chip, Theme.Colors.Outline, Theme.Size.Stroke)
 			local pad = Instance.new("UIPadding")
 			pad.PaddingLeft = UDim.new(0, 10)
@@ -1996,7 +1785,6 @@ function BeltView.init(ctx: Types.Ctx)
 		for _, rider in riders do
 			rider.Drawn = ""
 		end
-		renderOdds()
 		local now = allowed()
 		if now and not wasAllowed then
 			syncGoldenFromAttributes()

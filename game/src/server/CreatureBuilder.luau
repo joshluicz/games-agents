@@ -2,29 +2,38 @@
 -- Builds a patient creature (build plan Task 1, §B1 kit overrides). Server only; Patients is the caller.
 --   CreatureBuilder.build(patientId, variant?): Model
 --     An original placeholder made from the patient's `Look` (Data/Patients, or Data/Regulars for a regular,
---     who uses their own id): a chunky round toy with a glossy shine, big shiny eyes (two glints and a soft coloured
---     glow at the bottom), brows, rosy cheeks, a mouth that can be sick, happy or sad, little arms, ears, a hat, an
---     extra (wings, tail...) and the species' own Bits (a bell, glasses, a cherry...). Under 40 parts, so with the
---     client's ailment props (Feel/CreatureActing) a creature stays under 45. ServerStorage.Creatures.<PatientId>
---     (a Model, or one MeshPart) replaces the placeholder look; its pivot's LookVector must be the creature's face.
+--     who uses their own id). BLOCKY (memory-20261117-004; look build plan §D T9): every part is a block. A chunky
+--     body block and a head block (a Box is one slice of toast), feet, little block arms, the species' own ears
+--     (rounded stacks, flops, cat peaks, bunny ears or tufts: never plain squares), a top, an extra (wings, a tail,
+--     flippers, a spout) and its own Bits (a bell, glasses, a cherry...), so every species keeps its own silhouette.
+--     A flat block face: big dark eyes with two white glints and a coloured strip, blush, a nose and a pixel mouth.
+--     Studs only on the big top: one thin plate (`StudTop`) cut to whole studs at this creature's size and studded
+--     through World/Studs; every other part is SmoothPlastic, so no 1-stud block shows cut-off studs. Colours are
+--     the Look's brought down to world values (Pure.world: mid value, no pastel, no lerp toward white). Under 40
+--     parts, so with the client's ailment props (Feel/CreatureActing) a creature stays under 45.
+--     ServerStorage.Creatures.<PatientId> (a Model, or one MeshPart) replaces the placeholder look; its pivot's
+--     LookVector must be the creature's face.
 --     Size (Logic/CreatureSize): the species' Look.Scale x Config.CreatureSize x a per-patient wobble (±8%).
---     Candy pop (memory-20261116-007): saturated SmoothPlastic bodies, dark eyes with white shine. Night patients
---     glow in a rich version of their body colour (a shadow-free PointLight, a Neon glow ring under their feet and
---     Neon on their tips; no Highlight). Sparkly gets rainbow bits and rainbow glitter; Frosty an icy cyan tint and
---     frost sparkles. Tagged CreatureBuilder.MOTION_TAG, so every client draws its hops (Feel/CreatureMotion).
+--     Night patients glow in a rich version of their body colour (a shadow-free PointLight, a Neon glow pad under
+--     their feet and Neon on their tips; no Highlight). Sparkly gets rainbow bits and rainbow glitter; Frosty an icy
+--     cyan tint and frost sparkles. Tagged CreatureBuilder.MOTION_TAG, so every client draws its hops
+--     (Feel/CreatureMotion).
 --   CreatureBuilder.badge(model): Badge?             the ailment badge (IconGui) and speech bubble (BubbleGui)
 --   CreatureBuilder.setRing(badge, fraction, colour) the badge's ring: 0..1, filling clockwise from 12 o'clock
---   CreatureBuilder.setMood(model, mood)             "Sick" (little o mouth, worried brows) | "Happy" | "Sad" | "Sleep"
+--   CreatureBuilder.setMood(model, mood)             "Sick" (a half-lid, a little o, worried brows) | "Happy" |
+--                                                    "Sad" | "Sleep" (eyes closed, a sleepy smile)
 --   CreatureBuilder.setEffect(model, name, on)       FX children: "Heal", "HealLight" (and the variant ones)
 --   CreatureBuilder.effectAt(position, kind)         a one-off burst that outlives the creature:
 --                                                    "Cure" | "Puff" (sad) | "Pop" (leaving)
+--   CreatureBuilder.Pure                             the blocky layout in numbers (tests/BlockyCreatures.spec)
 --
 --   Depth update (build plan §B8; Foundation added these, T7 owns the file and keeps both signatures):
 --   CreatureBuilder.buildLook(look, name?): Model    a plain creature from any Look (Data/Nurses uses the same
---                                                    recipe), built exactly like a patient (the v2 body, Root, Core
+--                                                    recipe), built exactly like a patient (the blocky body, Root, Core
 --                                                    on Root.PoseJoint, limb Motor6Ds, sockets; sized by Look.Scale
---                                                    x Config.CreatureSize, no wobble) with IconAnchor, but no badge,
---                                                    no effects and no tags. NurseBuilder starts from it.
+--                                                    x Config.CreatureSize, no wobble) with IconAnchor and a happy
+--                                                    face, but no badge, no effects and no tags. NurseBuilder starts
+--                                                    from it.
 --   CreatureBuilder.rigKit(model): Model             the same Root, Core and PoseJoint (and guessed sockets) for a
 --                                                    kit Model (NurseBuilder's ServerStorage.Nurses), so a nurse from
 --                                                    the brother's kit follows the same rig conventions.
@@ -63,7 +72,7 @@
 -- from ServerStorage.Creatures is held to the same rules: its Highlights are removed (with a warning) and its
 -- lights' Shadows turned off.
 --
--- Model layout (Patients, NurseBuilder and Feel/CreatureActing rely on it):
+-- Model layout (Patients, NurseBuilder and Feel/CreatureActing rely on it; the blocky rebuild keeps it exactly):
 --   PrimaryPart `Root`: an invisible anchored part at the bottom centre of the body. The pivot IS Root.CFrame, and
 --   its LookVector is where the face looks. Moving Root moves the whole creature with one replicated CFrame.
 --   `Core`: an invisible part on Root, joined by the Motor6D Root.PoseJoint (C0 = C1 = identity). Every visible part
@@ -71,13 +80,16 @@
 --   lean, bob and shake the body by setting PoseJoint.Transform locally (never replicated) while the server moves
 --   Root. The arms (or wings or flippers) hang on Motor6Ds Core.ArmRJoint / Core.ArmLJoint at the shoulder, and a
 --   tail on Core.TailJoint, so a client can wave and wag them the same way. R is the creature's own right (+X; on
---   your left as it faces you). Each arm part has a HandSocket Attachment at its paw.
+--   your left as it faces you). Each arm part has a HandSocket Attachment at its paw (a paw that holds props is a
+--   part named "Arm").
 --   Sockets: Attachments on Core where the client's props go (in studs, scaled with the creature): FaceSocket (the
 --   mouth), NoseSocket, EyeRSocket/EyeLSocket, CheekRSocket/CheekLSocket, BrowSocket (the forehead), HeadSocket (top
---   of the head), EarRSocket/EarLSocket (the head's sides), NeckSocket (the body's middle just under the mouth),
---   BellySocket, BackSocket and, on a teapot, SpoutSocket. Each one's front (-Z) faces out of the surface.
+--   of the head), EarRSocket/EarLSocket (the head's sides), NeckSocket (where head meets body), BellySocket,
+--   BackSocket and, on a teapot, SpoutSocket. Each one's front (-Z) faces out of the surface; HeadSocket, NeckSocket
+--   and SpoutSocket keep the model's own orientation.
 --   Model attributes: PatientId, BuildScale (studs per unit at full size; Scale 1 is about 3 units tall), HeadRadius
---   and NeckSize (studs: Vector3 width, 0, depth of the body at NeckSocket), Brows ("Grumpy" for a grumpy species).
+--   (half the head's width) and NeckSize (studs: Vector3 width, 0, depth for a scarf round the neck), Brows
+--   ("Grumpy" for a grumpy species).
 --   Tags (CollectionService): "ClinicCreature" (Feel/CreatureActing acts its ailment) and MOTION_TAG
 --   "CreatureMotion" (Feel/CreatureMotion draws its hops), so clients find every patient as it streams in.
 --   CreatureMotion moves Root (its local CFrame) and the model's scale; CreatureActing only sets the Motor6Ds'
@@ -90,9 +102,12 @@
 --   of the screen (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A2).
 --   Root.FX (Attachment at the body's middle) holds the lights and particle emitters.
 --   Model:GetScale() is the creature's own size (BuildScale); Patients scales relative to it.
---   Face parts (setMood relies on the names): Eye, EyeShine, EyeTint, Lid (LidGui: closed eyes), Brow (BrowGui:
---   Worried | Grumpy | Happy | Sad) and Mouth (MouthGui: Sick | Happy | Sad | Smile).
--- Rated Minimal: soft, round and friendly. Nothing sharp, scary or gross.
+--   Face parts (setMood and Feel/CreatureProps rely on the names): Eye, EyeShine, EyeTint, EyeLid (the sick
+--   half-lid), Lid (a see-through plate: LidGui draws the closed eyes; the client draws its squint on it), Brow
+--   (BrowGui: Worried | Grumpy | Happy | Sad), Mouth (MouthGui: Sick | Happy | Sad | Smile) and Cheek. Only the
+--   eyes' lids are named "Lid" (a teapot's top is "PotLid").
+-- Rated Minimal: chunky, friendly blocks. Nothing sharp, scary or gross. Original (red line 2): our own recipes,
+-- no other game's pets, and never a cross.
 
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
@@ -108,6 +123,7 @@ local PatientsData = require(Shared.Data.Patients)
 local Regulars = require(Shared.Data.Regulars)
 local Stations = require(Shared.Data.Stations)
 local Variants = require(Shared.Data.Variants)
+local Studs = require(script.Parent.World.Studs)
 
 local Candy = Palette.Candy
 
@@ -142,34 +158,11 @@ type Look = {
 	Bits: { string }?,
 }
 
-type Ellipsoid = { C: Vector3, R: Vector3 } -- centre and semi-axes
-
-type Shape = {
-	Body: Ellipsoid, -- the main body; the face sits on its front (-Z)
-	Head: Ellipsoid?, -- where ears and hats sit, when it isn't the body
-	FaceY: number, -- eye line
-	EyeX: number, -- eye distance from the middle
-	Eye: number, -- eye (and face) size
-	FrontZ: number?, -- flat-fronted bodies (Box): the face plane
-	Feet: boolean,
-}
-
 type Build = {
 	Model: Model,
-	Look: Look,
-	Shape: Shape,
-	Tint: { BasePart }, -- coloured parts that Frosty and Sparkly tint (eyes, cheeks and face guis stay)
-	Body: Color3,
-	Accent: Color3,
-	Night: boolean,
-	Bits: { [string]: boolean },
+	Tint: { BasePart }, -- coloured parts that Frosty, Sparkly and Golden tint (eyes, cheeks and face guis stay)
+	Big: { [BasePart]: boolean }, -- the big parts: Sparkly brightens them instead of a rainbow
 	Anchor: BasePart?, -- the Body part: the sockets ride on it until Core exists
-	Head: Ellipsoid, -- where ears, hats and the forehead sit (the body when there's no separate head)
-	FlatTop: number?, -- a flat-topped body (a Box without its Crust): the top's height
-	Top: number, -- y of the top of the head
-	Belly: Ellipsoid?,
-	MouthY: number,
-	NeckSize: Vector3, -- unit: the body's width and depth at NeckSocket
 	Rides: { [BasePart]: string }, -- a part that moves with an arm or the tail: that joint's key
 	Joints: { [string]: BasePart }, -- "ArmR" | "ArmL" | "Tail": the part its Motor6D drives
 }
@@ -183,21 +176,11 @@ local SPARKLE_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
 local SMOKE_TEXTURE = "rbxasset://textures/particles/smoke_main.dds"
 
 local WHITE = Palette.White
-local BLACK = Color3.new(0, 0, 0)
 local EYE = Palette.Outline -- deep plum-navy, never pure black
 local MOUTH = Palette.Ink
-local TONGUE = Color3.fromRGB(255, 120, 150)
-local CHEEK = Color3.fromRGB(255, 112, 172)
-local LEAF = Candy.Lime
-local STEM = Color3.fromRGB(46, 178, 64)
-local NOSE_DARK = Color3.fromRGB(82, 52, 44) -- a pup's nose: warm cocoa, not black
-local NOSE_PINK = Color3.fromRGB(255, 136, 178)
-local PAW_PINK = Color3.fromRGB(255, 170, 196)
-local CHERRY = Color3.fromRGB(255, 50, 86)
-local BUTTER = Color3.fromRGB(255, 240, 150)
-local SYRUP = Color3.fromRGB(255, 92, 170)
-local GLASS_RIM = Color3.fromRGB(96, 58, 170)
-local ICE = Color3.fromRGB(112, 226, 255) -- Frosty: icy cyan
+local LENS = Palette.Accent.Cyan
+local GLASS_RIM = Color3.fromRGB(90, 58, 158)
+local ICE = Color3.fromRGB(100, 206, 235) -- Frosty: icy cyan (a world value: no channel above 245)
 local HEAL = Candy.Pink
 local HEAL_LIGHT = Color3.fromRGB(255, 200, 236)
 local SAD_PUFF = Color3.fromRGB(140, 132, 255) -- a soft periwinkle puff: sad, never scary
@@ -206,8 +189,9 @@ local TRACK = Color3.fromRGB(236, 232, 250) -- the empty part of the patience ri
 local DEFAULT_STATION = Candy.Pink
 local BUBBLE = Candy.Purple -- a regular's speech bubble (white outlined text reads best on it)
 local STICKER_RING: { [string]: Color3 } = { Sparkly = Candy.Pink, Frosty = Candy.Cyan, Golden = Candy.Yellow }
-local GOLD = Color3.fromRGB(255, 204, 64) -- Golden: a warm gold sheen
-local GOLD_LIGHT = Color3.fromRGB(255, 244, 190)
+local GOLD = Color3.fromRGB(240, 194, 62) -- Golden: a warm gold sheen (a world value)
+local GOLD_LIGHT = Color3.fromRGB(255, 244, 190) -- its sparkles
+local SPARKLY_VALUE = 0.94 -- Sparkly's brightest: a holo sticker, never bleached to white
 -- An urgent patient's badge: its chip's ring and the badge's rim (never red: the patience ring's "hurry" colour).
 local URGENT_RING: { [string]: Color3 } = { AE = Candy.Orange, VIP = Candy.Cyan }
 local DEPT_RING = Candy.Mint
@@ -240,14 +224,15 @@ local BADGE_FACE = 0.8
 -- Closer than this, the badge and the speech bubble stop growing on screen (about a fifth of its height at most).
 local NEAR_STUDS = 16
 
--- Big parts keep their own colour on a Sparkly creature; the small bits (ears, tops, wings, tails) go rainbow.
-local BIG_PARTS = { Body = true, Head = true, Belly = true, BellyTop = true, Crust = true, Puddle = true, Arm = true }
-
 -- Performance: only parts at least this many studs across (after scaling) cast a shadow.
 local SHADOW_STUDS = 1.5
--- A night creature's glow ring under its feet (Neon, no Highlight): this much wider than the body, this see-through.
+-- A night creature's glow pad under its feet (Neon, no Highlight): this much wider than the body, this see-through.
 local GLOW_RING_WIDTH = 1.15
 local GLOW_RING_TRANSPARENCY = 0.35
+
+-- The face drawings (SurfaceGuis on see-through plates): sized in studs, hidden far away, lit a little.
+local FACE_PIXELS = 100
+local FACE_NEAR = 70
 
 -- The recipe row on the badge (setRecipe): chip centres along the face's bottom edge, in face-relative scale.
 local RECIPE_MAX = 3
@@ -284,6 +269,855 @@ local function urgentIcon(urgent: any): string?
 end
 -- END PURE
 
+-- PURE-BEGIN
+-- The blocky creature in numbers (memory-20261117-004; look build plan §D T9). No Roblox types in here:
+-- tests/BlockyCreatures.spec loads this block on its own and checks what ships. Sizes and places are { X, Y, Z }
+-- tables in units (Scale 1 is about 3 units tall; y = 0 is the ground under the creature; the face looks at -Z and
+-- +X is the creature's own right, on your left), colours are "#RRGGBB" strings, and every part is a block.
+--   Pure.layout(look, opts?): Layout   every part, socket and number of one creature. opts.Night: its tips glow;
+--                                      opts.Scale: studs per unit (the stud plate is cut to whole studs at it)
+--     Layout = { Parts, Sockets, Top, HeadHalf, Neck, Brows, Shape }
+--     a part = { Name, Size, Pos, Rot? (radians: CFrame.Angles(X, Y, Z) about its centre), Color, Tint (variants
+--       tint it), Big? (Sparkly brightens it instead of a rainbow), Studs? (the stud plate), Clear? (Transparency),
+--       Shadow? (false: casts none), Neon? (Neon on a night creature), Gui? ("Lid" | "Brow" | "Mouth" | "Glasses"),
+--       Side?, Gap? / Bar? / LensW? / LensH? (where a drawing's pieces sit on its plate), Ink? (a drawing's colour),
+--       Joint? ("ArmR" | "ArmL" | "Tail") with Pivot (the shoulder or the tail's root), Ride? (moves with that
+--       joint), Hand? / HandTilt? (a HandSocket at that point of the part) }
+--     a socket = { Name, Pos, Normal? } (no Normal: the model's own orientation)
+--   Pure.world(hex, role): string      a Look colour brought down to world values ("Body" | "Accent"): its hue
+--                                      kept, saturation at least S_FLOOR, value at most the cap (V_CAP; yellows up
+--                                      to V_CAP_YELLOW), so never a pastel and never a channel above 245. A white
+--                                      accent becomes the warm white. Never a lerp toward white
+--   Pure.mid(hex): string              only the value capped (the nurse cap keeps its rarity's hue; grey stays grey)
+--   Pure.tone(hex, dv) · Pure.darken(hex, amount) · Pure.hsv(hex) · Pure.cap(hue)
+--   Pure.studs(units, scale): number   the widest whole number of studs that fits in `units` at `scale`, in units
+--   Pure.MOUTH · Pure.CLOSED_EYE        the pixel drawings: { col, row, width?, height? } cells on a Cols x Rows grid
+--   Pure.BROWS · Pure.BROW_ORDER        each mood's brows: height on the plate and the right brow's turn in degrees
+--   Pure.KNOWN_BITS                     every Look.Bits name the layout draws
+local Pure = {}
+
+Pure.MAX_PARTS = 40 -- every creature stays UNDER this, Root, Core and a night glow pad included
+Pure.RIG_PARTS = 2 -- Root and Core: the layout doesn't list them
+Pure.PLATE = 0.1 -- the stud plate's thickness (units)
+
+type V3 = { X: number, Y: number, Z: number }
+
+local function v(x: number, y: number, z: number): V3
+	return { X = x, Y = y, Z = z }
+end
+
+local FRONT = v(0, 0, -1)
+local BACK = v(0, 0, 1)
+
+-- Fixed colours, at world values (art-direction §4.1): no pure white and no channel above 245 on a creature.
+local INK_EYE = "#1B1238" -- Palette.Outline: deep plum-navy, never black
+local GLINT = "#F5F3EE"
+local CHEEK = "#E0679C"
+local CREAM = "#EDE7DA" -- the warm white: wool, ruffs, petals, dots, a white accent
+local LEAF = "#6ACC39" -- Palette.Accent.Lime
+local STEM = "#2E9E3E"
+local NOSE_DARK = "#52342C" -- a pup's nose: warm cocoa, not black
+local NOSE_PINK = "#E0709A"
+local PAW_PINK = "#E58AA8"
+local BEAK = "#EB842A" -- Palette.Accent.Orange
+local GOLDEN = "#F5C731" -- Palette.Accent.Yellow: a bell, a star, a flower's middle
+local CHERRY = "#D63C4B" -- Palette.Accent.Red (a prop: never a cross)
+local BUTTER = "#F0D27A"
+local SYRUP = "#DB3D7D"
+local SYRUP_BLUE = "#29BCCC"
+local FALLBACK_BODY = "#D6459A"
+Pure.WARM_WHITE = CREAM
+Pure.EYE = INK_EYE
+
+local V_CAP, V_CAP_YELLOW, V_FLOOR = 0.86, 0.94, 0.3
+local S_FLOOR: { [string]: number } = { Body = 0.42, Accent = 0.35 }
+local WHITE_S = 0.15 -- an accent this pale (and light) is a white: it becomes the warm white
+Pure.V_CAP, Pure.V_CAP_YELLOW, Pure.V_FLOOR, Pure.S_FLOOR = V_CAP, V_CAP_YELLOW, V_FLOOR, S_FLOOR
+
+local function rgb(hex: any): { number }?
+	if type(hex) ~= "string" then
+		return nil
+	end
+	local r, g, b = string.match(hex, "^#?(%x%x)(%x%x)(%x%x)$")
+	if not (r and g and b) then
+		return nil
+	end
+	return {
+		(tonumber(r, 16) :: number) / 255,
+		(tonumber(g, 16) :: number) / 255,
+		(tonumber(b, 16) :: number) / 255,
+	}
+end
+
+local function toHex(r: number, g: number, b: number): string
+	local function byte(c: number): number
+		return math.clamp(math.floor(c * 255 + 0.5), 0, 255)
+	end
+	return string.format("#%02X%02X%02X", byte(r), byte(g), byte(b))
+end
+
+-- Hue (0..1), saturation and value of an { r, g, b } colour.
+local function toHsv(c: { number }): (number, number, number)
+	local r, g, b = c[1], c[2], c[3]
+	local high, low = math.max(r, g, b), math.min(r, g, b)
+	local delta = high - low
+	local h = 0
+	if delta > 1e-9 then
+		if high == r then
+			h = ((g - b) / delta) % 6
+		elseif high == g then
+			h = (b - r) / delta + 2
+		else
+			h = (r - g) / delta + 4
+		end
+		h /= 6
+	end
+	return h, if high > 1e-9 then delta / high else 0, high
+end
+
+local function fromHsv(h: number, s: number, value: number): string
+	local sector = math.floor(h * 6) % 6
+	local f = h * 6 - math.floor(h * 6)
+	local p, q, t = value * (1 - s), value * (1 - f * s), value * (1 - (1 - f) * s)
+	if sector == 0 then
+		return toHex(value, t, p)
+	elseif sector == 1 then
+		return toHex(q, value, p)
+	elseif sector == 2 then
+		return toHex(p, value, t)
+	elseif sector == 3 then
+		return toHex(p, q, value)
+	elseif sector == 4 then
+		return toHex(t, p, value)
+	end
+	return toHex(value, p, q)
+end
+
+-- The value a world colour may reach at hue h (0..1): yellows and golds sit a little higher, like Palette's Yellow.
+function Pure.cap(h: number): number
+	local near = math.max(0, 1 - math.abs(h * 360 - 52) / 30)
+	return V_CAP + (V_CAP_YELLOW - V_CAP) * near
+end
+
+function Pure.hsv(hex: any): (number, number, number)
+	local c = rgb(hex)
+	if not c then
+		return 0, 0, 0
+	end
+	return toHsv(c)
+end
+
+function Pure.world(hex: any, role: string): string
+	local c = rgb(hex)
+	if not c then
+		return if role == "Accent" then CREAM else FALLBACK_BODY
+	end
+	local h, s, value = toHsv(c)
+	if role == "Accent" and s < WHITE_S and value > 0.7 then
+		return CREAM
+	end
+	if s >= 0.06 then -- a true grey keeps its greyness
+		s = math.max(s, S_FLOOR[role] or S_FLOOR.Body)
+	end
+	return fromHsv(h, s, math.clamp(value, V_FLOOR, Pure.cap(h)))
+end
+
+function Pure.mid(hex: any): string
+	local c = rgb(hex)
+	if not c then
+		return FALLBACK_BODY
+	end
+	local h, s, value = toHsv(c)
+	return fromHsv(h, s, math.min(value, Pure.cap(h)))
+end
+
+-- Lighter or darker by `dv` in value, never past the world cap: a lighter tone without a lerp toward white.
+function Pure.tone(hex: any, dv: number): string
+	local c = rgb(hex)
+	if not c then
+		return FALLBACK_BODY
+	end
+	local h, s, value = toHsv(c)
+	return fromHsv(h, s, math.clamp(value + dv, V_FLOOR, Pure.cap(h)))
+end
+
+-- A darker shade (toward black, never toward white).
+function Pure.darken(hex: any, amount: number): string
+	local c = rgb(hex) or { 0.5, 0.5, 0.5 }
+	local k = 1 - math.clamp(amount, 0, 1)
+	return toHex(c[1] * k, c[2] * k, c[3] * k)
+end
+
+local function mix(a: string, b: string, t: number): string
+	local ca, cb = rgb(a) or { 0, 0, 0 }, rgb(b) or { 0, 0, 0 }
+	return toHex(ca[1] + (cb[1] - ca[1]) * t, ca[2] + (cb[2] - ca[2]) * t, ca[3] + (cb[3] - ca[3]) * t)
+end
+
+-- The stud plate's width: whole studs at this creature's size, so no stud is cut at an edge (World/Studs' rule).
+function Pure.studs(units: number, scale: number): number
+	local s = if scale > 0 then scale else 1
+	local n = math.floor(units * s + 1e-6)
+	if n < 1 then
+		return units
+	end
+	return n / s
+end
+
+-- (x, y) turned by `a` radians about Z, as CFrame.Angles(0, 0, a) turns it (+X toward +Y).
+local function turn(x: number, y: number, a: number): (number, number)
+	local c, s = math.cos(a), math.sin(a)
+	return x * c - y * s, x * s + y * c
+end
+
+-- The pixel mouth (MouthGui): one drawing per mood on a 9 x 5 grid.
+Pure.MOUTH = {
+	Cols = 9,
+	Rows = 5,
+	Sick = { { 4, 1.5, 1, 2 } }, -- a little "o" (CreatureProps' extra mouths cover it whole)
+	Happy = { { 1, 1.5 }, { 4, 1.5 }, { 7, 1.5 }, { 2, 2.5, 2, 1 }, { 5, 2.5, 2, 1 } }, -- a wide "w"
+	Sad = { { 3, 1.5, 3, 1 }, { 2, 2.5 }, { 6, 2.5 } }, -- a little frown
+	Smile = { { 2, 1.5 }, { 6, 1.5 }, { 3, 2.5, 3, 1 } }, -- a closed, sleepy smile
+}
+Pure.MOUTH_ORDER = { "Sick", "Happy", "Sad", "Smile" }
+-- Closed, contented eyes (LidGui, setMood "Sleep"): a little cup on a 5 x 5 grid.
+Pure.CLOSED_EYE = { Cols = 5, Rows = 5, Cells = { { 0, 2 }, { 4, 2 }, { 1, 3, 3, 1 } } }
+-- The brows (BrowGui): height on the plate (0 top .. 1 bottom) and the creature's right brow's turn in degrees,
+-- clockwise as you look at it (the left brow turns the other way). Flat blocks, no rounding.
+Pure.BROWS = {
+	Worried = { Y = 0.55, Turn = -14 }, -- inner ends up
+	Grumpy = { Y = 0.62, Turn = 20 }, -- inner ends down
+	Sad = { Y = 0.62, Turn = -26 },
+	Happy = { Y = 0.32, Turn = 0 }, -- raised
+}
+Pure.BROW_ORDER = { "Worried", "Grumpy", "Sad", "Happy" }
+
+Pure.KNOWN_BITS = {
+	Toes = true,
+	Spots = true,
+	Bell = true,
+	Nose = true,
+	PinkNose = true,
+	Butter = true,
+	Cherry = true,
+	CottonTail = true,
+	Whiskers = true,
+	Puddle = true,
+	Glasses = true,
+	PinkPaws = true,
+	Beak = true,
+	OrangeFeet = true,
+	Syrup = true,
+	EyeRings = true,
+	Hem = true,
+	MothWings = true,
+	WingSpots = true,
+	Fluff = true,
+	Daisy = true,
+	Blush = true,
+	Dots = true,
+	GrumpyBrows = true,
+	Trail = true,
+}
+
+-- Each Shape's blocks (W, H, D in units), how high its body starts (Lift: its feet go under it), its feet, and where
+-- the eyes sit on the face block (EyeX from the middle, EyeY above the face block's bottom; Eye = the face's scale).
+local SHAPES: { [string]: any } = {
+	-- A big head on a small body: the toy proportions.
+	Ball = {
+		Body = { 1.9, 1.0, 1.5 },
+		Head = { 2.7, 1.65, 2.0 },
+		Lift = 0.35,
+		Foot = { 0.8, 0.4, 1.0 },
+		FootX = 0.5,
+		EyeX = 0.58,
+		EyeY = 0.95,
+		Eye = 1,
+	},
+	-- Taller and slimmer: a longer body under a narrower head.
+	Bean = {
+		Body = { 1.75, 1.4, 1.5 },
+		Head = { 2.3, 1.5, 1.85 },
+		Lift = 0.3,
+		Foot = { 0.7, 0.35, 0.9 },
+		FootX = 0.46,
+		EyeX = 0.5,
+		EyeY = 0.86,
+		Eye = 0.92,
+	},
+	-- Wide and low.
+	Blob = {
+		Body = { 2.8, 0.75, 2.1 },
+		Head = { 3.2, 1.3, 2.3 },
+		Lift = 0.25,
+		Foot = { 0.95, 0.3, 0.9 },
+		FootX = 0.85,
+		EyeX = 0.62,
+		EyeY = 0.72,
+		Eye = 0.95,
+	},
+	-- One tall slice (of toast): its face is on its front.
+	Box = {
+		Body = { 2.6, 2.3, 1.3 },
+		Lift = 0.33,
+		Foot = { 0.75, 0.38, 0.9 },
+		FootX = 0.62,
+		EyeX = 0.5,
+		EyeY = 1.45,
+		Eye = 0.95,
+	},
+	-- A stepped drop: a wide base and a narrower head on it, no feet (a jelly, a slime, a ghost).
+	Drop = {
+		Body = { 2.5, 1.1, 2.2 },
+		Head = { 2.2, 1.55, 1.9 },
+		Lift = 0,
+		EyeX = 0.5,
+		EyeY = 0.84,
+		Eye = 0.92,
+	},
+}
+Pure.SHAPES = SHAPES
+
+function Pure.layout(look: any, opts: any?): any
+	local o = if type(opts) == "table" then opts else {}
+	local night = o.Night == true
+	local scale = if type(o.Scale) == "number" and o.Scale > 0 then o.Scale else 1
+	local recipe = if type(look) == "table" then look else {}
+	local shapeName = if type(recipe.Shape) == "string" and SHAPES[recipe.Shape] then recipe.Shape else "Ball"
+	local shape = SHAPES[shapeName]
+	local box = shapeName == "Box"
+	local function kind(value: any): string
+		return if type(value) == "string" then value else "None"
+	end
+	local ears, top, extra = kind(recipe.Ears), kind(recipe.Top), kind(recipe.Extra)
+	local bits: { [string]: boolean } = {}
+	if type(recipe.Bits) == "table" then
+		for _, name in recipe.Bits do
+			if type(name) == "string" then
+				bits[name] = true
+			end
+		end
+	end
+	local body = Pure.world(recipe.Body, "Body")
+	local accent = Pure.world(recipe.Accent, "Accent")
+
+	local parts = {}
+	local sockets = {}
+	local function add(name: string, size: V3, pos: V3, color: string, tint: boolean, more: { [string]: any }?): any
+		local spec: { [string]: any } = { Name = name, Size = size, Pos = pos, Color = color, Tint = tint }
+		if more then
+			for key, value in more do
+				spec[key] = value
+			end
+		end
+		table.insert(parts, spec)
+		return spec
+	end
+	local function socket(name: string, pos: V3, normal: V3?)
+		table.insert(sockets, { Name = name, Pos = pos, Normal = normal })
+	end
+	local function tag(side: number): string
+		return if side > 0 then "R" else "L"
+	end
+
+	-- The body, and the head on it. A Box is one slice: its face is on its bread front.
+	local lift = if shapeName == "Drop" and bits.Hem then 0.3 else shape.Lift
+	local bw, bh, bd = shape.Body[1], shape.Body[2], shape.Body[3]
+	local bodyY, bodyTop = lift + bh / 2, lift + bh
+	add("Body", v(bw, bh, bd), v(0, bodyY, 0), body, true, { Big = true })
+	local face: { W: number, H: number, D: number, Bottom: number, Top: number, Y: number }
+	if shape.Head then
+		local hw, hh, hd = shape.Head[1], shape.Head[2], shape.Head[3]
+		local bottom = bodyTop - 0.05
+		add("Head", v(hw, hh, hd), v(0, bottom + hh / 2, 0), body, true, { Big = true })
+		face = { W = hw, H = hh, D = hd, Bottom = bottom, Top = bottom + hh, Y = bottom + hh / 2 }
+	else
+		face = { W = bw, H = bh, D = bd, Bottom = lift, Top = bodyTop, Y = bodyY }
+	end
+	local skin = if box then accent else body -- the colour around the eyes
+
+	-- The belly patch (a Box's whole bread front, which carries its face).
+	local bellyPos: V3, bellyFront: number, faceZ: number
+	if box then
+		bellyPos = v(0, bodyY - 0.05, -bd / 2 - 0.05)
+		add("Belly", v(bw - 0.4, bh - 0.4, 0.1), bellyPos, accent, true, { Big = true })
+		bellyFront = -bd / 2 - 0.1
+		faceZ = bellyFront
+	else
+		local w, h = bw * 0.58, bh * 0.66
+		bellyPos = v(0, lift + bh * 0.1 + h / 2, -bd / 2 - 0.04)
+		add("Belly", v(w, h, 0.08), bellyPos, accent, true, { Big = true })
+		bellyFront = -bd / 2 - 0.08
+		faceZ = -face.D / 2
+	end
+
+	-- The face: flat blocks on the face block's front (faceZ), stacked a few hundredths apart so nothing flickers.
+	local es = shape.Eye
+	local eyeX = shape.EyeX
+	local eyeY = face.Bottom + shape.EyeY
+	local bigNose = bits.Nose or bits.PinkNose or bits.Beak
+	local noseY = eyeY - 0.32 * es
+	local mouthY = eyeY - (if bigNose then 0.6 else 0.5) * es
+	local lower = faceZ -- the front the nose and mouth sit on: the face, or a muzzle
+	local muzzleW, muzzleY = 0.98 * es, eyeY - 0.45 * es
+	if (bits.Nose or bits.PinkNose or bits.Whiskers) and not box then
+		add("Muzzle", v(muzzleW, 0.52 * es, 0.12), v(0, muzzleY, faceZ - 0.06), accent, true, { Big = true })
+		lower = faceZ - 0.12
+	end
+
+	local eyeFront = faceZ - 0.08
+	local h = Pure.hsv(body)
+	local strip = mix(INK_EYE, fromHsv(h, 0.6, 0.85), 0.45) -- a soft glow of colour at the bottom of each eye
+	for _, side in { 1, -1 } do
+		local x = side * eyeX
+		add("Eye", v(0.44 * es, 0.56 * es, 0.08), v(x, eyeY, faceZ - 0.04), INK_EYE, false)
+		add("EyeTint", v(0.3 * es, 0.1 * es, 0.03), v(x, eyeY - 0.2 * es, eyeFront - 0.015), strip, false)
+		-- Two white glints in the same corner of both eyes: the "alive and friendly" look.
+		local big, small = 0.16 * es, 0.08 * es
+		add("EyeShine", v(big, big, 0.03), v(x + 0.07 * es, eyeY + 0.1 * es, eyeFront - 0.015), GLINT, false)
+		add("EyeShine", v(small, small, 0.03), v(x - 0.08 * es, eyeY - 0.06 * es, eyeFront - 0.015), GLINT, false)
+		-- The sick half-lid: the face's own colour over the top half of the eye (setMood "Sick" shows it).
+		add("EyeLid", v(0.48 * es, 0.27 * es, 0.06), v(x, eyeY + 0.145 * es, eyeFront - 0.03), skin, true, {
+			Big = true,
+			Clear = 1,
+			Shadow = false,
+		})
+		-- A see-through plate in front of it all: the closed eyes (setMood "Sleep") and the client's squint.
+		add("Lid", v(0.5 * es, 0.62 * es, 0.02), v(x, eyeY, eyeFront - 0.08), GLINT, false, {
+			Clear = 1,
+			Gui = "Lid",
+			Side = side,
+		})
+		socket("Eye" .. tag(side) .. "Socket", v(x, eyeY, eyeFront - 0.1), FRONT)
+
+		local cx, cy = side * (eyeX + 0.4 * es), eyeY - 0.36 * es
+		local cheek = if bits.Blush then v(0.5 * es, 0.24 * es, 0.06) else v(0.4 * es, 0.18 * es, 0.06)
+		add("Cheek", cheek, v(cx, cy, faceZ - 0.03), CHEEK, false)
+		socket("Cheek" .. tag(side) .. "Socket", v(cx, cy, faceZ - 0.06), FRONT)
+	end
+
+	-- One brow plate over both eyes (BrowGui draws both brows per mood).
+	local browW = 2 * eyeX + 0.6 * es
+	add("Brow", v(browW, 0.24 * es, 0.02), v(0, eyeY + 0.43 * es, faceZ - 0.012), GLINT, false, {
+		Clear = 1,
+		Gui = "Brow",
+		Gap = eyeX / browW,
+		Bar = 0.42 * es / browW,
+		Ink = mix(Pure.darken(skin, 0.55), INK_EYE, 0.35),
+	})
+
+	-- The nose: the species' own (a cocoa pup nose, a big pink one, a beak), or a small one of its colour.
+	local noseFront: number
+	if bits.Beak then
+		add("Beak", v(0.46 * es, 0.2 * es, 0.36 * es), v(0, noseY, lower - 0.18 * es), BEAK, true)
+		add("BeakTip", v(0.3 * es, 0.12 * es, 0.22 * es), v(0, noseY - 0.15 * es, lower - 0.11 * es), BEAK, true)
+		noseFront = lower - 0.36 * es
+	elseif bits.Nose or bits.PinkNose then
+		local pink = bits.PinkNose == true
+		local size = if pink then v(0.42 * es, 0.3 * es, 0.24 * es) else v(0.3 * es, 0.2 * es, 0.16 * es)
+		add("Nose", size, v(0, noseY, lower - size.Z / 2), if pink then NOSE_PINK else NOSE_DARK, false)
+		local shine = v(size.X * 0.22, noseY + size.Y * 0.24, lower - size.Z - 0.01)
+		add("NoseShine", v(0.08 * es, 0.05 * es, 0.02), shine, GLINT, false)
+		noseFront = lower - size.Z
+	else
+		add("Nose", v(0.18 * es, 0.12 * es, 0.08), v(0, noseY, lower - 0.04), Pure.darken(skin, 0.45), false)
+		noseFront = lower - 0.08
+	end
+	socket("NoseSocket", v(0, noseY, noseFront - 0.02), FRONT)
+
+	-- The pixel mouth: a see-through plate (MouthGui draws each mood).
+	add("Mouth", v(0.62 * es, 0.3 * es, 0.02), v(0, mouthY, lower - 0.012), GLINT, false, { Clear = 1, Gui = "Mouth" })
+	socket("FaceSocket", v(0, mouthY, lower - 0.03), FRONT)
+	socket("BrowSocket", v(0, math.min(eyeY + 0.92 * es, face.Top - 0.3), faceZ - 0.02), FRONT)
+
+	-- Feet, a little ahead of the body.
+	if shape.Foot then
+		local fw, fh, fd = shape.Foot[1], shape.Foot[2], shape.Foot[3]
+		local color = if bits.OrangeFeet then BEAK else Pure.darken(body, 0.14)
+		local fz = -bd / 2 + fd / 2 - 0.15
+		for _, side in { 1, -1 } do
+			local fx = side * shape.FootX
+			add("Foot", v(fw, fh, fd), v(fx, fh / 2, fz), color, true)
+			if bits.Toes then
+				add(
+					"Toe",
+					v(fw * 0.8, fh * 0.45, 0.14),
+					v(fx, fh * 0.225, fz - fd / 2 - 0.06),
+					Pure.tone(color, 0.12),
+					true
+				)
+			end
+		end
+	end
+
+	-- Little block arms, hanging from the shoulders (unless wings or flippers are its arms). Each one is a part named
+	-- "Arm" on its own Motor6D, with a HandSocket at its paw.
+	if extra ~= "Wings" and extra ~= "Flippers" then
+		local color = if bits.PinkPaws then PAW_PINK else Pure.darken(body, 0.06)
+		local sy = if box then bodyY - 0.1 else bodyTop - 0.12
+		local sz = -bd * 0.18
+		for _, side in { 1, -1 } do
+			local tilt = side * 0.12
+			local sx = side * (bw / 2 + 0.03)
+			local ox, oy = turn(side * 0.12, -0.31, tilt) -- tucked against the body: the line is 7 studs apart
+			add("Arm", v(0.38, 0.66, 0.4), v(sx + ox, sy + oy, sz), color, true, {
+				Big = true,
+				Rot = v(0, 0, tilt),
+				Joint = if side > 0 then "ArmR" else "ArmL",
+				Pivot = v(sx, sy, sz),
+				Hand = v(0, -0.3, -0.06),
+				HandTilt = tilt,
+			})
+		end
+	end
+
+	-- The top block (the head, a Box's slice, or a loaf of crust) and its stud plate.
+	local cap = { W = face.W, D = face.D, Top = face.Top, Color = body }
+	if top == "Crust" then
+		local crust = Pure.darken(body, 0.15)
+		if box then -- a loaf top: two stepped blocks of crust
+			add("Crust", v(bw + 0.1, 0.34, bd + 0.1), v(0, bodyTop + 0.15, 0), crust, true, { Big = true })
+			add("Crust", v(bw - 0.5, 0.26, bd), v(0, bodyTop + 0.43, 0), crust, true, { Big = true })
+			cap = { W = bw - 0.5, D = bd, Top = bodyTop + 0.56, Color = crust }
+		else
+			add("Crust", v(face.W * 0.7, 0.36, face.D * 0.7), v(0, face.Top + 0.16, 0), crust, true, { Big = true })
+			cap = { W = face.W * 0.7, D = face.D * 0.7, Top = face.Top + 0.34, Color = crust }
+		end
+	end
+	local plated = top ~= "Pleat" and top ~= "Scoop" -- a wrapper or a scoop covers the whole top
+	if plated then
+		local size = v(Pure.studs(cap.W, scale), Pure.PLATE, Pure.studs(cap.D, scale))
+		add("StudTop", size, v(0, cap.Top + Pure.PLATE / 2, 0), cap.Color, true, {
+			Big = true,
+			Studs = true,
+			Shadow = false,
+		})
+	end
+	local T = cap.Top + (if plated then Pure.PLATE else 0) -- the top of the head
+
+	-- Ears: each kind its own shape (square ears read cat-like): a rounded stack, a flop, a peak, a long ear, tufts.
+	for _, side in { 1, -1 } do
+		if ears == "Round" then
+			local x = side * (cap.W / 2 - 0.45)
+			add("Ear", v(0.85, 0.4, 0.5), v(x, cap.Top + 0.18, 0.15), body, true)
+			add("Ear", v(0.5, 0.22, 0.5), v(x, cap.Top + 0.47, 0.15), body, true)
+		elseif ears == "Floppy" then
+			local a = side * 0.15
+			local ox, oy = turn(side * 0.14, -0.55, a)
+			local px, py = side * (face.W / 2 + 0.05), face.Top - 0.1
+			add(
+				"Ear",
+				v(0.3, 1.1, 0.8),
+				v(px + ox, py + oy, 0.05),
+				Pure.darken(accent, 0.06),
+				true,
+				{ Rot = v(0, 0, a) }
+			)
+		elseif ears == "Long" then
+			local a = -side * 0.12
+			local px, py = side * face.W * 0.2, cap.Top - 0.05
+			local ox, oy = turn(0, 0.72, a)
+			add("Ear", v(0.42, 1.44, 0.3), v(px + ox, py + oy, 0.1), body, true, { Rot = v(0, 0, a) })
+			local ix, iy = turn(0, 0.76, a)
+			add("EarInner", v(0.2, 1.0, 0.06), v(px + ix, py + iy, -0.08), accent, true, { Rot = v(0, 0, a) })
+		elseif ears == "Pointy" then
+			local x = side * (cap.W / 2 - 0.45)
+			add("Ear", v(0.7, 0.36, 0.42), v(x, cap.Top + 0.16, 0.1), body, true)
+			add("Ear", v(0.34, 0.34, 0.42), v(x + side * 0.13, cap.Top + 0.49, 0.1), body, true)
+		elseif ears == "Tufts" then
+			local color = Pure.darken(body, 0.12)
+			local px, py = side * (cap.W / 2 - 0.3), cap.Top - 0.05
+			local a, b = -side * 0.45, -side * 0.2
+			local ox, oy = turn(0, 0.36, a)
+			add("Ear", v(0.26, 0.76, 0.3), v(px + ox, py + oy, 0.05), color, true, { Rot = v(0, 0, a) })
+			local qx, qy = turn(0, 0.25, b)
+			add("Ear", v(0.2, 0.52, 0.26), v(px - side * 0.3 + qx, py + qy, 0.05), color, true, { Rot = v(0, 0, b) })
+		end
+	end
+
+	-- The top.
+	local scoop: { Y: number, Top: number, Front: number }? = nil
+	if top == "Leaf" then
+		add("Stem", v(0.14, 0.5, 0.14), v(0, T + 0.22, 0.05), STEM, false)
+		add("Leaf", v(0.85, 0.12, 0.45), v(0.36, T + 0.5, 0.05), LEAF, false, { Rot = v(0, 0, 0.4) })
+		add("Leaf", v(0.62, 0.1, 0.34), v(-0.27, T + 0.43, 0.05), LEAF, false, { Rot = v(0, 0, -0.45) })
+	elseif top == "Bow" then
+		for _, side in { 1, -1 } do
+			add("Bow", v(0.62, 0.46, 0.26), v(side * 0.37, T + 0.24, 0), accent, true, { Rot = v(0, 0, side * 0.25) })
+		end
+		add("BowKnot", v(0.3, 0.3, 0.32), v(0, T + 0.24, -0.02), Pure.darken(accent, 0.08), true)
+	elseif top == "Cloud" then -- a soft stack of wool
+		add("Puff", v(1.3, 0.62, 1.25), v(0, T + 0.3, 0.05), CREAM, true)
+		for _, side in { 1, -1 } do
+			add("Puff", v(0.85, 0.46, 1.0), v(side * 0.8, T + 0.2, 0.1), CREAM, true)
+		end
+		add("Puff", v(0.7, 0.32, 0.7), v(0.12, T + 0.75, 0.1), CREAM, true)
+	elseif top == "Antennae" then -- toward the front of the head, so they stand in front of any ears
+		local az = -face.D / 2 + 0.45
+		for _, side in { 1, -1 } do
+			local a = -side * 0.35
+			local bx, by = side * 0.3, T - 0.04
+			local sx, sy = turn(0, 0.4, a)
+			local stalk = Pure.darken(body, 0.2)
+			add("Antenna", v(0.1, 0.8, 0.1), v(bx + sx, by + sy, az), stalk, true, { Rot = v(0, 0, a) })
+			local tx, ty = turn(0, 0.86, a)
+			add("AntennaTip", v(0.3, 0.3, 0.3), v(bx + tx, by + ty, az), accent, true, {
+				Rot = v(0, 0, a),
+				Neon = true,
+			})
+		end
+	elseif top == "Pleat" then -- a dumpling wrapper, pinched at the top
+		add("Wrap", v(face.W * 0.8, 0.3, face.D * 0.8), v(0, T + 0.13, 0.05), accent, true)
+		for _, side in { 1, -1 } do
+			local pleat = Pure.darken(accent, 0.07)
+			add("Pleat", v(0.24, 0.42, face.D * 0.55), v(side * 0.34, T + 0.42, 0.05), pleat, true, {
+				Rot = v(0, 0, -side * 0.35),
+			})
+		end
+		add("Knot", v(0.48, 0.36, 0.48), v(0, T + 0.5, 0.05), accent, true)
+	elseif top == "Scoop" then -- a snow cone's ice on a snowy rim
+		add("Snow", v(face.W * 0.86, 0.22, face.D * 0.86), v(0, T + 0.09, 0.05), accent, true)
+		local sw, sh, sd = face.W * 0.68, 0.95, face.D * 0.68
+		local sy = T + 0.18 + sh / 2
+		add("Scoop", v(sw, sh, sd), v(0, sy, 0.05), accent, true)
+		scoop = { Y = sy, Top = sy + sh / 2, Front = 0.05 - sd / 2 }
+	elseif top == "Star" then -- an eight-point star from two blocks (never a plus: a plus reads as a cross)
+		local hs = Pure.hsv(body) * 360
+		local color = if hs >= 38 and hs <= 70 then BEAK else GOLDEN
+		-- The turned square sits a little in front, so the two never share a face (no flicker).
+		local turned = { Rot = v(0, 0, math.pi / 4), Neon = true }
+		add("Star", v(0.72, 0.72, 0.2), v(0, T + 0.5, 0.05), color, true, { Neon = true })
+		add("StarRay", v(0.72, 0.72, 0.2), v(0, T + 0.5, 0.02), color, true, turned)
+	elseif top == "Lid" then -- a teapot's lid and knob
+		add("PotLid", v(face.W * 0.6, 0.22, face.D * 0.6), v(0, T + 0.1, 0.05), accent, true)
+		add("Knob", v(0.4, 0.3, 0.4), v(0, T + 0.35, 0.05), accent, true)
+	end
+	if shapeName == "Drop" and ears == "None" and top == "None" and not bits.Cherry then
+		add("Tip", v(0.42, 0.36, 0.42), v(0, T + 0.16, 0.08), body, true, { Neon = true }) -- a little curl on top
+	end
+
+	-- The extra: wings, flippers, a tail or a spout. Wings and flippers are its arms (they flap and wave).
+	if extra == "Wings" and bits.MothWings then -- big wings spread up and out behind it
+		local color = Pure.tone(body, 0.1)
+		local sz = math.max(bd, face.D) / 2 + 0.08
+		for _, side in { 1, -1 } do
+			local a = side * 0.5
+			local sx, sy = side * bw * 0.25, bodyTop - 0.15
+			local ox, oy = turn(side * 0.78, 0.1, a)
+			add("Wing", v(1.5, 1.15, 0.12), v(sx + ox, sy + oy, sz), color, true, {
+				Rot = v(0, 0, a),
+				Joint = if side > 0 then "ArmR" else "ArmL",
+				Pivot = v(sx, sy, sz),
+				Hand = v(side * 0.7, 0, 0),
+				HandTilt = a,
+			})
+			if bits.WingSpots then
+				local px, py = turn(side * 0.98, 0.15, a)
+				add("WingSpot", v(0.55, 0.42, 0.06), v(sx + px, sy + py, sz + 0.09), accent, true, {
+					Rot = v(0, 0, a),
+					Ride = if side > 0 then "ArmR" else "ArmL",
+				})
+			end
+		end
+	elseif extra == "Wings" then -- folded wings at the sides: short and thick, so they never read as legs
+		local sy = bodyTop - 0.1
+		local length = math.min(0.85, sy - 0.25)
+		for _, side in { 1, -1 } do
+			local tilt = side * 0.14
+			local sx, sz = side * (bw / 2 + 0.02), 0.15
+			local ox, oy = turn(side * 0.15, -length / 2, tilt)
+			add("Wing", v(0.34, length, 0.95), v(sx + ox, sy + oy, sz), accent, true, {
+				Rot = v(0, 0, tilt),
+				Joint = if side > 0 then "ArmR" else "ArmL",
+				Pivot = v(sx, sy, sz),
+				Hand = v(0, -length / 2, -0.1),
+				HandTilt = tilt,
+			})
+			if bits.WingSpots then
+				local px, py = turn(side * 0.2, -length / 2 - 0.05, tilt)
+				add("WingSpot", v(0.06, 0.45, 0.45), v(sx + px, sy + py, sz), Pure.darken(accent, 0.1), true, {
+					Rot = v(0, 0, tilt),
+					Ride = if side > 0 then "ArmR" else "ArmL",
+				})
+			end
+		end
+	elseif extra == "Flippers" then
+		local color = Pure.darken(body, 0.15)
+		for _, side in { 1, -1 } do
+			local tilt = side * 0.42
+			local sx, sy = side * (bw / 2 - 0.02), bodyY + 0.15
+			local ox, oy = turn(side * 0.1, -0.48, tilt)
+			add("Flipper", v(0.26, 1.0, 0.6), v(sx + ox, sy + oy, 0), color, true, {
+				Rot = v(0, 0, tilt),
+				Joint = if side > 0 then "ArmR" else "ArmL",
+				Pivot = v(sx, sy, 0),
+				Hand = v(0, -0.48, -0.05),
+				HandTilt = tilt,
+			})
+		end
+	elseif extra == "Tail" then
+		local back = bd / 2
+		if bits.Trail then -- a comet's trail: blocks streaming back and up, fading as they go (glowing at night)
+			local sizes = { 0.8, 0.64, 0.5, 0.36 }
+			for i, d in sizes do
+				local more: { [string]: any } = { Clear = (i - 1) * 0.1, Neon = i >= 3 }
+				if i == 1 then
+					more.Joint, more.Pivot = "Tail", v(0, lift + 0.8, back - 0.1)
+				else
+					more.Ride = "Tail"
+				end
+				local at = v(0, lift + 0.75 + i * 0.24, back - 0.1 + i * 0.42)
+				add(if i == #sizes then "TailTip" else "Tail", v(d, d, d), at, accent, true, more)
+			end
+		else -- a little stepped tail, up and back
+			add("Tail", v(0.5, 0.5, 0.5), v(0, lift + 0.4, back + 0.2), body, true, {
+				Joint = "Tail",
+				Pivot = v(0, lift + 0.4, back - 0.05),
+			})
+			add("Tail", v(0.42, 0.42, 0.42), v(0, lift + 0.74, back + 0.5), body, true, { Ride = "Tail" })
+			add("TailTip", v(0.36, 0.36, 0.36), v(0, lift + 1.04, back + 0.66), accent, true, {
+				Ride = "Tail",
+				Neon = true,
+			})
+		end
+	elseif extra == "Spout" then -- a teapot: a spout on its right, a handle on its left (the head is the pot)
+		local pot = Pure.darken(body, 0.05)
+		local a = 0.7
+		local rx, ry = face.W / 2 + 0.05, face.Y - 0.2
+		local cx, cy = turn(0.42, 0, a)
+		add("Spout", v(0.84, 0.36, 0.36), v(rx + cx, ry + cy, 0), pot, true, { Rot = v(0, 0, a) })
+		local tx, ty = turn(0.94, 0, a)
+		add("SpoutTip", v(0.42, 0.42, 0.42), v(rx + tx, ry + ty, 0), pot, true, { Rot = v(0, 0, a) })
+		add("Handle", v(0.28, 0.9, 0.5), v(-(face.W / 2 + 0.12), face.Y, 0), pot, true)
+		local sx, sy = turn(1.1, 0, a)
+		socket("SpoutSocket", v(rx + sx, ry + sy, 0))
+	end
+
+	-- The species' own Bits: each one is a few blocks at most.
+	local hx, hz = face.W / 2 + 0.03, face.D / 2 + 0.03
+	if bits.Spots then -- freckles on the head's sides and back
+		local spot = Pure.darken(body, 0.2)
+		add("Spot", v(0.06, 0.42, 0.42), v(hx, face.Y + 0.2, 0.25), spot, true)
+		add("Spot", v(0.06, 0.34, 0.34), v(-hx, face.Y - 0.15, -0.15), spot, true)
+		add("Spot", v(0.42, 0.42, 0.06), v(0.35, face.Y + 0.05, hz), spot, true)
+	end
+	if bits.Dots then -- polka dots
+		add("Dot", v(0.06, 0.32, 0.32), v(hx, face.Y - 0.2, -0.45), CREAM, false)
+		add("Dot", v(0.06, 0.32, 0.32), v(-hx, face.Y + 0.2, 0.55), CREAM, false)
+		add("Dot", v(0.32, 0.32, 0.06), v(-0.35, face.Y, hz), CREAM, false)
+	end
+	if bits.Bell then -- a little golden bell with a ribbon, under the chin
+		local y, z = bodyTop - 0.27, -bd / 2 - 0.2
+		add("Bell", v(0.38, 0.38, 0.38), v(0, y, z), GOLDEN, true)
+		add("BellSlit", v(0.26, 0.05, 0.03), v(0, y - 0.08, z - 0.2), INK_EYE, false)
+		add("BellBow", v(0.52, 0.16, 0.14), v(0, y + 0.24, z + 0.02), accent, true)
+	end
+	if bits.Whiskers then
+		for _, side in { 1, -1 } do
+			for _, k in { -1, 1 } do
+				local at = v(side * (muzzleW / 2 + 0.22), muzzleY + k * 0.07, lower - 0.02)
+				add(
+					"Whisker",
+					v(0.55, 0.05, 0.05),
+					at,
+					Pure.darken(body, 0.5),
+					false,
+					{ Rot = v(0, 0, k * side * 0.15) }
+				)
+			end
+		end
+	end
+	if bits.Butter then -- a pat of butter on the toast
+		add("Butter", v(0.8, 0.18, 0.62), v(0.12, T + 0.08, 0.05), BUTTER, true, { Rot = v(0, 0.35, 0) })
+	end
+	if bits.Cherry then -- a jelly's cherry, on its forehead in front of the ears
+		local z = -face.D / 2 + 0.35
+		add("Cherry", v(0.42, 0.42, 0.42), v(0, T + 0.2, z), CHERRY, true)
+		add("CherryStem", v(0.07, 0.36, 0.07), v(0.05, T + 0.55, z + 0.01), STEM, false, { Rot = v(0, 0, -0.3) })
+	end
+	if bits.CottonTail then
+		add("CottonTail", v(0.5, 0.5, 0.5), v(0, lift + 0.45, bd / 2 + 0.2), CREAM, true)
+	end
+	if bits.Puddle then -- a slime's puddle round its base
+		add(
+			"Puddle",
+			v(bw + 0.5, 0.1, bd + 0.45),
+			v(0, 0.05, 0),
+			Pure.tone(body, 0.06),
+			true,
+			{ Big = true, Clear = 0.1 }
+		)
+	end
+	if bits.Glasses then -- square specs on a see-through plate in front of the eyes
+		local w, gh = 2 * (eyeX + 0.36 * es), 0.8 * es
+		add("Glasses", v(w, gh, 0.02), v(0, eyeY, eyeFront - 0.13), GLINT, false, {
+			Clear = 1,
+			Gui = "Glasses",
+			Gap = eyeX / w,
+			LensW = 0.62 * es / w,
+			LensH = 0.7 * es / gh,
+		})
+	end
+	if bits.Syrup and scoop then -- snow-cone syrup: a pink splash down the front, a blue one on top
+		add("Syrup", v(0.6, 0.5, 0.05), v(-0.25, scoop.Y + 0.15, scoop.Front - 0.025), SYRUP, false)
+		add("Syrup", v(0.55, 0.05, 0.5), v(0.25, scoop.Top + 0.025, 0), SYRUP_BLUE, false)
+	end
+	if bits.EyeRings then -- an owl's pale face patches round the eyes
+		for _, side in { 1, -1 } do
+			add("EyeRing", v(0.74 * es, 0.84 * es, 0.04), v(side * eyeX, eyeY, faceZ - 0.02), accent, true)
+		end
+	end
+	if bits.Hem then -- a ghost's hem: teeth along the bottom edge
+		local teeth = { { -0.95, -0.8 }, { 0, -0.8 }, { 0.95, -0.8 }, { -0.65, 0.8 }, { 0.65, 0.8 } }
+		for _, at in teeth do
+			add("Hem", v(0.55, 0.32, 0.55), v(at[1], 0.16, at[2]), body, true)
+		end
+	end
+	if bits.Fluff then -- a fluffy ruff under the chin
+		for _, x in { -0.42, 0, 0.42 } do
+			local size = if x == 0 then v(0.62, 0.48, 0.34) else v(0.5, 0.4, 0.3)
+			add("Fluff", size, v(x, bodyTop - 0.18 - math.abs(x) * 0.2, -bd / 2 - 0.12), CREAM, true)
+		end
+	end
+	if bits.Daisy then -- a daisy tucked on the side of its head
+		local at = v(hx, face.Top - 0.38, -face.D / 2 + 0.4)
+		for i = 0, 2 do
+			add("Petal", v(0.05, 0.17, 0.62), at, CREAM, false, { Rot = v(i * math.pi / 3, 0, 0) })
+		end
+		add("FlowerMiddle", v(0.07, 0.24, 0.24), v(at.X + 0.02, at.Y, at.Z), GOLDEN, false)
+	end
+
+	-- The sockets the client's props go on (see the header).
+	socket("HeadSocket", v(0, T, 0))
+	for _, side in { 1, -1 } do
+		socket("Ear" .. tag(side) .. "Socket", v(side * face.W / 2, face.Y + 0.1, 0), v(side, 0, 0))
+	end
+	local neckY: number, neck: V3
+	if box then
+		neckY, neck = mouthY - 0.34, v(bw * 1.3, 0, bd * 1.3)
+	elseif shapeName == "Drop" then
+		neckY, neck = face.Bottom + 0.05, v(face.W * 1.3, 0, face.D * 1.3)
+	else
+		neckY, neck = bodyTop - 0.2, v(bw * 1.3, 0, bd * 1.3)
+	end
+	socket("NeckSocket", v(0, neckY, 0))
+	socket("BellySocket", v(0, bellyPos.Y, bellyFront), FRONT)
+	socket("BackSocket", v(0, bodyY, bd / 2), BACK)
+
+	return {
+		Parts = parts,
+		Sockets = sockets,
+		Top = T,
+		HeadHalf = face.W / 2,
+		Neck = neck,
+		Brows = if bits.GrumpyBrows then "Grumpy" else "Worried",
+		Shape = shapeName,
+		Night = night,
+	}
+end
+-- PURE-END
+
+CreatureBuilder.Pure = Pure
+
 local DEFAULT_LOOK: Look = {
 	Shape = "Ball",
 	Body = "#FF6EC0",
@@ -292,48 +1126,6 @@ local DEFAULT_LOOK: Look = {
 	Top = "None",
 	Extra = "None",
 	Scale = 1,
-}
-
--- Unit sizes: Scale 1 is about 3 units tall. y = 0 is the ground under the creature; the face looks at -Z.
--- Kawaii proportions: one big round head-body, the eyes a little below its middle-top, a small mouth under them.
-local SHAPES: { [string]: Shape } = {
-	Ball = {
-		Body = { C = Vector3.new(0, 1.36, 0), R = Vector3.new(1.46, 1.36, 1.34) },
-		FaceY = 1.5,
-		EyeX = 0.56,
-		Eye = 1,
-		Feet = true,
-	},
-	Bean = {
-		Body = { C = Vector3.new(0, 1.52, 0), R = Vector3.new(1.2, 1.52, 1.1) },
-		FaceY = 1.88,
-		EyeX = 0.46,
-		Eye = 0.92,
-		Feet = true,
-	},
-	Blob = {
-		Body = { C = Vector3.new(0, 1.12, 0), R = Vector3.new(1.66, 1.12, 1.45) },
-		FaceY = 1.3,
-		EyeX = 0.6,
-		Eye = 1,
-		Feet = true,
-	},
-	Box = {
-		Body = { C = Vector3.new(0, 1.1, 0), R = Vector3.new(1.3, 1.1, 0.85) },
-		FaceY = 1.42,
-		EyeX = 0.5,
-		Eye = 0.95,
-		FrontZ = -0.94,
-		Feet = true,
-	},
-	Drop = {
-		Body = { C = Vector3.new(0, 1.12, 0), R = Vector3.new(1.42, 1.12, 1.3) },
-		Head = { C = Vector3.new(0, 1.86, 0.05), R = Vector3.new(1.04, 1.04, 0.98) },
-		FaceY = 1.5,
-		EyeX = 0.5,
-		Eye = 0.95,
-		Feet = false,
-	},
 }
 
 -- A hard step at the middle: one half opaque, the other clear. Rotating it sweeps the ring and draws arcs.
@@ -346,7 +1138,7 @@ local HALF = NumberSequence.new({
 
 local badges: { [Model]: Badge } = setmetatable({}, { __mode = "k" }) :: any
 local warnedKit: { [string]: boolean } = {}
-local rng = Random.new()
+local warnedBits: { [string]: boolean } = {}
 
 ------------------------------------------------------------------------------------------------------------------
 -- Small helpers
@@ -362,218 +1154,25 @@ local function hex(value: string?, fallback: Color3): Color3
 	return fallback
 end
 
-local function darken(color: Color3, amount: number): Color3
-	return color:Lerp(BLACK, amount)
-end
-
 local function lighten(color: Color3, amount: number): Color3
 	return color:Lerp(WHITE, amount)
 end
 
-local function setup(p: BasePart, b: Build, name: string, size: Vector3, cf: CFrame, color: Color3, tint: boolean)
-	p.Name = name
-	p.Anchored = true
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	p.Massless = true
-	p.Material = Enum.Material.SmoothPlastic
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.Size = size
-	p.CFrame = cf
-	p.Color = color
-	p.Parent = b.Model
-	if tint then
-		table.insert(b.Tint, p)
-	end
+local function v3(t: any): Vector3
+	return Vector3.new(t.X, t.Y, t.Z)
 end
 
-local function block(b: Build, name: string, size: Vector3, cf: CFrame, color: Color3, tint: boolean): Part
-	local p = Instance.new("Part")
-	setup(p, b, name, size, cf, color, tint)
-	return p
-end
-
--- An ellipsoid: a Part with a sphere mesh stretched to its size.
-local function ball(b: Build, name: string, size: Vector3, cf: CFrame, color: Color3, tint: boolean): Part
-	local p = block(b, name, size, cf, color, tint)
-	local mesh = Instance.new("SpecialMesh")
-	mesh.MeshType = Enum.MeshType.Sphere
-	mesh.Parent = p
-	return p
-end
-
--- A cylinder along the part's own X axis.
-local function cylinder(
-	b: Build,
-	name: string,
-	length: number,
-	diameter: number,
-	cf: CFrame,
-	color: Color3,
-	tint: boolean
-): Part
-	local p = block(b, name, Vector3.new(length, diameter, diameter), cf, color, tint)
-	p.Shape = Enum.PartType.Cylinder
-	return p
-end
-
-local function wedge(b: Build, name: string, size: Vector3, cf: CFrame, color: Color3, tint: boolean): WedgePart
-	local p = Instance.new("WedgePart")
-	setup(p, b, name, size, cf, color, tint)
-	return p
-end
-
--- A transparent plate that only carries a drawn SurfaceGui (brows, mouth, closed eyes, glasses).
-local function plate(b: Build, name: string, size: Vector3, cf: CFrame): Part
-	local p = block(b, name, size, cf, WHITE, false)
-	p.Transparency = 1
-	p.CastShadow = false
-	return p
-end
-
--- z of the front (-Z) surface of an ellipsoid at (x, y), or nil outside it.
-local function frontOf(e: Ellipsoid, x: number, y: number): number?
-	local nx = (x - e.C.X) / e.R.X
-	local ny = (y - e.C.Y) / e.R.Y
-	local inside = 1 - nx * nx - ny * ny
-	if inside <= 0 then
-		return nil
-	end
-	return e.C.Z - e.R.Z * math.sqrt(inside)
-end
-
--- z of the back (+Z) surface of an ellipsoid at (x, y) (its middle when outside it).
-local function backOf(e: Ellipsoid, x: number, y: number): number
-	local nx = (x - e.C.X) / e.R.X
-	local ny = (y - e.C.Y) / e.R.Y
-	return e.C.Z + e.R.Z * math.sqrt(math.max(1 - nx * nx - ny * ny, 0))
-end
-
--- y of the top surface of an ellipsoid at x.
-local function topOf(e: Ellipsoid, x: number): number
-	local nx = (x - e.C.X) / e.R.X
-	return e.C.Y + e.R.Y * math.sqrt(math.max(1 - nx * nx, 0))
-end
-
--- Half the width (x) and half the depth (z) of an ellipsoid's slice at height y.
-local function halfWidth(e: Ellipsoid, y: number): number
-	local ny = (y - e.C.Y) / e.R.Y
-	return e.R.X * math.sqrt(math.max(1 - ny * ny, 0))
-end
-
-local function halfDepth(e: Ellipsoid, y: number): number
-	local ny = (y - e.C.Y) / e.R.Y
-	return e.R.Z * math.sqrt(math.max(1 - ny * ny, 0))
-end
-
-local function normalOf(e: Ellipsoid, p: Vector3): Vector3
-	local d = p - e.C
-	local n = Vector3.new(d.X / (e.R.X * e.R.X), d.Y / (e.R.Y * e.R.Y), d.Z / (e.R.Z * e.R.Z))
-	return if n.Magnitude > 1e-6 then n.Unit else Vector3.new(0, 0, -1)
-end
-
--- The point on an ellipsoid's surface in direction `dir` from its centre, and the outward normal there.
-local function surfaceAt(e: Ellipsoid, dir: Vector3): (Vector3, Vector3)
-	local d = dir.Unit
-	local t = 1 / math.sqrt((d.X / e.R.X) ^ 2 + (d.Y / e.R.Y) ^ 2 + (d.Z / e.R.Z) ^ 2)
-	local p = e.C + d * t
-	return p, normalOf(e, p)
-end
-
--- A CFrame at a surface point, lifted `lift` along the normal, whose front (-Z) faces out: flat bits lie on it.
+-- A CFrame at a point, lifted `lift` along the normal, whose front (-Z) faces out along it.
 local function facing(p: Vector3, n: Vector3, lift: number): CFrame
 	local at = p + n * lift
 	local up = if math.abs(n.Y) > 0.95 then Vector3.new(0, 0, -1) else Vector3.new(0, 1, 0)
 	return CFrame.lookAt(at, at + n, up)
 end
 
--- The front-most surface point of the face at (x, y) and its outward normal: the body, the belly or a Drop's head.
-local function faceAt(b: Build, x: number, y: number): (Vector3, Vector3)
-	local shape = b.Shape
-	local frontZ = shape.FrontZ
-	if frontZ then
-		return Vector3.new(x, y, frontZ), Vector3.new(0, 0, -1)
-	end
-	local best: Ellipsoid? = nil
-	local bestZ = math.huge
-	for _, e in { shape.Body, shape.Head or shape.Body, b.Belly or shape.Body } do
-		local z = frontOf(e, x, y)
-		if z and z < bestZ then
-			best, bestZ = e, z
-		end
-	end
-	if not best then
-		return Vector3.new(x, y, shape.Body.C.Z - shape.Body.R.Z * 0.3), Vector3.new(0, 0, -1)
-	end
-	local p = Vector3.new(x, y, bestZ)
-	return p, normalOf(best, p)
-end
-
 local function corner(gui: GuiObject, radius: number?)
 	local c = Instance.new("UICorner")
 	c.CornerRadius = UDim.new(radius or 0.5, 0)
 	c.Parent = gui
-end
-
-local function surface(part: BasePart, name: string): SurfaceGui
-	local gui = Instance.new("SurfaceGui")
-	gui.Name = name
-	gui.Face = Enum.NormalId.Front
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = 100
-	gui.LightInfluence = 0.4
-	gui.MaxDistance = 70
-	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	gui.Parent = part
-	return gui
-end
-
--- Half a ring drawn with a stroke: smile = the bottom half (a smile, or a closed happy eye), else the top half.
-local function arc(
-	parent: Instance,
-	name: string,
-	smile: boolean,
-	position: UDim2,
-	size: UDim2,
-	thickness: number,
-	color: Color3
-): Frame
-	local f = Instance.new("Frame")
-	f.Name = name
-	f.AnchorPoint = Vector2.new(0.5, 0.5)
-	f.Position = position
-	f.Size = size
-	f.BackgroundTransparency = 1
-	f.Visible = false
-	corner(f)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Thickness = thickness
-	stroke.LineJoinMode = Enum.LineJoinMode.Round
-	stroke.Parent = f
-	local gradient = Instance.new("UIGradient")
-	gradient.Transparency = HALF
-	gradient.Rotation = if smile then -90 else 90
-	gradient.Parent = stroke
-	f.Parent = parent
-	return f
-end
-
--- A filled rounded shape on a SurfaceGui (a mouth, a brow, a tongue).
-local function dab(parent: Instance, name: string, position: UDim2, size: UDim2, color: Color3, z: number): Frame
-	local f = Instance.new("Frame")
-	f.Name = name
-	f.AnchorPoint = Vector2.new(0.5, 0.5)
-	f.Position = position
-	f.Size = size
-	f.BackgroundColor3 = color
-	f.BorderSizePixel = 0
-	f.ZIndex = z
-	corner(f)
-	f.Parent = parent
-	return f
 end
 
 -- An Attachment for the client's props (see the header). It rides on the Body part until Core exists.
@@ -598,695 +1197,215 @@ local function joint(b: Build, key: string, main: BasePart, pivot: CFrame)
 	a.Parent = main
 end
 
-local function ride(b: Build, key: string, part: BasePart)
-	b.Rides[part] = key
+------------------------------------------------------------------------------------------------------------------
+-- The face drawings: flat pixels on see-through plates (no images, no rounding)
+------------------------------------------------------------------------------------------------------------------
+
+local function faceGui(part: BasePart, name: string): SurfaceGui
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = name
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = FACE_PIXELS
+	gui.LightInfluence = 0.4
+	gui.MaxDistance = FACE_NEAR
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = part
+	return gui
 end
 
--- A limb on one side (1 = the creature's right): its joint, and a HandSocket at its tip that stands upright while the
--- limb hangs at rest.
-local function limb(b: Build, side: number, part: BasePart, shoulder: CFrame, tip: Vector3, tilt: number)
-	joint(b, if side > 0 then "ArmR" else "ArmL", part, shoulder)
-	local hand = Instance.new("Attachment")
-	hand.Name = "HandSocket"
-	hand.CFrame = CFrame.new(tip) * CFrame.Angles(0, 0, -tilt)
-	hand.Parent = part
+-- A transparent holder (the whole gui) named `name`, with one square-cornered Frame per cell of a cols x rows grid.
+local function pixels(
+	parent: Instance,
+	name: string,
+	cols: number,
+	rows: number,
+	cells: { { number } },
+	color: Color3,
+	visible: boolean
+): Frame
+	local holder = Instance.new("Frame")
+	holder.Name = name
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.Visible = visible
+	for _, cell in cells do
+		local f = Instance.new("Frame")
+		f.Name = "Pixel"
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = color
+		f.Position = UDim2.fromScale(cell[1] / cols, cell[2] / rows)
+		f.Size = UDim2.fromScale((cell[3] or 1) / cols, (cell[4] or 1) / rows)
+		f.Parent = holder
+	end
+	holder.Parent = parent
+	return holder
+end
+
+-- Closed, contented eyes for sleeping in bed (setMood "Sleep" enables the gui).
+local function lidGui(lid: BasePart)
+	local gui = faceGui(lid, "LidGui")
+	gui.Enabled = false
+	local closed = Pure.CLOSED_EYE
+	pixels(gui, "Closed", closed.Cols, closed.Rows, closed.Cells, EYE, true)
+end
+
+-- Both brows per mood: flat bars over each eye, turned. The creature's right brow is on the plate's left.
+local function browGui(brow: BasePart, spec: any, default: string)
+	local gui = faceGui(brow, "BrowGui")
+	local color = hex(spec.Ink, EYE)
+	local gap = if type(spec.Gap) == "number" then spec.Gap else 0.3
+	local bar = if type(spec.Bar) == "number" then spec.Bar else 0.3
+	for _, mood in Pure.BROW_ORDER do
+		local shape = Pure.BROWS[mood]
+		local holder = Instance.new("Frame")
+		holder.Name = mood
+		holder.BackgroundTransparency = 1
+		holder.Size = UDim2.fromScale(1, 1)
+		holder.Visible = mood == default
+		for _, side in { 1, -1 } do
+			local f = Instance.new("Frame")
+			f.Name = if side > 0 then "BrowR" else "BrowL"
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromScale(0.5 - side * gap, shape.Y)
+			f.Size = UDim2.fromScale(bar, 0.42)
+			f.Rotation = shape.Turn * side
+			f.BorderSizePixel = 0
+			f.BackgroundColor3 = color
+			f.Parent = holder
+		end
+		holder.Parent = gui
+	end
+end
+
+-- The pixel mouth: one drawing per mood (setMood shows one). Sick shows until a mood is set.
+local function mouthGui(mouth: BasePart)
+	local gui = faceGui(mouth, "MouthGui")
+	local grid = Pure.MOUTH
+	for _, mood in Pure.MOUTH_ORDER do
+		pixels(gui, mood, grid.Cols, grid.Rows, grid[mood], MOUTH, mood == "Sick")
+	end
+end
+
+-- Square specs: two tinted lenses with a thick rim and a bridge.
+local function glassesGui(plate: BasePart, spec: any)
+	local gui = faceGui(plate, "GlassesGui")
+	local gap = if type(spec.Gap) == "number" then spec.Gap else 0.3
+	local w = if type(spec.LensW) == "number" then spec.LensW else 0.36
+	local h = if type(spec.LensH) == "number" then spec.LensH else 0.86
+	for _, side in { 1, -1 } do
+		local lens = Instance.new("Frame")
+		lens.Name = "Lens"
+		lens.AnchorPoint = Vector2.new(0.5, 0.5)
+		lens.Position = UDim2.fromScale(0.5 - side * gap, 0.5)
+		lens.Size = UDim2.fromScale(w, h)
+		lens.BackgroundColor3 = LENS
+		lens.BackgroundTransparency = 0.78
+		lens.BorderSizePixel = 0
+		local rim = Instance.new("UIStroke")
+		rim.Color = GLASS_RIM
+		rim.Thickness = 6
+		rim.Parent = lens
+		lens.Parent = gui
+	end
+	local bridge = Instance.new("Frame")
+	bridge.Name = "Bridge"
+	bridge.AnchorPoint = Vector2.new(0.5, 0.5)
+	bridge.Position = UDim2.fromScale(0.5, 0.42)
+	bridge.Size = UDim2.fromScale(math.max(2 * gap - w, 0.02) + 0.02, 0.08)
+	bridge.BackgroundColor3 = GLASS_RIM
+	bridge.BorderSizePixel = 0
+	bridge.Parent = gui
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The placeholder creature
+-- The placeholder creature: Pure.layout's blocks made real
 ------------------------------------------------------------------------------------------------------------------
 
--- The body, its belly patch and a glossy shine. Sets b.Head, b.Top and b.FlatTop for ears and hats.
-local function buildBody(b: Build)
-	local look, shape = b.Look, b.Shape
-	if look.Shape == "Box" then
-		-- A slice of toast: a crust-coloured block with a soft bread front, and a loaf dome with a Crust top.
-		b.Anchor = block(b, "Body", Vector3.new(2.6, 2.2, 1.7), CFrame.new(0, 1.1, 0), b.Body, true)
-		block(b, "Belly", Vector3.new(2.2, 1.8, 0.12), CFrame.new(0, 1.0, -0.87), b.Accent, true)
-		if look.Top == "Crust" then
-			local alongZ = CFrame.Angles(0, math.pi / 2, 0)
-			cylinder(b, "Crust", 1.7, 2.6, CFrame.new(0, 1.55, 0) * alongZ, b.Body, true)
-			cylinder(b, "BellyTop", 0.12, 2.2, CFrame.new(0, 1.55, -0.87) * alongZ, b.Accent, true)
-			b.Head = { C = Vector3.new(0, 1.55, 0), R = Vector3.new(1.3, 1.3, 0.85) }
-			b.Top = 2.85
-		else
-			b.Head = shape.Body
-			b.FlatTop = 2.2
-			b.Top = 2.2
-		end
-		return
+local function makePart(b: Build, spec: any, night: boolean, brows: string)
+	local p = Instance.new("Part")
+	p.Name = spec.Name
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.Size = v3(spec.Size)
+	local cf = CFrame.new(v3(spec.Pos))
+	if spec.Rot then
+		cf *= CFrame.Angles(spec.Rot.X, spec.Rot.Y, spec.Rot.Z)
 	end
-
-	local body = shape.Body
-	b.Anchor = ball(b, "Body", body.R * 2, CFrame.new(body.C), b.Body, true)
-	local head = shape.Head
-	if head then
-		ball(b, "Head", head.R * 2, CFrame.new(head.C), b.Body, true)
-		if look.Ears == "None" and look.Top == "None" and not b.Bits.Cherry then
-			-- a soft little curl on top (a glowing wisp at night)
-			local tipY = head.C.Y + head.R.Y - 0.12
-			local tip = ball(b, "Tip", Vector3.one * 0.8, CFrame.new(0, tipY, head.C.Z + 0.08), b.Body, true)
-			if b.Night then
-				tip.Material = Enum.Material.Neon
-			end
-		end
-	end
-	b.Head = head or body
-	b.Top = topOf(b.Head, 0)
-
-	local bellyY = body.C.Y - 0.38 * body.R.Y
-	local bodyFront = frontOf(body, 0, bellyY) or (body.C.Z - body.R.Z)
-	local belly: Ellipsoid = {
-		C = Vector3.new(0, bellyY, bodyFront + 0.13),
-		R = Vector3.new(body.R.X * 0.58, body.R.Y * 0.5, 0.26),
-	}
-	ball(b, "Belly", belly.R * 2, CFrame.new(belly.C), b.Accent, true)
-	b.Belly = belly
-
-	-- A glossy candy shine high on the side the light comes from (the creature's right, your left).
-	local shineOn = b.Head
-	local p, n = surfaceAt(shineOn, Vector3.new(0.74, 0.56, -0.38))
-	local size = Vector3.new(0.56, 0.3, 0.06) * (shineOn.R.X / 1.45)
-	local shine = ball(b, "Shine", size, facing(p, n, 0.015) * CFrame.Angles(0, 0, -0.55), WHITE, false)
-	shine.Transparency = 0.4
-	shine.CastShadow = false
-end
-
--- The brows' drawings: one bar or arch per mood. side = which eye (1 = the creature's right, on your left).
-local function browGui(brow: BasePart, side: number, color: Color3, default: string)
-	local gui = surface(brow, "BrowGui")
-	-- Rotation is clockwise as you look at it. The inner end of the creature's right brow is on your right.
-	local function bar(name: string, degrees: number, y: number)
-		local f = dab(gui, name, UDim2.fromScale(0.5, y), UDim2.fromScale(0.74, 0.3), color, 1)
-		f.Rotation = degrees
-		f.Visible = name == default
-	end
-	bar("Worried", -side * 14, 0.55) -- inner ends up
-	bar("Grumpy", side * 20, 0.62) -- inner ends down
-	bar("Sad", -side * 26, 0.62)
-	arc(gui, "Happy", false, UDim2.fromScale(0.5, 0.78), UDim2.fromScale(0.62, 0.9), 5, color).Visible = default
-		== "Happy"
-end
-
-local function buildFace(b: Build)
-	local shape = b.Shape
-	local es = shape.Eye
-	local curve = if shape.FrontZ then 0 else 1 -- flat faces don't turn their eyes outward
-	local tintColor = EYE:Lerp(Color3.fromHSV((b.Body:ToHSV()), 0.7, 1), 0.45)
-	local browColor = darken(b.Body, 0.55):Lerp(EYE, 0.35)
-	local brows = if b.Bits.GrumpyBrows then "Grumpy" else "Worried"
-	local hasNose = b.Bits.Nose or b.Bits.PinkNose or b.Bits.Beak
-	for _, side in { -1, 1 } do
-		local x = side * shape.EyeX
-		local y = shape.FaceY
-		local front = faceAt(b, x, y)
-		local eye = CFrame.new(x, y, front.Z + 0.06 * es) * CFrame.Angles(0, -side * 0.3 * curve, 0)
-		-- Big dark eyes, a soft glow of colour at the bottom and two white glints in the same corner of both: the
-		-- "alive and friendly" look.
-		ball(b, "Eye", Vector3.new(0.62, 0.8, 0.34) * es, eye, EYE, false)
-		ball(
-			b,
-			"EyeTint",
-			Vector3.new(0.42, 0.26, 0.08) * es,
-			eye * CFrame.new(0, -0.21 * es, -0.13 * es),
-			tintColor,
-			false
-		)
-		ball(
-			b,
-			"EyeShine",
-			Vector3.new(0.26, 0.26, 0.1) * es,
-			eye * CFrame.new(0.13 * es, 0.19 * es, -0.15 * es),
-			WHITE,
-			false
-		)
-		ball(
-			b,
-			"EyeShine",
-			Vector3.new(0.12, 0.12, 0.06) * es,
-			eye * CFrame.new(-0.11 * es, -0.1 * es, -0.16 * es),
-			WHITE,
-			false
-		)
-
-		-- Closed, contented eyes for sleeping in bed (shown by setMood "Sleep").
-		local lid = plate(b, "Lid", Vector3.new(0.7, 0.52, 0.04) * es, eye * CFrame.new(0, -0.02, -0.19 * es))
-		local lidGui = surface(lid, "LidGui")
-		lidGui.Enabled = false
-		arc(lidGui, "Closed", true, UDim2.fromScale(0.5, 0.18), UDim2.fromScale(0.62, 0.82), 7, EYE).Visible = true
-
-		-- Brows sit on the surface above each eye, so they read from the side too.
-		local bp, bn = faceAt(b, side * (shape.EyeX + 0.03), y + 0.5 * es)
-		local brow = plate(b, "Brow", Vector3.new(0.62, 0.3, 0.03) * es, facing(bp, bn, 0.025))
-		browGui(brow, side, browColor, brows)
-
-		local cp, cn = faceAt(b, side * (shape.EyeX + 0.42 * es), y - 0.38 * es)
-		local blush = b.Bits.Blush == true
-		local cheekSize = (if blush then Vector3.new(0.64, 0.38, 0.12) else Vector3.new(0.5, 0.3, 0.12)) * es
-		local cheek = ball(b, "Cheek", cheekSize, facing(cp, cn, 0), CHEEK, false)
-		cheek.Transparency = if blush then 0.05 else 0.15
-		cheek.CastShadow = false
-
-		local tag = if side > 0 then "R" else "L"
-		socket(b, "Eye" .. tag .. "Socket", eye * CFrame.new(0, 0, -0.18 * es))
-		socket(b, "Cheek" .. tag .. "Socket", facing(cp, cn, 0.03))
-	end
-
-	-- The mouth: drawn shapes on a see-through plate (setMood picks one). A nose or beak pushes it down a little.
-	local mouthY = shape.FaceY - (if hasNose then 0.58 else 0.46) * es
-	local mp, mn = faceAt(b, 0, mouthY)
-	local mouthCf = facing(mp, mn, 0.015)
-	local mouth = plate(b, "Mouth", Vector3.new(0.8, 0.5, 0.04) * es, mouthCf)
-	local gui = surface(mouth, "MouthGui")
-	dab(gui, "Sick", UDim2.fromScale(0.5, 0.5), UDim2.fromScale(0.17, 0.42), MOUTH, 1) -- a small worried "o"
-	-- Happy: a wide open smile with a little tongue (the lower half of a circle; the box clips the top half).
-	local happy = Instance.new("Frame")
-	happy.Name = "Happy"
-	happy.AnchorPoint = Vector2.new(0.5, 0)
-	happy.Position = UDim2.fromScale(0.5, 0.2)
-	happy.Size = UDim2.fromScale(0.5, 0.75)
-	happy.BackgroundTransparency = 1
-	happy.ClipsDescendants = true
-	happy.Visible = false
-	happy.Parent = gui
-	local open = dab(happy, "Open", UDim2.fromScale(0.5, 0), UDim2.fromScale(1, 1), MOUTH, 1)
-	open.SizeConstraint = Enum.SizeConstraint.RelativeXX
-	local tongue = dab(open, "Tongue", UDim2.fromScale(0.5, 0.75), UDim2.fromScale(0.36, 0.36), TONGUE, 2)
-	tongue.SizeConstraint = Enum.SizeConstraint.RelativeXX
-	arc(gui, "Sad", false, UDim2.fromScale(0.5, 0.95), UDim2.fromScale(0.42, 0.66), 6, MOUTH)
-	arc(gui, "Smile", true, UDim2.fromScale(0.5, 0.2), UDim2.fromScale(0.4, 0.6), 6, MOUTH) -- a closed, sleepy smile
-	b.MouthY = mouthY
-
-	socket(b, "FaceSocket", mouthCf)
-	local np, nn = faceAt(b, 0, shape.FaceY - 0.22 * es)
-	socket(b, "NoseSocket", facing(np, nn, if hasNose then 0.16 else 0.04))
-end
-
-local function buildFeet(b: Build)
-	local shape = b.Shape
-	if not shape.Feet then
-		return
-	end
-	local body = shape.Body
-	local color = if b.Bits.OrangeFeet then Candy.Orange else darken(b.Body, 0.14)
-	for _, side in { -1, 1 } do
-		local cf = CFrame.new(side * 0.52 * body.R.X, 0.2, body.C.Z - body.R.Z * 0.66)
-		ball(b, "Foot", Vector3.new(0.76, 0.42, 0.92), cf, color, true)
-		if b.Bits.Toes then
-			for _, toe in { -1, 1 } do
-				local toeCf = cf * CFrame.new(toe * 0.18, 0.05, -0.38)
-				ball(b, "Toe", Vector3.new(0.26, 0.2, 0.26), toeCf, lighten(color, 0.3), true)
-			end
-		end
-	end
-end
-
--- Little round arms at the front of the sides, hanging from the shoulder (unless wings or flippers are its arms).
-local function buildArms(b: Build)
-	local look = b.Look
-	if look.Extra == "Wings" or look.Extra == "Flippers" then
-		return
-	end
-	local body = b.Shape.Body
-	local color = if b.Bits.PinkPaws then PAW_PINK else darken(b.Body, 0.06)
-	local y, x, z
-	if look.Shape == "Box" then
-		y, x, z = 0.95, 1.3, -0.25
+	p.CFrame = cf
+	p.Color = hex(spec.Color, WHITE)
+	if spec.Studs then
+		Studs.apply(p) -- the stud plate: Plastic with studs on its top (World/Studs picks the way)
 	else
-		y = body.C.Y - 0.14 * body.R.Y
-		z = body.C.Z - 0.3 * body.R.Z
-		local ny = (y - body.C.Y) / body.R.Y
-		x = body.R.X * math.sqrt(math.max(1 - ny * ny - 0.09, 0)) - 0.1
-	end
-	for _, side in { -1, 1 } do
-		local shoulder = CFrame.new(side * x, y, z)
-		local tilt = side * 0.5
-		local cf = shoulder * CFrame.Angles(0, 0, tilt) * CFrame.new(0, -0.3, 0)
-		local arm = ball(b, "Arm", Vector3.new(0.46, 0.74, 0.46), cf, color, true)
-		limb(b, side, arm, shoulder, Vector3.new(0, -0.32, -0.04), tilt)
-	end
-end
-
-local function buildEars(b: Build)
-	local kind = b.Look.Ears
-	if kind == "None" then
-		return
-	end
-	local head = if b.FlatTop then nil else b.Head
-	local flatTop = b.FlatTop or 2.2
-	local half = if head then head.R.X else 1.2
-	local function headTop(x: number): number
-		return if head then topOf(head, x) else flatTop
-	end
-	for _, side in { -1, 1 } do
-		if kind == "Round" then
-			local x = side * half * 0.62
-			local y = headTop(x) - 0.08
-			ball(b, "Ear", Vector3.one * 0.85, CFrame.new(x, y, 0.05), b.Body, true)
-			ball(b, "EarInner", Vector3.new(0.48, 0.48, 0.16), CFrame.new(x, y, -0.32), b.Accent, true)
-		elseif kind == "Floppy" then
-			local midY = if head then head.C.Y + head.R.Y * 0.2 else flatTop - 0.6
-			local cf = CFrame.new(side * half * 0.93, midY, 0) * CFrame.Angles(0, 0, side * 0.32)
-			ball(b, "Ear", Vector3.new(0.55, 1.35, 0.85), cf, darken(b.Accent, 0.06), true)
-		elseif kind == "Pointy" then
-			-- A right-angled wedge turned so its right angle points up: a soft, wide kitty ear.
-			local x = side * half * 0.6
-			local y = headTop(x) - 0.14
-			local turn = CFrame.Angles(0, 0, math.rad(135) - side * 0.22) * CFrame.Angles(0, math.pi / 2, 0)
-			wedge(b, "Ear", Vector3.new(0.3, 0.72, 0.72), CFrame.new(x, y, 0.05) * turn, b.Body, true)
-			local inner = CFrame.new(x, y + 0.06, -0.12) * turn
-			wedge(b, "EarInner", Vector3.new(0.1, 0.44, 0.44), inner, lighten(b.Accent, 0.1), true)
-		elseif kind == "Long" then
-			local x = side * half * 0.38
-			local cf = CFrame.new(x, headTop(x) + 0.62, 0.05) * CFrame.Angles(0, 0, -side * 0.16)
-			ball(b, "Ear", Vector3.new(0.52, 1.65, 0.38), cf, b.Body, true)
-			ball(b, "EarInner", Vector3.new(0.27, 1.2, 0.1), cf * CFrame.new(0, 0.02, -0.17), b.Accent, true)
-		elseif kind == "Tufts" then
-			local x = side * half * 0.66
-			local cf = CFrame.new(x, headTop(x) + 0.1, 0.05) * CFrame.Angles(0, 0, -side * 0.6)
-			ball(b, "Ear", Vector3.new(0.42, 0.9, 0.36), cf, darken(b.Body, 0.12), true)
+		Studs.smooth(p) -- SmoothPlastic: no cut-off studs on small blocks
+		if spec.Neon and night then
+			p.Material = Enum.Material.Neon -- glowing tips at night
 		end
+	end
+	if type(spec.Clear) == "number" then
+		p.Transparency = spec.Clear
+	end
+	if spec.Shadow == false or (type(spec.Clear) == "number" and spec.Clear >= 1) then
+		p.CastShadow = false
+	end
+	p.Parent = b.Model
+	if spec.Tint then
+		table.insert(b.Tint, p)
+	end
+	if spec.Big then
+		b.Big[p] = true
+	end
+	if spec.Name == "Body" then
+		b.Anchor = p
+	end
+	if type(spec.Joint) == "string" and spec.Pivot then
+		joint(b, spec.Joint, p, CFrame.new(v3(spec.Pivot)))
+	elseif type(spec.Ride) == "string" then
+		b.Rides[p] = spec.Ride
+	end
+	if spec.Hand then
+		local hand = Instance.new("Attachment")
+		hand.Name = "HandSocket"
+		hand.CFrame = CFrame.new(v3(spec.Hand)) * CFrame.Angles(0, 0, -(spec.HandTilt or 0))
+		hand.Parent = p
+	end
+	if spec.Gui == "Lid" then
+		lidGui(p)
+	elseif spec.Gui == "Brow" then
+		browGui(p, spec, brows)
+	elseif spec.Gui == "Mouth" then
+		mouthGui(p)
+	elseif spec.Gui == "Glasses" then
+		glassesGui(p, spec)
 	end
 end
 
-local function buildTop(b: Build)
-	local kind = b.Look.Top
-	local top = b.Top
-	if kind == "Leaf" then
-		local up = CFrame.Angles(0, 0, math.pi / 2)
-		cylinder(b, "Stem", 0.5, 0.14, CFrame.new(0, top + 0.18, 0.05) * up, STEM, false)
-		local right = CFrame.new(0.42, top + 0.42, 0.05) * CFrame.Angles(0, 0, 0.45)
-		ball(b, "Leaf", Vector3.new(1.05, 0.14, 0.52), right, LEAF, false)
-		local left = CFrame.new(-0.32, top + 0.36, 0.05) * CFrame.Angles(0, 0, -0.5)
-		ball(b, "Leaf", Vector3.new(0.78, 0.12, 0.4), left, LEAF, false)
-	elseif kind == "Bow" then
-		for _, side in { -1, 1 } do
-			local cf = CFrame.new(side * 0.36, top + 0.12, 0) * CFrame.Angles(0, 0, side * 0.3)
-			ball(b, "Bow", Vector3.new(0.75, 0.55, 0.3), cf, b.Accent, true)
-		end
-		ball(b, "BowKnot", Vector3.one * 0.34, CFrame.new(0, top + 0.12, -0.04), darken(b.Accent, 0.08), true)
-	elseif kind == "Cloud" then
-		-- A big soft cloud of wool: five puffs, the middle one tallest.
-		local puff = lighten(b.Body, 0.62)
-		ball(b, "Puff", Vector3.one * 1.2, CFrame.new(0, top + 0.24, 0.05), puff, true)
-		ball(b, "Puff", Vector3.one * 0.92, CFrame.new(0.62, top + 0.02, 0.1), puff, true)
-		ball(b, "Puff", Vector3.one * 0.92, CFrame.new(-0.62, top + 0.02, 0.1), puff, true)
-		ball(b, "Puff", Vector3.one * 0.8, CFrame.new(0.22, top + 0.5, 0.45), puff, true)
-		ball(b, "Puff", Vector3.one * 0.72, CFrame.new(-0.3, top + 0.12, -0.38), puff, true)
-	elseif kind == "Antennae" then
-		for _, side in { -1, 1 } do
-			local base = CFrame.new(side * 0.3, top - 0.05, 0.05) * CFrame.Angles(0, 0, -side * 0.35)
-			local stalk = base * CFrame.new(0, 0.45, 0) * CFrame.Angles(0, 0, math.pi / 2)
-			cylinder(b, "Antenna", 0.9, 0.1, stalk, darken(b.Body, 0.2), true)
-			local tip = ball(b, "AntennaTip", Vector3.one * 0.34, base * CFrame.new(0, 0.92, 0), b.Accent, true)
-			if b.Night then
-				tip.Material = Enum.Material.Neon -- glowing tips at night
-			end
-		end
-	elseif kind == "Crust" then
-		if b.Look.Shape ~= "Box" then -- the Box builds its own loaf top
-			local cf = CFrame.new(0, top - 0.05, 0.05)
-			ball(b, "Crust", Vector3.new(1.8, 0.6, 1.6), cf, darken(b.Body, 0.15), true)
-		end
-	elseif kind == "Pleat" then
-		-- A dumpling wrapper cap, pinched at the top.
-		local wrap = b.Accent
-		ball(b, "Wrap", Vector3.new(2.0, 0.75, 1.85), CFrame.new(0, top - 0.15, 0.05), wrap, true)
-		for _, side in { -1, 1 } do
-			local cf = CFrame.new(side * 0.36, top + 0.08, 0.05) * CFrame.Angles(0, 0, -side * 0.45)
-			ball(b, "Pleat", Vector3.new(0.26, 0.6, 0.9), cf, darken(wrap, 0.07), true)
-		end
-		ball(b, "Knot", Vector3.new(0.55, 0.5, 0.55), CFrame.new(0, top + 0.3, 0.05), wrap, true)
-	elseif kind == "Scoop" then
-		ball(b, "Scoop", Vector3.one * 1.7, CFrame.new(0, top + 0.5, 0.05), b.Accent, true)
-		for i = 0, 2 do
-			local a = i * (math.pi * 2 / 3) + 0.4
-			local cf = CFrame.new(math.cos(a) * 0.78, top + 0.1, 0.05 + math.sin(a) * 0.7)
-			ball(b, "Snow", Vector3.one * 0.6, cf, b.Accent, true)
-		end
-	elseif kind == "Star" then
-		-- A soft, rounded star (no sharp points). It glows (Neon) on a night creature.
-		local centre = CFrame.new(0, top + 0.78, 0.05)
-		local star = if b.Night then b.Body else lighten(b.Body, 0.2)
-		local parts = { ball(b, "Star", Vector3.new(0.62, 0.62, 0.3), centre, star, true) }
-		for i = 0, 4 do
-			local ray = centre * CFrame.Angles(0, 0, i * math.rad(72)) * CFrame.new(0, 0.42, 0)
-			table.insert(parts, ball(b, "StarRay", Vector3.new(0.4, 0.88, 0.24), ray, star, true))
-		end
-		if b.Night then
-			for _, part in parts do
-				part.Material = Enum.Material.Neon
-			end
-		end
-	elseif kind == "Lid" then
-		local up = CFrame.Angles(0, 0, math.pi / 2)
-		cylinder(b, "Lid", 0.24, 1.5, CFrame.new(0, top + 0.02, 0.05) * up, b.Accent, true)
-		ball(b, "Knob", Vector3.one * 0.42, CFrame.new(0, top + 0.32, 0.05), b.Accent, true)
+local function placeholder(
+	look: Look,
+	night: boolean,
+	scale: number
+): (Model, { BasePart }, { [BasePart]: boolean }, Rig)
+	local model = Instance.new("Model")
+	model.WorldPivot = CFrame.identity -- so ScaleTo scales around the unit origin (the ground under the body)
+	local layout = Pure.layout(look, { Night = night, Scale = scale })
+	local b: Build = { Model = model, Tint = {}, Big = {}, Anchor = nil, Rides = {}, Joints = {} }
+	for _, spec in layout.Parts do
+		makePart(b, spec, night, layout.Brows)
 	end
-end
-
-local function buildExtra(b: Build)
-	local kind = b.Look.Extra
-	local body = b.Shape.Body
-	local a, cy = body.R.X, body.C.Y
-	if kind == "Wings" and b.Bits.MothWings then
-		-- Big moth wings spread up and out from the upper back (they're its arms too: they flap).
-		local y = cy + 0.3 * body.R.Y
-		for _, side in { -1, 1 } do
-			local shoulder = CFrame.new(side * halfWidth(body, y) * 0.5, y, body.C.Z + 0.72 * body.R.Z)
-			local cf = shoulder
-				* CFrame.Angles(0, -side * 0.3, 0) -- swept back a little
-				* CFrame.Angles(0, 0, side * 0.5)
-				* CFrame.new(side * 0.78, 0.1, 0)
-			local wing = ball(b, "Wing", Vector3.new(1.6, 1.15, 0.14), cf, lighten(b.Body, 0.3), true)
-			limb(b, side, wing, shoulder, Vector3.new(side * 0.7, 0, 0), side * 0.5)
-			if b.Bits.WingSpots then
-				local spot = ball(
-					b,
-					"WingSpot",
-					Vector3.new(0.6, 0.46, 0.18),
-					cf * CFrame.new(side * 0.2, 0.05, 0),
-					b.Accent,
-					true
-				)
-				ride(b, if side > 0 then "ArmR" else "ArmL", spot)
-			end
-		end
-	elseif kind == "Wings" then
-		-- Folded wings at the sides, like an owl's (its arms: they flap and wave).
-		local y = cy + 0.1 * body.R.Y
-		for _, side in { -1, 1 } do
-			local shoulder = CFrame.new(side * (halfWidth(body, y) - 0.12), y, body.C.Z + 0.15)
-			local tilt = side * 0.28
-			local cf = shoulder * CFrame.Angles(0, 0, tilt) * CFrame.new(side * 0.08, -0.5, 0)
-			local wing = ball(b, "Wing", Vector3.new(0.34, 1.3, 1.0), cf, b.Accent, true)
-			limb(b, side, wing, shoulder, Vector3.new(0, -0.55, -0.1), tilt)
-			if b.Bits.WingSpots then
-				local spot = ball(
-					b,
-					"WingSpot",
-					Vector3.new(0.38, 0.5, 0.5),
-					cf * CFrame.new(0, -0.1, 0),
-					darken(b.Accent, 0.1),
-					true
-				)
-				ride(b, if side > 0 then "ArmR" else "ArmL", spot)
-			end
-		end
-	elseif kind == "Flippers" then
-		local y = cy + 0.02
-		for _, side in { -1, 1 } do
-			local shoulder = CFrame.new(side * (halfWidth(body, y) - 0.06), y, body.C.Z)
-			local tilt = side * 0.42
-			local cf = shoulder * CFrame.Angles(0, 0, tilt) * CFrame.new(0, -0.5, 0)
-			local flipper = ball(b, "Flipper", Vector3.new(0.3, 1.15, 0.66), cf, darken(b.Body, 0.15), true)
-			limb(b, side, flipper, shoulder, Vector3.new(0, -0.5, -0.05), tilt)
-		end
-	elseif kind == "Tail" then
-		local backZ = if b.Look.Shape == "Box" then body.C.Z + body.R.Z else backOf(body, 0, 0.62)
-		if b.Bits.Trail then
-			-- A comet's trail: soft balls streaming back and up, paler as they go (glowing at night).
-			local sizes = { 0.86, 0.7, 0.54, 0.4 }
-			for i, d in sizes do
-				local cf = CFrame.new(0, 0.95 + i * 0.24, backZ - 0.1 + i * 0.42)
-				local color = b.Accent:Lerp(WHITE, (i - 1) * 0.2)
-				local part = ball(b, if i == #sizes then "TailTip" else "Tail", Vector3.one * d, cf, color, true)
-				if b.Night and i >= 3 then
-					part.Material = Enum.Material.Neon
-				end
-				if i == 1 then
-					joint(b, "Tail", part, CFrame.new(0, 1.0, backZ - 0.1))
-				else
-					ride(b, "Tail", part)
-				end
-			end
-		else
-			local first = ball(b, "Tail", Vector3.one * 0.62, CFrame.new(0, 0.62, backZ + 0.18), b.Body, true)
-			joint(b, "Tail", first, CFrame.new(0, 0.62, backZ - 0.05))
-			ride(b, "Tail", ball(b, "Tail", Vector3.one * 0.5, CFrame.new(0, 0.98, backZ + 0.5), b.Body, true))
-			local tip = ball(b, "TailTip", Vector3.one * 0.44, CFrame.new(0, 1.36, backZ + 0.66), b.Accent, true)
-			ride(b, "Tail", tip)
-			if b.Night then
-				tip.Material = Enum.Material.Neon -- a glowing tail tip at night
-			end
-		end
-	elseif kind == "Spout" then
-		local pot = darken(b.Body, 0.05)
-		local spout = CFrame.new(a + 0.28, cy + 0.05, 0) * CFrame.Angles(0, 0, 0.75)
-		cylinder(b, "Spout", 1.0, 0.42, spout, pot, true)
-		ball(b, "SpoutTip", Vector3.one * 0.44, spout * CFrame.new(0.5, 0, 0), pot, true)
-		ball(b, "Handle", Vector3.new(0.3, 1.0, 0.55), CFrame.new(-(a + 0.12), cy + 0.08, 0), pot, true)
-		socket(b, "SpoutSocket", spout * CFrame.new(0.62, 0, 0) * CFrame.Angles(0, 0, -0.75))
+	for _, s in layout.Sockets do
+		local at = v3(s.Pos)
+		socket(b, s.Name, if s.Normal then facing(at, v3(s.Normal), 0) else CFrame.new(at))
 	end
-end
-
--- The species' own little accessories (Look.Bits). Each one is a few parts at most.
-local BITS: { [string]: (b: Build) -> () } = {
-	Spots = function(b: Build) -- frog freckles on the sides
-		local body = b.Shape.Body
-		for _, dir in { Vector3.new(0.95, 0.35, 0.25), Vector3.new(-0.9, 0.55, 0.3), Vector3.new(0.8, -0.05, 0.55) } do
-			local p, n = surfaceAt(body, dir)
-			ball(b, "Spot", Vector3.new(0.46, 0.4, 0.08), facing(p, n, 0), darken(b.Body, 0.2), true)
-		end
-	end,
-	Bell = function(b: Build) -- a little golden bell with a ribbon bow, under the chin
-		local p, n = faceAt(b, 0, b.MouthY - 0.36)
-		local bell = ball(b, "Bell", Vector3.one * 0.44, facing(p, n, 0.14), Candy.Yellow, true)
-		bell.Reflectance = 0.1
-		ball(b, "BellSlit", Vector3.new(0.26, 0.07, 0.08), bell.CFrame * CFrame.new(0, -0.1, -0.18), EYE, false)
-		ball(b, "BellBow", Vector3.new(0.56, 0.2, 0.14), bell.CFrame * CFrame.new(0, 0.25, 0.02), b.Accent, true)
-	end,
-	Nose = function(b: Build)
-		local p, n = faceAt(b, 0, b.Shape.FaceY - 0.22 * b.Shape.Eye)
-		local nose = ball(b, "Nose", Vector3.new(0.34, 0.25, 0.24), facing(p, n, 0.05), NOSE_DARK, false)
-		ball(b, "NoseShine", Vector3.new(0.1, 0.06, 0.04), nose.CFrame * CFrame.new(0.06, 0.05, -0.11), WHITE, false)
-	end,
-	PinkNose = function(b: Build) -- a big soft pink nose (a mole's best feature)
-		local p, n = faceAt(b, 0, b.Shape.FaceY - 0.22 * b.Shape.Eye)
-		local nose = ball(b, "Nose", Vector3.new(0.48, 0.36, 0.34), facing(p, n, 0.08), NOSE_PINK, false)
-		ball(b, "NoseShine", Vector3.new(0.13, 0.08, 0.05), nose.CFrame * CFrame.new(0.09, 0.07, -0.16), WHITE, false)
-	end,
-	Beak = function(b: Build)
-		local p, n = faceAt(b, 0, b.Shape.FaceY - 0.22 * b.Shape.Eye)
-		ball(
-			b,
-			"Beak",
-			Vector3.new(0.42, 0.26, 0.44),
-			facing(p, n, 0.1) * CFrame.Angles(-0.25, 0, 0),
-			Candy.Orange,
-			true
-		)
-	end,
-	Butter = function(b: Build) -- a pat of butter on top of the toast
-		local cf = CFrame.new(0.12, b.Top + 0.06, 0.05) * CFrame.Angles(0, 0.35, 0)
-		ball(b, "Butter", Vector3.new(0.9, 0.26, 0.72), cf, BUTTER, true)
-	end,
-	Cherry = function(b: Build) -- a jelly's cherry, on its forehead in front of the ears
-		local p, n = surfaceAt(b.Head, Vector3.new(0, 0.82, -0.58))
-		local cherry = ball(b, "Cherry", Vector3.one * 0.5, CFrame.new(p + n * 0.2), CHERRY, true)
-		local stem = cherry.CFrame * CFrame.new(0.06, 0.38, 0.02) * CFrame.Angles(0, 0, math.pi / 2 - 0.3)
-		cylinder(b, "CherryStem", 0.42, 0.07, stem, STEM, false)
-		ball(b, "CherryShine", Vector3.new(0.13, 0.1, 0.05), cherry.CFrame * CFrame.new(0.1, 0.1, -0.22), WHITE, false)
-	end,
-	CottonTail = function(b: Build)
-		local body = b.Shape.Body
-		local cf = CFrame.new(0, 0.5, backOf(body, 0, 0.5) + 0.12)
-		ball(b, "CottonTail", Vector3.one * 0.6, cf, lighten(b.Accent, 0.6), true)
-	end,
-	Whiskers = function(b: Build) -- two soft whiskers each side
-		local shape = b.Shape
-		for _, side in { -1, 1 } do
-			for _, k in { -1, 1 } do
-				local p = faceAt(b, side * (shape.EyeX + 0.36), shape.FaceY - 0.34 + k * 0.08)
-				local cf = CFrame.new(p + Vector3.new(side * 0.26, 0, -0.04))
-					* CFrame.Angles(0, side * 0.35, k * side * 0.18)
-				cylinder(b, "Whisker", 0.62, 0.05, cf, darken(b.Body, 0.5), false)
-			end
-		end
-	end,
-	Puddle = function(b: Build) -- a slime's little puddle around its base
-		local body = b.Shape.Body
-		local size = Vector3.new(body.R.X * 2 + 0.5, 0.2, body.R.Z * 2 + 0.45)
-		local puddle = ball(b, "Puddle", size, CFrame.new(0, 0.1, body.C.Z), lighten(b.Body, 0.1), true)
-		puddle.Transparency = 0.1
-	end,
-	Glasses = function(b: Build) -- round specs, drawn on a see-through plate just in front of the eyes
-		local shape = b.Shape
-		local es = shape.Eye
-		local y = shape.FaceY
-		local eyeFront = faceAt(b, shape.EyeX, y).Z + 0.06 * es - 0.17 * es
-		local z = math.min(faceAt(b, 0, y).Z, eyeFront) - 0.06
-		local width = 2 * (shape.EyeX + 0.42 * es)
-		local height = 0.95 * es
-		local specs = plate(b, "Glasses", Vector3.new(width, height, 0.03), CFrame.new(0, y, z))
-		local gui = surface(specs, "GlassesGui")
-		local d = 0.8 * es
-		for _, side in { -1, 1 } do
-			local lens = dab(
-				gui,
-				"Lens",
-				UDim2.fromScale(0.5 + side * shape.EyeX / width, 0.5),
-				UDim2.fromScale(d / width, d / height),
-				Candy.Cyan,
-				1
-			)
-			lens.BackgroundTransparency = 0.8
-			local rim = Instance.new("UIStroke")
-			rim.Color = GLASS_RIM
-			rim.Thickness = 7
-			rim.Parent = lens
-		end
-		local gap = 2 * shape.EyeX - d
-		dab(gui, "Bridge", UDim2.fromScale(0.5, 0.42), UDim2.fromScale(gap / width + 0.04, 0.07), GLASS_RIM, 1)
-	end,
-	Syrup = function(b: Build) -- snow-cone syrup on the scoop: a pink splash and a blue one
-		local scoop: Ellipsoid = { C = Vector3.new(0, b.Top + 0.5, 0.05), R = Vector3.one * 0.85 }
-		for _, spec in { { Vector3.new(-0.35, 0.8, -0.5), SYRUP }, { Vector3.new(0.5, 0.7, -0.3), Candy.Cyan } } do
-			local p, n = surfaceAt(scoop, spec[1] :: Vector3)
-			ball(b, "Syrup", Vector3.new(0.78, 0.62, 0.1), facing(p, n, 0), spec[2] :: Color3, false)
-		end
-	end,
-	EyeRings = function(b: Build) -- an owl's pale face discs around the eyes
-		local shape = b.Shape
-		for _, side in { -1, 1 } do
-			local p, n = faceAt(b, side * shape.EyeX, shape.FaceY)
-			local cf = facing(p, n, 0.01)
-			ball(b, "EyeRing", Vector3.new(0.94, 1.08, 0.08) * shape.Eye, cf, lighten(b.Body, 0.62), true)
-		end
-	end,
-	Hem = function(b: Build) -- a ghost's soft scalloped hem
-		local body = b.Shape.Body
-		local y = 0.31
-		local rx, rz = halfWidth(body, y) * 0.92, halfDepth(body, y) * 0.92
-		for i = 0, 5 do
-			local a = i * (math.pi / 3) + math.pi / 6
-			local cf = CFrame.new(math.cos(a) * rx, y, body.C.Z + math.sin(a) * rz)
-			ball(b, "Hem", Vector3.one * 0.62, cf, b.Body, true)
-		end
-	end,
-	Fluff = function(b: Build) -- a moth's fluffy ruff: three soft puffs across its chest, under the chin
-		local y = b.MouthY - 0.42
-		local fluff = lighten(b.Accent, 0.6)
-		for _, x in { -0.42, 0, 0.42 } do
-			local p, n = faceAt(b, x, y - math.abs(x) * 0.2)
-			local size = if x == 0 then Vector3.new(0.7, 0.56, 0.42) else Vector3.new(0.6, 0.5, 0.4)
-			ball(b, "Fluff", size, facing(p, n, 0.04), fluff, true)
-		end
-	end,
-	Daisy = function(b: Build) -- a daisy tucked on the side of its head
-		local p, n = surfaceAt(b.Head, Vector3.new(0.7, 0.85, -0.15))
-		local cf = facing(p, n, 0.04)
-		for i = 0, 2 do
-			ball(b, "Petal", Vector3.new(0.66, 0.2, 0.08), cf * CFrame.Angles(0, 0, i * math.pi / 3), WHITE, false)
-		end
-		ball(b, "FlowerMiddle", Vector3.new(0.26, 0.26, 0.12), cf * CFrame.new(0, 0, -0.03), Candy.Yellow, false)
-	end,
-	Dots = function(b: Build) -- a teapot's polka dots
-		local body = b.Shape.Body
-		local dirs = {
-			Vector3.new(0.65, -0.6, -0.45),
-			Vector3.new(-0.65, -0.6, -0.45),
-			Vector3.new(0.55, 0.5, 0.65),
-			Vector3.new(-0.6, 0.15, 0.8),
-		}
-		for _, dir in dirs do
-			local p, n = surfaceAt(body, dir)
-			ball(b, "Dot", Vector3.new(0.42, 0.42, 0.07), facing(p, n, 0), WHITE, false)
-		end
-	end,
-}
-
--- Bits handled inside the builders above (they change a part rather than add one).
-local BUILT_IN = { Toes = true, PinkPaws = true, OrangeFeet = true, MothWings = true, WingSpots = true, Trail = true }
-local EXTRA_FACE = { Blush = true, GrumpyBrows = true }
-
-local function buildBits(b: Build)
-	for _, name in b.Look.Bits or {} do
-		local builder = BITS[name]
-		if builder then
-			builder(b)
-		elseif not (BUILT_IN[name] or EXTRA_FACE[name]) then
+	for _, name in look.Bits or {} do
+		if not Pure.KNOWN_BITS[name] and not warnedBits[name] then
+			warnedBits[name] = true
 			warn("[CreatureBuilder] unknown Look.Bits entry " .. tostring(name))
 		end
 	end
-end
-
--- Where the client's props go (see the header): the head, the neck, the belly and the back.
-local function buildSockets(b: Build)
-	local shape = b.Shape
-	local head = b.Head
-	local body = shape.Body
-	socket(b, "HeadSocket", CFrame.new(0, b.Top, head.C.Z))
-	local foreheadY = math.min(shape.FaceY + 0.92 * shape.Eye, b.Top - 0.3)
-	local fp, fn = faceAt(b, 0, foreheadY)
-	socket(b, "BrowSocket", facing(fp, fn, 0.02))
-	for _, side in { -1, 1 } do
-		local tag = if side > 0 then "R" else "L"
-		if shape.FrontZ then
-			socket(
-				b,
-				"Ear" .. tag .. "Socket",
-				facing(Vector3.new(side * 1.3, head.C.Y, 0), Vector3.new(side, 0, 0), 0)
-			)
-		else
-			local p, n = surfaceAt(head, Vector3.new(side, 0.2, 0.05))
-			socket(b, "Ear" .. tag .. "Socket", facing(p, n, 0))
-		end
-	end
-	local neckY = b.MouthY - 0.34
-	socket(b, "NeckSocket", CFrame.new(0, neckY, body.C.Z))
-	b.NeckSize = if shape.FrontZ
-		then Vector3.new(2.6, 0, 1.7)
-		else Vector3.new(2 * halfWidth(body, neckY), 0, 2 * halfDepth(body, neckY))
-	local belly = b.Belly
-	if belly then
-		socket(b, "BellySocket", facing(belly.C - Vector3.new(0, 0, belly.R.Z), Vector3.new(0, 0, -1), 0))
-	else
-		socket(b, "BellySocket", facing(Vector3.new(0, 0.75, -0.93), Vector3.new(0, 0, -1), 0))
-	end
-	local backY = body.C.Y
-	local backZ = if shape.FrontZ then body.C.Z + body.R.Z else backOf(body, 0, backY)
-	socket(b, "BackSocket", facing(Vector3.new(0, backY, backZ), Vector3.new(0, 0, 1), 0))
-end
-
-local function placeholder(look: Look, night: boolean, scale: number): (Model, { BasePart }, Rig)
-	local model = Instance.new("Model")
-	model.WorldPivot = CFrame.identity -- so ScaleTo scales around the unit origin (the ground under the body)
-	local bits: { [string]: boolean } = {}
-	for _, name in look.Bits or {} do
-		bits[name] = true
-	end
-	local shape = SHAPES[look.Shape] or SHAPES.Ball
-	local b: Build = {
-		Model = model,
-		Look = look,
-		Shape = shape,
-		Tint = {},
-		Body = hex(look.Body, Candy.Pink),
-		Accent = hex(look.Accent, WHITE),
-		Night = night,
-		Bits = bits,
-		Anchor = nil,
-		Head = shape.Body,
-		FlatTop = nil,
-		Top = 2.2,
-		Belly = nil,
-		MouthY = shape.FaceY - 0.46,
-		NeckSize = Vector3.new(2, 0, 2),
-		Rides = {},
-		Joints = {},
-	}
-
-	buildBody(b)
-	buildFace(b)
-	buildFeet(b)
-	buildArms(b)
-	buildEars(b)
-	buildTop(b)
-	buildExtra(b)
-	buildBits(b)
-	buildSockets(b)
-	if bits.GrumpyBrows then
+	if layout.Brows == "Grumpy" then
 		model:SetAttribute("Brows", "Grumpy")
 	end
 
@@ -1294,9 +1413,9 @@ local function placeholder(look: Look, night: boolean, scale: number): (Model, {
 		model:ScaleTo(scale) -- every part is still anchored, so this is a plain resize around the origin
 	end
 	model:SetAttribute("BuildScale", scale)
-	model:SetAttribute("HeadRadius", b.Head.R.X * scale)
-	model:SetAttribute("NeckSize", b.NeckSize * scale)
-	return model, b.Tint, { Rides = b.Rides, Joints = b.Joints }
+	model:SetAttribute("HeadRadius", layout.HeadHalf * scale)
+	model:SetAttribute("NeckSize", v3(layout.Neck) * scale)
+	return model, b.Tint, b.Big, { Rides = b.Rides, Joints = b.Joints }
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -1502,7 +1621,7 @@ end
 
 -- A night creature's own glow: its body colour made rich (saturated, full brightness). A white-ish body glows lilac.
 local function glowOf(body: Color3): Color3
-	local h, s = Color3.toHSV(body)
+	local h, s = body:ToHSV()
 	if s < 0.12 then
 		return Color3.fromRGB(190, 140, 255)
 	end
@@ -1516,8 +1635,9 @@ local function addEffects(model: Model, root: Part, middle: number, night: boole
 	fx.Parent = root
 
 	if night then
-		-- Spooky-cute: a rich glow in the creature's own colour, never scary. A Neon ring under its feet and a
-		-- shadow-free PointLight do what a Highlight rim did, at a fraction of the cost (no Highlights on creatures).
+		-- Spooky-cute: a rich glow in the creature's own colour, never scary. A Neon pad under its feet (square, like
+		-- the rest of it) and a shadow-free PointLight do what a Highlight rim did, at a fraction of the cost (no
+		-- Highlights on creatures). It keeps the name GlowRing.
 		local color = glowOf(body)
 		local glow = Instance.new("PointLight")
 		glow.Name = "NightGlow"
@@ -1531,9 +1651,8 @@ local function addEffects(model: Model, root: Part, middle: number, night: boole
 		local width = math.max(extents.X, extents.Z, 0.5) * GLOW_RING_WIDTH
 		local ring = Instance.new("Part")
 		ring.Name = "GlowRing"
-		ring.Shape = Enum.PartType.Cylinder
-		ring.Size = Vector3.new(0.08, width, width) -- a cylinder runs along X: stood on end, it's a flat disc
-		ring.CFrame = root.CFrame * CFrame.new(0, 0.06, 0) * CFrame.Angles(0, 0, math.pi / 2)
+		ring.Size = Vector3.new(width, 0.08, width)
+		ring.CFrame = root.CFrame * CFrame.new(0, 0.06, 0)
 		ring.Material = Enum.Material.Neon
 		ring.Color = color
 		ring.Transparency = GLOW_RING_TRANSPARENCY
@@ -1618,10 +1737,11 @@ local function trimForPerformance(model: Model, source: string)
 	end
 end
 
--- Sparkly: the big parts get brighter and a little more saturated; the small bits (ears, tops, wings, tails, feet)
--- take a rainbow colour by height, red-pink on top down to violet at the feet, like a holo sticker. A kit model's
--- parts aren't named like ours, so all of them count as big.
-local function rainbowTint(tint: { BasePart }, kit: boolean)
+-- Sparkly: the big parts (Pure.layout's Big: the body, head, belly, arms, the half-lids and the stud plate, so they
+-- still match) get brighter and a little more saturated; the small bits (ears, tops, wings, tails, feet) take a
+-- rainbow colour by height, red-pink on top down to violet at the feet, like a holo sticker. Both stay at world
+-- values (no channel near 255). A kit model's parts aren't ours, so all of them count as big (`big` = nil).
+local function rainbowTint(tint: { BasePart }, big: { [BasePart]: boolean }?)
 	local low, high = math.huge, -math.huge
 	for _, part in tint do
 		low = math.min(low, part.Position.Y)
@@ -1629,25 +1749,25 @@ local function rainbowTint(tint: { BasePart }, kit: boolean)
 	end
 	local span = math.max(high - low, 0.01)
 	for _, part in tint do
-		if kit or BIG_PARTS[part.Name] then
-			local h, s, v = Color3.toHSV(part.Color)
-			part.Color = Color3.fromHSV(h, math.min(s + 0.1, 1), math.min(v + 0.1, 1))
+		if big == nil or big[part] then
+			local h, s, value = part.Color:ToHSV()
+			part.Color = Color3.fromHSV(h, math.min(s + 0.1, 1), math.min(value + 0.1, SPARKLY_VALUE))
 		else
 			local t = (part.Position.Y - low) / span -- 0 at the bottom, 1 at the top
-			part.Color = part.Color:Lerp(Color3.fromHSV((1 - t) * 0.78, 0.72, 1), 0.6)
+			part.Color = part.Color:Lerp(Color3.fromHSV((1 - t) * 0.78, 0.72, SPARKLY_VALUE), 0.6)
 		end
 		part.Reflectance = 0.05
 	end
 end
 
-local function applyVariant(tint: { BasePart }, variant: string?, kit: boolean)
+local function applyVariant(tint: { BasePart }, variant: string?, big: { [BasePart]: boolean }?)
 	if variant == "Frosty" then
 		for _, part in tint do
 			part.Color = part.Color:Lerp(ICE, 0.45)
 			part.Reflectance = 0.1
 		end
 	elseif variant == "Sparkly" then
-		rainbowTint(tint, kit)
+		rainbowTint(tint, big)
 	elseif variant == "Golden" then
 		for _, part in tint do
 			part.Color = part.Color:Lerp(GOLD, 0.55)
@@ -1880,17 +2000,17 @@ function CreatureBuilder.build(patientId: string, variant: string?): Model
 	local item = if station then Items[station.Item] else nil
 	local variantData = if variant then Variants[variant] else nil
 	-- Its size: the species' own, player-sized, give or take this patient's wobble (Logic/CreatureSize).
-	local roll = rng:NextNumber()
+	local roll = math.random()
 	local scale = CreatureSize.scale(look.Scale, Config, roll)
 
 	local kitModel, kitTint = fromKit(patientId, scale, CreatureSize.jitter(roll, Config))
-	local model: Model, tint: { BasePart }, info: Rig?
+	local model: Model, tint: { BasePart }, big: { [BasePart]: boolean }?, info: Rig?
 	if kitModel and kitTint then
 		model, tint = kitModel, kitTint
 	else
-		model, tint, info = placeholder(look, night, scale)
+		model, tint, big, info = placeholder(look, night, scale)
 	end
-	applyVariant(tint, variant, kitModel ~= nil)
+	applyVariant(tint, variant, big)
 
 	local root, height, middle = addRoot(model, info ~= nil)
 	local core = rig(model, root, info)
@@ -1927,7 +2047,7 @@ function CreatureBuilder.buildLook(look: any, name: string?): Model
 	local recipe: Look = if type(look) == "table" then look else DEFAULT_LOOK
 	-- The species' own size, player-sized like the patients, with no wobble (every copy of a nurse is the same).
 	local scale = CreatureSize.scale(recipe.Scale, Config)
-	local model, _, info = placeholder(recipe, false, scale)
+	local model, _, _, info = placeholder(recipe, false, scale)
 	local root, height = addRoot(model, true)
 	rig(model, root, info)
 	local anchor = Instance.new("Attachment")
@@ -1937,6 +2057,7 @@ function CreatureBuilder.buildLook(look: any, name: string?): Model
 	trimForPerformance(model, "the placeholder")
 	model.Name = name or "Creature"
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	CreatureBuilder.setMood(model, "Happy") -- a nurse (or the mascot) is never sick
 	return model
 end
 
@@ -2095,14 +2216,16 @@ local function showOnly(part: Instance, guiName: string, shape: string)
 	end
 end
 
--- "Sick" (worried little o, worried brows) | "Happy" (open smile, raised brows) | "Sad" (frown, sad brows) |
--- "Sleep" (eyes closed, smiling). A grumpy species (attribute Brows = "Grumpy") frowns its brows while sick.
--- A kit model without these face parts just ignores it.
+-- "Sick" (droopy half-lids, a little o, worried brows) | "Happy" (a wide "w", raised brows) | "Sad" (a frown, sad
+-- brows) | "Sleep" (eyes closed, a sleepy smile). A grumpy species (attribute Brows = "Grumpy") frowns its brows
+-- while sick. The mouth and brows are pixel drawings (MouthGui, BrowGui), the half-lids real blocks (EyeLid). A kit
+-- model without these face parts just ignores it.
 function CreatureBuilder.setMood(model: Model, mood: string)
 	local sleeping = mood == "Sleep"
+	local sick = mood == "Sick"
 	local mouthShape = if sleeping then "Smile" else mood
 	local browShape = "Happy"
-	if mood == "Sick" then
+	if sick then
 		browShape = if model:GetAttribute("Brows") == "Grumpy" then "Grumpy" else "Worried"
 	elseif mood == "Sad" then
 		browShape = "Sad"
@@ -2112,6 +2235,8 @@ function CreatureBuilder.setMood(model: Model, mood: string)
 			local name = child.Name
 			if name == "Eye" or name == "EyeShine" or name == "EyeTint" then
 				child.Transparency = if sleeping then 1 else 0
+			elseif name == "EyeLid" then
+				child.Transparency = if sick then 0 else 1
 			elseif name == "Lid" then
 				local gui = child:FindFirstChild("LidGui")
 				if gui and gui:IsA("SurfaceGui") then

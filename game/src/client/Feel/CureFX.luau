@@ -530,9 +530,7 @@ local function showBanner(banner: Banner)
 		ZIndex = 2,
 		Parent = frame,
 	})
-	local textLimit = Instance.new("UITextSizeConstraint")
-	textLimit.MaxTextSize = 44
-	textLimit.Parent = title
+	Kit.textLimit(title, 44) -- never under 18 px
 	Kit.outline(title, Theme.Size.StrokeLarge)
 	local sub = Kit.label({
 		Name = "Sub",
@@ -705,7 +703,7 @@ local function onCured(info: any)
 		end
 		task.delay(0.35, function()
 			sound("Fanfare")
-			banner({ Icon = "📖", Title = "NEW PAGE!", Sub = sub, Accent = Theme.Colors.Purple })
+			banner({ Icon = "📖", Title = "NEW PAGE!", Sub = sub, Accent = Theme.Colors.Purple }) -- uirules: allow HeaderColor
 		end)
 	end
 end
@@ -788,7 +786,7 @@ local function celebrateSet(wingId: string, decorId: string)
 		Icon = decor.Icon,
 		Title = "SET COMPLETE!",
 		Sub = wing.Icon .. " " .. wing.Name,
-		Accent = Theme.Colors.Primary,
+		Accent = Theme.Colors.Primary, -- uirules: allow HeaderColor (a cure banner, not a panel header)
 		Sound = "Fanfare",
 	})
 end

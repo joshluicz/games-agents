@@ -1,40 +1,46 @@
 --!strict
 -- The leaderboards in the 🏆 Hall of Fame garden (game/README.md "Leaderboards"). Server only: a library
 -- Server/Leaderboards builds and renders, like PlotBuilder and DecorBuilder. Nothing here reads a DataStore.
+-- OWNER: T2 (the look overhaul, look build plan §B5).
 --   BoardBuilder.build(ids): Gantry     builds Workspace.TownBoards (replacing an old one) and returns it
 --   gantry.render(id, view)             view = { Status = "Loading" | "Live" | "Offline", Rows = { Row } }
 --   gantry.Model                        the Model
 --
 -- Where it stands: off the main road (Joshua, 2026-11-16: "leaderboards shouldnt be on the main road... conveyor
 -- belt should be on the main road"), so the whole street is free for the Nurse Belt. Nothing here sits on the
--- street, its curbs, a plot, a welcome arch or the plaza. The garden is its own grass slab past the street's WEST
+-- street, its curbs, a plot, a welcome arch or the plaza. The garden is its own lawn past the street's WEST
 -- end (GARDEN_END), beyond the welcome arch: GARDEN_DEPTH (38) deep, 2 x GARDEN_HALF_WIDTH (80) wide, centred on
--- the street's line, its east edge on the town lawn's west edge (Origin.X - 137 with PlotBuilder's town). A cream
--- path runs from the street's end to a "🏆 Hall of Fame" sign with a gold trophy on top, ARC_BACK (24) studs in.
--- The boards stand on low plinths on the grass in a shallow arc through the sign, two each side, each turned to a
--- point on the street's line ARC_RADIUS (80) studs in front of the arc: they face back down the street to the plaza
--- and the TownSpawn (~160 studs, inside MAX_DISTANCE). Board 1 is on the left as seen from the plaza (+Z); each
--- board's back shows the same board. Benches face the boards, low flower planters flank the path, lamps stand at
--- the arc's ends and trees behind it. The edges come from the built town (ClinicTown.Street and TownLawn), so the
--- garden follows PlotBuilder's layout; if they're missing it falls back to PlotBuilder's numbers.
--- Seen from the spawn, the welcome arch frames the sign and the inner boards (its beam, 11-14.4 studs up, hides
--- their top strip from there), and the outer boards stand between the arch's posts and the corner trees of the two
--- west plots. Planters, path and plinths stay low so nothing in front of a board hides it.
+-- the street's line, its east edge on the town lawn's west edge (Origin.X - 137 with PlotBuilder's town). A plank
+-- path runs from the street's end to a "🏆 Hall of Fame" title with a gold trophy on top, ARC_BACK (24) studs in.
+-- The boards stand on low Slate plinths on the grass in a shallow arc through the title, two each side, each turned
+-- to a point on the street's line ARC_RADIUS (80) studs in front of the arc: they face back down the street to the
+-- plaza and the TownSpawn (~160 studs, inside MAX_DISTANCE). Board 1 is on the left as seen from the plaza (+Z); each
+-- board's back shows the same board. Benches face the boards, low planters flank the path, lamps stand at the arc's
+-- ends and trees behind it. The edges come from the built town (ClinicTown.Street and Lawn), so the garden follows
+-- the town's layout; if they're missing it falls back to PlotBuilder's numbers. The garden does not move with the
+-- look overhaul (look build plan §G7).
 --
--- Look (candy pop, memory-20261116-007): SmoothPlastic in Palette colours, white posts with yellow candy-ball caps,
--- each board a glossy candy panel in its own colour with a white rim inside a thick trim, white outlined display
--- titles, and white rows with a thick ink outline (gold, silver and bronze tints for the top 3). Rows show the
--- rank (🥇🥈🥉 then numbers), the player's DisplayName with their @username small under it (what Roblox already
--- shows publicly, nothing else), and the value. Text never dims at night (LightInfluence 0).
+-- Look (the look overhaul: art-direction §2.4, §4.1, §4.4; look build plan §B5): the garden lawn is studded GrassA
+-- with an 8-stud GrassB checker (whole studs), the path planks; the scenery is World/Props (voxel trees, plank
+-- benches, dark lamps, planters), the same family as the town's. Each board is a table, so it sits on a NAVY PLATE
+-- (World/Parts.navyPlate) with white rows, between two studded posts in the board's own accent; its title floats
+-- above the plate in outlined letters (World/Parts.floatText), and so does the gold "🏆 Hall of Fame". Rows show the
+-- rank (🥇🥈🥉 then numbers), the player's DisplayName with their @username small under it (what Roblox already shows
+-- publicly, nothing else), and the value in gold. Text never dims at night (LightInfluence 0). The lamps and the
+-- title's post lights are World/NightLights "Lamp"s. No colour above 245 on a world surface.
 
-local CollectionService = game:GetService("CollectionService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Palette = require(Shared.Palette)
 local Leaderboard = require(Shared.Logic.Leaderboard)
-local PlotBuilder = require(script.Parent.PlotBuilder) -- only for its night-light tag
+local NightLights = require(script.Parent.World.NightLights)
+local Parts = require(script.Parent.World.Parts)
+local Props = require(script.Parent.World.Props)
+local Studs = require(script.Parent.World.Studs)
+
+local part, soft, paint = Parts.part, Parts.soft, Parts.paint
 
 local BoardBuilder = {}
 
@@ -55,123 +61,45 @@ local FALLBACK_LAWN_TOP = 0.3
 local GARDEN_END = -1 -- past the street's west end (-1); +1 puts the garden past the east end instead
 local GARDEN_DEPTH = 38
 local GARDEN_HALF_WIDTH = 40
-local ARC_BACK = 24 -- from the garden's edge to the middle of the arc, where the sign stands
+local CHECKER_CELL = Config.Look.CheckerFarStuds -- the garden's checker, like the town's far lawn
+local ARC_BACK = 24 -- from the garden's edge to the middle of the arc, where the title stands
 local ARC_RADIUS = 80 -- the boards turn to a point this far in front of the arc, on the street's line
 local PATH_WIDTH = 8
 
-local PLINTH_HEIGHT = 0.5 -- each board's bottom rests on a low white plinth on the grass
+local PLINTH_HEIGHT = 0.5 -- each board's bottom rests on a low Slate plinth on the grass
 local BOARD_WIDTH = 10
-local BOARD_HEIGHT = 12
+local BOARD_HEIGHT = 12 -- the navy plate
+local BOARD_TITLE = 1.8 -- the floating title over it
 local BOARD_DEPTH = 0.6
-local TRIM = 0.22 -- the trim frame shows this much round each board and the sign
-local POST_SIZE = 1.2
-local POST_GAP = 0.08 -- between a trim and its posts
+local POST_SIZE = 1
+local POST_GAP = 0.3 -- between a plate and its posts
 local UNIT_GAP = 0.8 -- between the posts of two neighbours along the arc
-local SIGN_WIDTH = 8
-local SIGN_HEIGHT = 3.2
+local SIGN_WIDTH = 10
+local SIGN_HEIGHT = 2.6
 local SIGN_BOTTOM = 2.6
 local PIXELS_PER_STUD = 40
 local MAX_BOARDS = 4
 local MAX_DISTANCE = 220 -- the SurfaceGuis stop drawing beyond this
 
--- Half the width of a board between its posts, and of the sign; where the boards sit along the arc.
-local UNIT_HALF = BOARD_WIDTH / 2 + TRIM + POST_GAP + POST_SIZE
-local SIGN_HALF = SIGN_WIDTH / 2 + TRIM + POST_GAP + POST_SIZE
-local INNER = SIGN_HALF + UNIT_GAP + UNIT_HALF -- the sign's neighbours, along the arc from its middle
+-- Half the width of a board between its posts, and of the title; where the boards sit along the arc.
+local UNIT_HALF = BOARD_WIDTH / 2 + POST_GAP + POST_SIZE
+local SIGN_HALF = SIGN_WIDTH / 2 + POST_GAP + POST_SIZE
+local INNER = SIGN_HALF + UNIT_GAP + UNIT_HALF -- the title's neighbours, along the arc from its middle
 local PITCH = UNIT_HALF * 2 + UNIT_GAP
 
 local WHITE = Palette.White
-local CANDY = Palette.Candy
 local WORLD = Palette.World
-local LAWN_STRIPE = WORLD.Grass:Lerp(WORLD.LeavesLight, 0.45)
-local FLOWERS = { CANDY.Pink, CANDY.Yellow, WHITE, CANDY.Purple, CANDY.Red, CANDY.Orange }
-local PLANTERS = { CANDY.Pink, CANDY.Blue }
-local LEAVES = { WORLD.Leaves, WORLD.LeavesLight, WORLD.Leaves:Lerp(WORLD.LeavesLight, 0.5), WORLD.LeavesLight }
-local BLOSSOM = { CANDY.Pink:Lerp(WHITE, 0.2), CANDY.Pink:Lerp(WHITE, 0.45), CANDY.Pink, CANDY.Pink:Lerp(WHITE, 0.6) }
+local ACCENT = Palette.Accent
 local MEDALS = { "🥇", "🥈", "🥉" }
-local ROW_TINTS = {
-	CANDY.Yellow:Lerp(WHITE, 0.62),
-	Color3.fromRGB(214, 222, 240),
-	CANDY.Orange:Lerp(WHITE, 0.66),
-}
 
-local function darken(color: Color3, amount: number): Color3
-	return color:Lerp(Color3.new(0, 0, 0), amount)
-end
-
+-- The board's own colour (its Leaderboard.BOARDS Color, a Palette key) in the world accents: its posts.
 local function colorOf(id: string): Color3
 	local def = Leaderboard.BOARDS[id]
-	local color = def and rawget(CANDY :: any, def.Color)
-	return if typeof(color) == "Color3" then color else CANDY.Blue
+	local color = def and rawget(ACCENT :: any, def.Color)
+	return if typeof(color) == "Color3" then color else ACCENT.Blue
 end
 
-------------------------------------------------------------------------------------------------------------------
--- Parts
-------------------------------------------------------------------------------------------------------------------
-
-local function part(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3): Part
-	local p = Instance.new("Part")
-	p.Name = name
-	p.Anchored = true
-	p.Size = size
-	p.CFrame = cframe
-	p.Color = color
-	p.Material = Enum.Material.SmoothPlastic
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.Parent = parent
-	return p
-end
-
--- Decoration: walk-through and ignored by rays.
-local function soft(p: BasePart): BasePart
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	return p
-end
-
-local function ball(parent: Instance, name: string, diameter: number, cframe: CFrame, color: Color3): Part
-	local p = part(parent, name, Vector3.one * diameter, cframe, color)
-	p.Shape = Enum.PartType.Ball
-	return p
-end
-
--- An upright cylinder (Roblox cylinders run along X, so turn it to stand on Y). `cframe` is its centre.
-local function cylinder(
-	parent: Instance,
-	name: string,
-	height: number,
-	diameter: number,
-	cframe: CFrame,
-	color: Color3
-): Part
-	local p =
-		part(parent, name, Vector3.new(height, diameter, diameter), cframe * CFrame.Angles(0, 0, math.rad(90)), color)
-	p.Shape = Enum.PartType.Cylinder
-	return p
-end
-
--- A flat painted detail (lawn stripes, path edges): walk-through, ray-ignored and shadowless.
-local function paint(p: BasePart): BasePart
-	soft(p)
-	p.CastShadow = false
-	return p
-end
-
--- A lamp glow: Neon with its PointLight on only at night (PlotBuilder's night-light tag does the switching).
-local function nightLight(p: BasePart, range: number)
-	local light = Instance.new("PointLight")
-	light.Color = WORLD.Lamp
-	light.Brightness = 1.4
-	light.Range = range
-	light.Shadows = false
-	light.Enabled = false
-	light.Parent = p
-	CollectionService:AddTag(p, PlotBuilder.NIGHT_LIGHT_TAG)
-end
-
--- The garden's frame, read from what PlotBuilder built: on the street's centre line where both the street and the
+-- The garden's frame, read from what the town built: on the street's centre line where both the street and the
 -- town lawn end (at GARDEN_END), at the lawn's top, its LookVector pointing back down the street to the plaza. In
 -- it +X is board 1's side (+Z in the world for the west end) and +Z runs away from the town, into the garden.
 -- Also returns where the street ends in that frame (z <= 0) and how far the street's top is above the lawn's.
@@ -191,7 +119,7 @@ local function gardenFrame(): (CFrame, number, number)
 		warn("[BoardBuilder] No ClinicTown.Street: the Hall of Fame uses PlotBuilder's default layout")
 	end
 	local edge = streetEnd
-	local lawn = town and town:FindFirstChild("TownLawn")
+	local lawn = town and town:FindFirstChild("Lawn")
 	if lawn and lawn:IsA("BasePart") then
 		local lawnEdge = lawn.Position.X + GARDEN_END * lawn.Size.X / 2
 		edge = if GARDEN_END < 0 then math.min(edge, lawnEdge) else math.max(edge, lawnEdge)
@@ -213,7 +141,7 @@ local function onArc(base: CFrame, along: number, inset: number): CFrame
 end
 
 -- Where board `index` of `count` sits along the arc: the first half on board 1's side (board 1 outermost), the rest
--- on the other side, the sign in the middle.
+-- on the other side, the title in the middle.
 local function arcPosition(index: number, count: number): number
 	local left = math.ceil(count / 2)
 	if index <= left then
@@ -223,17 +151,11 @@ local function arcPosition(index: number, count: number): number
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The board's SurfaceGui
+-- The board's SurfaceGui: the title floating over a navy plate with the rows on it
 ------------------------------------------------------------------------------------------------------------------
 
 type RowView = { Frame: Frame, Rank: TextLabel, Name: TextLabel, User: TextLabel, Value: TextLabel }
 type Face = { Rows: { RowView }, Message: TextLabel }
-
-local function corner(gui: GuiObject, radius: number)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = gui
-end
 
 local function text(
 	parent: Instance,
@@ -256,116 +178,76 @@ local function text(
 	return label
 end
 
--- A glossy candy panel filling the gui: the colour with a light-to-deep gradient, a white rim and a soft shine.
-local function candyPanel(gui: SurfaceGui, color: Color3)
-	local panel = Instance.new("Frame")
-	panel.Name = "Panel"
-	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.Position = UDim2.fromScale(0.5, 0.5)
-	panel.Size = UDim2.new(1, -12, 1, -12)
-	panel.BackgroundColor3 = color
-	panel.BorderSizePixel = 0
-	panel.ZIndex = 1
-	corner(panel, 20)
-	Palette.candyGradient(panel)
-	local rim = Instance.new("UIStroke")
-	rim.Name = "Rim"
-	rim.Color = WHITE
-	rim.Thickness = 5
-	rim.LineJoinMode = Enum.LineJoinMode.Round
-	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	rim.Parent = panel
-	local shine = Instance.new("Frame")
-	shine.Name = "Shine"
-	shine.AnchorPoint = Vector2.new(0.5, 0)
-	shine.Position = UDim2.new(0.5, 0, 0, 5)
-	shine.Size = UDim2.new(1, -40, 0, 46)
-	shine.BackgroundColor3 = WHITE
-	shine.BackgroundTransparency = 0.8
-	shine.BorderSizePixel = 0
-	shine.ZIndex = 2
-	corner(shine, 20)
-	shine.Parent = panel
-	panel.Parent = gui
-end
-
 local function buildFace(board: BasePart, id: string, face: Enum.NormalId, shown: number): Face
 	local def = Leaderboard.BOARDS[id]
 	local width = board.Size.X * PIXELS_PER_STUD
-	local height = board.Size.Y * PIXELS_PER_STUD
+	local titlePixels = BOARD_TITLE * PIXELS_PER_STUD
+	local plateHeight = BOARD_HEIGHT * PIXELS_PER_STUD
 
-	local gui = Instance.new("SurfaceGui")
-	gui.Name = if face == Enum.NormalId.Front then "BoardGui" else "BoardGuiBack"
-	gui.Face = face
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = PIXELS_PER_STUD
-	gui.LightInfluence = 0 -- bright and readable at night
-	gui.MaxDistance = MAX_DISTANCE
-	gui.ClipsDescendants = true
-	candyPanel(gui, colorOf(id))
-
-	local pad = 16
-	local titleHeight = 56
-	local title = text(
-		gui,
-		"Title",
-		UDim2.new(1, -pad * 2, 0, titleHeight),
-		UDim2.fromOffset(pad, 12),
-		Palette.DisplayFont,
-		WHITE
+	local gui = Parts.surface(
+		board,
+		if face == Enum.NormalId.Front then "BoardGui" else "BoardGuiBack",
+		face,
+		PIXELS_PER_STUD,
+		MAX_DISTANCE,
+		0 -- bright and readable at night
 	)
-	title.Text = if def then def.Icon .. " " .. def.Title else id
-	title.TextScaled = true
-	Palette.outlineText(title, 3)
+	gui.ClipsDescendants = true
+	Parts.floatText(gui, if def then def.Icon .. " " .. def.Title else id, {
+		Shadow = true,
+		Size = UDim2.new(1, 0, 0, titlePixels - 6),
+		Position = UDim2.fromOffset(0, 0),
+	})
+	local plate = Parts.navyPlate(gui, {
+		Size = UDim2.new(1, -8, 0, plateHeight - 8),
+		Position = UDim2.new(0.5, 0, 0, titlePixels + plateHeight / 2),
+	})
 
-	local top = 12 + titleHeight + 8
+	local pad = 18
 	local list = Instance.new("Frame")
 	list.Name = "Rows"
 	list.BackgroundTransparency = 1
-	list.Position = UDim2.fromOffset(pad, top)
-	list.Size = UDim2.fromOffset(width - pad * 2, height - top - pad)
+	list.Position = UDim2.fromOffset(pad, pad)
+	list.Size = UDim2.new(1, -pad * 2, 1, -pad * 2)
 	list.ZIndex = 3
-	list.Parent = gui
+	list.Parent = plate
 	local layout = Instance.new("UIListLayout")
 	layout.FillDirection = Enum.FillDirection.Vertical
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 4)
 	layout.Parent = list
 
-	local rowHeight = math.floor((list.Size.Y.Offset - 4 * (shown - 1)) / shown)
+	local inner = width - 8 - pad * 2
+	local rowHeight = math.floor((plateHeight - 8 - pad * 2 - 4 * (shown - 1)) / shown)
 	local rows: { RowView } = {}
 	for rank = 1, shown do
 		local row = Instance.new("Frame")
 		row.Name = "Row" .. rank
 		row.LayoutOrder = rank
 		row.Size = UDim2.new(1, 0, 0, rowHeight)
-		row.BackgroundColor3 = ROW_TINTS[rank] or WHITE
+		row.BackgroundColor3 = WHITE
+		row.BackgroundTransparency = if rank <= #MEDALS then 0.88 else 1 -- a faint band under the top 3
 		row.BorderSizePixel = 0
 		row.Visible = false
 		row.ZIndex = 3
-		corner(row, 10)
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = Palette.Outline
-		stroke.Thickness = 3
-		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		stroke.Parent = row
+		Parts.rounded(row, UDim.new(0, 10))
 		row.Parent = list
 
 		local rankWidth = 36
 		local valueWidth = 84
 		local rankLabel =
-			text(row, "Rank", UDim2.new(0, rankWidth, 1, -6), UDim2.fromOffset(4, 3), Palette.DisplayFont, Palette.Ink)
+			text(row, "Rank", UDim2.new(0, rankWidth, 1, -6), UDim2.fromOffset(4, 3), Palette.DisplayFont, WHITE)
 		rankLabel.TextScaled = true
 		rankLabel.Text = MEDALS[rank] or tostring(rank)
 
-		local nameWidth = width - pad * 2 - rankWidth - valueWidth - 16
+		local nameWidth = inner - rankWidth - valueWidth - 16
 		local nameLabel = text(
 			row,
 			"Name",
 			UDim2.fromOffset(nameWidth, math.floor(rowHeight * 0.6)),
 			UDim2.fromOffset(rankWidth + 8, 1),
 			Palette.BodyFont,
-			Palette.Ink
+			WHITE
 		)
 		nameLabel.TextSize = math.floor(rowHeight * 0.52)
 		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -376,8 +258,9 @@ local function buildFace(board: BasePart, id: string, face: Enum.NormalId, shown
 			UDim2.fromOffset(nameWidth, math.floor(rowHeight * 0.36)),
 			UDim2.fromOffset(rankWidth + 8, math.floor(rowHeight * 0.6)),
 			Palette.BodyFont,
-			Palette.InkSoft
+			WHITE
 		)
+		userLabel.TextTransparency = 0.35
 		userLabel.TextSize = math.floor(rowHeight * 0.32)
 		userLabel.TextXAlignment = Enum.TextXAlignment.Left
 		userLabel.TextTruncate = Enum.TextTruncate.AtEnd
@@ -388,7 +271,7 @@ local function buildFace(board: BasePart, id: string, face: Enum.NormalId, shown
 			UDim2.new(0, valueWidth, 1, -8),
 			UDim2.new(1, -valueWidth - 8, 0, 4),
 			Palette.DisplayFont,
-			Palette.Ink
+			Palette.Gold
 		)
 		valueLabel.TextScaled = true
 		valueLabel.TextXAlignment = Enum.TextXAlignment.Right
@@ -398,10 +281,10 @@ local function buildFace(board: BasePart, id: string, face: Enum.NormalId, shown
 
 	-- Loading, offline (Studio without API access) or nobody yet: one big outlined line where the rows go.
 	local message = text(
-		gui,
+		plate,
 		"Message",
-		UDim2.fromOffset(width - pad * 4, math.floor((height - top) * 0.5)),
-		UDim2.fromOffset(pad * 2, top + math.floor((height - top) * 0.2)),
+		UDim2.new(1, -pad * 4, 0.5, 0),
+		UDim2.new(0, pad * 2, 0.2, 0),
 		Palette.DisplayFont,
 		WHITE
 	)
@@ -409,7 +292,6 @@ local function buildFace(board: BasePart, id: string, face: Enum.NormalId, shown
 	message.TextWrapped = true
 	Palette.outlineText(message, 3)
 
-	gui.Parent = board
 	return { Rows = rows, Message = message }
 end
 
@@ -437,68 +319,41 @@ end
 -- The Hall of Fame garden. `at` is a CFrame on the ground where a piece stands, facing the plaza.
 ------------------------------------------------------------------------------------------------------------------
 
--- A round toy tree like the town's: a trunk and four stacked balls. `blossom` makes it a pink blossom tree.
-local function tree(parent: Instance, at: CFrame, scale: number, blossom: boolean)
-	local crown = if blossom then BLOSSOM else LEAVES
-	local model = Instance.new("Model")
-	model.Name = "Tree"
-	cylinder(model, "Trunk", 6 * scale, 1.4 * scale, at * CFrame.new(0, 3 * scale, 0), WORLD.Trunk)
-	soft(ball(model, "Leaves", 7 * scale, at * CFrame.new(0, 7 * scale, 0), crown[1]))
-	soft(ball(model, "Leaves", 5.5 * scale, at * CFrame.new(1.8 * scale, 8.8 * scale, 0.6 * scale), crown[2]))
-	soft(ball(model, "Leaves", 5 * scale, at * CFrame.new(-1.6 * scale, 8.4 * scale, -1 * scale), crown[3]))
-	soft(ball(model, "Leaves", 4 * scale, at * CFrame.new(0.2 * scale, 10.6 * scale, -0.2 * scale), crown[4]))
-	model.Parent = parent
-end
-
--- The town's candy-blue bench; whoever sits on it faces along `at`'s LookVector.
-local function bench(parent: Instance, at: CFrame)
-	local model = Instance.new("Model")
-	model.Name = "Bench"
-	part(model, "Seat", Vector3.new(5, 0.4, 1.6), at * CFrame.new(0, 1.4, 0), CANDY.Blue)
-	part(model, "Back", Vector3.new(5, 1.4, 0.3), at * CFrame.new(0, 2.3, 0.7), CANDY.Blue)
-	part(model, "Leg", Vector3.new(0.4, 1.2, 1.4), at * CFrame.new(-2.1, 0.6, 0), WHITE)
-	part(model, "Leg", Vector3.new(0.4, 1.2, 1.4), at * CFrame.new(2.1, 0.6, 0), WHITE)
-	model.Parent = parent
-end
-
--- The town's purple street lamp, lit at night.
-local function lamp(parent: Instance, at: CFrame)
-	local model = Instance.new("Model")
-	model.Name = "Lamp"
-	cylinder(model, "Post", 8, 0.5, at * CFrame.new(0, 4, 0), CANDY.Purple)
-	cylinder(model, "Cap", 0.3, 1.6, at * CFrame.new(0, 9.05, 0), CANDY.Purple)
-	nightLight(soft(ball(model, "Glow", 1.4, at * CFrame.new(0, 8.3, 0), WORLD.Lamp)), 18)
-	model.Parent = parent
-end
-
--- A round candy planter, kept low (flowers, no tree) so it never hides a board from the street.
-local function planter(parent: Instance, at: CFrame, color: Color3, seed: number)
-	local model = Instance.new("Model")
-	model.Name = "Planter"
-	cylinder(model, "Pot", 1.2, 4, at * CFrame.new(0, 0.6, 0), color)
-	soft(cylinder(model, "Grass", 0.1, 3.4, at * CFrame.new(0, 1.22, 0), WORLD.Grass))
-	for i, offset in { Vector3.new(0.8, 1.6, 0.5), Vector3.new(-0.9, 1.6, 0.4), Vector3.new(0.1, 1.6, -0.9) } do
-		soft(ball(model, "Flower", 0.9, at * CFrame.new(offset), FLOWERS[(seed + i) % #FLOWERS + 1]))
-	end
-	model.Parent = parent
-end
-
--- The grass slab, its mowing stripes, the cream path from the street's end to the sign, planters at the path's
--- start, benches facing the boards, lamps at the arc's ends and trees behind it.
+-- The lawn (studded GrassA, an 8-stud GrassB checker on whole studs), the plank path from the street's end to the
+-- title, planters at the path's start, benches facing the boards, lamps at the arc's ends and voxel trees behind it.
 local function buildGarden(model: Model, base: CFrame, pathStart: number, pathTop: number)
 	local garden = Instance.new("Model")
 	garden.Name = "Garden"
 	local middle = GARDEN_DEPTH / 2
-	part(
+	local lawn = part(
 		garden,
 		"Lawn",
 		Vector3.new(GARDEN_HALF_WIDTH * 2, 2, GARDEN_DEPTH),
 		base * CFrame.new(0, -1, middle),
-		WORLD.Grass
+		WORLD.GrassA
 	)
-	for _, x in { -30, -16, 16, 30 } do
-		local stripe = Vector3.new(6, 0.04, GARDEN_DEPTH - 1)
-		paint(part(garden, "LawnStripe", stripe, base * CFrame.new(x, 0.02, middle), LAWN_STRIPE))
+	Studs.apply(lawn)
+	local cell = CHECKER_CELL
+	for i = 0, math.ceil(GARDEN_HALF_WIDTH * 2 / cell) - 1 do
+		for j = 0, math.ceil(GARDEN_DEPTH / cell) - 1 do
+			if (i + j) % 2 == 1 then
+				local x0 = -GARDEN_HALF_WIDTH + i * cell
+				local x1 = math.min(x0 + cell, GARDEN_HALF_WIDTH)
+				local z0 = j * cell
+				local z1 = math.min(z0 + cell, GARDEN_DEPTH)
+				if x1 - x0 >= 1 and z1 - z0 >= 1 then
+					local tile = part(
+						garden,
+						"LawnTile",
+						Vector3.new(x1 - x0, 0.2, z1 - z0),
+						base * CFrame.new((x0 + x1) / 2, -0.05, (z0 + z1) / 2),
+						WORLD.GrassB
+					)
+					soft(tile)
+					Studs.apply(tile)
+				end
+			end
+		end
 	end
 
 	-- The path's top is level with the street's, so the street runs straight onto it.
@@ -506,31 +361,31 @@ local function buildGarden(model: Model, base: CFrame, pathStart: number, pathTo
 	local length = pathEnd - pathStart
 	local pathZ = pathStart + length / 2
 	local path = Vector3.new(PATH_WIDTH, pathTop + 0.06, length)
-	part(garden, "Path", path, base * CFrame.new(0, (pathTop - 0.06) / 2, pathZ), WORLD.Path)
+	part(garden, "Path", path, base * CFrame.new(0, (pathTop - 0.06) / 2, pathZ), WORLD.Plank, Enum.Material.WoodPlanks)
 	for _, side in { -1, 1 } do
 		local edge = Vector3.new(0.5, pathTop + 0.1, length)
 		local at = base * CFrame.new(side * (PATH_WIDTH / 2 + 0.25), (pathTop + 0.1) / 2 - 0.05, pathZ)
-		paint(part(garden, "PathEdge", edge, at, WHITE))
+		paint(part(garden, "PathEdge", edge, at, WORLD.Trim))
 	end
 
-	for i, side in { 1, -1 } do
-		planter(garden, base * CFrame.new(side * (PATH_WIDTH / 2 + 3.5), 0, 4), PLANTERS[i], i * 2)
+	for _, side in { 1, -1 } do
+		Props.planter(garden, base * CFrame.new(side * (PATH_WIDTH / 2 + 3), 0, 4), Vector3.new(3, 1, 3))
 		-- Between each pair of boards, 9 studs in front, facing them.
-		bench(garden, onArc(base, side * (INNER + PITCH / 2), 9) * CFrame.Angles(0, math.pi, 0))
-		lamp(garden, onArc(base, side * (INNER + PITCH + UNIT_HALF + 2.5), 0))
+		Props.bench(garden, onArc(base, side * (INNER + PITCH / 2), 9) * CFrame.Angles(0, math.pi, 0))
+		Props.lamp(garden, onArc(base, side * (INNER + PITCH + UNIT_HALF + 2.5), 0), 8)
 	end
-	tree(garden, base * CFrame.new(0, 0, ARC_BACK + 9), 1.2, false)
+	Props.tree(garden, base * CFrame.new(0, 0, ARC_BACK + 9), 1.2)
 	for _, side in { -1, 1 } do
-		tree(garden, base * CFrame.new(side * 18, 0, ARC_BACK + 7.5), 1.1, true)
-		tree(garden, base * CFrame.new(side * 36, 0, ARC_BACK + 2), 1.2, false)
+		Props.tree(garden, base * CFrame.new(side * 18, 0, ARC_BACK + 7.5), 1.1)
+		Props.tree(garden, base * CFrame.new(side * 36, 0, ARC_BACK + 2), 1.2)
 	end
 	garden.Parent = model
 end
 
--- The "🏆 Hall of Fame" sign in the middle of the arc, at the end of the path: a glossy pink board between white
--- posts with candy-ball caps that glow at night, and a gold trophy on top.
+-- The "🏆 Hall of Fame" title in the middle of the arc, at the end of the path: gold outlined letters floating
+-- between two dark posts whose lamp heads glow at night, and a gold trophy on top.
 local function buildTitleSign(model: Model, at: CFrame)
-	local postHeight = SIGN_BOTTOM + SIGN_HEIGHT + TRIM + 0.5
+	local postHeight = SIGN_BOTTOM + SIGN_HEIGHT + 0.4
 	for _, side in { -1, 1 } do
 		local x = side * (SIGN_HALF - POST_SIZE / 2)
 		part(
@@ -538,58 +393,75 @@ local function buildTitleSign(model: Model, at: CFrame)
 			"SignPost",
 			Vector3.new(POST_SIZE, postHeight, POST_SIZE),
 			at * CFrame.new(x, postHeight / 2, 0),
-			WHITE
+			WORLD.Roof
 		)
-		nightLight(soft(ball(model, "SignCap", 1.8, at * CFrame.new(x, postHeight + 0.7, 0), CANDY.Yellow)), 16)
+		local head = soft(
+			part(model, "SignCap", Vector3.new(1.2, 1.2, 1.2), at * CFrame.new(x, postHeight + 0.6, 0), WORLD.Lamp)
+		)
+		head.CastShadow = false
+		NightLights.light(head, 16)
 	end
 	local centre = at * CFrame.new(0, SIGN_BOTTOM + SIGN_HEIGHT / 2, 0)
-	local sign = part(model, "TitleSign", Vector3.new(SIGN_WIDTH, SIGN_HEIGHT, 0.5), centre, darken(CANDY.Pink, 0.12))
-	soft(part(model, "TitleTrim", Vector3.new(SIGN_WIDTH + TRIM * 2, SIGN_HEIGHT + TRIM * 2, 0.3), centre, CANDY.Pink))
+	local sign = soft(part(model, "TitleSign", Vector3.new(SIGN_WIDTH, SIGN_HEIGHT, 0.4), centre, WORLD.Roof))
+	sign.Transparency = 1 -- it only carries the floating letters
+	sign.CastShadow = false
 	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
-		local gui = Instance.new("SurfaceGui")
-		gui.Name = if face == Enum.NormalId.Front then "TitleGui" else "TitleGuiBack"
-		gui.Face = face
-		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		gui.PixelsPerStud = 30
-		gui.LightInfluence = 0
-		gui.MaxDistance = MAX_DISTANCE
-		candyPanel(gui, CANDY.Pink)
-		local title =
-			text(gui, "Title", UDim2.fromScale(0.86, 0.66), UDim2.fromScale(0.07, 0.17), Palette.DisplayFont, WHITE)
-		title.Text = "🏆 Hall of Fame"
-		title.TextScaled = true
-		Palette.outlineText(title, 4)
-		gui.Parent = sign
+		local gui = Parts.surface(
+			sign,
+			if face == Enum.NormalId.Front then "TitleGui" else "TitleGuiBack",
+			face,
+			30,
+			MAX_DISTANCE,
+			0
+		)
+		Parts.floatText(gui, "🏆 Hall of Fame", { Gold = true, Shadow = true })
 	end
 
-	local gold = CANDY.Yellow
-	local top = at * CFrame.new(0, SIGN_BOTTOM + SIGN_HEIGHT + TRIM, 0)
-	soft(part(model, "TrophyBase", Vector3.new(3, 0.5, 1.4), top * CFrame.new(0, 0.25, 0), WHITE))
-	soft(cylinder(model, "TrophyStem", 0.9, 0.8, top * CFrame.new(0, 0.95, 0), gold))
-	soft(ball(model, "TrophyCup", 2.4, top * CFrame.new(0, 2, 0), gold))
-	soft(cylinder(model, "TrophyCup", 1.4, 2.6, top * CFrame.new(0, 2.7, 0), gold))
-	soft(cylinder(model, "TrophyRim", 0.25, 2.7, top * CFrame.new(0, 3.45, 0), WHITE))
+	-- The trophy rests on a dark bar between the posts' tops.
+	local gold = ACCENT.Yellow
+	local barY = SIGN_BOTTOM + SIGN_HEIGHT + 0.2
+	part(model, "TitleBar", Vector3.new(SIGN_HALF * 2, 0.4, POST_SIZE), at * CFrame.new(0, barY, 0), WORLD.Roof)
+	local top = at * CFrame.new(0, barY + 0.2, 0)
+	soft(part(model, "TrophyBase", Vector3.new(3, 0.5, 1.4), top * CFrame.new(0, 0.25, 0), WORLD.Trim))
+	soft(Parts.cylinder(model, "TrophyStem", 0.9, 0.8, top * CFrame.new(0, 0.95, 0), gold))
+	soft(Parts.ball(model, "TrophyCup", 2.4, top * CFrame.new(0, 2, 0), gold))
+	soft(Parts.cylinder(model, "TrophyCup", 1.4, 2.6, top * CFrame.new(0, 2.7, 0), gold))
+	soft(Parts.cylinder(model, "TrophyRim", 0.25, 2.7, top * CFrame.new(0, 3.45, 0), WORLD.Trim))
 	for _, side in { -1, 1 } do
-		soft(ball(model, "TrophyHandle", 1, top * CFrame.new(side * 1.5, 2.6, 0), gold))
+		soft(Parts.ball(model, "TrophyHandle", 1, top * CFrame.new(side * 1.5, 2.6, 0), gold))
 	end
 end
 
--- One board on the arc: the board between two white posts with candy-ball caps, its bottom on a low white plinth.
+-- One board on the arc: a see-through part that carries the two faces (title + navy plate), a dark backing inside
+-- the plate's edge, two studded posts in the board's accent, and a low Slate plinth.
 local function buildStand(model: Model, id: string, at: CFrame): BasePart
-	local color = colorOf(id)
-	local centre = at * CFrame.new(0, PLINTH_HEIGHT + BOARD_HEIGHT / 2, 0)
-	local size = Vector3.new(BOARD_WIDTH, BOARD_HEIGHT, BOARD_DEPTH)
-	local board = part(model, "Board_" .. id, size, centre, darken(color, 0.15))
+	local tall = BOARD_HEIGHT + BOARD_TITLE
+	local centre = at * CFrame.new(0, PLINTH_HEIGHT + tall / 2, 0)
+	local board = part(model, "Board_" .. id, Vector3.new(BOARD_WIDTH, tall, BOARD_DEPTH), centre, Palette.Navy)
+	board.Transparency = 1 -- the plate (a GUI) is the board: its round corners show
+	board.CastShadow = false
 	board:SetAttribute("BoardId", id)
-	local trim = Vector3.new(BOARD_WIDTH + TRIM * 2, BOARD_HEIGHT + TRIM * 2, BOARD_DEPTH * 0.6)
-	soft(part(model, "Trim_" .. id, trim, centre, color))
-	local plinth = Vector3.new(BOARD_WIDTH + (TRIM + POST_GAP) * 2, PLINTH_HEIGHT + 0.1, 1.6)
-	part(model, "Plinth", plinth, at * CFrame.new(0, (PLINTH_HEIGHT - 0.1) / 2, 0), WHITE)
-	local postHeight = PLINTH_HEIGHT + BOARD_HEIGHT + TRIM + 0.5
+	local back = part(
+		model,
+		"Back_" .. id,
+		Vector3.new(BOARD_WIDTH - 1.2, BOARD_HEIGHT - 1.2, BOARD_DEPTH * 0.5),
+		at * CFrame.new(0, PLINTH_HEIGHT + BOARD_HEIGHT / 2, 0),
+		WORLD.Roof
+	)
+	back.CastShadow = false
+	local plinth = Vector3.new(BOARD_WIDTH + (POST_GAP + POST_SIZE) * 2, PLINTH_HEIGHT + 0.1, 2)
+	part(model, "Plinth", plinth, at * CFrame.new(0, (PLINTH_HEIGHT - 0.1) / 2, 0), WORLD.Edge, Enum.Material.Slate)
+	local postHeight = PLINTH_HEIGHT + BOARD_HEIGHT + 0.6
 	for _, side in { -1, 1 } do
 		local x = side * (UNIT_HALF - POST_SIZE / 2)
-		part(model, "Post", Vector3.new(POST_SIZE, postHeight, POST_SIZE), at * CFrame.new(x, postHeight / 2, 0), WHITE)
-		soft(ball(model, "PostCap", 2, at * CFrame.new(x, postHeight + 0.8, 0), CANDY.Yellow))
+		local post = part(
+			model,
+			"Post",
+			Vector3.new(POST_SIZE, postHeight, POST_SIZE),
+			at * CFrame.new(x, postHeight / 2, 0),
+			colorOf(id)
+		)
+		Studs.apply(post)
 	end
 	return board
 end

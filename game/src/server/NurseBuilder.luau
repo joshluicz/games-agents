@@ -4,14 +4,17 @@
 -- Server/NurseBelt (belt riders) use it. OWNER: T1 (Progression v2).
 --
 --   NurseBuilder.build(nurseId): Model
---       The nurse from its Data/Nurses Look, built like a patient (CreatureBuilder.buildLook: the creatures v2 body
---       and rig, Root PrimaryPart at the bottom centre, Core on Root.PoseJoint with every part welded to it, the
---       limbs on their Motor6Ds, the sockets, CollisionGroup "Patients"), plus a little nurse cap in its rarity's
---       colour with a white cross (welded to Core, so it follows the body; the cap tells the rarity at a glance)
---       and soft sparkles for Epic and up. Under 40 parts. Attributes NurseId, Rarity, Role, Task ("Idle"). Named
---       "Nurse_<NurseId>" (NurseBelt renames riders "Rider_<RiderId>"). A Model at ServerStorage.Nurses.<NurseId>
---       (the brother's) replaces the placeholder look: it is cloned, cleaned of scripts and Humanoids, and given the
---       same Root, Core and PoseJoint (CreatureBuilder.rigKit; no cap is added to it).
+--       The nurse from its Data/Nurses Look, built like a patient (CreatureBuilder.buildLook: the blocky body and
+--       rig, memory-20261117-004; Root PrimaryPart at the bottom centre, Core on Root.PoseJoint with every part
+--       welded to it, the limbs on their Motor6Ds, the sockets, CollisionGroup "Patients"; a happy face), plus a
+--       block nurse cap on the front of its head in its rarity's colour (brought to a world value), with a
+--       warm-white brim and our paw-heart on its front, never a cross (welded to Core, so it follows the body; the
+--       cap tells the rarity at a glance), and soft sparkles for Epic and up. The task bubble, job hat and ability
+--       ring hang on Root.IconAnchor, kept clear over the head and cap. Under 40 parts. Attributes NurseId, Rarity,
+--       Role, Task ("Idle"). Named "Nurse_<NurseId>" (NurseBelt renames riders "Rider_<RiderId>"). A Model at
+--       ServerStorage.Nurses.<NurseId> (the brother's) replaces the placeholder look: it is cloned, cleaned of
+--       scripts and Humanoids, and given the same Root, Core and PoseJoint (CreatureBuilder.rigKit; no cap is added
+--       to it).
 --   NurseBuilder.setTask(model, task, icon?)
 --       the Task attribute: "Idle" | "Making" | "Healing" | "Cheering" | "Walking" | "Escorting" | "Greeting" |
 --       "Treating" (junk -> "Idle"), and the little bubble over its head: the item it is making (`icon`), 💗 healing or
@@ -34,7 +37,8 @@
 --   NurseBuilder.popIn(model)            a scale-in by the same contract (ScaleFrom/To/At/Seconds/Style/Dir); the
 --                                        server scale is already the final one, so nothing else is written
 --   NurseBuilder.setGlow(model, on)      a soft PointLight in the rarity's colour (no shadows): Epic+ belt riders
--- Rated Minimal: soft, round and friendly. Every nurse is original (red line 2); names are placeholders.
+-- Rated Minimal: chunky and friendly. Every nurse is original (red line 2); names are placeholders. No cross on any
+-- nurse (the build plan's Global constraints): the cap carries World/Parts' paw-heart.
 
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
@@ -47,6 +51,7 @@ local JobsData = require(Shared.Data.Jobs)
 local NursesData = require(Shared.Data.Nurses)
 local Rarities = require(Shared.Data.Rarities)
 local CreatureBuilder = require(script.Parent.CreatureBuilder)
+local Parts = require(script.Parent.World.Parts)
 
 local NurseBuilder = {}
 
@@ -54,7 +59,7 @@ NurseBuilder.TASKS =
 	table.freeze({ "Idle", "Making", "Healing", "Cheering", "Walking", "Escorting", "Greeting", "Treating" })
 
 local COLLISION_GROUP = "Patients"
-local MAX_PARTS = 40
+local MAX_PARTS = 40 -- every nurse stays under it, the cap included
 local LEAN = 0.12 -- radians forward at the top of a hop (a spin hop doesn't lean)
 local SPARKLE_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
 local SPARKLE_RANK = 3 -- Epic and up sparkle (Data/Rarities.Order index)
@@ -69,6 +74,9 @@ local NEAR_STUDS = 16 -- closer than this the bubble stops growing on screen (li
 
 local WHITE = Palette.White
 local DEFAULT_COLOR = Color3.fromRGB(180, 188, 203)
+local CAP_BRIM = Color3.fromHex(CreatureBuilder.Pure.WARM_WHITE) -- warm white: no pure white on the world
+local CAP_HEART = Palette.Accent.Pink -- the paw-heart's heart (never red-and-white, never a cross)
+local CAP_NEAR = 60 -- studs: the paw-heart drawing hides past this
 
 local rank: { [string]: number } = {}
 for index, rarity in Rarities.Order do
@@ -102,6 +110,13 @@ local function rarityColor(rarity: string): Color3
 	return hex(if type(info) == "table" then info.Color else nil, DEFAULT_COLOR)
 end
 
+-- The cap's colour: the rarity's hue at a world value (a lit part, so not the UI's full-bright colour).
+local function capColor(rarity: string): Color3
+	local info = rawget(Rarities :: any, rarity)
+	local color = if type(info) == "table" then info.Color else nil
+	return hex(if type(color) == "string" then CreatureBuilder.Pure.mid(color) else nil, DEFAULT_COLOR)
+end
+
 local function weldTo(root: BasePart, part: BasePart)
 	local weld = Instance.new("WeldConstraint")
 	weld.Part0 = root
@@ -120,7 +135,7 @@ end
 -- The placeholder: the creature, a nurse cap, sparkles
 ------------------------------------------------------------------------------------------------------------------
 
-local function capPart(model: Model, root: BasePart, name: string, size: Vector3, cf: CFrame, color: Color3)
+local function capPart(model: Model, root: BasePart, name: string, size: Vector3, cf: CFrame, color: Color3): BasePart
 	local core = model:FindFirstChild("Core")
 	local body = if core and core:IsA("BasePart") then core else root
 	local p = Instance.new("Part")
@@ -133,28 +148,49 @@ local function capPart(model: Model, root: BasePart, name: string, size: Vector3
 	p.BottomSurface = Enum.SurfaceType.Smooth
 	p.Parent = model
 	weldTo(body, p)
+	return p
 end
 
--- A small folded nurse cap on the front of the head, in the rarity's colour, with a white cross on its front.
--- The model is still at the origin (CreatureBuilder.buildLook pivots it there), its face looking at -Z. Welded to
--- Core (the rig's body), so it leans and bobs with the head.
-local function addCap(model: Model, root: BasePart, look: any, color: Color3)
+-- A block nurse cap on the head's top front edge (just behind the face), in the rarity's colour: a warm-white brim
+-- round its foot and our paw-heart on its front (never a cross). The model is still at the origin
+-- (CreatureBuilder.buildLook pivots it there), its face looking at -Z. Welded to Core (the rig's body), so it leans
+-- and bobs with the head. It sits on the stud plate when there is one (`StudTop`), in front of any Top (a star, a
+-- cloud, a bow), which stand in the head's middle.
+local function addCap(model: Model, root: BasePart, color: Color3)
 	local head = model:FindFirstChild("Head") or model:FindFirstChild("Body")
 	if not (head and head:IsA("BasePart")) then
 		return
 	end
 	local s = model:GetScale()
 	local top = head.Position.Y + head.Size.Y / 2
-	-- With a hat-like Top (a star, a cloud, a bow...) the cap sits further forward, on the forehead.
-	local forward = if type(look) == "table" and look.Top ~= "None" then 0.32 else 0.14
-	local z = head.Position.Z - head.Size.Z * forward
-	local y = top - (if forward > 0.2 then 0.32 else 0.12) * s
-	local cap = CFrame.new(0, y, z) * CFrame.Angles(math.rad(14), 0, 0)
-	local size = Vector3.new(1.25, 0.5, 0.78) * s
-	capPart(model, root, "NurseCap", size, cap, color)
-	local front = cap * CFrame.new(0, 0.02 * s, -size.Z / 2 - 0.01)
-	capPart(model, root, "CapCross", Vector3.new(0.13, 0.36, 0.04) * s, front, WHITE)
-	capPart(model, root, "CapCross", Vector3.new(0.36, 0.13, 0.04) * s, front, WHITE)
+	local plate = model:FindFirstChild("StudTop")
+	if plate and plate:IsA("BasePart") then
+		top = math.max(top, plate.Position.Y + plate.Size.Y / 2)
+	end
+	local front = head.Position.Z - head.Size.Z / 2
+	local size = Vector3.new(math.min(1.3 * s, head.Size.X * 0.6), 0.56 * s, 0.7 * s)
+	local z = front + size.Z / 2 + 0.08 * s -- set back a little, so the brim never shares the face's front plane
+	local cap = capPart(model, root, "NurseCap", size, CFrame.new(0, top + size.Y / 2 - 0.04 * s, z), color)
+	local brim = Vector3.new(size.X + 0.08 * s, 0.14 * s, size.Z + 0.08 * s)
+	capPart(model, root, "CapBrim", brim, CFrame.new(0, top + brim.Y / 2 - 0.04 * s, z), CAP_BRIM)
+
+	-- The paw-heart on the cap's front, above the brim.
+	local gui = Parts.surface(cap, "CapGui", Enum.NormalId.Front, 100, CAP_NEAR, 0.4)
+	local holder = Instance.new("Frame")
+	holder.Name = "Mark"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromScale(1, 0.74)
+	holder.Parent = gui
+	Parts.pawHeart(holder, UDim2.fromScale(0.86, 0.86), CAP_HEART)
+
+	-- The task bubble, the job hat and the ability ring hang on IconAnchor: keep it clear over the cap.
+	local anchor = root:FindFirstChild("IconAnchor")
+	if anchor and anchor:IsA("Attachment") then
+		local capTop = root.CFrame:PointToObjectSpace(cap.Position).Y + size.Y / 2
+		if anchor.Position.Y < capTop + 0.25 then
+			anchor.Position = Vector3.new(0, capTop + 0.25, 0)
+		end
+	end
 end
 
 local function addSparkles(root: BasePart, rarity: string, color: Color3)
@@ -262,7 +298,7 @@ function NurseBuilder.build(nurseId: string): Model
 		model = CreatureBuilder.buildLook(look, "Nurse_" .. tostring(nurseId))
 		local root = model.PrimaryPart
 		if root then
-			addCap(model, root, look, color)
+			addCap(model, root, capColor(rarity))
 		end
 	end
 	local root = model.PrimaryPart
@@ -276,7 +312,7 @@ function NurseBuilder.build(nurseId: string): Model
 			parts += 1
 		end
 	end
-	if parts > MAX_PARTS and not warnedParts[nurseId] then
+	if parts >= MAX_PARTS and not warnedParts[nurseId] then
 		warnedParts[nurseId] = true
 		warn(("[NurseBuilder] %s has %d parts (budget %d)"):format(tostring(nurseId), parts, MAX_PARTS))
 	end

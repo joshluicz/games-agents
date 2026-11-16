@@ -1,47 +1,44 @@
 --!strict
--- BadgeBook (game/README.md "Badges"): the 🏅 Badge Book, and the reward banner for tier-ups and Doctor ranks.
---   init(ctx)   opens on ctx.fire("Open", "Badges") (the HUD's 🏅 tab, shown once the tutorial is done)
+-- BadgeBook (game/README.md "Badges"): the 🏅 Badge Book, and the cheer for tier-ups and Doctor ranks.
+--   init(ctx)   opens on ctx.fire("Open", "Badges") (the HUD's 🏅 rail button, shown once the tutorial is done)
 --
--- The Book, from the top:
---   your boosts      Hud.boostLine: timed boosts with their play time left, then the permanent percents
---   category tabs    one per Data/Badges category (🏥 Clinic, 🗺️ Wings, 🧪 Stations, 💛 Friends)
---   badge cards      per badge: its icon on a tile framed in its tier's colour (Bronze, Silver, Gold, Diamond, Ruby,
---                    Mythic; grey before Bronze) with the tier's medal, the name and what to do, a bar and "n/next"
---                    to the next tier, then that tier's boost and rewards ("🥇 Gold → +3% 💰 · 💰400 ⭐8"); a maxed
---                    badge says so. Values come from Logic/Badges.statValue on the Snapshot (Stats, Playtime, Story,
---                    Rooms, Decor), the tiers from Snapshot.Badges. The server decides; this only shows it.
--- The banner (ctx.on "Cheer" (icon, text, colour), and every tier-up the Snapshot shows after the save loaded):
--- a candy card slides in at the top with turning rays behind the icon, a bump and a fanfare, then leaves by itself
--- after a few seconds. It never blocks play, waits while the first-session tutorial runs, and honours calm motion.
--- Phones: the cards scroll, the tabs share the width, every button is >= 56 px tall.
+-- The Book (the look overhaul's template, look build plan §B8): UI/Modal's navy header, then
+--   category tabs    THE tab column (Modal.tabs): one per Data/Badges category (🏥 Clinic, 🗺️ Wings, 🧪 Stations,
+--                    💛 Friends), down the left like every panel (it was a row)
+--   your boosts      Hud.boostLine at the top of the page: timed boosts with their play time left, then the
+--                    permanent percents
+--   badge cards      tinted cards: per badge its icon on a tile framed in its tier's colour (Bronze, Silver, Gold,
+--                    Diamond, Ruby, Mythic; grey before Bronze; the Bold stroke) with the tier's medal, the name and
+--                    what to do, a bar and "n/next" to the next tier, then that tier's boost and rewards ("🥇 Gold →
+--                    +3% 💰 · 💰400 ⭐8"); a maxed badge says so. Values come from Logic/Badges.statValue on the
+--                    Snapshot (Stats, Playtime, Story, Rooms, Decor), the tiers from Snapshot.Badges. The server
+--                    decides; this only shows it.
+-- The cheer (ctx.on "Cheer" (icon, text, colour), and every tier-up the Snapshot shows after the save loaded): one
+-- banner in THE notice stack (the bus "Banner": UI/Toasts draws it under the Now card) with a fanfare, one at a time.
+-- It never blocks play, waits while the first-session tutorial runs, and leaves by itself.
+-- Phones: the cards scroll, the tab column scrolls, every button is >= 56 px tall, no text under 18 px.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
 local BadgesLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Badges"))
 local BoostsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Boosts"))
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
+local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
 
 local BadgeBook = {}
 
 local NAME = "Badges"
-local ACCENT = Theme.Colors.Primary
 local CARD_HEIGHT = 124
-local GAP = 10
+local GAP = Theme.Space.Gap
+local BOOSTS_HEIGHT = 30
 local NO_TIER = Color3.fromRGB(190, 190, 210)
 local BANNER_SECONDS = 3.2
-
-local function textLimit(gui: GuiObject, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 12
-	limit.Parent = gui
-end
+local BANNER_GAP = 0.4 -- between two cheers in a row
 
 local function hex(value: any, fallback: Color3): Color3
 	if type(value) ~= "string" then
@@ -88,93 +85,63 @@ function BadgeBook.init(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = NAME,
 		Title = "🏅 Badges",
-		Accent = ACCENT,
-		MaxSize = Vector2.new(560, 640),
+		MaxSize = Vector2.new(620, 640),
 	})
+
+	local chosen = categories[1] and categories[1].Id or ""
+	local cards: { Card } = {}
+	local render: () -> ()
+	local scroll: ScrollingFrame
+
+	-- THE tab column (Modal.tabs): the categories down the left.
+	local tabSpecs = {}
+	for _, category in categories do
+		table.insert(tabSpecs, { Id = category.Id, Icon = category.Icon, Caption = category.Name })
+	end
+	local tabView: Modal.Tabs -- (declared first: the select callback below reads it)
+	tabView = Modal.tabs(modal, tabSpecs, function(id: string)
+		chosen = id
+		for _, card in cards do
+			card.Frame.Visible = card.Def.Category == id
+		end
+		scroll.CanvasPosition = Vector2.zero
+		modal.Focus = tabView.Buttons[id]
+	end)
+	local page = tabView.Content
 
 	local boostLine = Kit.label({
 		Name = "Boosts",
 		Text = "",
 		TextScaled = true,
-		Size = UDim2.new(1, 0, 0, 28),
-		Parent = modal.Body,
+		Size = UDim2.new(1, 0, 0, BOOSTS_HEIGHT - Theme.Space.Step[1]),
+		Parent = page,
 	})
-	textLimit(boostLine, 22)
+	Kit.textLimit(boostLine, Theme.TextSize.Body)
 
-	-- The category tabs: a pale tint while waiting, full orange with outlined text when chosen.
-	local tabRow = Instance.new("Frame")
-	tabRow.Name = "Tabs"
-	tabRow.BackgroundTransparency = 1
-	tabRow.Position = UDim2.fromOffset(0, 34)
-	tabRow.Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight)
-	tabRow.Parent = modal.Body
-	local tabList = Kit.list(tabRow, Enum.FillDirection.Horizontal, 8)
-	tabList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-
-	local scroll = Instance.new("ScrollingFrame")
+	scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "List"
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
-	scroll.Position = UDim2.fromOffset(0, 34 + Theme.Size.ButtonHeight + GAP)
-	scroll.Size = UDim2.new(1, 0, 1, -(34 + Theme.Size.ButtonHeight + GAP))
+	scroll.Position = UDim2.fromOffset(0, BOOSTS_HEIGHT)
+	scroll.Size = UDim2.new(1, 0, 1, -BOOSTS_HEIGHT)
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 	scroll.ScrollBarThickness = 8
 	scroll.ScrollBarImageColor3 = Theme.Colors.Stroke
 	scroll.Selectable = false
-	scroll.Parent = modal.Body
+	scroll.Parent = page
 	local list = Kit.list(scroll, Enum.FillDirection.Vertical, GAP)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 3)
-	pad.PaddingBottom = UDim.new(0, 8)
-	pad.PaddingLeft = UDim.new(0, 4) -- scrolling frames clip: keep the tier frames whole
-	pad.PaddingRight = UDim.new(0, 12)
+	pad.PaddingTop = UDim.new(0, Theme.Space.Step[1])
+	pad.PaddingBottom = UDim.new(0, Theme.Space.Gap)
+	pad.PaddingLeft = UDim.new(0, Theme.Space.Step[1]) -- scrolling frames clip: keep the tier frames whole
+	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
 	pad.Parent = scroll
 
-	local tabs: { [string]: TextButton } = {}
-	local chosen = categories[1] and categories[1].Id or ""
-	local cards: { Card } = {}
-	local render: () -> ()
-
-	local function paintTab(button: TextButton, selected: boolean)
-		local fill = if selected then Kit.lighten(ACCENT, 0.08) else Kit.lighten(ACCENT, 0.78)
-		button.BackgroundColor3 = fill
-		button:SetAttribute("KitColor", fill)
-		button.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
-		Kit.outline(button, 2).Enabled = selected
-	end
-
 	local function choose(id: string)
-		chosen = id
-		for categoryId, button in tabs do
-			paintTab(button, categoryId == id)
-		end
-		for _, card in cards do
-			card.Frame.Visible = card.Def.Category == id
-		end
-		scroll.CanvasPosition = Vector2.zero
-		modal.Focus = tabs[id]
-	end
-
-	local count = math.max(1, #categories)
-	for index, category in categories do
-		local button = Kit.button({
-			Name = category.Id,
-			Kind = "Quiet",
-			Text = category.Icon .. " " .. category.Name,
-			TextScaled = true,
-			LayoutOrder = index,
-			Size = UDim2.new(1 / count, -8 * (count - 1) / count, 1, 0),
-			Parent = tabRow,
-		})
-		textLimit(button, 22)
-		tabs[category.Id] = button
-		button.Activated:Connect(function()
-			choose(category.Id)
-			Hud.pop(button, 1.06)
-		end)
+		tabView.select(id)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
@@ -184,23 +151,23 @@ function BadgeBook.init(ctx: Types.Ctx)
 		local frame = Instance.new("Frame")
 		frame.Name = def.Id
 		frame.LayoutOrder = index
-		frame.BackgroundColor3 = Theme.Colors.Paper
+		frame.BackgroundColor3 = Theme.Colors.Card
 		frame.BorderSizePixel = 0
 		frame.Size = UDim2.new(1, 0, 0, CARD_HEIGHT)
-		Kit.corner(frame, 16)
-		Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
+		Kit.corner(frame, Theme.Radius.Medium)
+		Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		frame.Parent = scroll
 
+		-- The badge's own tile, framed in its tier's colour (the tier is what the colour means here).
 		local tile = Instance.new("Frame")
 		tile.Name = "Tile"
 		tile.AnchorPoint = Vector2.new(0, 0.5)
-		tile.Position = UDim2.new(0, 12, 0.5, 0)
+		tile.Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0)
 		tile.Size = UDim2.fromOffset(80, 80)
+		tile.BackgroundColor3 = Theme.Colors.Well
 		tile.BorderSizePixel = 0
-		Kit.corner(tile, 20)
-		local tileStroke = Kit.stroke(tile, NO_TIER, 6)
-		Palette.candyGradient(tile)
-		Kit.gloss(tile, 6)
+		Kit.corner(tile, Theme.Radius.Medium)
+		local tileStroke = Kit.stroke(tile, NO_TIER, Theme.Stroke.Bold)
 		tile.Parent = frame
 		Kit.label({
 			Name = "Icon",
@@ -226,62 +193,65 @@ function BadgeBook.init(ctx: Types.Ctx)
 		local title = Kit.label({
 			Name = "Title",
 			Text = def.Name,
+			Font = Theme.DisplayFont,
 			TextScaled = true,
+			TextWrapped = false,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(left, 8),
-			Size = UDim2.new(1, -left - 10, 0, 28),
+			Position = UDim2.fromOffset(left, Theme.Space.Gap),
+			Size = UDim2.new(1, -left - Theme.Space.PadCard, 0, 28),
 			Parent = frame,
 		})
-		textLimit(title, 24)
+		Kit.textLimit(title, Theme.TextSize.Body)
 		local goal = Kit.label({
 			Name = "Goal",
 			Text = def.Goal,
 			TextScaled = true,
+			TextWrapped = false,
 			TextColor3 = Theme.Colors.InkSoft,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Position = UDim2.fromOffset(left, 38),
-			Size = UDim2.new(1, -left - 10, 0, 20),
+			Size = UDim2.new(1, -left - Theme.Space.PadCard, 0, 22),
 			Parent = frame,
 		})
-		textLimit(goal, 18)
+		Kit.textLimit(goal, Theme.TextSize.Caption)
 
 		local track = Instance.new("Frame")
 		track.Name = "Track"
-		track.Position = UDim2.fromOffset(left, 64)
-		track.Size = UDim2.new(1, -left - 96, 0, 18)
-		track.BackgroundColor3 = Theme.Colors.Paper
+		track.Position = UDim2.fromOffset(left, 66)
+		track.Size = UDim2.new(1, -left - 96, 0, 16)
+		track.BackgroundColor3 = Theme.Colors.Well
 		track.BorderSizePixel = 0
-		Kit.corner(track, 9)
-		Kit.stroke(track, Theme.Colors.Outline, 2)
+		Kit.corner(track, Theme.Radius.Small)
 		track.Parent = frame
 		local fill = Instance.new("Frame")
 		fill.Name = "Fill"
 		fill.Size = UDim2.fromScale(0, 1)
 		fill.BorderSizePixel = 0
-		Kit.corner(fill, 9)
-		Palette.candyGradient(fill)
+		Kit.corner(fill, Theme.Radius.Small)
 		fill.Parent = track
 		local countLabel = Kit.label({
 			Name = "Count",
 			Text = "",
+			Font = Theme.DisplayFont,
 			TextScaled = true,
-			Outlined = true,
+			TextWrapped = false,
 			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -10, 0, 60),
+			Position = UDim2.new(1, -Theme.Space.PadCard, 0, 60),
 			Size = UDim2.fromOffset(80, 26),
 			Parent = frame,
 		})
-		textLimit(countLabel, 20)
+		Kit.textLimit(countLabel, Theme.TextSize.Body)
 		local nextLabel = Kit.label({
 			Name = "Next",
 			Text = "",
 			TextScaled = true,
+			TextWrapped = false,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Position = UDim2.fromOffset(left, 92),
-			Size = UDim2.new(1, -left - 10, 0, 22),
+			Size = UDim2.new(1, -left - Theme.Space.PadCard, 0, 24),
 			Parent = frame,
 		})
-		textLimit(nextLabel, 20)
+		Kit.textLimit(nextLabel, Theme.TextSize.Body)
 
 		table.insert(cards, {
 			Frame = frame,
@@ -307,7 +277,7 @@ function BadgeBook.init(ctx: Types.Ctx)
 			local value = BadgesLogic.statValue(state, def.Stat)
 			local tierColor = if tier then hex(tier.Color, NO_TIER) else NO_TIER
 			card.TileStroke.Color = tierColor
-			card.Tile.BackgroundColor3 = if tier then Kit.lighten(tierColor, 0.45) else Theme.Colors.Card
+			card.Tile.BackgroundColor3 = if tier then Kit.lighten(tierColor, 0.55) else Theme.Colors.Well
 			card.Medal.Text = if tier then tier.Icon else ""
 			card.Title.Text = def.Name .. (if tier then " · " .. tier.Name else "")
 			local nextTier = tiers[tierIndex + 1]
@@ -337,56 +307,12 @@ function BadgeBook.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The banner: tier-ups and Doctor ranks
+	-- The cheer: tier-ups and Doctor ranks, one at a time, through THE notice stack (the bus "Banner")
 	--------------------------------------------------------------------------------------------------------------
-	local bannerGui = Kit.screen("CheerBanner", Theme.DisplayOrder.Fx)
-	local banner = Instance.new("Frame")
-	banner.Name = "Banner"
-	banner.AnchorPoint = Vector2.new(0.5, 0)
-	banner.Position = UDim2.new(0.5, 0, 0, 84)
-	banner.Size = UDim2.fromOffset(360, 96)
-	banner.BackgroundColor3 = Kit.lighten(ACCENT, 0.08)
-	banner.BorderSizePixel = 0
-	banner.Visible = false
-	Kit.corner(banner, 26)
-	Kit.stroke(banner, Theme.Colors.Outline, Theme.Size.StrokeLarge)
-	Palette.candyGradient(banner)
-	Kit.gloss(banner, 18)
-	banner.Parent = bannerGui
-	local limit = Instance.new("UISizeConstraint")
-	limit.MaxSize = Vector2.new(360, 96)
-	limit.Parent = banner
-	local bannerHolder = Instance.new("Frame")
-	bannerHolder.Name = "Holder"
-	bannerHolder.AnchorPoint = Vector2.new(0, 0.5)
-	bannerHolder.Position = UDim2.new(0, 10, 0.5, 0)
-	bannerHolder.Size = UDim2.fromOffset(76, 76)
-	bannerHolder.BackgroundTransparency = 1
-	bannerHolder.Parent = banner
-	local bannerRays = Kit.rays(bannerHolder, Theme.Colors.Cash)
-	local bannerIcon = Kit.label({
-		Name = "Icon",
-		Text = "",
-		TextScaled = true,
-		Size = UDim2.fromScale(1, 1),
-		Parent = bannerHolder,
-	})
-	local bannerText = Kit.label({
-		Name = "Text",
-		Text = "",
-		TextScaled = true,
-		Outlined = true,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 96, 0.5, 0),
-		Size = UDim2.new(1, -108, 0, 56),
-		Parent = banner,
-	})
-	textLimit(bannerText, 30)
-	Kit.outline(bannerText, 3)
-
 	type Cheer = { Icon: string, Text: string, Color: Color3 }
 	local queue: { Cheer } = {}
 	local showing = false
+	local cheers = 0
 	local function showNext()
 		if showing then
 			return
@@ -398,19 +324,17 @@ function BadgeBook.init(ctx: Types.Ctx)
 					task.wait(1)
 				end
 				local cheer = table.remove(queue, 1) :: Cheer
-				bannerIcon.Text = cheer.Icon
-				bannerText.Text = cheer.Text
-				for _, ray in bannerRays:GetChildren() do
-					if ray:IsA("Frame") then
-						ray.BackgroundColor3 = Kit.lighten(cheer.Color, 0.2)
-					end
-				end
-				Kit.popIn(banner)
-				Kit.bump(bannerIcon)
+				cheers += 1
+				local banner: Types.BannerSpec = {
+					Id = "Cheer" .. cheers,
+					Icon = cheer.Icon,
+					Text = cheer.Text,
+					Color = cheer.Color,
+					Seconds = BANNER_SECONDS,
+				}
+				ctx.fire("Banner", banner)
 				Hud.sound("Fanfare")
-				task.wait(BANNER_SECONDS)
-				Kit.popOut(banner)
-				task.wait(0.4)
+				task.wait(BANNER_SECONDS + BANNER_GAP)
 			end
 			showing = false
 		end)
@@ -419,7 +343,11 @@ function BadgeBook.init(ctx: Types.Ctx)
 		if type(icon) ~= "string" or type(text) ~= "string" then
 			return
 		end
-		table.insert(queue, { Icon = icon, Text = text, Color = if typeof(color) == "Color3" then color else ACCENT })
+		table.insert(queue, {
+			Icon = icon,
+			Text = text,
+			Color = if typeof(color) == "Color3" then color else Theme.Colors.Cash,
+		})
 		showNext()
 	end
 	ctx.on("Cheer", cheer)
@@ -442,14 +370,14 @@ function BadgeBook.init(ctx: Types.Ctx)
 				end
 			end
 			if #ups > 2 then
-				cheer("🏅", #ups .. " badges up!", ACCENT) -- one banner, not a long queue
+				cheer("🏅", #ups .. " badges up!", Theme.Colors.Cash) -- one banner, not a long queue
 			else
 				for _, up in ups do
 					local tier = up.Tier
 					cheer(
 						up.Def.Icon,
 						tier.Icon .. " " .. tier.Name .. " " .. up.Def.Name .. "!",
-						hex(tier.Color, ACCENT)
+						hex(tier.Color, Theme.Colors.Cash)
 					)
 				end
 			end

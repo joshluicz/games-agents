@@ -9,10 +9,11 @@
 -- "Leaderboards open when the game is live" and your bar still shows your value.
 -- Everything comes from the server's GetBoards (its cache: no DataStore call), asked when the panel opens and every
 -- POLL_SECONDS while it stays open. The client only shows it.
--- Look (candy pop, memory-20261116-007): the yellow 🏆 header shows the open board's title; tabs down the left like
--- the Shop; white rows with a thick outline (gold, silver, bronze for the top 3, your own row in the board's colour);
--- your bar in the board's colour with white outlined text. Phone-friendly: the tab column fits the height (and
--- scrolls when five tabs at 56 px don't fit a short landscape phone), the rows scroll, your bar stays put.
+-- Look (the look overhaul's template, look build plan §B8): UI/Modal's navy header, its meta chip naming the open
+-- board ("🏥 Most Cured"); Modal.tabs down the left, each board's own colour as its tab's 6 px stripe; tinted rows
+-- (the medal tints stay for the top 3, your own row gets the Bold outline); your bar pinned under them on the navy
+-- of the header, in white outlined text. Phone-friendly: the tab column fits the height (and scrolls when five tabs
+-- at 56 px don't fit a short landscape phone), the rows scroll, your bar stays put.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -22,12 +23,12 @@ local Palette = require(Shared:WaitForChild("Palette"))
 local Leaderboard = require(Shared:WaitForChild("Logic"):WaitForChild("Leaderboard"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
+local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
 
 local Boards = {}
 
 local TITLE = "🏆 Leaderboards"
-local TAB_WIDTH = Theme.Size.IconButton
 local ROW_HEIGHT = 52
 local YOU_HEIGHT = 56
 local RANK_WIDTH = 48
@@ -35,9 +36,10 @@ local VALUE_WIDTH = 116
 local POLL_SECONDS = 20
 local ASK_TIMEOUT = 10
 local MEDALS = { "🥇", "🥈", "🥉" }
+-- The medal tints for the top 3 (gold, silver, bronze); everyone else is the plain card.
 local ROW_TINTS = {
 	Kit.lighten(Palette.Candy.Yellow, 0.62),
-	Color3.fromRGB(222, 228, 244),
+	Theme.Colors.Well,
 	Kit.lighten(Palette.Candy.Orange, 0.66),
 }
 
@@ -47,37 +49,6 @@ local function colorOf(id: string): Color3
 	local def = Leaderboard.BOARDS[id]
 	local color = def and rawget(Palette.Candy :: any, def.Color)
 	return if typeof(color) == "Color3" then color else Theme.Colors.Secondary
-end
-
-local function textLimit(label: TextLabel, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 12
-	limit.Parent = label
-end
-
-local function borderOf(gui: Instance): UIStroke?
-	for _, child in gui:GetChildren() do
-		if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
-			return child
-		end
-	end
-	return nil
-end
-
--- The Shop's tab look: the selected tab in its full colour with a thicker outline, the rest pale.
-local function paintTab(button: TextButton, selected: boolean, color: Color3)
-	button.BackgroundColor3 = if selected then Kit.lighten(color, 0.08) else Kit.lighten(color, 0.78)
-	local border = borderOf(button)
-	if border then
-		border.Color = Theme.Colors.Outline
-		border.Thickness = if selected then Theme.Size.StrokeLarge else Theme.Size.Stroke
-	end
-	local caption = button:FindFirstChild("Caption")
-	if caption and caption:IsA("TextLabel") then
-		caption.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
-		Kit.outline(caption, 2).Enabled = selected
-	end
 end
 
 -- A server answer, checked field by field (it is the server's, but a bad one must never break the panel).
@@ -143,36 +114,23 @@ function Boards.init(ctx: Types.Ctx)
 		Title = TITLE,
 		MaxSize = Vector2.new(640, 580),
 	})
-	local titleLabel = modal.Panel:FindFirstChild("Title")
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Tabs down the left, the page on the right: the rows (scrolling) and your bar under them
+	-- THE tabs (Modal.tabs: the column scrolls so five fit a short phone), the page beside them: the rows
+	-- (scrolling) and your bar under them
 	--------------------------------------------------------------------------------------------------------------
-	-- A scrolling column (like the Book's): five tabs never fall off a short phone's panel.
-	local tabColumn = Instance.new("ScrollingFrame")
-	tabColumn.Name = "Tabs"
-	tabColumn.BackgroundTransparency = 1
-	tabColumn.BorderSizePixel = 0
-	tabColumn.Size = UDim2.new(0, TAB_WIDTH + 10, 1, 0) -- room for the selected tab's thick outline
-	tabColumn.CanvasSize = UDim2.new()
-	tabColumn.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	tabColumn.ScrollingDirection = Enum.ScrollingDirection.Y
-	tabColumn.ScrollBarThickness = 0
-	tabColumn.Selectable = false
-	tabColumn.Parent = modal.Body
-	local tabList = Kit.list(tabColumn, Enum.FillDirection.Vertical, 8)
-	tabList.VerticalAlignment = Enum.VerticalAlignment.Top
-	local tabPad = Instance.new("UIPadding")
-	tabPad.PaddingTop = UDim.new(0, 5)
-	tabPad.PaddingBottom = UDim.new(0, 5)
-	tabPad.Parent = tabColumn
-
-	local page = Instance.new("Frame")
-	page.Name = "Page"
-	page.BackgroundTransparency = 1
-	page.Position = UDim2.fromOffset(TAB_WIDTH + 10 + Theme.Size.Gap, 0)
-	page.Size = UDim2.new(1, -(TAB_WIDTH + 10 + Theme.Size.Gap), 1, 0)
-	page.Parent = modal.Body
+	local current = ids[1]
+	local selectTab: (id: string) -> () = function() end
+	local tabSpecs = {}
+	for _, id in ids do
+		local def = Leaderboard.BOARDS[id]
+		table.insert(tabSpecs, { Id = id, Icon = def.Icon, Caption = def.Caption, Stripe = colorOf(id) })
+	end
+	local tabView = Modal.tabs(modal, tabSpecs, function(id: string)
+		selectTab(id)
+	end)
+	local tabButtons = tabView.Buttons
+	local page = tabView.Content
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "Rows"
@@ -204,8 +162,8 @@ function Boards.init(ctx: Types.Ctx)
 		frame.BackgroundColor3 = ROW_TINTS[rank] or Theme.Colors.Card
 		frame.BorderSizePixel = 0
 		frame.Visible = false
-		Kit.corner(frame, 14)
-		local stroke = Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
+		Kit.corner(frame, Theme.Radius.Medium)
+		local stroke = Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		frame.Parent = scroll
 
 		local rankLabel = Kit.label({
@@ -218,10 +176,10 @@ function Boards.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(RANK_WIDTH - 8, ROW_HEIGHT - 14),
 			Parent = frame,
 		})
-		textLimit(rankLabel, 30)
+		Kit.textLimit(rankLabel, Theme.TextSize.Title)
 		local nameLabel = Kit.label({
 			Name = "Name",
-			TextSize = Theme.TextSize.Body - 2,
+			TextSize = Theme.TextSize.Caption + 2,
 			TextWrapped = false,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -251,7 +209,7 @@ function Boards.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(VALUE_WIDTH, ROW_HEIGHT - 18),
 			Parent = frame,
 		})
-		textLimit(valueLabel, 28)
+		Kit.textLimit(valueLabel, Theme.TextSize.Title)
 		rows[rank] = {
 			Frame = frame,
 			Stroke = stroke,
@@ -274,19 +232,18 @@ function Boards.init(ctx: Types.Ctx)
 		Visible = false,
 		Parent = page,
 	})
-	textLimit(message, Theme.TextSize.Title)
+	Kit.textLimit(message, Theme.TextSize.Title)
 
-	-- Your own bar, pinned at the bottom in the board's colour.
+	-- Your own bar, pinned at the bottom on the header's navy (the template's footer: "your bar").
 	local you = Instance.new("Frame")
 	you.Name = "You"
 	you.AnchorPoint = Vector2.new(0, 1)
-	you.Position = UDim2.new(0, 3, 1, -3)
-	you.Size = UDim2.new(1, -15, 0, YOU_HEIGHT - 6)
+	you.Position = UDim2.new(0, Theme.Space.Step[1], 1, -Theme.Space.Step[1])
+	you.Size = UDim2.new(1, -Theme.Space.Step[5], 0, YOU_HEIGHT - Theme.Space.Gap)
+	you.BackgroundColor3 = Theme.Colors.Header
 	you.BorderSizePixel = 0
-	Kit.corner(you, 16)
-	Kit.stroke(you, Theme.Colors.Outline, Theme.Size.Stroke)
-	Palette.candyGradient(you)
-	Kit.gloss(you)
+	Kit.corner(you, Theme.Radius.Medium)
+	Kit.stroke(you, Theme.Colors.Stroke, Theme.Stroke.Bold)
 	you.Parent = page
 	local youText = Kit.label({
 		Name = "Place",
@@ -300,7 +257,7 @@ function Boards.init(ctx: Types.Ctx)
 		ZIndex = 2,
 		Parent = you,
 	})
-	textLimit(youText, 30)
+	Kit.textLimit(youText, Theme.TextSize.Title)
 	local youValue = Kit.label({
 		Name = "Value",
 		Outlined = true,
@@ -313,14 +270,12 @@ function Boards.init(ctx: Types.Ctx)
 		ZIndex = 2,
 		Parent = you,
 	})
-	textLimit(youValue, 30)
+	Kit.textLimit(youValue, Theme.TextSize.Title)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Drawing
 	--------------------------------------------------------------------------------------------------------------
-	local current = ids[1]
 	local latest: Leaderboard.Payload? = nil
-	local tabButtons: { [string]: TextButton } = {}
 
 	local function boardOf(payload: Leaderboard.Payload?, id: string): Leaderboard.BoardPayload?
 		if not payload then
@@ -336,11 +291,7 @@ function Boards.init(ctx: Types.Ctx)
 
 	local function render()
 		local def = Leaderboard.BOARDS[current]
-		local color = colorOf(current)
-		if titleLabel and titleLabel:IsA("TextLabel") then
-			titleLabel.Text = if def then def.Icon .. " " .. def.Title else TITLE
-		end
-		you.BackgroundColor3 = Kit.lighten(color, 0.08)
+		modal.setMeta(if def then def.Icon .. " " .. def.Title else "")
 
 		local payload = latest
 		local status: Leaderboard.Status = if payload then payload.Status else "Loading"
@@ -355,10 +306,9 @@ function Boards.init(ctx: Types.Ctx)
 				row.User.Text = if entry.User ~= "" then "@" .. entry.User else ""
 				row.Value.Text = Hud.format(entry.Value)
 				local isMe = mine ~= nil and mine.Rank == rank
-				row.Frame.BackgroundColor3 = if isMe
-					then Kit.lighten(color, 0.62)
-					else ROW_TINTS[rank] or Theme.Colors.Card
-				row.Stroke.Thickness = if isMe then Theme.Size.StrokeLarge else Theme.Size.Stroke
+				row.Frame.BackgroundColor3 = ROW_TINTS[rank] or Theme.Colors.Card
+				row.Stroke.Color = if isMe then Theme.Colors.Stroke else Theme.Colors.CardLine
+				row.Stroke.Thickness = if isMe then Theme.Stroke.Bold else Theme.Stroke.Fine
 			end
 		end
 		local text = if status == "Offline"
@@ -384,42 +334,16 @@ function Boards.init(ctx: Types.Ctx)
 		end
 	end
 
-	local function selectTab(id: string)
+	-- Shows a board (Modal.tabs has painted its tab already).
+	selectTab = function(id: string)
 		if not tabButtons[id] then
 			return
 		end
 		current = id
-		for tabId, button in tabButtons do
-			paintTab(button, tabId == id, colorOf(tabId))
-		end
 		modal.Focus = tabButtons[id]
 		scroll.CanvasPosition = Vector2.zero
 		render()
 	end
-
-	local tabs: { GuiObject } = {}
-	for index, id in ids do
-		local def = Leaderboard.BOARDS[id]
-		local button = Kit.iconButton({
-			Name = "Tab_" .. id,
-			Icon = def.Icon,
-			Caption = def.Caption,
-			LayoutOrder = index,
-			Size = UDim2.fromOffset(TAB_WIDTH, TAB_WIDTH),
-			Parent = tabColumn,
-		})
-		local caption = button:FindFirstChild("Caption")
-		if caption and caption:IsA("TextLabel") then
-			caption.TextScaled = true
-			textLimit(caption, Theme.TextSize.Small)
-		end
-		button.Activated:Connect(function()
-			selectTab(id)
-		end)
-		tabButtons[id] = button
-		table.insert(tabs, button)
-	end
-	Hud.fitTabs(tabColumn, tabs, 8)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Asking the server (its cache): when the panel opens, then every POLL_SECONDS while it's open
@@ -465,7 +389,7 @@ function Boards.init(ctx: Types.Ctx)
 		if name ~= "Boards" then
 			return
 		end
-		selectTab(current)
+		tabView.select(current)
 		modal.open()
 		session += 1
 		local mySession = session

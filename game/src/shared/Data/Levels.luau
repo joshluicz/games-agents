@@ -38,7 +38,7 @@ export type Level = {
 local LEVELS: { Level } = {
 	{
 		Name = "First-Aid Stand",
-		Icon = "⛑️",
+		Icon = "🧰", -- a kit, not the helmet emoji (it carries a white cross on red: look plan, original only)
 		Stars = 0,
 		Cash = 0,
 		Beds = 1,
@@ -73,7 +73,7 @@ local LEVELS: { Level } = {
 		SpawnSeconds = 10,
 		Floors = 2,
 		Departments = { "Reception", "AE", "Wards", "Hydro" },
-		Unlocks = { "🛁 Hydro hot tub", "🔀 Pick the floor", "✚ Big sign", "🌻 Garden" },
+		Unlocks = { "🛁 Hydro hot tub", "🔀 Pick the floor", "🐾 Big sign", "🌻 Garden" },
 	},
 	{
 		Name = "Big Hospital",

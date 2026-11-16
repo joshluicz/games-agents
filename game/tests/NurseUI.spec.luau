@@ -365,6 +365,36 @@ T.describe("NursePanel (pure): the Journal", function()
 		eq(PanelPure.branchCard("FounderFennec", snap({ Rebirth = { Pending = { "FounderFennec" } } })), "Pending")
 		eq(PanelPure.branchCard("FounderFennec", snap({ Nurses = own({ "FounderFennec" }) })), "Owned")
 	end)
+	-- The look overhaul (T7): one tab column (Modal.tabs) and the header's one meta chip.
+	test(
+		"the tab column: 👩‍⚕️ Team first, every rarity in order, then 🏢 only when there are branch nurses",
+		function()
+			local order = Rarities.Order
+			local ids = PanelPure.tabIds(order, #PanelPure.branchNurses(Nurses) > 0)
+			eq(ids[1], "Team")
+			for index, rarity in order do
+				eq(ids[index + 1], rarity)
+			end
+			eq(ids[#ids], "Branch")
+			eq(#ids, #order + 2)
+			eq(PanelPure.tabIds({ "Common", "Rare" }, false), { "Team", "Common", "Rare" })
+			-- every view openView can pick is a tab (so Modal.tabs' select always has a page to show)
+			for _, tab in { "Team", "Branch", "Rare", "Nope" } do
+				eq(table.find(ids, PanelPure.openView(tab, {}, Nurses, order, nil)) ~= nil, true)
+			end
+			eq(table.find(ids, PanelPure.openView(nil, { PuffPup = "Level" }, Nurses, order, nil)) ~= nil, true)
+		end
+	)
+	test("the meta chip: the journal's completion, whole percent", function()
+		eq(PanelPure.metaText(0), "📔 0%")
+		eq(PanelPure.metaText(31), "📔 31%")
+		eq(PanelPure.metaText(100), "📔 100%")
+		eq(PanelPure.metaText(nil), "📔 0%")
+		eq(PanelPure.metaText(0 / 0), "📔 0%")
+		local journal = NurseLogic.journal({}, Nurses, Rarities)
+		eq(PanelPure.metaText(journal.Percent), "📔 0%")
+		assertWords(PanelPure.metaText(journal.Percent), "meta chip")
+	end)
 end)
 
 T.describe("NursePanel (pure): the Team page", function()

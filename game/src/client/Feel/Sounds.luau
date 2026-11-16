@@ -20,6 +20,7 @@
 -- Restock, Triage, Splash, Brew, LevelNurse, plus Tag (🏷️ listed). Wired here: "NurseNews" Job plays Equip (the
 -- Equipped news is gone), Level LevelNurse (softly), Sold and Gone Sold, Bought Bought, Listed Tag; a Pharmacy
 -- medicine landing in your hands plays Brew instead of Make. Restock is only ever fired by a panel you have open.
+-- Look overhaul (T8): Chirp, the tutorial guide nurse's line (UI/Tutorial). Sounds.LOOK_CUES lists it.
 --
 -- Built-in sounds only (Global Constraints). Roblox ships just 11 rbxasset://sounds files today (checked in the
 -- Studio and Player content folders on 2026-11-16): character moves, a splash, the settings-slider blip, an
@@ -186,6 +187,18 @@ Sounds.CUES = table.freeze({
 	},
 	LevelNurse = { Source = "Blip", Volume = 0.45, Pitch = 1, Notes = { 0, 4, 7, 12, 16 }, Gap = 0.06, Cooldown = 0.6 },
 	Tag = { Source = "Blip", Volume = 0.28, Pitch = 1.45, Notes = { 0, 4 }, Gap = 0.05, Cooldown = 0.3 }, -- 🏷️ listed
+	-- Look overhaul (look build plan §B9, tutorial-ux §4): the tutorial's guide nurse says a line ("Hi, Doctor!"):
+	-- three quick, bright, rising-and-falling notes, softer than Heart, cut short so it never covers a Chime
+	Chirp = {
+		Source = "Blip",
+		Volume = 0.26,
+		Pitch = 1.55,
+		Notes = { 0, 5, 2 },
+		Gap = 0.05,
+		Jitter = 0.03,
+		Cooldown = 0.3,
+		Length = 0.18,
+	},
 } :: { [string]: Cue })
 
 -- The cues the Progression v2 build plan lists (§B9); tests/Juice checks each one is in CUES.
@@ -204,6 +217,11 @@ Sounds.V2_CUES = table.freeze({
 	"Splash",
 	"Brew",
 	"LevelNurse",
+})
+
+-- The cues the look overhaul adds (look build plan §D T8); tests/TutorialFlow checks each one is in CUES.
+Sounds.LOOK_CUES = table.freeze({
+	"Chirp",
 })
 
 local MAX_LIVE = 18 -- sounds playing at once; more are skipped, never queued

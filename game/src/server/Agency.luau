@@ -324,7 +324,6 @@ local MODEL_NAME = "NurseAgency"
 local TICK = 1 -- the restock clock is checked this often
 local MAX_ID_LENGTH = 40
 local PROMPT_DISTANCE = 10
-local SIGN_PIXELS_PER_STUD = 40
 
 type Stock = { Index: number, Nurses: { string } }
 
@@ -435,57 +434,15 @@ local function announce()
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The kiosk (≤ 25 parts, no Highlight, no shadow-casting light)
+-- The kiosk (≤ 25 parts, no Highlight, no shadow-casting light). The look overhaul (look build plan §B5, T2): the
+-- town's kiosk shell from World/Props.kiosk (shared with the Market): studded walls in the Cyan accent, a dark roof
+-- instead of the striped candy awning, and the name floating over it in outlined letters, with the restock line
+-- (never a clock). The prompt and its attributes are unchanged.
 ------------------------------------------------------------------------------------------------------------------
 
-local function part(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, solid: boolean): Part
-	local p = Instance.new("Part")
-	p.Name = name
-	p.Anchored = true
-	p.Size = size
-	p.CFrame = cf
-	p.Color = color
-	p.Material = Enum.Material.SmoothPlastic
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.CastShadow = false
-	p.CanCollide = solid
-	p.Parent = parent
-	return p
-end
-
-local function ball(parent: Instance, name: string, diameter: number, cf: CFrame, color: Color3): Part
-	local p = part(parent, name, Vector3.one * diameter, cf, color, false)
-	p.Shape = Enum.PartType.Ball
-	return p
-end
-
-local function signLabel(parent: Instance, name: string, text: string, y: number, height: number, color: Color3)
-	local label = Instance.new("TextLabel")
-	label.Name = name
-	label.BackgroundTransparency = 1
-	label.AnchorPoint = Vector2.new(0.5, 0)
-	label.Position = UDim2.fromScale(0.5, y)
-	label.Size = UDim2.fromScale(0.92, height)
-	label.Font = Palette.DisplayFont
-	label.TextScaled = true
-	label.TextColor3 = color
-	label.Text = text
-	Palette.outlineText(label, 2)
-	label.Parent = parent
-end
-
-local function buildSign(sign: BasePart)
-	local gui = Instance.new("SurfaceGui")
-	gui.Name = "AgencyGui"
-	gui.Face = Enum.NormalId.Front
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = SIGN_PIXELS_PER_STUD
-	gui.LightInfluence = 0
-	gui.MaxDistance = 160
-	signLabel(gui, "Title", "🏢 Nurse Agency", 0.06, 0.52, Palette.White)
-	signLabel(gui, "Every", Pure.everyText(Config.Agency.RestockSeconds), 0.6, 0.32, Palette.Candy.Yellow)
-	gui.Parent = sign
+-- The kiosk's floating words: its name, and how often the stock changes (the panel's own words, no clock).
+local function buildSign(): (string, { string })
+	return "🏢 AGENCY", { Pure.everyText(Config.Agency.RestockSeconds) }
 end
 
 local function addPrompt(parent: BasePart): ProximityPrompt
@@ -500,59 +457,33 @@ local function addPrompt(parent: BasePart): ProximityPrompt
 	return prompt
 end
 
--- A candy booth: a counter under a striped awning with the sign on top. `frame` is the ground under its middle,
--- its LookVector toward the spawn (the counter's front).
+-- The kiosk: World/Props.kiosk's shell in the Cyan accent, and an invisible PromptPart in front of the counter.
+-- `frame` is the ground under its middle, its LookVector toward the spawn (the counter's front).
 local function placeholderKiosk(frame: CFrame): Model
-	local model = Instance.new("Model")
-	model.Name = MODEL_NAME
-	local candy = Palette.Candy
-	local white = Palette.White
+	-- Required here, not at the top: a spec that runs this module without Roblox's world never builds a kiosk.
+	local Props = require(script.Parent.World.Props)
 	local width, depth = 7, 4.5
-	part(model, "Base", Vector3.new(width, 0.4, depth), frame * CFrame.new(0, 0.2, 0), white, true)
-	part(model, "BackWall", Vector3.new(width, 6, 0.4), frame * CFrame.new(0, 3.4, depth / 2 - 0.2), candy.Cyan, true)
-	part(model, "Counter", Vector3.new(width - 1, 2.6, 1.2), frame * CFrame.new(0, 1.7, -1.1), white, true)
-	part(
-		model,
-		"CounterStripe",
-		Vector3.new(width - 0.95, 0.5, 1.25),
-		frame * CFrame.new(0, 2.5, -1.1),
-		candy.Pink,
-		false
-	)
-	for _, side in { -1, 1 } do
-		local x = side * (width / 2 - 0.35)
-		part(model, "Post", Vector3.new(0.5, 6.6, 0.5), frame * CFrame.new(x, 3.7, -(depth / 2 - 0.35)), white, true)
-		ball(model, "PostCap", 0.9, frame * CFrame.new(x, 7.15, -(depth / 2 - 0.35)), candy.Yellow)
-	end
-	part(model, "Awning", Vector3.new(width + 0.6, 0.5, depth + 0.4), frame * CFrame.new(0, 7.2, 0), candy.Cyan, false)
-	part(
-		model,
-		"AwningStripe",
-		Vector3.new(width + 0.65, 0.25, depth + 0.45),
-		frame * CFrame.new(0, 6.95, 0),
-		white,
-		false
-	)
-	for i = 1, 4 do
-		local x = (i - 2.5) * (width / 4)
-		ball(
-			model,
-			"Scallop",
-			1.1,
-			frame * CFrame.new(x, 6.85, -(depth / 2 + 0.15)),
-			if i % 2 == 0 then white else candy.Pink
-		)
-	end
-	local sign =
-		part(model, "Sign", Vector3.new(width - 0.6, 2, 0.3), frame * CFrame.new(0, 8.5, -1.4), candy.Pink, false)
-	buildSign(sign)
-	local promptPart =
-		part(model, "PromptPart", Vector3.new(1, 1, 1), frame * CFrame.new(0, 2.6, -(depth / 2 + 0.6)), white, false)
+	local title, lines = buildSign()
+	local kiosk = Props.kiosk(nil, frame, {
+		Name = MODEL_NAME,
+		Title = title,
+		Lines = lines,
+		Accent = Palette.Accent.Cyan,
+		Size = Vector2.new(width, depth),
+	})
+	local model = kiosk.Model
+	local promptPart = Instance.new("Part")
+	promptPart.Name = "PromptPart"
+	promptPart.Anchored = true
+	promptPart.Size = Vector3.new(1, 1, 1)
+	promptPart.CFrame = frame * CFrame.new(0, 2.6, -(depth / 2 + 0.6))
 	promptPart.Transparency = 1
+	promptPart.CanCollide = false
 	promptPart.CanQuery = false
 	promptPart.CanTouch = false
+	promptPart.CastShadow = false
+	promptPart.Parent = model
 	addPrompt(promptPart)
-	model.WorldPivot = frame
 	return model
 end
 

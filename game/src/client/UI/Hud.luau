@@ -1,67 +1,70 @@
 --!strict
--- Hud (build plan Task 6): the always-on screen, plus the shared UI pieces the other panels build on.
+-- Hud (build plan Task 6; look overhaul T5): the always-on screen, plus the shared UI pieces the other panels build on.
 --
--- On screen (all inside the safe area, nothing under the touch thumbstick or jump button):
---   top left      💰 cash · ⭐ stars with a bar to the next unlock (tap it: what's next) · ⚠️ not saving · 🏠 no clinic
---   top right     ☀️/🌙 day-night timer (×2 at night) · ⭐ Today's Visitor (tap: what it means), only when it
---                 can come to your clinic, ✅ once cured today (the Snapshot's VisitorStatus)
---   right middle  ⚙️ settings: a small panel with the comfort switches 🎵 music and ✨ calm effects (the client-only
---                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion),
---                 the 👆 Simple mode switch (the saved Data.Simple, asked of the server with SetSimple: every treatment
---                 mini-game becomes one tap; depth update), the owner's helpers switch "👥 Friends only" / "🤝 Anyone
---                 can help" (your plot's OpenHelpers, set by the server through SetHelpers; only while you own a
---                 clinic), plus 🛠️ Admin (opens UI/AdminPanel) only while the server has set the player attribute
---                 IsAdmin. The card grows a row for each of 👥 and 🛠️ and scales its rows down on a short screen
---   Progression v2 (build plan §C T8): no new bottom button (the seven still fit at 640 px). The Branch panel lives
---                 in 🛒's 🏥 tab: a perk card waiting or tree points to spend dot 🛒 with a 🃏 / 🌳 sticker that
---                 bounces once (never "you can open a branch"); after a rebirth its 🌳 points fly into 🛒
---                 (UI/Celebrate). The Agency and the Market live in 👩‍⚕️ and at their kiosks; a nurse you sold sends
---                 its coins flying into 💰 (NurseNews Sold / Gone)
---   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty, each
---                 with a red ✖ to throw it away) above the 🛒 📖 📬 🎯 👩‍⚕️ 🏅 🏆 buttons, each of the first five
---                 with a dot when something waits there (a room you can buy or decor to place · new pages · mail · a
---                 goal · Nurse Journal news); 👩‍⚕️ Nurses opens UI/NursePanel, 🏅 Badges UI/BadgeBook (no dot: its
---                 tier-ups celebrate by themselves) and 🏆 Top the leaderboards (UI/Boards). Seven tabs scale down
---                 together to fit between a phone's thumbstick and jump button, never under 56 px
---   under the wallet  🎁 the daily play gifts (UI/PlayGifts): a bar fills toward the next gift with the play time
---                 left on it ("3m"), "Open!" with a dot when one is ready, ✅ when all are opened
---   beside the clock  a chip per timed boost running (icon + play time left, Data/Boosts); it only counts down while
---                 you play (the PlayTotal attribute), so it never runs out while you're away
--- The 👩‍⚕️ Nurses button, its dot (bus "NursesNew") and the Simple switch are the depth update Foundation's minimal
--- hook (build plan §B9): it fires ctx.fire("Open", "Nurses") and UI/NursePanel does the rest.
--- It reveals itself to a new player (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A3),
--- driven by the Snapshot's Tutorial step: at first only 💰; ⭐ after the first cure; 🛒 at the shop step and 📖 at
--- the Book step (its pointer needs it), each with a bounce; 📬 🎯 👩‍⚕️ 🏅 🏆 🎁, the clock and the visitor chip when
--- the tutorial ends. A player who's done sees everything at once, as before. Until the first snapshot arrives
--- (Tutorial 0, "not known yet") it stays at 💰 only. ⚙️, ⚠️ and 🏠 always show when they apply.
+-- THE ZONE MAP (look build plan §B7; docs/research/2026-11-16-ux-cohesion-audit.md §3.1; memory-20261117-001 #4).
+-- Every piece belongs to ONE zone (Logic/HudZones.ZONE) and keeps its slot: a piece that isn't revealed yet leaves its
+-- slot empty, so nothing ever jumps. Laid out from HudZones.layout(safe width, safe height, top bar) on every resize:
+--   System   the Roblox top-bar row (a ScreenInsets = TopbarSafeInsets ScreenGui, beside Roblox's own buttons): ⚙️ on
+--            a dark-glass plate. On phones (a safe height under 440) the wallet joins this row
+--   Wallet   top left, above the left rail: 💰 and ⭐, each an icon plus a big outlined number (TextSize.Number) with
+--            NO pill. ⭐ keeps its thin bar and the next-unlock icon and stays tappable (what's next). The roll-ups
+--            (Kit.countUp), the floating "+n" and the mini-game's 🔥 combo sticker (never during the tutorial) stay
+--   Now      top centre: ONE card (Hud.setNow), the highest priority first: 30 Hud's warnings (⚠️ Not saving, 🏠
+--            Clinics full) · 20 the tutorial card (UI/Tutorial) · 10 the tracked goal (the first unfinished daily
+--            goal, "🎯 Cure 5 · 3/5"; a tap opens Goals). Hidden when empty. Toasts and banners stack under it
+--            (UI/Toasts, Hud.nowBottom)
+--   Status   top right, right-aligned, read-only: (1) day or night with words ("☀️ Night in 3:27" / "🌙 ×2 · 2:08 left":
+--            the day/night line keeps m:ss); (2) ONE free-event chip ("🌟 Golden Hour in 12m": Logic/NextEvent over
+--            Golden Hour only, in minutes, hidden while it runs, when it's over 6 h away and for anything paid:
+--            memory-20261116-022, CLAUDE.md red line 3); (3) "Visitor ⭐" / "Visitor ✅" with its face, only when it
+--            can come to your clinic; (4) at most 3 small boost chips (the play time left: a boost only ticks while
+--            you play). Desktop: at the screen edge, as many rows as fit above the right rail (the clock first).
+--            Phones: in the strip between the Now card and the right rail, in fewer words
+--   Rails    left, menus you browse: 🛒 Shop · 👩‍⚕️ Nurses · 📖 Book · 🏅 Badges · 🏆 Top; right, rewards waiting: 🎁
+--            Gifts · 🎯 Goals · 📬 Mail. One white Icon plate each (Kit.iconButton) with ONE shared fill: identity comes
+--            from the icon and caption, never the fill, so the Shop looks like its neighbours. A still red dot
+--            top-right when something waits there (a room you can buy or decor to place · new pages · mail · a goal
+--            done · Nurse Journal news · a gift to open). 🎁's bar fills inside its plate. Phones: 56 px plates, no
+--            captions, 3 a side, and 🏅 / 🏆 move into ⚙️ More (desktop too, when the left rail can't fit all five)
+--   Bottom   only your hands (the `Carry` attribute: what you hold, nothing when they're empty), each ringed in its
+--            station's colour with a red ✖ you HOLD to throw it away (Destructive: behind a hold, look build plan
+--            §B8). Nothing is ever in the bottom corners (the thumbstick and jump on touch)
+-- ⚙️ Settings: 🎵 music · ✨/💤 calm effects (the client-only attributes MusicMuted and ReduceEffects) · 👆 Simple mode
+-- (SetSimple) · 👥 who may help at your clinic (SetHelpers; owners only) · ⏭️ Skip tutorial while it runs, or 🔁
+-- Replay tutorial once it's done and you own a clinic (each fires a bus event: UI/Tutorial owns the confirm and the
+-- remote) · ⚙️ More (🏅 Badges, 🏆 Top, when they're off the rail) · 🛠️ Admin (only while the server set IsAdmin).
+-- When things open (UI/Modal's ModalOpened / ModalClosed carry a HudMode): a Panel hides the rails, Now and Status
+-- (the wallet stays, so you watch your cash while you shop) · the mini-game ("Game") hides the rails and Status (the
+-- wallet and the Now card stay) · a Popup ("None") changes nothing · a celebration (UI/Celebrate's screen) hides
+-- everything.
+-- First session (docs/plan/2026-11-16-first-session-design.md §A3), in the fixed slots: 💰 at first; ⭐ after the first
+-- cure; 🛒 at the shop step; 📖 at the Book step (its pointer needs it); at DONE the rest pops in, one piece every
+-- 0.15 s (after the finale's celebration closes). A replay keeps the HUD full; a player who's done sees it all at
+-- once. Until the first snapshot arrives (Tutorial 0, "not known yet") only 💰 shows. ⚙️ always shows.
 -- Everything is drawn from the Snapshot, player attributes and Workspace attributes. The client never decides
--- anything: buttons only open panels, and panels only ask the server.
+-- anything: buttons only open panels, and panels only ask the server. Every motion honours Hud.calm(); nothing here
+-- loops (the dots pop once; the Status clock only rewrites its text, and slows down while it's hidden).
+-- Progression v2: a perk card waiting or tree points to spend dot 🛒 with a 🃏 / 🌳 sticker that pops once (never
+-- "you can open a branch"); after a rebirth its 🌳 points fly into 🛒 (UI/Celebrate); a nurse you sold sends its
+-- coins flying into 💰 (NurseNews Sold / Gone).
 --
--- The look is candy pop (memory-20261116-007): every chip is its own bright colour with a glossy top, a thick dark
--- outline and big outlined display-font numbers. 💰 Cash yellow · ⭐ star-to-orange with a candy bar · the clock
--- orange by day and purple by night · Today's Visitor pink (lime once cured) · 🛒 pink · 📖 purple · 📬 blue ·
--- 🎯 lime · 👩‍⚕️ cyan · 🏅 orange · 🏆 yellow · 🎁 pink. Every motion honours Hud.calm().
--- Juice (depth update, design §4): 💰 and ⭐ roll up to their new value (Kit.countUp, ticking), never jump, with a
--- floating "+n"; when coins or stars are flying to the pill (Hud.fly) the roll waits for the first one to land. The
--- mini-game combo (the player attribute Combo, T1) rides the 💰 pill as a 🔥 sticker that grows hotter at each tip
--- step (Config.MiniGame.Combo) and pops away when it resets; it never shows during the tutorial. Panels slide up
--- as they pop in and close with a soft sound.
---
--- THE SPLIT (look build plan §A/§B7/§B8; the look overhaul's Foundation). The modal shell moved to UI/Modal (T6),
--- which never requires this module. Hud keeps these RE-EXPORTS, so no caller changed:
---   Hud.modal(ctx, spec): Modal        = Modal.modal: a panel or popup shell with ONE navy header (spec.Accent is
---                                      ignored), ✖, pop in/out, one Panel open at a time, gamepad focus and
---                                      ButtonB to close; spec.HudMode and spec.Meta are new (UI/Modal)
+-- THE SPLIT (look build plan §A/§B8). The modal shell lives in UI/Modal (T6), which never requires this module. Hud
+-- keeps these RE-EXPORTS, so no caller changed:
+--   Hud.modal(ctx, spec): Modal        = Modal.modal (it also hands Hud the bus, so Hud.sound works before Hud.init)
 --   Hud.isOpen(name?) · Hud.fitTabs(column, tabs, gap) · Hud.fitHeight(content, area, min?)   = Modal's
 --   Hud.confirm(ctx, spec, onYes)      = Modal.confirm: THE confirm ("Not now" focused; Hold for a hold-to-confirm)
 --   Hud.oddsPopup(ctx, spec)           = Modal.oddsPopup: THE odds popup (every row: the word and the number)
--- The Now slot (look build plan §B7). STUB (T5): a plain frame at the top centre, until T5 builds the zones:
+-- The Now slot (look build plan §B7):
 --   Hud.setNow(source, card?, priority) offer a card to the top-centre Now slot (nil removes that source's). The
---                                      highest priority shows; Hud parents it and centres it; the card sets its own
---                                      height. Priorities: 30 Hud's warnings · 20 "Tutorial" (T8) · 10 the tracked goal
---   Hud.nowBottom(): number            px from the screen top to the Now card's bottom (0 when empty; the stub: 0)
--- T5 also rebuilds the screen below (the rails, the wallet without pills, Status, ⚙️ More) from Logic/HudZones; until
--- then it is still the bottom-bar HUD described above.
+--                                      highest priority shows (a tie: the newest offer); Hud parents it, centres it and
+--                                      sets its width (HudZones.nowWidth); the card sets its own height. The caller
+--                                      owns its card: Hud only parents, shows and hides it
+--   Hud.nowBottom(): number            px from the screen top (the device-safe top, the top-bar row included) to the
+--                                      Now card's bottom; 0 while no card shows
+--   Hud.NowMoved: Signal (bottom)      fires whenever nowBottom changes (UI/Toasts follows it)
+--   Hud.topbar(): number               the Roblox top-bar row's height (GuiService.TopbarInset; HudZones.TOPBAR when
+--                                      it can't be read)
+--   Hud.Pure                           the zone rules in numbers and words (tests/HudScreen.spec loads the PURE block)
 --
 -- Shared helpers (the other UI modules require this module for them; none of them needs Hud.init to have run):
 --   Hud.ask(remote, ...): (ok, msg, payload?)   InvokeServer that never throws and gives up after ASK_TIMEOUT
@@ -85,7 +88,8 @@
 --   Hud.format(n): string              1,234 · 1.2M past a million
 --   Hud.target(name): GuiObject?       a HUD piece by name ("Cash", "Stars", "Shop", "Book", "Mailbox", "Goals",
 --                                      "Nurses", "Badges", "Boards", "Gifts", "Settings", "Hands"), for pointers
---                                      (UI/Tutorial) and flying icons
+--                                      (UI/Tutorial) and flying icons. The rail names are the rail plates; a piece
+--                                      moved into ⚙️ More points at ⚙️
 --   Hud.livePlay(state): (save, day, pending)   Data.Playtime as it is right now: the Snapshot's saved part plus
 --                                      the live PlayToday/PlayTotal attributes (Server/Playtime), on today's UTC
 --                                      day (yesterday's opened gifts don't count); pending = seconds not saved yet
@@ -93,30 +97,37 @@
 --   Hud.boostLine(data, state): string the "Your boosts" summary: timed ones first, then permanent percents
 --
 -- Client bus (ctx.on / ctx.fire):
---   listens  "BookNew" (count)                      BookPanel: unseen new pages, for the 📖 dot
---   listens  "NursesNew" (count)                    NursePanel: unseen Nurse Journal news, for the 👩‍⚕️ dot
---   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Nurses" |
---                                                   "Badges" | "Boards" | "Gifts" | "Admin"
---   (UI/Modal fires "ModalOpened" (name, hudMode) · "ModalClosed" (name, hudMode))
---   fires    "Sound" (name, volume?)                Nope on a shake, Pop when icons land
+--   listens  "BookNew" (count) · "NursesNew" (count)   BookPanel / NursePanel: unseen news, for the 📖 / 👩‍⚕️ dots
+--   listens  "NurseNews" (info)                        a nurse sold: its coins fly into 💰
+--   listens  "ModalOpened" (name, hudMode) · "ModalClosed" (name, hudMode)   UI/Modal: what the HUD hides meanwhile
+--   fires    "Open" (name, tab?)                       name = "Shop" | "Book" | "Mailbox" | "Goals" | "Nurses" |
+--                                                      "Badges" | "Boards" | "Gifts" | "Admin"
+--   fires    "SkipTutorial" () · "ReplayTutorial" ()   the ⚙️ rows (UI/Tutorial shows the confirm, asks the remote)
+--   fires    "Sound" (name, volume?)                   Nope on a shake, Pop when icons land
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
+local Signal = require(Shared:WaitForChild("Signal"))
 local PatientsData = require(Shared:WaitForChild("Data"):WaitForChild("Patients")) :: any
 local RegularsData = require(Shared:WaitForChild("Data"):WaitForChild("Regulars")) :: any
-local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
-local PlaytimeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Playtime"))
-local BoostsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Boosts"))
-local LevelsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Levels"))
-local ProgressLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Progress"))
-local TreeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tree"))
+local Logic = Shared:WaitForChild("Logic")
+local TutorialLogic = require(Logic:WaitForChild("Tutorial"))
+local PlaytimeLogic = require(Logic:WaitForChild("Playtime"))
+local BoostsLogic = require(Logic:WaitForChild("Boosts"))
+local LevelsLogic = require(Logic:WaitForChild("Levels"))
+local ProgressLogic = require(Logic:WaitForChild("Progress"))
+local TreeLogic = require(Logic:WaitForChild("Tree"))
+local HudZones = require(Logic:WaitForChild("HudZones"))
+local NextEvent = require(Logic:WaitForChild("NextEvent"))
 local Kit = require(script.Parent.Kit)
 local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
@@ -129,23 +140,292 @@ export type ModalSpec = Modal.ModalSpec
 export type Modal = Modal.Modal
 
 ------------------------------------------------------------------------------------------------------------------
+-- The zone rules in numbers and words
+------------------------------------------------------------------------------------------------------------------
+
+-- PURE-BEGIN
+-- No Roblox APIs: tests/HudScreen.spec loads this block on its own, with TutorialLogic, NextEvent and HudZones.
+local Pure = {}
+
+-- The Now slot's priorities (look build plan §B7): Hud's warnings · the tutorial card (UI/Tutorial) · the goal.
+Pure.PRIORITY = table.freeze({ Warning = 30, Tutorial = 20, Goal = 10 })
+Pure.STAGGER = 0.15 -- seconds between pieces as the rest of the HUD pops in at DONE
+Pure.MAX_BOOSTS = 3 -- boost chips in Status, at most
+Pure.ROW = 28 -- a Status row's height (px)
+Pure.ROW_GAP = 4
+Pure.STATUS_ORDER = table.freeze({ "Clock", "Event", "Visitor", "Boosts" }) -- top to bottom; the first rows win
+-- The free events Status may count down to (memory-20261116-022). Golden Hour only for now (look build plan §F 7);
+-- admin events join when they exist. Nothing paid is ever on this list.
+Pure.GOLDEN = table.freeze({ Id = "GoldenHour", Icon = "🌟", Name = "Golden Hour" })
+-- The hands at the bottom centre: each between Min and Max px, the row keeping Clear px free at each side (the
+-- thumbstick and the jump button sit about 100 px in from the edges).
+Pure.HAND = table.freeze({ Max = 84, Min = 56, Gap = 6, Clear = 120 })
+-- Every rail plate is the same Icon role: identity comes from the icon and caption, never the fill.
+Pure.RAIL_KIND = "Icon"
+Pure.RAIL = table.freeze({
+	Shop = table.freeze({ Icon = "🛒", Caption = "Shop" }),
+	Nurses = table.freeze({ Icon = "👩‍⚕️", Caption = "Nurses" }),
+	Book = table.freeze({ Icon = "📖", Caption = "Book" }),
+	Badges = table.freeze({ Icon = "🏅", Caption = "Badges" }),
+	Boards = table.freeze({ Icon = "🏆", Caption = "Top" }),
+	Gifts = table.freeze({ Icon = "🎁", Caption = "Gifts" }),
+	Goals = table.freeze({ Icon = "🎯", Caption = "Goals" }),
+	Mailbox = table.freeze({ Icon = "📭", Caption = "Mail" }),
+})
+-- The rows ⚙️ More shows for a rail piece that's off the rail.
+Pure.MORE = table.freeze({ Badges = "🏅 Badges", Boards = "🏆 Top" })
+-- The order the rest of the HUD pops in at DONE (the left rail, the right rail, then Status).
+Pure.REVEAL_ORDER =
+	table.freeze({ "Shop", "Nurses", "Book", "Badges", "Boards", "Gifts", "Goals", "Mailbox", "Status" })
+
+type NowEntry = { Source: string, Priority: number, Seq: number }
+type Reveal = { Stars: boolean, Shop: boolean, Book: boolean, Rest: boolean }
+type Hidden = { Rails: boolean, Now: boolean, Status: boolean, Wallet: boolean, System: boolean, Hands: boolean }
+type Goal = { Id: string, Icon: string, Text: string, Ratio: number }
+type StatusBox = { X1: number, Top: number, Width: number, Rows: number, Compact: boolean }
+
+local function finite(value: any): boolean
+	return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
+end
+
+-- The Now slot: the highest priority shows; on a tie, the newest offer.
+function Pure.nowPick(offers: { NowEntry }): string?
+	local best: NowEntry? = nil
+	for _, offer in offers do
+		if type(offer) == "table" and type(offer.Source) == "string" and finite(offer.Priority) then
+			local seq = if finite(offer.Seq) then offer.Seq else 0
+			if
+				best == nil
+				or offer.Priority > best.Priority
+				or (offer.Priority == best.Priority and seq > (if finite(best.Seq) then best.Seq else 0))
+			then
+				best = offer
+			end
+		end
+	end
+	return if best then best.Source else nil
+end
+
+-- "m:ss" (never negative; minutes grow past 59).
+function Pure.clock(seconds: any): string
+	local left = if finite(seconds) then math.max(0, math.floor(seconds)) else 0
+	return string.format("%d:%02d", left // 60, left % 60)
+end
+
+-- Status row 1: day or night with words. `left` is the seconds to the next phase (nil: not known yet, so ""), `pay`
+-- the night pay multiplier. Compact (a phone's narrow column) drops words.
+function Pure.dayLine(night: boolean, left: any, pay: any, compact: boolean?): string
+	if not finite(left) then
+		return ""
+	end
+	local time = Pure.clock(left)
+	if night then
+		local times = if finite(pay) and pay > 1 then "×" .. tostring(pay) .. " · " else ""
+		return "🌙 " .. times .. time .. (if compact then "" else " left")
+	end
+	return if compact then "🌙 in " .. time else "☀️ Night in " .. time
+end
+
+-- The candidates for the free-event chip: Golden Hour (Workspace GoldenStartsAt / GoldenHour, NurseBelt) while it's
+-- still to come. Never one with Paid = true: there is no paid event on this list (red line 3).
+function Pure.eventCandidates(startsAt: any, running: any): { any }
+	if running == true or not finite(startsAt) then
+		return {}
+	end
+	return {
+		{ Id = Pure.GOLDEN.Id, Icon = Pure.GOLDEN.Icon, Name = Pure.GOLDEN.Name, At = startsAt, Paid = false },
+	}
+end
+
+-- Status row 2: the one free-event chip, or nil (none within 6 h). Minutes, never seconds (NextEvent.label).
+function Pure.eventChip(now: number, candidates: { any }, compact: boolean?): string?
+	local view = NextEvent.pick(now, candidates)
+	if not view then
+		return nil
+	end
+	local when = NextEvent.label(view.At - now)
+	return if compact then view.Icon .. " " .. when else view.Icon .. " " .. view.Name .. " " .. when
+end
+
+-- Status row 3: Today's Visitor with a word, only while it can come to your clinic ("Coming") or once it's cured.
+function Pure.visitorLine(status: any): string?
+	if status == "Coming" then
+		return "Visitor ⭐"
+	elseif status == "Done" then
+		return "Visitor ✅"
+	end
+	return nil
+end
+
+-- A daily goal in two or three words: "Cure 5", "Cure 3 🌙", "Make 10", "Cure 6 🌳" (the wing's icon).
+function Pure.goalName(def: any, wings: any): string
+	local target = tostring(def.Target)
+	if def.Kind == "Make" then
+		return "Make " .. target
+	elseif def.Kind == "CureNight" then
+		return "Cure " .. target .. " 🌙"
+	elseif def.Kind == "CureWing" then
+		local wing = if type(wings) == "table" and type(def.Wing) == "string" then rawget(wings, def.Wing) else nil
+		local icon = if type(wing) == "table" and type(wing.Icon) == "string" then " " .. wing.Icon else ""
+		return "Cure " .. target .. icon
+	end
+	return "Cure " .. target
+end
+
+-- The tracked goal (look build plan §F 7): the first daily goal still under its target, as "Cure 5 · 3/5" with the
+-- share done. nil when every goal is done (or there are none).
+function Pure.trackedGoal(goals: any, defs: any, wings: any): Goal?
+	if type(goals) ~= "table" or type(defs) ~= "table" then
+		return nil
+	end
+	for _, goal in ipairs(goals) do
+		if type(goal) == "table" then
+			for _, def in ipairs(defs) do
+				if type(def) == "table" and def.Id == goal.Id and finite(def.Target) and def.Target > 0 then
+					local progress = if finite(goal.Progress) then math.max(0, math.floor(goal.Progress)) else 0
+					if progress < def.Target then
+						return {
+							Id = def.Id,
+							Icon = "🎯",
+							Text = Pure.goalName(def, wings) .. " · " .. progress .. "/" .. def.Target,
+							Ratio = progress / def.Target,
+						}
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- The first-session reveal: what shows at each tutorial step (a snapshot without the field counts as done). A replay
+-- keeps everything.
+function Pure.reveal(step: any, curedSeen: boolean?, replay: boolean?): Reveal
+	local s = if type(step) == "number" then step else TutorialLogic.DONE
+	if replay == true or TutorialLogic.isDone(s) then
+		return { Stars = true, Shop = true, Book = true, Rest = true }
+	elseif not TutorialLogic.active(s) then
+		return { Stars = false, Shop = false, Book = false, Rest = false } -- 0: not known yet
+	end
+	return {
+		Stars = s >= TutorialLogic.MORE or (s >= TutorialLogic.REST and curedSeen == true),
+		Shop = s >= TutorialLogic.SHOP,
+		Book = s >= TutorialLogic.BOOK,
+		Rest = false,
+	}
+end
+
+-- The HudMode in force: the strongest of the open modals' modes (Game > Panel > None).
+function Pure.mode(open: { [string]: string }): string
+	local mode = "None"
+	for _, value in open do
+		if value == "Game" then
+			return "Game"
+		elseif value == "Panel" then
+			mode = "Panel"
+		end
+	end
+	return mode
+end
+
+-- What hides (look build plan §B7): a Panel hides the rails, Now and Status; the mini-game ("Game") the rails and
+-- Status; a celebration everything; "None" (a Popup) nothing.
+function Pure.hidden(mode: string, celebrating: boolean?): Hidden
+	if celebrating == true then
+		return { Rails = true, Now = true, Status = true, Wallet = true, System = true, Hands = true }
+	end
+	local panel, game = mode == "Panel", mode == "Game"
+	return {
+		Rails = panel or game,
+		Now = panel,
+		Status = panel or game,
+		Wallet = false,
+		System = false,
+		Hands = false,
+	}
+end
+
+-- The ⚙️ panel's rows, in order. `more` lists the rail pieces off the rail (revealed ones only).
+function Pure.settingsRows(step: any, hasPlot: boolean?, isAdmin: boolean?, more: { string }?): { string }
+	local rows = { "Music", "Effects", "Simple" }
+	if hasPlot == true then
+		table.insert(rows, "Helpers")
+	end
+	if TutorialLogic.canSkip(step) then
+		table.insert(rows, "Skip")
+	elseif TutorialLogic.canReplay(step, hasPlot == true) then
+		table.insert(rows, "Replay")
+	end
+	for _, piece in more or {} do
+		if Pure.MORE[piece] then
+			table.insert(rows, piece)
+		end
+	end
+	if isAdmin == true then
+		table.insert(rows, "Admin")
+	end
+	return rows
+end
+
+-- One hand's side (px) for `count` hands on a screen `width` px wide.
+function Pure.handSize(width: any, count: any): number
+	local n = if finite(count) then math.max(1, math.floor(count)) else 1
+	local room = (if finite(width) then width else 0) - 2 * Pure.HAND.Clear - (n - 1) * Pure.HAND.Gap
+	return math.clamp(math.floor(room / n), Pure.HAND.Min, Pure.HAND.Max)
+end
+
+-- Where Status stands (px from the top left): its right edge X1, its top and width, how many rows fit, and whether
+-- it speaks in fewer words. Desktop and tablet: at the screen edge, as many rows as fit above the right rail. Phones:
+-- the right rail starts right under the top bar, so Status stands in the strip between the Now card and the rail.
+function Pure.statusBox(layout: HudZones.Layout, safeW: number): StatusBox
+	local top = layout.Top + 8
+	if layout.Phone then
+		local x1 = safeW - layout.Margin - layout.Button - layout.Gap
+		local now = HudZones.nowRect(layout, safeW)
+		return { X1 = x1, Top = top, Width = math.max(0, x1 - (now.X1 + 8)), Rows = #Pure.STATUS_ORDER, Compact = true }
+	end
+	local room = layout.RailTop - 8 - top
+	local rows = math.clamp(math.floor((room + Pure.ROW_GAP) / (Pure.ROW + Pure.ROW_GAP)), 1, #Pure.STATUS_ORDER)
+	return { X1 = safeW - layout.Margin, Top = top, Width = layout.StatusWidth, Rows = rows, Compact = false }
+end
+
+-- Toasts and banners start 8 px under the Now card, or under the top bar when no card shows (px from the top).
+function Pure.noticeTop(nowBottom: any, topbar: any): number
+	if finite(nowBottom) and nowBottom > 0 then
+		return nowBottom + 8
+	end
+	return (if finite(topbar) and topbar >= 0 then topbar else HudZones.TOPBAR) + 8
+end
+
+-- The notice stack is as wide as the Now card (at least 240 px, or the screen less its margins if that's narrower).
+function Pure.noticeWidth(layout: HudZones.Layout, safeW: number): number
+	return math.max(layout.NowWidth, math.min(240, safeW - 2 * layout.Margin))
+end
+
+-- The first `max` (default MAX_BOOSTS) running boosts.
+function Pure.boosts(live: any, max: number?): { any }
+	local out = {}
+	if type(live) == "table" then
+		for _, entry in ipairs(live) do
+			if #out >= (max or Pure.MAX_BOOSTS) then
+				break
+			end
+			table.insert(out, entry)
+		end
+	end
+	return out
+end
+-- PURE-END
+
+Hud.Pure = Pure
+
+------------------------------------------------------------------------------------------------------------------
 -- Small helpers
 ------------------------------------------------------------------------------------------------------------------
 
 local FLOAT_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local POP_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
--- The big bottom buttons, each its own candy Kind (T5 turns them into the rails' white plates).
-type Tab = { Name: string, Icon: string, Caption: string, Kind: string, Color: Color3 }
-local TABS: { Tab } = {
-	{ Name = "Shop", Icon = "🛒", Caption = "Shop", Kind = "Pink", Color = Theme.Colors.Pink },
-	{ Name = "Book", Icon = "📖", Caption = "Book", Kind = "Purple", Color = Theme.Colors.Purple },
-	{ Name = "Mailbox", Icon = "📭", Caption = "Mail", Kind = "Secondary", Color = Theme.Colors.Secondary },
-	{ Name = "Goals", Icon = "🎯", Caption = "Goals", Kind = "Good", Color = Theme.Colors.Good },
-	{ Name = "Nurses", Icon = "👩‍⚕️", Caption = "Nurses", Kind = "Cyan", Color = Theme.Colors.Cyan }, -- depth update
-	{ Name = "Badges", Icon = "🏅", Caption = "Badges", Kind = "Primary", Color = Theme.Colors.Primary }, -- UI/BadgeBook
-	{ Name = "Boards", Icon = "🏆", Caption = "Top", Kind = "Cash", Color = Theme.Colors.Cash }, -- UI/Boards
-}
 local function commas(n: number): string
 	local digits = tostring(math.floor(math.abs(n)))
 	local grouped = string.reverse((string.gsub(string.reverse(digits), "(%d%d%d)", "%1,")))
@@ -180,7 +460,7 @@ function Hud.sound(name: string, volumeScale: number?)
 end
 
 -- Kit.punch reuses the UIScale that's already there (Kit buttons have one: two on one object fight) and tells
--- Kit's breathing and dot hops to wait until the bounce is over.
+-- Kit's breathing to wait until the bounce is over.
 function Hud.pop(gui: GuiObject?, size: number?)
 	if not gui or Hud.calm() then
 		return
@@ -220,29 +500,103 @@ Hud.fitTabs = Modal.fitTabs
 Hud.fitHeight = Modal.fitHeight
 
 ------------------------------------------------------------------------------------------------------------------
--- The Now slot (look build plan §B7). STUB (T5): a plain frame at the top centre
+-- The Now slot (look build plan §B7): one card at the top centre. It works before Hud.init (UI/Tutorial may offer
+-- its card first); Hud.init places it from the zone map on every resize.
 ------------------------------------------------------------------------------------------------------------------
 
-type NowOffer = { Card: GuiObject, Priority: number }
+Hud.NowMoved = Signal.new()
+
+function Hud.topbar(): number
+	local ok, inset = pcall(function()
+		return GuiService.TopbarInset
+	end)
+	if ok and typeof(inset) == "Rect" then
+		return math.max(0, inset.Max.Y)
+	end
+	return HudZones.TOPBAR
+end
+
+type NowOffer = { Card: GuiObject, Priority: number, Seq: number }
 local nowOffers: { [string]: NowOffer } = {}
+local nowSeq = 0
 local nowSlot: Frame? = nil
+local nowShown: GuiObject? = nil -- the card on show
+local nowWatch: { RBXScriptConnection } = {}
+local lastNowBottom = -1
+-- Zones shrinking away right now: they still draw while they go, but they already count as hidden.
+local leaving: { [GuiObject]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+function Hud.nowBottom(): number
+	local slot, card = nowSlot, nowShown
+	if not slot or not card or not slot.Visible or leaving[slot] or not card.Visible or card.Parent ~= slot then
+		return 0
+	end
+	local screen = slot:FindFirstAncestorOfClass("ScreenGui")
+	local origin = if screen then screen.AbsolutePosition.Y else 0
+	return math.max(0, math.floor(card.AbsolutePosition.Y + card.AbsoluteSize.Y - origin + 0.5))
+end
+
+local function nowChanged()
+	local bottom = Hud.nowBottom()
+	if bottom ~= lastNowBottom then
+		lastNowBottom = bottom
+		Hud.NowMoved:Fire(bottom)
+	end
+end
 
 local function nowFrame(): Frame
 	local existing = nowSlot
 	if existing then
 		return existing
 	end
-	local gui = Kit.screen("NowSlot", Theme.DisplayOrder.Hud)
+	local gui = Kit.screen("HudNow", Theme.DisplayOrder.Hud)
+	gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
 	local slot = Instance.new("Frame")
 	slot.Name = "Now"
 	slot.AnchorPoint = Vector2.new(0.5, 0)
-	slot.Position = UDim2.new(0.5, 0, 0, Theme.Space.Gap)
-	slot.Size = UDim2.fromOffset(Theme.Zone.NowMax, 0)
+	slot.Position = UDim2.new(0.5, 0, 0, Hud.topbar() + Theme.Space.Gap)
+	slot.Size = UDim2.fromOffset(HudZones.NOW_MAX, 0)
 	slot.AutomaticSize = Enum.AutomaticSize.Y
 	slot.BackgroundTransparency = 1
 	slot.Parent = gui
+	slot:GetPropertyChangedSignal("AbsolutePosition"):Connect(nowChanged)
+	slot:GetPropertyChangedSignal("Visible"):Connect(nowChanged)
 	nowSlot = slot
 	return slot
+end
+
+local function syncNow()
+	local entries: { NowEntry } = {}
+	for source, offer in nowOffers do
+		table.insert(entries, { Source = source, Priority = offer.Priority, Seq = offer.Seq })
+	end
+	local bestSource = Pure.nowPick(entries)
+	local best = if bestSource then nowOffers[bestSource] else nil
+	local slot = nowFrame()
+	for _, offer in nowOffers do
+		local card = offer.Card
+		local shown = offer == best
+		if shown then
+			card.AnchorPoint = Vector2.new(0.5, 0)
+			card.Position = UDim2.fromScale(0.5, 0)
+			card.Size = UDim2.new(1, 0, 0, card.Size.Y.Offset)
+		end
+		card.Visible = shown
+		card.Parent = slot
+	end
+	local card = if best then best.Card else nil
+	if card ~= nowShown then
+		for _, connection in nowWatch do
+			connection:Disconnect()
+		end
+		table.clear(nowWatch)
+		nowShown = card
+		if card then
+			table.insert(nowWatch, card:GetPropertyChangedSignal("AbsoluteSize"):Connect(nowChanged))
+			table.insert(nowWatch, card:GetPropertyChangedSignal("Visible"):Connect(nowChanged))
+		end
+	end
+	nowChanged()
 end
 
 function Hud.setNow(source: string, card: GuiObject?, priority: number)
@@ -250,29 +604,18 @@ function Hud.setNow(source: string, card: GuiObject?, priority: number)
 	if old and old.Card ~= card then
 		old.Card.Parent = nil -- the caller owns its card: Hud only shows or hides it
 	end
-	nowOffers[source] = if card then { Card = card, Priority = priority } else nil
-	local best: NowOffer? = nil
-	for _, offer in nowOffers do
-		if best == nil or offer.Priority > best.Priority then
-			best = offer
+	if card then
+		local rank = if type(priority) == "number" and priority == priority then priority else 0
+		if old and old.Card == card then
+			old.Priority = rank
+		else
+			nowSeq += 1
+			nowOffers[source] = { Card = card, Priority = rank, Seq = nowSeq }
 		end
+	else
+		nowOffers[source] = nil
 	end
-	local slot = nowFrame()
-	for _, offer in nowOffers do
-		local shown = offer == best
-		offer.Card.Visible = shown
-		if shown then
-			offer.Card.AnchorPoint = Vector2.new(0.5, 0)
-			offer.Card.Position = UDim2.fromScale(0.5, 0)
-			offer.Card.Size = UDim2.new(1, 0, 0, offer.Card.Size.Y.Offset)
-		end
-		offer.Card.Parent = slot
-	end
-end
-
--- STUB (T5): the real one measures the card. Toasts stack under it.
-function Hud.nowBottom(): number
-	return 0
+	syncNow()
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -747,103 +1090,166 @@ function Hud.fly(from: any, icon: string, target: string?, count: number?)
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The HUD itself
+-- Pieces of the screen
 ------------------------------------------------------------------------------------------------------------------
 
--- Candy fills are a touch lighter than the base colour, like Kit's buttons, so the gradient can deepen them.
-local function candy(color: Color3): Color3
-	return Kit.lighten(color, 0.08)
+local WALLET_ICON = 40 -- 💰 / ⭐ icons (px)
+local WALLET_ROW = 52 -- the 💰 row; ⭐ is a full 56 px tap target
+local STAR_BAR = Vector2.new(90, 10) -- ⭐'s thin bar to the next unlock
+local NOW_CARD = 56 -- Hud's own Now cards (a warning, the tracked goal): one tappable row
+local THROW_HOLD = 0.5 -- seconds to hold a hand's ✖ (throwing away can't be undone: Destructive, behind a hold)
+local THROW_HINT_EVERY = 3 -- seconds between "hold it" hints
+
+-- Shows or hides a zone. With motion it pops in and shrinks away (Kit.popIn / popOut: both honour reduced motion); a
+-- zone shrinking away already counts as hidden (`leaving`), so the Now card's bottom and the toasts move at once.
+local function zoneShow(frame: GuiObject, on: boolean, animate: boolean)
+	if on then
+		if frame.Visible and not leaving[frame] then
+			return
+		end
+		local wasLeaving = leaving[frame] == true
+		leaving[frame] = nil
+		if animate or wasLeaving then
+			Kit.popIn(frame) -- also cancels a shrink still running
+		else
+			frame.Visible = true
+		end
+	elseif frame.Visible and not leaving[frame] then
+		if animate then
+			leaving[frame] = true
+			Kit.popOut(frame, function()
+				leaving[frame] = nil
+				nowChanged()
+			end)
+		else
+			frame.Visible = false
+		end
+	end
 end
 
--- The gloss: a soft white highlight across a chip's top, inset `inset` px from each end (decoration layer,
--- ZIndex 0, like Kit's buttons: it draws over the chip's fill and under its other children).
-local function gloss(gui: GuiObject, inset: number): Frame
-	local shine = Instance.new("Frame")
-	shine.Name = "Gloss"
-	shine.ZIndex = 0
-	shine.BackgroundColor3 = Palette.White
-	shine.BackgroundTransparency = 0.5
-	shine.BorderSizePixel = 0
-	shine.Position = UDim2.fromOffset(inset, 3)
-	shine.Size = UDim2.new(1, -inset * 2, 0.42, 0)
+-- A rail plate's icon and caption for this layout (Kit.iconButton's own spots, plus room for 🎁's bar).
+local function placeFace(button: GuiObject, captions: boolean, bar: boolean)
+	local icon = button:FindFirstChild("Icon")
+	if icon and icon:IsA("GuiObject") then
+		icon.AnchorPoint = Vector2.new(0.5, 0)
+		if captions then
+			icon.Position = UDim2.fromScale(0.5, if bar then 0.04 else 0.06)
+			icon.Size = UDim2.fromScale(0.6, if bar then 0.52 else 0.56)
+		else
+			icon.Position = UDim2.fromScale(0.5, if bar then 0.12 else 0.2)
+			icon.Size = UDim2.fromScale(0.6, 0.6)
+		end
+	end
+	local caption = button:FindFirstChild("Caption")
+	if caption and caption:IsA("GuiObject") then
+		caption.Visible = captions
+		caption.AnchorPoint = Vector2.new(0.5, 1)
+		caption.Position = UDim2.fromScale(0.5, if bar then 0.86 else 0.98)
+	end
+end
+
+local function roundCorner(gui: Instance)
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.5, 0)
-	corner.Parent = shine
-	local fade = Instance.new("UIGradient")
-	fade.Rotation = 90
-	fade.Transparency = NumberSequence.new(0.15, 1)
-	fade.Parent = shine
-	shine.Parent = gui
-	return shine
+	corner.CornerRadius = Theme.Radius.Round
+	corner.Parent = gui
 end
 
--- A candy chip: a bright fill (props.Color, or a top-to-bottom props.Gradient of two colours), a glossy top and a
--- thick dark outline, a full pill at any height.
-local function pill(props: { [string]: any }): Frame
-	local frame = Instance.new(if props.Button then "TextButton" else "Frame") :: any
-	frame.Name = props.Name
+-- A thin bar: a dark track and a fill (its Size.X.Scale is the share done).
+local function bar(parent: Instance, name: string, fillColor: Color3, track: Color3, trackAlpha: number): (Frame, Frame)
+	local frame = Instance.new("Frame")
+	frame.Name = name
+	frame.BackgroundColor3 = track
+	frame.BackgroundTransparency = trackAlpha
 	frame.BorderSizePixel = 0
-	frame.Size = props.Size or UDim2.fromOffset(120, 46)
-	frame.LayoutOrder = props.LayoutOrder or 0
-	if props.Button then
-		frame.Text = ""
-		frame.AutoButtonColor = false
-	end
-	local height = frame.Size.Y.Offset
-	Kit.corner(frame, math.floor(height / 2))
-	Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
-	if type(props.Gradient) == "table" then
-		frame.BackgroundColor3 = Palette.White
-		local gradient = Instance.new("UIGradient")
-		gradient.Name = "CandyGradient"
-		gradient.Rotation = 90
-		gradient.Color = ColorSequence.new(candy(props.Gradient[1]), props.Gradient[2])
-		gradient.Parent = frame
+	roundCorner(frame)
+	frame.Parent = parent
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.BackgroundColor3 = fillColor
+	fill.BorderSizePixel = 0
+	roundCorner(fill)
+	fill.Parent = frame
+	return frame, fill
+end
+
+local function fillTo(fill: Frame, ratio: number, animate: boolean)
+	local target = UDim2.fromScale(math.clamp(ratio, 0, 1), 1)
+	if animate and not Hud.calm() then
+		TweenService:Create(fill, Theme.Tween.Fill, { Size = target }):Play()
 	else
-		frame.BackgroundColor3 = candy(props.Color or Theme.Colors.Secondary)
-		Palette.candyGradient(frame)
+		fill.Size = target
 	end
-	gloss(frame, math.floor(height * 0.3))
-	frame.Parent = props.Parent
-	return frame
 end
 
-local function paint(gui: GuiObject, color: Color3)
-	gui.BackgroundColor3 = candy(color)
-end
-
--- A big outlined display-font number (white with a dark stroke) on a chip.
-local function bigNumber(parent: Instance, name: string, position: UDim2, size: UDim2, max: number): TextLabel
-	local label = Kit.label({
-		Name = name,
+-- Hud's own Now card: the navy plate (Theme.Colors.NowPlate) with the one shadow, a white icon tile and white
+-- outlined words. A tappable one is a button.
+local function nowCard(name: string, tappable: boolean): (Frame, GuiObject, TextLabel, TextLabel)
+	local holder = Instance.new("Frame")
+	holder.Name = name
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.new(1, 0, 0, NOW_CARD)
+	local shadow = Instance.new("Frame")
+	shadow.Name = "Shadow"
+	shadow.Position = UDim2.fromOffset(Theme.Shadow.Offset.X, Theme.Shadow.Offset.Y)
+	shadow.Size = UDim2.fromScale(1, 1)
+	shadow.BackgroundColor3 = Theme.Shadow.Color
+	shadow.BackgroundTransparency = Theme.Shadow.Transparency
+	shadow.BorderSizePixel = 0
+	shadow.ZIndex = 1
+	Kit.corner(shadow, Theme.Radius.Large)
+	shadow.Parent = holder
+	local plate: GuiObject
+	if tappable then
+		local button = Instance.new("TextButton")
+		button.Text = ""
+		button.AutoButtonColor = false
+		plate = button
+	else
+		plate = Instance.new("Frame")
+	end
+	plate.Name = "Plate"
+	plate.Size = UDim2.fromScale(1, 1)
+	plate.BackgroundColor3 = Theme.Colors.NowPlate
+	plate.BorderSizePixel = 0
+	plate.ZIndex = 2
+	Kit.corner(plate, Theme.Radius.Large)
+	Kit.stroke(plate, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	plate.Parent = holder
+	local tile = Instance.new("Frame")
+	tile.Name = "Tile"
+	tile.AnchorPoint = Vector2.new(0, 0.5)
+	tile.Position = UDim2.new(0, Theme.Space.Step[2], 0.5, 0)
+	tile.Size = UDim2.fromOffset(WALLET_ICON, WALLET_ICON)
+	tile.BackgroundColor3 = Theme.Colors.Plate
+	tile.BorderSizePixel = 0
+	Kit.corner(tile, Theme.Radius.Medium)
+	tile.Parent = plate
+	local icon = Kit.label({
+		Name = "Icon",
+		Text = "",
+		TextScaled = true,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.78, 0.78),
+		Parent = tile,
+	})
+	local text = Kit.label({
+		Name = "Text",
 		Text = "",
 		Outlined = true,
+		Font = Theme.Font,
 		TextScaled = true,
 		TextWrapped = false,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = position,
-		Size = size,
-		Parent = parent,
+		Position = UDim2.new(0, WALLET_ICON + Theme.Space.Step[4], 0.5, 0),
+		Size = UDim2.new(1, -(WALLET_ICON + Theme.Space.Step[5]), 0, 30),
+		Parent = plate,
 	})
-	Kit.outline(label, Theme.Size.Stroke)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 12
-	limit.Parent = label
-	return label
-end
-
-local function iconLabel(parent: Instance, text: string, position: UDim2, px: number): TextLabel
-	return Kit.label({
-		Name = "Icon",
-		Text = text,
-		TextScaled = true,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = position,
-		Size = UDim2.fromOffset(px, px),
-		Parent = parent,
-	})
+	Kit.outline(text, Theme.Stroke.Text)
+	Kit.textLimit(text, Theme.TextSize.Body)
+	return holder, plate, icon, text
 end
 
 local function splitCarry(raw: any): { string }
@@ -1169,6 +1575,10 @@ local function counter(holder: GuiObject, label: TextLabel, target: string): Cou
 	}
 end
 
+------------------------------------------------------------------------------------------------------------------
+-- The HUD itself
+------------------------------------------------------------------------------------------------------------------
+
 function Hud.init(ctx: Types.Ctx)
 	local data = ctx.Data :: any
 	local player = ctx.Player
@@ -1176,37 +1586,105 @@ function Hud.init(ctx: Types.Ctx)
 	-- Main.client hands every module the default snapshot first; the first one after it is the save loading in,
 	-- so it is shown without "+n" floaters.
 	local initial = ctx.State
-	local margin = Theme.Size.Margin
+	local gap = Theme.Space.Gap
 
+	-- The zones live in a device-safe screen that includes the top-bar row, so Logic/HudZones' numbers (px from the
+	-- screen's top left, the top bar included) are its offsets. The Now slot's screen (nowFrame) and UI/Toasts use
+	-- the same insets.
 	local gui = Kit.screen("Hud", Theme.DisplayOrder.Hud)
+	gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+	local layout: HudZones.Layout = HudZones.layout(gui.AbsoluteSize.X, gui.AbsoluteSize.Y, Hud.topbar())
+	local box = Pure.statusBox(layout, gui.AbsoluteSize.X)
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Top left: the wallet
+	-- System: the top-bar row, beside Roblox's own buttons (⚙️; on phones the wallet too)
+	--------------------------------------------------------------------------------------------------------------
+	local system = Kit.screen("HudSystem", Theme.DisplayOrder.Hud)
+	system.ScreenInsets = Enum.ScreenInsets.TopbarSafeInsets
+	local systemRow = Instance.new("Frame")
+	systemRow.Name = "Row"
+	systemRow.BackgroundTransparency = 1
+	systemRow.Size = UDim2.fromScale(1, 1)
+	systemRow.Parent = system
+	local systemList = Kit.list(systemRow, Enum.FillDirection.Horizontal, Theme.Space.Step[3])
+	systemList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	local systemPad = Instance.new("UIPadding")
+	systemPad.PaddingLeft = UDim.new(0, Theme.Space.Step[1])
+	systemPad.Parent = systemRow
+
+	local settingsButton = Kit.iconButton({
+		Name = "Settings",
+		Icon = "⚙️",
+		Glass = true,
+		LayoutOrder = 1,
+		Size = UDim2.fromOffset(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight),
+		Parent = systemRow,
+	})
+	local glassCorner = settingsButton:FindFirstChildOfClass("UICorner")
+	if glassCorner then
+		glassCorner.CornerRadius = Theme.Radius.Round -- round like Roblox's own top-bar buttons
+	end
+	targets.Settings = settingsButton
+
+	--------------------------------------------------------------------------------------------------------------
+	-- Wallet: 💰 and ⭐, an icon and a big outlined number each, no pills
 	--------------------------------------------------------------------------------------------------------------
 	local wallet = Instance.new("Frame")
 	wallet.Name = "Wallet"
 	wallet.BackgroundTransparency = 1
-	wallet.Position = UDim2.fromOffset(margin, margin)
-	wallet.Size = UDim2.fromOffset(210, 312) -- cash, stars, the rare status chips, then the 🎁 play gifts
+	wallet.Size = UDim2.new()
+	wallet.AutomaticSize = Enum.AutomaticSize.XY
+	wallet.LayoutOrder = 2
 	wallet.Parent = gui
-	local walletList = Kit.list(wallet, Enum.FillDirection.Vertical, 8)
+	local walletList = Kit.list(wallet, Enum.FillDirection.Vertical, Theme.Space.Step[1])
 	walletList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	walletList.VerticalAlignment = Enum.VerticalAlignment.Top
 
-	local cashPill = pill({
-		Name = "Cash",
-		Parent = wallet,
-		LayoutOrder = 1,
-		Color = Theme.Colors.Cash,
-		Size = UDim2.fromOffset(170, 52),
-	})
-	iconLabel(cashPill, "💰", UDim2.new(0, 8, 0.5, 0), 36)
-	local cashText = bigNumber(cashPill, "Amount", UDim2.new(0, 50, 0.5, 1), UDim2.new(1, -64, 0, 36), 34)
-	targets.Cash = cashPill
-	local cash = counter(cashPill, cashText, "Cash")
+	local function walletIcon(parent: Instance, text: string, order: number): TextLabel
+		return Kit.label({
+			Name = "Icon",
+			Text = text,
+			TextScaled = true,
+			LayoutOrder = order,
+			Size = UDim2.fromOffset(WALLET_ICON, WALLET_ICON),
+			Parent = parent,
+		})
+	end
+	local function walletNumber(parent: Instance, order: number, height: number): TextLabel
+		local label = Kit.label({
+			Name = "Amount",
+			Text = "0",
+			Outlined = true,
+			TextSize = Theme.TextSize.Number,
+			TextWrapped = false,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.fromOffset(0, height),
+			LayoutOrder = order,
+			Parent = parent,
+		})
+		Kit.outline(label, Theme.Stroke.Title)
+		return label
+	end
+	local function walletRow(row: GuiObject, name: string, order: number, height: number)
+		row.Name = name
+		row.LayoutOrder = order
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.fromOffset(0, height)
+		row.AutomaticSize = Enum.AutomaticSize.X
+		local list = Kit.list(row, Enum.FillDirection.Horizontal, Theme.Space.Step[2])
+		list.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		row.Parent = wallet
+	end
 
-	-- The mini-game combo: a tilted 🔥 sticker on the cash pill's corner (Perfects in a row multiply tips). Orange,
-	-- then pink, purple and gold at each Config.MiniGame.Combo step. Display only: the server owns the combo.
+	local cashRow = Instance.new("Frame")
+	walletRow(cashRow, "Cash", 1, WALLET_ROW)
+	walletIcon(cashRow, "💰", 1)
+	local cashText = walletNumber(cashRow, 2, WALLET_ROW - 8)
+	targets.Cash = cashRow
+	local cash = counter(cashRow, cashText, "Cash")
+
+	-- The mini-game combo: a tilted 🔥 sticker after the cash (Perfects in a row multiply tips). Orange, then pink,
+	-- purple and gold at each Config.MiniGame.Combo step. Display only: the server owns the combo.
 	local COMBO_COLORS = { Theme.Colors.Primary, Theme.Colors.Pink, Theme.Colors.Purple, Theme.Colors.Cash }
 	local comboSticker = Kit.label({
 		Name = "Combo",
@@ -1214,345 +1692,271 @@ function Hud.init(ctx: Types.Ctx)
 		Outlined = true,
 		TextScaled = true,
 		TextWrapped = false,
-		BackgroundColor3 = candy(Theme.Colors.Primary),
+		BackgroundColor3 = Theme.Colors.Primary,
 		BackgroundTransparency = 0,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(1, -8, 0, 2),
 		Size = UDim2.fromOffset(58, 30),
 		Rotation = 8,
 		Visible = false,
-		ZIndex = 3,
-		Parent = cashPill,
+		LayoutOrder = 3,
+		Parent = cashRow,
 	})
-	Kit.corner(comboSticker, 15)
-	Kit.stroke(comboSticker, Theme.Colors.Outline, 2.5)
-	local comboPad = Kit.pad(comboSticker, 3)
-	comboPad.PaddingLeft = UDim.new(0, 6)
-	comboPad.PaddingRight = UDim.new(0, 6)
+	Kit.corner(comboSticker, Theme.Radius.Small)
+	Kit.stroke(comboSticker, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	Kit.textLimit(comboSticker, Theme.TextSize.Body)
 
-	-- Tappable (shows what's next), so it gets the full 56 px tap height. Star yellow melting into orange.
-	local starsPill = pill({
-		Name = "Stars",
-		Parent = wallet,
-		LayoutOrder = 2,
-		Gradient = { Theme.Colors.Star, Theme.Colors.Primary },
-		Size = UDim2.fromOffset(210, Theme.Size.ButtonHeight),
-		Button = true,
-	})
-	iconLabel(starsPill, "⭐", UDim2.new(0, 8, 0.5, 0), 34)
-	local starsText = bigNumber(starsPill, "Amount", UDim2.new(0, 46, 0.5, 1), UDim2.fromOffset(50, 34), 32)
-	targets.Stars = starsPill
-	local stars = counter(starsPill, starsText, "Stars")
-
-	-- The candy bar: a dark outlined slot with a glossy star-yellow fill.
-	local track = Instance.new("Frame")
-	track.Name = "Track"
-	track.AnchorPoint = Vector2.new(0, 0.5)
-	track.Position = UDim2.new(0, 100, 0.5, 0)
-	track.Size = UDim2.new(1, -100 - 44, 0, 18)
-	track.BackgroundColor3 = Theme.Colors.Outline
-	track.BackgroundTransparency = 0.35
-	track.BorderSizePixel = 0
-	Kit.corner(track, 9)
-	Kit.stroke(track, Theme.Colors.Outline, 2.5)
-	track.Parent = starsPill
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.Size = UDim2.fromScale(0, 1)
-	fill.BackgroundColor3 = candy(Theme.Colors.Star)
-	fill.BorderSizePixel = 0
-	fill.ClipsDescendants = true -- an empty bar shows no sliver of gloss
-	Kit.corner(fill, 9)
-	Palette.candyGradient(fill)
-	gloss(fill, 4)
-	fill.Parent = track
+	-- ⭐: tappable (what's next), so it's a full 56 px tap target. The number over its thin bar, then the next unlock.
+	local starsButton = Instance.new("TextButton")
+	starsButton.Text = ""
+	starsButton.AutoButtonColor = false
+	starsButton.Visible = false
+	walletRow(starsButton, "Stars", 2, Theme.Size.ButtonHeight)
+	walletIcon(starsButton, "⭐", 1)
+	local starsInfo = Instance.new("Frame")
+	starsInfo.Name = "Info"
+	starsInfo.LayoutOrder = 2
+	starsInfo.BackgroundTransparency = 1
+	starsInfo.Size = UDim2.new()
+	starsInfo.AutomaticSize = Enum.AutomaticSize.XY
+	starsInfo.Parent = starsButton
+	local infoList = Kit.list(starsInfo, Enum.FillDirection.Vertical, 0)
+	infoList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	local starsText = walletNumber(starsInfo, 1, Theme.TextSize.Number + 2)
+	local track, fill = bar(starsInfo, "Track", Theme.Colors.Star, Theme.Colors.Stroke, 0.35)
+	track.LayoutOrder = 2
+	track.Size = UDim2.fromOffset(STAR_BAR.X, STAR_BAR.Y)
+	Kit.stroke(track, Theme.Colors.Stroke, Theme.Stroke.Fine)
 	local nextIcon = Kit.label({
 		Name = "Next",
 		Text = "👑",
 		TextScaled = true,
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -8, 0.5, 0),
-		Size = UDim2.fromOffset(32, 32),
-		Parent = starsPill,
+		LayoutOrder = 3,
+		Size = UDim2.fromOffset(30, 30),
+		Parent = starsButton,
 	})
+	targets.Stars = starsButton
+	local stars = counter(starsButton, starsText, "Stars")
 	local nextTip = ""
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Top right: the clock and status chips
+	-- Status: top right, read-only
 	--------------------------------------------------------------------------------------------------------------
-	local side = Instance.new("Frame")
-	side.Name = "Clock"
-	side.AnchorPoint = Vector2.new(1, 0)
-	side.BackgroundTransparency = 1
-	side.Position = UDim2.new(1, -margin, 0, margin)
-	side.Size = UDim2.fromOffset(420, 220) -- the boost chips sit left of the clock, so the column stays short
-	side.Parent = gui
-	local sideList = Kit.list(side, Enum.FillDirection.Vertical, 8)
-	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Right
-	sideList.VerticalAlignment = Enum.VerticalAlignment.Top
+	local statusZone = Instance.new("Frame")
+	statusZone.Name = "Status"
+	statusZone.AnchorPoint = Vector2.new(1, 0)
+	statusZone.BackgroundTransparency = 1
+	statusZone.AutomaticSize = Enum.AutomaticSize.Y
+	statusZone.Parent = gui
+	local statusColumn = Instance.new("Frame") -- the reveal shows this; the hide rules pop the zone
+	statusColumn.Name = "Column"
+	statusColumn.BackgroundTransparency = 1
+	statusColumn.Size = UDim2.fromScale(1, 0)
+	statusColumn.AutomaticSize = Enum.AutomaticSize.Y
+	statusColumn.Visible = false
+	statusColumn.Parent = statusZone
+	local statusList = Kit.list(statusColumn, Enum.FillDirection.Vertical, Pure.ROW_GAP)
+	statusList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	statusList.VerticalAlignment = Enum.VerticalAlignment.Top
 
-	-- The top row: the timed boost chips (renderBoosts), then the clock at the right edge.
-	local topRow = Instance.new("Frame")
-	topRow.Name = "TopRow"
-	topRow.BackgroundTransparency = 1
-	topRow.LayoutOrder = 1
-	topRow.Size = UDim2.fromOffset(420, 52)
-	topRow.Parent = side
-	local topList = Kit.list(topRow, Enum.FillDirection.Horizontal, 8)
-	topList.HorizontalAlignment = Enum.HorizontalAlignment.Right
-	local boostRow = Instance.new("Frame")
-	boostRow.Name = "Boosts"
-	boostRow.BackgroundTransparency = 1
-	boostRow.LayoutOrder = 1
-	boostRow.Size = UDim2.fromOffset(0, 40)
-	boostRow.AutomaticSize = Enum.AutomaticSize.X
-	boostRow.Visible = false
-	boostRow.Parent = topRow
-	Kit.list(boostRow, Enum.FillDirection.Horizontal, 6)
-
-	-- Orange by day, purple by night (renderPhase).
-	local timerPill = pill({
-		Name = "Timer",
-		Parent = topRow,
-		LayoutOrder = 2,
-		Color = Theme.Colors.Primary,
-		Size = UDim2.fromOffset(136, 52),
-	})
-	local phaseIcon = iconLabel(timerPill, "☀️", UDim2.new(0, 8, 0.5, 0), 36)
-	local timeText = bigNumber(timerPill, "Time", UDim2.new(0, 50, 0.5, 1), UDim2.new(1, -64, 0, 34), 32)
-	-- The night pay sticker: a tilted yellow tag on the clock's corner.
-	local nightBadge = Kit.label({
-		Name = "NightPay",
-		Text = "×" .. tostring(ctx.Config.NightPayMultiplier or 2),
-		Outlined = true,
-		TextSize = Theme.TextSize.Small,
-		TextWrapped = false,
-		BackgroundColor3 = candy(Theme.Colors.Cash),
-		BackgroundTransparency = 0,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromOffset(8, 4),
-		Size = UDim2.fromOffset(40, 26),
-		Rotation = -10,
-		Visible = false,
-		ZIndex = 3,
-		Parent = timerPill,
-	})
-	Kit.corner(nightBadge, 13)
-	Kit.stroke(nightBadge, Theme.Colors.Outline, 2.5)
-
-	-- Pink while the visitor can come; lime with ✅ once it's cured today.
-	local visitorChip = pill({
-		Name = "Visitor",
-		Parent = side,
-		LayoutOrder = 2,
-		Color = Theme.Colors.Pink,
-		Size = UDim2.fromOffset(96, Theme.Size.ButtonHeight),
-		Button = true,
-	})
-	visitorChip.Visible = false
-	local visitorMark = iconLabel(visitorChip, "⭐", UDim2.new(0, 8, 0.5, 0), 30) -- ✅ once cured today
-	local faceDisc = Instance.new("Frame") -- a white outlined disc, so any creature colour reads on the pink
-	faceDisc.Name = "FaceDisc"
-	faceDisc.AnchorPoint = Vector2.new(1, 0.5)
-	faceDisc.Position = UDim2.new(1, -6, 0.5, 0)
-	faceDisc.Size = UDim2.fromOffset(44, 44)
-	faceDisc.BackgroundColor3 = Palette.White
-	faceDisc.BorderSizePixel = 0
-	Kit.corner(faceDisc, 22)
-	Kit.stroke(faceDisc, Theme.Colors.Outline, 2.5)
-	faceDisc.Parent = visitorChip
-	local visitorFace = Instance.new("Frame")
-	visitorFace.Name = "Face"
-	visitorFace.BackgroundTransparency = 1
-	visitorFace.Size = UDim2.fromScale(1, 1)
-	visitorFace.Parent = faceDisc
-	local shownVisitor = ""
-
-	-- Rare status chips sit under the wallet: the right edge's middle belongs to the ⚙️ settings button.
-	local function chip(name: string, text: string, color: Color3, order: number): Frame
-		local frame = pill({
-			Name = name,
-			Parent = wallet,
-			LayoutOrder = order,
-			Color = color,
-			Size = UDim2.fromOffset(200, 40),
-		})
-		Kit.label({
-			Name = "Text",
-			Text = text,
-			Outlined = true,
-			Font = Theme.Font, -- the round body font: a few words must stay at 18 px or more
-			TextScaled = true,
-			TextWrapped = false,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.new(1, -24, 0, 26),
-			Parent = frame,
-		})
-		frame.Visible = false
-		return frame
+	type Line = { Chip: Frame, Text: TextLabel, Limit: UISizeConstraint, Shown: string, Room: number }
+	local statusRows: { [string]: Frame } = {}
+	local function statusRow(name: string, order: number): Frame
+		local row = Instance.new("Frame")
+		row.Name = name
+		row.LayoutOrder = order
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.fromOffset(0, Pure.ROW)
+		row.AutomaticSize = Enum.AutomaticSize.X
+		row.Visible = false
+		row.Parent = statusColumn
+		local list = Kit.list(row, Enum.FillDirection.Horizontal, Theme.Space.Step[1])
+		list.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		statusRows[name] = row
+		return row
 	end
-	local savingChip = chip("NotSaving", "⚠️ Not saving", Theme.Colors.Danger, 3)
-	local noPlotChip = chip("NoClinic", "🏠 Clinics full", Theme.Colors.Secondary, 4)
-
-	-- 🎁 The daily play gifts (UI/PlayGifts opens on "Open" "Gifts"): the button, and under it a candy progress bar
-	-- that fills toward the next gift with the time left in it (renderGifts). It isn't a countdown to anything you
-	-- could miss.
-	local giftHolder = Instance.new("Frame")
-	giftHolder.Name = "GiftsHolder"
-	giftHolder.BackgroundTransparency = 1
-	giftHolder.LayoutOrder = 5
-	giftHolder.Size = UDim2.fromOffset(84, 92)
-	giftHolder.Parent = wallet
-	local giftButton = Kit.iconButton({
-		Name = "Gifts",
-		Icon = "🎁",
-		Caption = "",
-		Kind = "Pink",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0),
-		Size = UDim2.fromOffset(70, 70),
-		Parent = giftHolder,
-	})
-	local giftBar = Instance.new("Frame")
-	giftBar.Name = "GiftBar"
-	giftBar.AnchorPoint = Vector2.new(0.5, 1)
-	giftBar.Position = UDim2.fromScale(0.5, 1)
-	giftBar.Size = UDim2.fromOffset(80, 26)
-	giftBar.BackgroundColor3 = Palette.White
-	giftBar.BorderSizePixel = 0
-	giftBar.ZIndex = 4
-	Kit.corner(giftBar, 13)
-	Kit.stroke(giftBar, Theme.Colors.Outline, Theme.Size.Stroke)
-	giftBar.Parent = giftHolder
-	local giftFill = Instance.new("Frame")
-	giftFill.Name = "Fill"
-	giftFill.Size = UDim2.fromScale(0, 1)
-	giftFill.BackgroundColor3 = Theme.Colors.Cash
-	giftFill.BorderSizePixel = 0
-	giftFill.ZIndex = 4
-	Kit.corner(giftFill, 13)
-	Palette.candyGradient(giftFill)
-	giftFill.Parent = giftBar
-	local giftTime = Kit.label({
-		Name = "Time",
-		Text = "",
-		Outlined = true,
-		TextSize = Theme.TextSize.Small,
-		TextWrapped = false,
-		Size = UDim2.fromScale(1, 1),
-		ZIndex = 5,
-		Parent = giftBar,
-	})
-	targets.Gifts = giftButton
-	giftButton.Activated:Connect(function()
-		ctx.fire("Open", "Gifts")
-	end)
-
-	--------------------------------------------------------------------------------------------------------------
-	-- Bottom centre: hands, then the big buttons (clear of the thumbstick and the jump button)
-	--------------------------------------------------------------------------------------------------------------
-	local size = Theme.Size.IconButton
-	local gap = Theme.Size.Gap
-	local bar = Instance.new("Frame")
-	bar.Name = "Buttons"
-	bar.AnchorPoint = Vector2.new(0.5, 1)
-	bar.BackgroundTransparency = 1
-	bar.Position = UDim2.new(0.5, 0, 1, -margin)
-	local barWidth = size * #TABS + gap * (#TABS - 1) -- 7 tabs: 7 x 76 + 6 x 10 = 592 px at full size
-	bar.Size = UDim2.fromOffset(barWidth, size)
-	bar.Parent = gui
-	Kit.list(bar, Enum.FillDirection.Horizontal, gap)
-
-	-- The "something new" dot, made bigger, with a white "!" so it reads on every candy colour (pink included).
-	local function badge(button: GuiObject)
-		local dot = button:FindFirstChild("Dot")
-		if not (dot and dot:IsA("GuiObject")) then
+	-- A line of words, on a chip: bare outlined white words over the world, or ink on a coloured chip (paint).
+	local function line(row: Frame, order: number, outlined: boolean): Line
+		local chip = Instance.new("Frame")
+		chip.Name = "Chip"
+		chip.LayoutOrder = order
+		chip.BackgroundTransparency = 1
+		chip.BorderSizePixel = 0
+		chip.Size = UDim2.fromOffset(0, Pure.ROW)
+		chip.AutomaticSize = Enum.AutomaticSize.X
+		Kit.corner(chip, Theme.Radius.Small)
+		local stroke = Kit.stroke(chip, Theme.Colors.Stroke, Theme.Stroke.Fine)
+		stroke.Enabled = false
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, Theme.Space.Step[2])
+		pad.PaddingRight = UDim.new(0, Theme.Space.Step[2])
+		pad.Parent = chip
+		chip.Parent = row
+		local text = Kit.label({
+			Name = "Text",
+			Text = "",
+			Outlined = outlined,
+			Font = Theme.Font,
+			TextSize = Theme.TextSize.Body,
+			TextWrapped = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.fromOffset(0, Pure.ROW),
+			Parent = chip,
+		})
+		if outlined then
+			Kit.outline(text, Theme.Stroke.Text)
+		end
+		local limit = Instance.new("UISizeConstraint")
+		limit.Parent = text
+		return { Chip = chip, Text = text, Limit = limit, Shown = "", Room = -1 }
+	end
+	-- A coloured chip (the night or the event: the HUD's few saturated fills) or a bare one.
+	local function paint(entry: Line, color: Color3?)
+		entry.Chip.BackgroundTransparency = if color then 0 else 1
+		if color then
+			entry.Chip.BackgroundColor3 = color
+		end
+		local stroke = entry.Chip:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Enabled = color ~= nil
+		end
+	end
+	-- Sets a line's words, as big as fit `room` px (Body, else the Caption floor; past that it trims with "…").
+	local function setLine(entry: Line, text: string, room: number, compact: boolean)
+		if entry.Shown == text and entry.Room == room then
 			return
 		end
-		dot.Size = UDim2.fromOffset(Theme.Size.Dot + 6, Theme.Size.Dot + 6)
-		local mark = Kit.label({
-			Name = "Mark",
-			Text = "!",
-			Outlined = true,
-			TextSize = Theme.TextSize.Small,
-			TextWrapped = false,
-			Size = UDim2.fromScale(1, 1),
-			ZIndex = dot.ZIndex + 1,
-			Parent = dot,
-		})
-		Kit.outline(mark, 2)
+		entry.Shown, entry.Room = text, room
+		entry.Text.Text = text
+		local size = if compact then Theme.TextSize.Caption else Theme.TextSize.Body
+		if not compact then
+			local ok, bounds = pcall(function()
+				return TextService:GetTextSize(text, size, entry.Text.Font, Vector2.new(4000, Pure.ROW))
+			end)
+			if ok and bounds.X > room then
+				size = Theme.TextSize.Caption
+			end
+		end
+		entry.Text.TextSize = size
+		entry.Limit.MaxSize = Vector2.new(math.max(room, 1), Pure.ROW)
 	end
+
+	local clockLine = line(statusRow("Clock", 1), 1, true)
+	local eventLine = line(statusRow("Event", 2), 1, false)
+	local visitorRow = statusRow("Visitor", 3)
+	local faceDisc = Instance.new("Frame") -- a white outlined disc, so any creature colour reads
+	faceDisc.Name = "Face"
+	faceDisc.LayoutOrder = 1
+	faceDisc.Size = UDim2.fromOffset(Pure.ROW, Pure.ROW)
+	faceDisc.BackgroundColor3 = Theme.Colors.Plate
+	faceDisc.BorderSizePixel = 0
+	roundCorner(faceDisc)
+	Kit.stroke(faceDisc, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	faceDisc.Parent = visitorRow
+	local visitorLine = line(visitorRow, 2, true)
+	local boostRow = statusRow("Boosts", 4)
+	boostRow.Size = UDim2.new()
+	boostRow.AutomaticSize = Enum.AutomaticSize.XY
+	local boostList = boostRow:FindFirstChildOfClass("UIListLayout") :: UIListLayout
+	boostList.Padding = UDim.new(0, Pure.ROW_GAP)
+	local boostChips: { [string]: Line } = {}
+	local shownVisitor = ""
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The rails: one white Icon plate per piece, in fixed slots
+	--------------------------------------------------------------------------------------------------------------
+	local leftZone = Instance.new("Frame")
+	leftZone.Name = "LeftRail"
+	leftZone.AnchorPoint = Vector2.new(0, 0.5)
+	leftZone.BackgroundTransparency = 1
+	leftZone.Parent = gui
+	local rightZone = Instance.new("Frame")
+	rightZone.Name = "RightRail"
+	rightZone.AnchorPoint = Vector2.new(1, 0.5)
+	rightZone.BackgroundTransparency = 1
+	rightZone.Parent = gui
 
 	local buttons: { [string]: TextButton } = {}
 	local shopTab: string? = nil -- the Shop opens on the tab its dot is about
-	for index, tab in TABS do
-		local name = tab.Name
-		local button = Kit.iconButton({
-			Name = name,
-			Icon = tab.Icon,
-			Caption = tab.Caption,
-			Kind = tab.Kind,
-			LayoutOrder = index,
-			Parent = bar,
-		})
-		badge(button)
-		button.Activated:Connect(function()
-			if name == "Shop" then
-				-- The tutorial's shop step points at the cheapest upgrade, so it opens on Upgrades.
-				local tutorial = TutorialLogic.active(ctx.State.Tutorial)
-				ctx.fire("Open", name, if tutorial then "Upgrades" else shopTab)
-			else
-				ctx.fire("Open", name)
-			end
-		end)
-		buttons[name] = button
+	local function addRail(zone: Frame, order: { string })
+		for _, name in order do
+			local face = Pure.RAIL[name]
+			local button = Kit.iconButton({
+				Name = name,
+				Icon = face.Icon,
+				Caption = face.Caption,
+				Kind = Pure.RAIL_KIND,
+				Visible = false,
+				Parent = zone,
+			})
+			button.Activated:Connect(function()
+				if name == "Shop" then
+					-- The tutorial's shop step points at the cheapest upgrade, so it opens on Upgrades.
+					local tutorial = TutorialLogic.active(ctx.State.Tutorial)
+					ctx.fire("Open", name, if tutorial then "Upgrades" else shopTab)
+				else
+					ctx.fire("Open", name)
+				end
+			end)
+			buttons[name] = button
+			targets[name] = button
+		end
 	end
-	targets.Shop = buttons.Shop
-	targets.Book = buttons.Book
-	targets.Mailbox = buttons.Mailbox
-	targets.Goals = buttons.Goals
-	targets.Nurses = buttons.Nurses
-	targets.Badges = buttons.Badges
-	targets.Boards = buttons.Boards
-	badge(giftButton)
+	addRail(leftZone, HudZones.ORDER.LeftRail)
+	addRail(rightZone, HudZones.ORDER.RightRail)
 
+	-- 🎁's bar fills inside its plate toward the next play gift (UI/PlayGifts opens on "Open" "Gifts"). It isn't a
+	-- countdown to anything you could miss: the gifts wait.
+	local giftButton = buttons.Gifts
+	local giftBar, giftFill = bar(giftButton, "GiftBar", Theme.Colors.Cash, Theme.Colors.CardLine, 0)
+	giftBar.AnchorPoint = Vector2.new(0.5, 1)
+	giftBar.Position = UDim2.new(0.5, 0, 1, -5)
+	giftBar.Size = UDim2.new(1, -18, 0, 6)
+	giftBar.ZIndex = 2
+	giftFill.ZIndex = 2
+
+	--------------------------------------------------------------------------------------------------------------
+	-- Bottom centre: your hands
+	--------------------------------------------------------------------------------------------------------------
+	local handsZone = Instance.new("Frame")
+	handsZone.Name = "HandsZone"
+	handsZone.AnchorPoint = Vector2.new(0.5, 1)
+	handsZone.BackgroundTransparency = 1
+	handsZone.Size = UDim2.new()
+	handsZone.AutomaticSize = Enum.AutomaticSize.XY
+	handsZone.Parent = gui
 	local hands = Instance.new("Frame")
 	hands.Name = "Hands"
-	hands.AnchorPoint = Vector2.new(0.5, 1)
 	hands.BackgroundTransparency = 1
-	hands.Position = UDim2.new(0.5, 0, 1, -(margin + size + 10))
-	hands.Size = UDim2.fromOffset(0, 50)
+	hands.Size = UDim2.fromOffset(0, Pure.HAND.Max)
 	hands.AutomaticSize = Enum.AutomaticSize.X
 	hands.Visible = false
-	hands.Parent = gui
-	Kit.list(hands, Enum.FillDirection.Horizontal, 6)
+	hands.Parent = handsZone
+	Kit.list(hands, Enum.FillDirection.Horizontal, Pure.HAND.Gap)
 	targets.Hands = hands
 
-	-- Each hand: a big white disc with what you hold, ringed in the colour of the station that made it, and a red ✖
-	-- (top right) that throws it away (the Discard remote), so an unneeded item never leaves you stuck. Only what you
-	-- hold shows: empty hands draw nothing (first-session declutter, design §A5).
-	local HAND = 84
-	hands.Size = UDim2.fromOffset(0, HAND)
+	-- Each hand: a disc with what you hold, ringed in the colour of the station that made it, and a red ✖ (top right)
+	-- you HOLD to throw it away (the Discard remote), so an unneeded item never leaves you stuck and a stray tap never
+	-- costs one. Only what you hold shows: empty hands draw nothing (first-session declutter, design §A5).
 	local slots: { Frame } = {}
 	local lastItems: { string } = {}
+	local hintedAt = -math.huge
 	local function slot(index: number): Frame
 		local frame = Instance.new("Frame")
 		frame.Name = "Hand" .. index
 		frame.LayoutOrder = index
-		frame.Size = UDim2.fromOffset(HAND, HAND)
+		frame.Size = UDim2.fromOffset(Pure.HAND.Max, Pure.HAND.Max)
 		frame.BorderSizePixel = 0
-		Kit.corner(frame, HAND)
-		Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke).Name = "Outline"
+		roundCorner(frame)
+		Kit.stroke(frame, Theme.Colors.Stroke, Theme.Stroke.Bold).Name = "Outline"
 		local plate = Instance.new("Frame") -- the white middle
 		plate.Name = "Plate"
 		plate.AnchorPoint = Vector2.new(0.5, 0.5)
 		plate.Position = UDim2.fromScale(0.5, 0.5)
 		plate.Size = UDim2.fromScale(0.78, 0.78)
-		plate.BackgroundColor3 = Theme.Colors.Paper
+		plate.BackgroundColor3 = Theme.Colors.Plate
 		plate.BorderSizePixel = 0
-		Kit.corner(plate, HAND)
-		Kit.stroke(plate, Theme.Colors.Outline, 2)
+		roundCorner(plate)
+		Kit.stroke(plate, Theme.Colors.Stroke, Theme.Stroke.Fine)
 		plate.Parent = frame
 		Kit.label({
 			Name = "Icon",
@@ -1564,36 +1968,72 @@ function Hud.init(ctx: Types.Ctx)
 			ZIndex = 2,
 			Parent = frame,
 		})
+		-- The ✖: a 56 px hit area round a small red disc (the band of the hold fills the disc).
 		local throw = Instance.new("TextButton")
 		throw.Name = "Discard"
+		throw.Text = ""
+		throw.AutoButtonColor = false
+		throw.BackgroundTransparency = 1
 		throw.AnchorPoint = Vector2.new(0.5, 0.5)
 		throw.Position = UDim2.fromScale(0.86, 0.14)
-		throw.Size = UDim2.fromOffset(40, 40)
-		throw.BackgroundColor3 = Theme.Colors.Danger
-		throw.AutoButtonColor = false
-		throw.BorderSizePixel = 0
-		throw.Font = Theme.DisplayFont
-		throw.Text = "✖"
-		throw.TextSize = 22
-		throw.TextColor3 = Theme.Colors.OnColor
+		throw.Size = UDim2.fromOffset(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight)
 		throw.ZIndex = 3
-		Kit.corner(throw, 40)
-		Kit.stroke(throw, Theme.Colors.Outline, Theme.Size.Stroke)
-		Kit.outline(throw, 2)
 		throw.Parent = frame
+		local disc = Instance.new("Frame")
+		disc.Name = "Disc"
+		disc.AnchorPoint = Vector2.new(0.5, 0.5)
+		disc.Position = UDim2.fromScale(0.5, 0.5)
+		disc.Size = UDim2.fromOffset(36, 36)
+		disc.BackgroundColor3 = Theme.Colors.Destructive
+		disc.BorderSizePixel = 0
+		disc.ClipsDescendants = true
+		disc.ZIndex = 3
+		roundCorner(disc)
+		Kit.stroke(disc, Theme.Colors.Stroke, Theme.Stroke.Bold)
+		disc.Parent = throw
+		local cross = Kit.label({
+			Name = "Cross",
+			Text = "✖",
+			Outlined = true,
+			TextSize = Theme.TextSize.Body,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 5,
+			Parent = disc,
+		})
+		cross.TextWrapped = false
 		local busy = false
-		throw.Activated:Connect(function()
+		local thrownAt = -math.huge
+		Kit.holdButton(throw, THROW_HOLD, function()
 			local itemId = lastItems[index]
 			if busy or not itemId then
 				return
 			end
 			busy = true
-			Kit.Clicked:Fire(throw)
+			thrownAt = os.clock()
 			Hud.pop(frame, 0.8)
 			task.spawn(function()
 				Hud.ask(ctx.Remotes.Discard, itemId)
 				busy = false
 			end)
+		end)
+		-- The hold's band fills the red disc, not the bare hit area.
+		local band = throw:FindFirstChild("HoldFill")
+		if band and band:IsA("GuiObject") then
+			band.ZIndex = 4
+			band.Parent = disc
+			local bandCorner = band:FindFirstChildOfClass("UICorner")
+			if bandCorner then
+				bandCorner.CornerRadius = Theme.Radius.Round
+			end
+		end
+		throw.Activated:Connect(function()
+			Kit.Clicked:Fire(throw)
+			local now = os.clock()
+			-- A tap (not a hold): say how, now and then.
+			if now - thrownAt > 0.4 and now - hintedAt > THROW_HINT_EVERY then
+				hintedAt = now
+				ctx.toast("Hold ✖ to throw away")
+			end
 		end)
 		frame.Parent = hands
 		return frame
@@ -1609,7 +2049,10 @@ function Hud.init(ctx: Types.Ctx)
 		while #slots > count do
 			(table.remove(slots) :: Frame):Destroy()
 		end
+		local side = Pure.handSize(gui.AbsoluteSize.X, count)
+		hands.Size = UDim2.fromOffset(0, side)
 		for index, frame in slots do
+			frame.Size = UDim2.fromOffset(side, side)
 			local itemId = items[index]
 			local item = itemId and rawget(data.Items, itemId)
 			local icon = frame:FindFirstChild("Icon") :: TextLabel
@@ -1624,128 +2067,128 @@ function Hud.init(ctx: Types.Ctx)
 				end
 			else
 				icon.Text = ""
-				frame.BackgroundColor3 = Theme.Colors.Paper
+				frame.BackgroundColor3 = Theme.Colors.Plate
 				throw.Visible = false
 			end
 		end
 		lastItems = items
 	end
 	player:GetAttributeChangedSignal("Carry"):Connect(renderHands)
-	renderHands()
-
-	-- The hands sit just above the big buttons, or at the bottom while none of them shows yet (a new player).
-	local function placeHands()
-		local anyButton = false
-		for _, button in buttons do
-			anyButton = anyButton or button.Visible
-		end
-		hands.Position = UDim2.new(0.5, 0, 1, -(if anyButton then margin + size + 10 else margin))
-	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Right edge, half way down: ⚙️ settings, a small panel with the two comfort switches (what used to be the 🎵 and
-	-- ✨ buttons), the owner's 👥 helpers switch and, for admins, 🛠️ Admin. Music.client follows MusicMuted and
-	-- Feel/Atmosphere follows ReduceEffects, as before.
+	-- ⚙️ Settings: the comfort switches, Simple mode, the owner's helpers switch, Skip / Replay tutorial, ⚙️ More and
+	-- 🛠️ Admin. Music.client follows MusicMuted and Feel/Atmosphere follows ReduceEffects, as before.
 	--------------------------------------------------------------------------------------------------------------
-	local settingsButton = Kit.iconButton({
-		Name = "Settings",
-		Icon = "⚙️",
-		Kind = "Quiet",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -margin, 0.5, 0),
-		Size = UDim2.fromOffset(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight),
-		Parent = gui,
-	})
-	targets.Settings = settingsButton
 	local settings = Hud.modal(ctx, {
 		Name = "Settings",
 		Title = "⚙️ Settings",
-		Accent = Theme.Colors.Cyan,
-		MaxSize = Vector2.new(380, 350),
+		MaxSize = Vector2.new(460, 520),
 	})
-	-- One column of switches, scaled down to fit a short landscape phone when the 👥 and 🛠️ rows both show.
-	local switches = Instance.new("Frame")
-	switches.Name = "Switches"
-	switches.BackgroundTransparency = 1
-	switches.AnchorPoint = Vector2.new(0.5, 0)
-	switches.Position = UDim2.fromScale(0.5, 0)
-	switches.Size = UDim2.fromScale(1, 0)
-	switches.AutomaticSize = Enum.AutomaticSize.Y
-	switches.Parent = settings.Body
-	local switchList = Kit.list(switches, Enum.FillDirection.Vertical, gap)
-	switchList.VerticalAlignment = Enum.VerticalAlignment.Top
-	Hud.fitHeight(switches, settings.Body, 0.5)
-	local function switch(name: string, kind: string, order: number): TextButton
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "Rows"
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.Size = UDim2.fromScale(1, 1)
+	scroll.CanvasSize = UDim2.new()
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	scroll.ScrollBarThickness = Theme.Space.Step[2]
+	scroll.ScrollBarImageColor3 = Theme.Colors.InkSoft
+	scroll.Parent = settings.Body
+	local grid = Instance.new("UIGridLayout")
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
+	grid.CellPadding = UDim2.fromOffset(gap, gap)
+	grid.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	grid.CellSize = UDim2.new(1, -Theme.Space.Step[3], 0, Theme.Size.ButtonHeight)
+	grid.Parent = scroll
+	local gridPad = Instance.new("UIPadding")
+	gridPad.PaddingTop = UDim.new(0, Theme.Space.Step[1])
+	gridPad.PaddingBottom = UDim.new(0, Theme.Space.Step[1])
+	gridPad.PaddingLeft = UDim.new(0, Theme.Space.Step[1])
+	gridPad.Parent = scroll
+
+	local rows: { [string]: TextButton } = {}
+	local function settingsRow(name: string, text: string): TextButton
 		local button = Kit.button({
 			Name = name,
-			Kind = kind,
-			TextSize = Theme.TextSize.Body,
-			LayoutOrder = order,
-			Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight + 8),
-			Parent = switches,
+			Kind = "Secondary",
+			Text = text,
+			TextScaled = true,
+			Visible = false,
+			Parent = scroll,
 		})
+		Kit.textLimit(button, Theme.TextSize.Body)
+		rows[name] = button
 		return button
 	end
-	local musicSwitch = switch("Music", "Pink", 1)
-	local effectsSwitch = switch("Effects", "Cyan", 2)
-	local simpleSwitch = switch("Simple", "Good", 3) -- depth update: Simple mode (saved; the server rates it)
+	local musicSwitch = settingsRow("Music", "")
+	local effectsSwitch = settingsRow("Effects", "")
+	local simpleSwitch = settingsRow("Simple", "") -- depth update: Simple mode (saved; the server rates it)
+	local helpersSwitch = settingsRow("Helpers", "")
+	local skipRow = settingsRow("Skip", "⏭️ Skip tutorial")
+	local replayRow = settingsRow("Replay", "🔁 Replay tutorial")
+	for piece, text in Pure.MORE do
+		local row = settingsRow(piece, text)
+		row.Activated:Connect(function()
+			ctx.fire("Open", piece) -- a Panel: opening it closes ⚙️
+		end)
+	end
+	local adminButton = settingsRow("Admin", "🛠️ Admin")
 	settings.Focus = musicSwitch
-	-- 👥 Who may work at your clinic: only while you own one (see below).
-	local helpersSwitch = switch("Helpers", "Good", 4)
-	helpersSwitch.Visible = false
-	-- 🛠️ Admin: only for the accounts the server marks IsAdmin (Server/Admin). It just opens UI/AdminPanel, whose every
-	-- button the server checks again.
-	local adminButton = switch("Admin", "Purple", 5)
-	adminButton.Text = "🛠️ Admin"
-	-- The card is three rows tall (🎵, ✨, 👆 Simple), and grows a row for each of 👥 and 🛠️ that shows: 280 px held
-	-- the first two rows, each row is a switch plus the gap. On a short landscape phone the card is cut to the screen
-	-- and Hud.fitHeight scales the rows down to fit (to half size at the most, for an admin who owns a clinic).
-	local settingsLimit = settings.Root:FindFirstChildOfClass("UISizeConstraint")
+
+	-- Two columns when one column of rows would need scrolling and the card is wide enough.
 	local function fitSettings()
-		local rows = 1 -- 👆 Simple, always there
-		for _, extra in { helpersSwitch, adminButton } do
-			if extra.Visible then
-				rows += 1
+		local count = 0
+		for _, row in rows do
+			if row.Visible then
+				count += 1
 			end
 		end
-		if settingsLimit then
-			settingsLimit.MaxSize = Vector2.new(380, 280 + rows * (Theme.Size.ButtonHeight + 8 + gap))
-		end
+		local body = settings.Body.AbsoluteSize
+		local cell = Theme.Size.ButtonHeight
+		local tall = count * (cell + gap) > body.Y
+		local twoColumns = tall and body.X >= 340
+		grid.CellSize = if twoColumns
+			then UDim2.new(0.5, -(gap + Theme.Space.Step[2]), 0, cell)
+			else UDim2.new(1, -Theme.Space.Step[3], 0, cell)
 	end
-	local function renderAdmin()
-		adminButton.Visible = player:GetAttribute("IsAdmin") == true
-		fitSettings()
-	end
-	player:GetAttributeChangedSignal("IsAdmin"):Connect(renderAdmin)
-	renderAdmin()
-	adminButton.Activated:Connect(function()
-		if player:GetAttribute("IsAdmin") == true then
-			ctx.fire("Open", "Admin") -- a Panel: opening it closes ⚙️
-		end
-	end)
-	local function paintSwitch(button: TextButton, on: boolean, color: Color3)
-		local switchFill = if on then Kit.lighten(color, 0.08) else Theme.Colors.Quiet
-		button.BackgroundColor3 = switchFill
-		button:SetAttribute("KitColor", switchFill)
-	end
+	settings.Body:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitSettings)
 
-	-- 👥 The helpers switch (it used to be a prompt on the sign, which covered the scene). Off = "👥 Friends only"
-	-- (only you and your Roblox friends may work at your clinic), on = "🤝 Anyone can help". It shows your plot's
-	-- OpenHelpers attribute; a tap asks the server (SetHelpers, Server/Visits), which checks you own the plot, switches
-	-- it and toasts. Hidden while you have no clinic.
+	-- 👥 Who may work at your clinic: only while you own one. Off = "👥 Friends only" (only you and your Roblox friends
+	-- may work at your clinic), on = "🤝 Anyone can help". It shows your plot's OpenHelpers attribute; a tap asks the
+	-- server (SetHelpers, Server/Visits), which checks you own the plot, switches it and toasts.
 	local function myClinic(): Model?
 		local index = player:GetAttribute("PlotIndex")
 		local clinics = Workspace:FindFirstChild("Clinics")
 		local plot = if type(index) == "number" and clinics then clinics:FindFirstChild("Plot_" .. index) else nil
 		return if plot and plot:IsA("Model") then plot else nil
 	end
+
+	-- Revealed pieces (the first-session reveal) and the HUD's layout decide which rows show.
+	local shown: { [string]: boolean } = {}
+	local function renderRows()
+		local state = ctx.State
+		local more: { string } = {}
+		for _, piece in layout.More do
+			if shown[piece] then
+				table.insert(more, piece)
+			end
+		end
+		local order =
+			Pure.settingsRows(state.Tutorial, state.PlotIndex ~= nil, player:GetAttribute("IsAdmin") == true, more)
+		for name, row in rows do
+			local index = table.find(order, name)
+			row.Visible = index ~= nil and (name ~= "Helpers" or myClinic() ~= nil)
+			row.LayoutOrder = index or 0
+		end
+		fitSettings()
+	end
+
 	local function renderHelpers()
 		local plot = myClinic()
 		local open = plot ~= nil and plot:GetAttribute("OpenHelpers") == true
-		helpersSwitch.Visible = plot ~= nil
 		helpersSwitch.Text = if open then "🤝 Anyone can help" else "👥 Friends only"
-		paintSwitch(helpersSwitch, open, Theme.Colors.Good)
-		fitSettings()
+		renderRows()
 	end
 	local helpersWatch: RBXScriptConnection? = nil
 	local function watchHelpers()
@@ -1783,6 +2226,7 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		renderHelpers()
 	end)
+
 	local function calmOn(): boolean
 		local value = player:GetAttribute("ReduceEffects")
 		return if value == nil then Kit.reducedMotion() else value == true
@@ -1790,13 +2234,9 @@ function Hud.init(ctx: Types.Ctx)
 	local function renderSettings()
 		local muted = player:GetAttribute("MusicMuted") == true
 		musicSwitch.Text = if muted then "🔇 Music off" else "🎵 Music on"
-		paintSwitch(musicSwitch, not muted, Theme.Colors.Pink)
-		local calmNow = calmOn()
-		effectsSwitch.Text = if calmNow then "💤 Calm effects" else "✨ Full effects"
-		paintSwitch(effectsSwitch, not calmNow, Theme.Colors.Cyan)
-		local simple = ctx.State.Simple == true
-		simpleSwitch.Text = if simple then "👆 Simple taps" else "🎮 Mini-games"
-		paintSwitch(simpleSwitch, not simple, Theme.Colors.Good)
+		effectsSwitch.Text = if calmOn() then "💤 Calm effects" else "✨ Full effects"
+		simpleSwitch.Text = if ctx.State.Simple == true then "👆 Simple taps" else "🎮 Mini-games"
+		renderRows()
 	end
 	musicSwitch.Activated:Connect(function()
 		player:SetAttribute("MusicMuted", player:GetAttribute("MusicMuted") ~= true)
@@ -1819,88 +2259,444 @@ function Hud.init(ctx: Types.Ctx)
 			ctx.toast(message)
 		end
 	end)
-	ctx.onState(function()
-		renderSettings()
+	-- ⏭️ / 🔁: ⚙️ closes and UI/Tutorial takes over (its confirm, then the TutorialSkip / TutorialReplay remote).
+	skipRow.Activated:Connect(function()
+		settings.close()
+		ctx.fire("SkipTutorial")
 	end)
+	replayRow.Activated:Connect(function()
+		settings.close()
+		ctx.fire("ReplayTutorial")
+	end)
+	-- 🛠️ Admin: only for the accounts the server marks IsAdmin (Server/Admin). It just opens UI/AdminPanel, whose
+	-- every button the server checks again.
+	adminButton.Activated:Connect(function()
+		if player:GetAttribute("IsAdmin") == true then
+			ctx.fire("Open", "Admin") -- a Panel: opening it closes ⚙️
+		end
+	end)
+	player:GetAttributeChangedSignal("IsAdmin"):Connect(renderRows)
 	player:GetAttributeChangedSignal("MusicMuted"):Connect(renderSettings)
 	player:GetAttributeChangedSignal("ReduceEffects"):Connect(renderSettings)
-	renderSettings()
 	settingsButton.Activated:Connect(function()
 		renderSettings()
 		watchHelpers() -- in case your clinic streamed in since
 		settings.toggle()
 	end)
 
-	-- Small screens: scale the bottom cluster down so it keeps 100 px clear on each side (a phone's touch jump button
-	-- sits 95 px in from the right edge, its thumbstick as far in from the left), never below the 56 px tap target
-	-- (minScale = 56 / 76 ≈ 0.737). Seven tabs: full size from 792 px wide (592 + 200), the floor (436 px of bar)
-	-- below 636 px; a 667 px phone gets 0.79 (60 px buttons), an 844 px one full size.
-	local bottomScale = Instance.new("UIScale")
-	bottomScale.Parent = bar
-	local minScale = Theme.Size.ButtonHeight / size
-	local function fit()
-		local width = gui.AbsoluteSize.X
-		bottomScale.Scale = math.clamp((width - 200) / barWidth, minScale, 1)
+	--------------------------------------------------------------------------------------------------------------
+	-- The Now card's own entries: the warnings (30) and the tracked goal (10)
+	--------------------------------------------------------------------------------------------------------------
+	local warnCard, _, warnIcon, warnText = nowCard("Warning", false)
+	local goalCard, goalPlate, goalIcon, goalText = nowCard("Goal", true)
+	goalText.AnchorPoint = Vector2.new(0, 0)
+	goalText.Position = UDim2.fromOffset(WALLET_ICON + Theme.Space.Step[4], Theme.Space.Step[1])
+	goalText.Size = UDim2.new(1, -(WALLET_ICON + Theme.Space.Step[5]), 0, 30)
+	local goalTrack, goalFill = bar(goalPlate, "Bar", Theme.Colors.Collect, Theme.Colors.Shade, 0.4)
+	goalTrack.AnchorPoint = Vector2.new(0, 1)
+	goalTrack.Position = UDim2.new(0, WALLET_ICON + Theme.Space.Step[4], 1, -Theme.Space.Step[2])
+	goalTrack.Size = UDim2.new(1, -(WALLET_ICON + Theme.Space.Step[5] + Theme.Space.Step[2]), 0, 8)
+	local goalShown = ""
+	local goalButton = goalPlate :: TextButton
+	goalButton.Activated:Connect(function()
+		Kit.Clicked:Fire(goalButton)
+		Hud.pop(goalCard, 1.05)
+		ctx.fire("Open", "Goals")
+	end)
+
+	-- ⚠️ Not saving (not shown for the Studio FreshSave test switch, so the screen looks like a real first visit) ·
+	-- 🏠 Clinics full (no clinic a while after loading: all six taken; never flashed during the normal assign).
+	local noPlot = false
+	local function renderWarning()
+		local saving = player:GetAttribute("DataOk") == false and player:GetAttribute("FreshSave") ~= true
+		if saving then
+			warnIcon.Text, warnText.Text = "⚠️", "Not saving"
+		elseif noPlot then
+			warnIcon.Text, warnText.Text = "🏠", "Clinics full"
+		end
+		Hud.setNow("Warning", if saving or noPlot then warnCard else nil, Pure.PRIORITY.Warning)
 	end
-	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-	fit()
+	player:GetAttributeChangedSignal("DataOk"):Connect(renderWarning)
+	player:GetAttributeChangedSignal("FreshSave"):Connect(renderWarning)
+	local plotToken = 0
+	local function watchPlot(state: Types.Snapshot)
+		plotToken += 1
+		local token = plotToken
+		if state.PlotIndex ~= nil then
+			noPlot = false
+			renderWarning()
+			return
+		end
+		task.delay(4, function()
+			if token == plotToken and ctx.State.PlotIndex == nil then
+				noPlot = true
+				renderWarning()
+			end
+		end)
+	end
+
+	local function renderGoal(state: Types.Snapshot, animate: boolean)
+		local daily: any = state.Daily
+		local goal = if shown.Goals then Pure.trackedGoal(daily and daily.Goals, data.DailyGoals, data.Wings) else nil
+		if not goal then
+			goalShown = ""
+			Hud.setNow("Goal", nil, Pure.PRIORITY.Goal)
+			return
+		end
+		goalIcon.Text = goal.Icon
+		goalText.Text = goal.Text
+		fillTo(goalFill, goal.Ratio, animate and goalShown == goal.Id)
+		goalShown = goal.Id
+		Hud.setNow("Goal", goalCard, Pure.PRIORITY.Goal)
+	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Keeping it current
+	-- Layout: the zone map on every resize
 	--------------------------------------------------------------------------------------------------------------
-	local function renderPhase()
-		local night = Workspace:GetAttribute("IsNight") == true
-		phaseIcon.Text = if night then "🌙" else "☀️"
-		nightBadge.Visible = night
-		paint(timerPill, if night then Theme.Colors.Purple else Theme.Colors.Primary)
+	local function onRail(name: string): boolean
+		return table.find(layout.Left, name) ~= nil or table.find(layout.Right, name) ~= nil
 	end
-	Workspace:GetAttributeChangedSignal("IsNight"):Connect(function()
-		renderPhase()
-		Hud.pop(timerPill, 1.15)
-	end)
-	renderPhase()
+	local function applyPiece(name: string)
+		if name == "Stars" then
+			starsButton.Visible = shown.Stars == true
+		elseif name == "Status" then
+			statusColumn.Visible = shown.Status == true
+		else
+			local button = buttons[name]
+			if button then
+				button.Visible = shown[name] == true and onRail(name)
+			end
+		end
+	end
+	local function pieceGui(name: string): GuiObject?
+		if name == "Stars" then
+			return starsButton
+		elseif name == "Status" then
+			return statusColumn
+		end
+		return buttons[name]
+	end
+
+	local renderStatus: () -> ()
+	local function relayout()
+		local size = gui.AbsoluteSize
+		if size.X <= 0 or size.Y <= 0 then
+			return
+		end
+		local w = size.X
+		layout = HudZones.layout(w, size.Y, Hud.topbar())
+		box = Pure.statusBox(layout, w)
+
+		-- Wallet: top left above the left rail, or up in the top-bar row on a phone.
+		if layout.WalletInTopbar then
+			wallet.Parent = systemRow
+			walletList.FillDirection = Enum.FillDirection.Horizontal
+			walletList.Padding = UDim.new(0, Theme.Space.Step[3])
+			walletList.VerticalAlignment = Enum.VerticalAlignment.Center
+		else
+			wallet.Parent = gui
+			wallet.Position = UDim2.fromOffset(layout.Margin, layout.Top + 8)
+			walletList.FillDirection = Enum.FillDirection.Vertical
+			walletList.Padding = UDim.new(0, Theme.Space.Step[1])
+			walletList.VerticalAlignment = Enum.VerticalAlignment.Top
+		end
+
+		-- Rails: each zone covers its slots (a zone pops toward its screen edge).
+		local function place(zone: Frame, side: "Left" | "Right", order: { string }, count: number)
+			local height = count * layout.Button + math.max(0, count - 1) * layout.Gap
+			local first = HudZones.railRect(layout, side, 1, w)
+			zone.Size = UDim2.fromOffset(layout.Button, height)
+			zone.Position = UDim2.fromOffset(if side == "Left" then first.X0 else first.X1, first.Y0 + height / 2)
+			for index, name in order do
+				local button = buttons[name]
+				button.Size = UDim2.fromOffset(layout.Button, layout.Button)
+				button.Position = UDim2.fromOffset(0, (index - 1) * (layout.Button + layout.Gap))
+				placeFace(button, layout.Captions, name == "Gifts")
+			end
+		end
+		place(leftZone, "Left", HudZones.ORDER.LeftRail, #layout.Left)
+		place(rightZone, "Right", HudZones.ORDER.RightRail, #layout.Right)
+		-- A piece in ⚙️ More: flying icons and pointers for it land on ⚙️.
+		for _, name in HudZones.ORDER.LeftRail do
+			targets[name] = if table.find(layout.More, name) then settingsButton else buttons[name]
+		end
+		for name in Pure.RAIL do
+			applyPiece(name)
+		end
+
+		-- Now: top centre, under the top bar, as wide as the zone map allows.
+		local now = HudZones.nowRect(layout, w)
+		local nowZone = nowFrame()
+		nowZone.Position = UDim2.new(0.5, 0, 0, now.Y0)
+		nowZone.Size = UDim2.fromOffset(layout.NowWidth, 0)
+
+		-- Status: the screen edge (desktop) or the strip beside the right rail (phones).
+		statusZone.Position = UDim2.fromOffset(box.X1, box.Top)
+		statusZone.Size = UDim2.fromOffset(box.Width, 0)
+		boostList.FillDirection = if box.Compact then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal
+		boostList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		faceDisc.Visible = not box.Compact
+
+		handsZone.Position = UDim2.new(0.5, 0, 1, -layout.Margin)
+		renderHands()
+		renderRows()
+		renderStatus()
+		nowChanged()
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- Status, kept current (the clock only rewrites its text; it slows down while Status is hidden)
+	--------------------------------------------------------------------------------------------------------------
+	local function boostChip(id: string): Line
+		local existing = boostChips[id]
+		if existing then
+			return existing
+		end
+		local entry = line(boostRow, 0, false)
+		entry.Chip.Name = id
+		entry.Chip.BackgroundColor3 = Theme.Colors.Plate
+		entry.Chip.BackgroundTransparency = 0
+		local stroke = entry.Chip:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Enabled = true
+		end
+		boostChips[id] = entry
+		Hud.pop(entry.Chip, 1.2)
+		return entry
+	end
+
+	renderStatus = function()
+		local state = ctx.State
+		local compact = box.Compact
+		local room = math.max(1, box.Width - 2 * Theme.Space.Step[2])
+		local now = Workspace:GetServerTimeNow()
+
+		-- 1 Day or night, with words.
+		local endsAt = Workspace:GetAttribute("PhaseEndsAt")
+		local night = Workspace:GetAttribute("IsNight") == true
+		local clock = Pure.dayLine(
+			night,
+			if type(endsAt) == "number" then endsAt - now else nil,
+			ctx.Config.NightPayMultiplier,
+			compact
+		)
+		setLine(clockLine, clock, room, compact)
+		paint(clockLine, if night then Theme.Colors.Night else nil)
+
+		-- 2 The one free-event chip.
+		local candidates =
+			Pure.eventCandidates(Workspace:GetAttribute("GoldenStartsAt"), Workspace:GetAttribute("GoldenHour"))
+		local event = Pure.eventChip(now, candidates, compact)
+		setLine(eventLine, event or "", room, compact)
+		paint(eventLine, Theme.Colors.Cash)
+
+		-- 3 Today's Visitor, only for a clinic it can come to (and ✅ once cured).
+		local visitor = if type(state.TodaysVisitor) == "string" then state.TodaysVisitor else ""
+		local look = Hud.lookOf(visitor)
+		if visitor ~= shownVisitor then
+			shownVisitor = visitor
+			faceDisc:ClearAllChildren()
+			roundCorner(faceDisc)
+			Kit.stroke(faceDisc, Theme.Colors.Stroke, Theme.Stroke.Fine)
+			if look then
+				Hud.portrait(look).Parent = faceDisc
+			end
+		end
+		local visitorText = if look then Pure.visitorLine(state.VisitorStatus) else nil
+		local faceRoom = if compact then 0 else Pure.ROW + Theme.Space.Step[1]
+		setLine(visitorLine, visitorText or "", room - faceRoom, compact)
+
+		-- 4 Timed boosts (at most 3), with the play time they have left.
+		local live = Pure.boosts(Hud.liveBoosts(state))
+		local seen: { [string]: boolean } = {}
+		for index, entry in live do
+			local def = rawget(data.Boosts, entry.Id)
+			if def then
+				seen[entry.Id] = true
+				local chip = boostChip(entry.Id)
+				chip.Chip.LayoutOrder = index
+				setLine(chip, def.Icon .. " " .. PlaytimeLogic.clock(entry.Left), room, true)
+			end
+		end
+		for id, chip in boostChips do
+			if not seen[id] then
+				chip.Chip:Destroy()
+				boostChips[id] = nil
+			end
+		end
+
+		-- The rows that fit, the clock first.
+		local want = {
+			Clock = clock ~= "",
+			Event = event ~= nil,
+			Visitor = visitorText ~= nil,
+			Boosts = next(boostChips) ~= nil,
+		}
+		local used = 0
+		for _, name in Pure.STATUS_ORDER do
+			local on = (want :: any)[name] == true and used < box.Rows
+			if on then
+				used += 1
+			end
+			statusRows[name].Visible = on
+		end
+	end
 
 	task.spawn(function()
-		local shown = ""
 		while gui.Parent do
-			local endsAt = Workspace:GetAttribute("PhaseEndsAt")
-			local text = ""
-			if type(endsAt) == "number" then
-				local left = math.max(0, math.floor(endsAt - Workspace:GetServerTimeNow()))
-				text = string.format("%d:%02d", left // 60, left % 60)
-			end
-			if text ~= shown then
-				shown = text
-				timeText.Text = text
-				timerPill.Visible = text ~= ""
-			end
-			task.wait(0.25)
+			renderStatus()
+			task.wait(if Kit.isShown(statusColumn) then 0.25 else 1)
 		end
 	end)
+	Workspace:GetAttributeChangedSignal("IsNight"):Connect(function()
+		renderStatus()
+		Hud.pop(clockLine.Chip, 1.15)
+	end)
 
-	-- (Not shown for the Studio FreshSave test switch, so the screen looks like a real first visit.)
-	local function renderSaving()
-		savingChip.Visible = player:GetAttribute("DataOk") == false and player:GetAttribute("FreshSave") ~= true
+	--------------------------------------------------------------------------------------------------------------
+	-- What hides while things are open (look build plan §B7)
+	--------------------------------------------------------------------------------------------------------------
+	local openModes: { [string]: string } = {}
+	local celebrateGui: ScreenGui? = nil
+	local hideReady = false -- the first pass places without motion
+	local function celebrating(): boolean
+		local screen = celebrateGui
+		return screen ~= nil and screen.Parent ~= nil and screen.Enabled
 	end
-	player:GetAttributeChangedSignal("DataOk"):Connect(renderSaving)
-	player:GetAttributeChangedSignal("FreshSave"):Connect(renderSaving)
-	renderSaving()
-
-	starsPill.Activated:Connect(function()
-		if nextTip ~= "" then
-			ctx.toast(nextTip)
+	local function applyHide()
+		local hide = Pure.hidden(Pure.mode(openModes), celebrating())
+		local animate = hideReady
+		zoneShow(leftZone, not hide.Rails, animate)
+		zoneShow(rightZone, not hide.Rails, animate)
+		zoneShow(statusZone, not hide.Status, animate)
+		zoneShow(nowFrame(), not hide.Now, animate)
+		zoneShow(wallet, not hide.Wallet, animate)
+		zoneShow(handsZone, not hide.Hands, animate)
+		system.Enabled = not hide.System
+		hideReady = true
+		nowChanged()
+	end
+	ctx.on("ModalOpened", function(name: any, mode: any)
+		if type(name) == "string" then
+			openModes[name] = if type(mode) == "string" then mode else "Panel"
+			applyHide()
 		end
-		Hud.pop(starsPill, 1.08)
 	end)
-	visitorChip.Activated:Connect(function()
-		if ctx.State.VisitorStatus == "Done" then
-			ctx.toast("✅ Visitor cured! New one tomorrow")
-		else
-			ctx.toast("⭐ Today's visitor pays " .. tostring(ctx.Config.VisitorMultiplier or 3) .. "×!")
+	ctx.on("ModalClosed", function(name: any)
+		if type(name) == "string" then
+			openModes[name] = nil
+			applyHide()
 		end
-		Hud.pop(visitorChip, 1.1)
+	end)
+	-- UI/Celebrate's screen (a ScreenGui named "Celebrate", Enabled while a celebration shows).
+	local function watchCelebrate(child: Instance)
+		if child.Name == "Celebrate" and child:IsA("ScreenGui") and child ~= celebrateGui then
+			celebrateGui = child
+			child:GetPropertyChangedSignal("Enabled"):Connect(applyHide)
+			applyHide()
+		end
+	end
+	local playerGui = player:WaitForChild("PlayerGui")
+	playerGui.ChildAdded:Connect(watchCelebrate)
+	for _, child in playerGui:GetChildren() do
+		watchCelebrate(child)
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The reveal: a new player's HUD grows with their tutorial step (see the header), in fixed slots
+	--------------------------------------------------------------------------------------------------------------
+	local BOUNCE: { [string]: number } = { Stars = 1.25, Shop = 1.45, Book = 1.45, Status = 1.12 }
+	local curedSeen = false -- a cure landed this session: ⭐ shows with it, not a moment later with the snapshot
+	local wasActive = false
+	local queue: { string } = {}
+	local staggering = false
+	local function runStagger()
+		if staggering then
+			return
+		end
+		staggering = true
+		task.spawn(function()
+			while #queue > 0 do
+				if celebrating() then
+					task.wait(0.25) -- the finale's celebration first: the HUD pops in after it
+				else
+					local name = table.remove(queue, 1) :: string
+					if not shown[name] then
+						shown[name] = true
+						applyPiece(name)
+						renderRows()
+						local piece = pieceGui(name)
+						if piece and Kit.isShown(piece) then
+							Hud.pop(piece, BOUNCE[name] or 1.3)
+							Hud.sound("Pop", 0.5)
+							task.wait(Pure.STAGGER)
+						end
+					end
+				end
+			end
+			staggering = false
+			renderGoal(ctx.State, false)
+		end)
+	end
+	local function applyReveal(state: Types.Snapshot, animate: boolean)
+		local step = state.Tutorial
+		local reveal = Pure.reveal(step, curedSeen, (state :: any).TutorialReplay == true)
+		local want: { [string]: boolean } = {
+			Stars = reveal.Stars,
+			Shop = reveal.Shop,
+			Book = reveal.Book,
+			Status = reveal.Rest,
+		}
+		for name in Pure.RAIL do
+			if want[name] == nil then
+				want[name] = reveal.Rest
+			end
+		end
+		-- The tutorial just ended (finished or skipped): the rest pops in one piece at a time.
+		local stagger = animate and wasActive and TutorialLogic.isDone(step) and not Hud.calm()
+		wasActive = TutorialLogic.active(step)
+		local appeared = false
+		for _, name in { "Stars", table.unpack(Pure.REVEAL_ORDER) } do
+			local on = want[name] == true
+			local queued = table.find(queue, name)
+			if not on then
+				if queued then
+					table.remove(queue, queued)
+				end
+				if shown[name] then
+					shown[name] = false
+					applyPiece(name)
+				end
+			elseif not shown[name] and not queued then
+				if stagger and name ~= "Stars" then
+					table.insert(queue, name)
+				else
+					shown[name] = true
+					applyPiece(name)
+					local piece = pieceGui(name)
+					if animate and piece and piece.Visible then
+						Hud.pop(piece, BOUNCE[name] or 1.3)
+						appeared = true
+					end
+				end
+			end
+		end
+		if #queue > 0 then
+			runStagger()
+		end
+		if appeared then
+			Hud.sound("Pop")
+		end
+		renderRows()
+	end
+	ctx.Remotes.Cured.OnClientEvent:Connect(function()
+		curedSeen = true
+		applyReveal(ctx.State, true)
 	end)
 
+	--------------------------------------------------------------------------------------------------------------
+	-- Dots, news and juice
+	--------------------------------------------------------------------------------------------------------------
 	ctx.on("BookNew", function(count: any)
 		Kit.setDot(buttons.Book, type(count) == "number" and count > 0)
 	end)
@@ -1917,6 +2713,14 @@ function Hud.init(ctx: Types.Ctx)
 		if type(paid) == "number" and paid == paid and paid > 0 then
 			Hud.fly(nil, "💰", "Cash", Kit.Juice.coins(paid))
 		end
+	end)
+
+	starsButton.Activated:Connect(function()
+		Kit.Clicked:Fire(starsButton)
+		if nextTip ~= "" then
+			ctx.toast(nextTip)
+		end
+		Hud.pop(starsButton, 1.08)
 	end)
 
 	-- The 🔥 combo sticker follows the player attribute Combo (T1, session-only). Hidden during the tutorial.
@@ -1942,7 +2746,7 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		local tier, multiplier = Kit.Juice.comboStep(combo, comboSteps)
 		comboSticker.Text = "🔥" .. combo
-		paint(comboSticker, COMBO_COLORS[math.clamp(tier + 1, 1, #COMBO_COLORS)])
+		comboSticker.BackgroundColor3 = COMBO_COLORS[math.clamp(tier + 1, 1, #COMBO_COLORS)]
 		if not comboSticker.Visible or before == 0 then
 			Kit.popIn(comboSticker)
 		elseif combo > before then
@@ -1953,19 +2757,13 @@ function Hud.init(ctx: Types.Ctx)
 		end
 	end
 	player:GetAttributeChangedSignal("Combo"):Connect(renderCombo)
-	ctx.onState(function()
-		if comboShown > 0 and TutorialLogic.active(ctx.State.Tutorial) then
-			renderCombo()
-		end
-	end)
-	renderCombo()
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Play gifts and timed boosts, live: the server's PlayToday/PlayTotal attributes move every second of play
 	--------------------------------------------------------------------------------------------------------------
 	local gifts = data.Playtime.Gifts
 	local giftsWereReady = false
-	local giftsShown = false -- the first render after the save loads never shakes
+	local giftsShown = false -- the first render after the save loads never bounces
 	local function renderGifts()
 		local state = ctx.State
 		if type(state.Playtime) ~= "table" then
@@ -1973,7 +2771,7 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		local save, day = Hud.livePlay(state)
 		local ready = #PlaytimeLogic.ready(save, day, gifts) > 0
-		local nextIndex, left = PlaytimeLogic.nextGift(save, day, gifts)
+		local nextIndex = PlaytimeLogic.nextGift(save, day, gifts)
 		local ratio = 1
 		if nextIndex then
 			local goal = PlaytimeLogic.giftSeconds(gifts[nextIndex])
@@ -1982,154 +2780,34 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		local full = ready or not nextIndex
 		giftFill.Size = UDim2.fromScale(if full then 1 else math.max(ratio, 0.08), 1)
-		giftFill.BackgroundColor3 = if ready then Theme.Colors.Good else Theme.Colors.Cash
-		giftTime.Text = if ready
-			then "OPEN!"
-			elseif nextIndex then PlaytimeLogic.duration(math.max(60, left))
-			else "✅ Done"
+		giftFill.BackgroundColor3 = if ready then Theme.Colors.Collect else Theme.Colors.Cash
 		Kit.setDot(giftButton, ready)
-		if ready and not giftsWereReady and giftsShown and giftHolder.Visible then
-			Hud.shake(giftButton)
+		if ready and not giftsWereReady and giftsShown and Kit.isShown(giftButton) then
+			Hud.pop(giftButton, 1.2)
 		end
 		giftsWereReady = ready
 		giftsShown = state ~= initial
 	end
-
-	-- A chip per timed boost: its icon and the play time it has left, in its kind's colour.
-	local BOOST_COLORS: { [string]: Color3 } = {
-		MakeSpeed = Theme.Colors.Cyan,
-		Tips = Theme.Colors.Good,
-		Stars = Theme.Colors.Purple,
-		Cash = Theme.Colors.Cash,
-		Patience = Theme.Colors.Secondary,
-	}
-	local boostChips: { [string]: Frame } = {}
-	local function renderBoosts()
-		local live = Hud.liveBoosts(ctx.State)
-		local seen: { [string]: boolean } = {}
-		for index, entry in live do
-			local def = rawget(data.Boosts, entry.Id)
-			if not def then
-				continue
-			end
-			seen[entry.Id] = true
-			local chipFrame = boostChips[entry.Id]
-			if not chipFrame then
-				chipFrame = pill({
-					Name = entry.Id,
-					Parent = boostRow,
-					Color = BOOST_COLORS[def.Kind] or Theme.Colors.Secondary,
-					Size = UDim2.fromOffset(92, 40),
-				})
-				Kit.label({
-					Name = "Text",
-					Text = "",
-					Outlined = true,
-					TextScaled = true,
-					TextWrapped = false,
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					Position = UDim2.fromScale(0.5, 0.5),
-					Size = UDim2.new(1, -16, 0, 26),
-					Parent = chipFrame,
-				})
-				boostChips[entry.Id] = chipFrame
-				Hud.pop(chipFrame, 1.3)
-			end
-			local chipFrame2 = chipFrame :: Frame
-			chipFrame2.LayoutOrder = index
-			local text = chipFrame2:FindFirstChild("Text") :: TextLabel?
-			if text then
-				text.Text = def.Icon .. " " .. PlaytimeLogic.clock(entry.Left)
-			end
-		end
-		for id, chipFrame in boostChips do
-			if not seen[id] then
-				chipFrame:Destroy()
-				boostChips[id] = nil
-			end
-		end
-		boostRow.Visible = next(boostChips) ~= nil
-	end
-
 	local function renderPlay()
 		renderGifts()
-		renderBoosts()
+		renderStatus()
 	end
 	for _, attribute in { "PlayToday", "PlayTotal" } do
 		player:GetAttributeChangedSignal(attribute):Connect(renderPlay)
 	end
 	Workspace:GetAttributeChangedSignal("UtcDay"):Connect(renderPlay)
 
-	-- No clinic for a while after loading (all six taken): say so, but don't flash it during the normal assign.
-	local plotToken = 0
-	local function watchPlot(state: Types.Snapshot)
-		plotToken += 1
-		local token = plotToken
-		if state.PlotIndex ~= nil then
-			noPlotChip.Visible = false
-			return
-		end
-		task.delay(4, function()
-			if token == plotToken and ctx.State.PlotIndex == nil then
-				noPlotChip.Visible = true
-			end
-		end)
-	end
-
 	--------------------------------------------------------------------------------------------------------------
-	-- The reveal: a new player's HUD grows with their tutorial step (see the header)
+	-- Keeping it current
 	--------------------------------------------------------------------------------------------------------------
-	-- (📖 comes at the tutorial's Book step rather than at its end: that step's pointer needs the button there.)
-	type Reveal = { Stars: boolean, Shop: boolean, Book: boolean, Rest: boolean }
-	local curedSeen = false -- a cure landed this session: ⭐ shows with it, not a moment later with the snapshot
-	local function revealFor(state: Types.Snapshot): Reveal
-		local step: any = state.Tutorial
-		if type(step) ~= "number" then
-			step = TutorialLogic.DONE -- a snapshot without the field: no tutorial
-		end
-		if TutorialLogic.isDone(step) then
-			return { Stars = true, Shop = true, Book = true, Rest = true }
-		elseif not TutorialLogic.active(step) then
-			return { Stars = false, Shop = false, Book = false, Rest = false } -- 0: not known yet
-		end
-		return {
-			Stars = step >= TutorialLogic.MORE or (step >= TutorialLogic.REST and curedSeen),
-			Shop = step >= TutorialLogic.SHOP,
-			Book = step >= TutorialLogic.BOOK,
-			Rest = false,
-		}
-	end
-	-- Shows or hides one piece; one that appears mid-session pops in (Hud.pop honours Hud.calm()).
-	local function showPiece(piece: GuiObject, on: boolean, animate: boolean, bounce: number): boolean
-		if piece.Visible == on then
-			return false
-		end
-		piece.Visible = on
-		if on and animate then
-			Hud.pop(piece, bounce)
-		end
-		return on
-	end
-	local function applyReveal(state: Types.Snapshot, animate: boolean)
-		local reveal = revealFor(state)
-		local appeared = showPiece(starsPill, reveal.Stars, animate, 1.25)
-		appeared = showPiece(buttons.Shop, reveal.Shop, animate, 1.45) or appeared -- the shop step's bounce
-		appeared = showPiece(buttons.Book, reveal.Book, animate, 1.45) or appeared -- the Book step's
-		for _, name in { "Mailbox", "Goals", "Nurses", "Badges", "Boards" } do
-			appeared = showPiece(buttons[name], reveal.Rest, animate, 1.3) or appeared
-		end
-		appeared = showPiece(giftHolder, reveal.Rest, animate, 1.3) or appeared
-		appeared = showPiece(side, reveal.Rest, animate, 1.12) or appeared
-		placeHands()
-		if appeared and animate then
-			Hud.sound("Pop")
-		end
-	end
-	applyReveal(initial, false)
-	ctx.Remotes.Cured.OnClientEvent:Connect(function()
-		curedSeen = true
-		applyReveal(ctx.State, true)
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+	pcall(function()
+		GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(relayout)
 	end)
+	relayout()
+	applyReveal(initial, false)
+	applyHide()
+	renderWarning()
 
 	local loaded = false
 	local branchWasNews = false
@@ -2150,11 +2828,7 @@ function Hud.init(ctx: Types.Ctx)
 		local ratio = if nextAt then math.clamp(((state.Stars or 0) - passed) / (nextAt - passed), 0, 1) else 1
 		nextIcon.Text = icon
 		nextTip = if nextAt then icon .. " " .. name .. " at ⭐" .. nextAt else "👑 Everything unlocked!"
-		if animate and not Hud.calm() then
-			TweenService:Create(fill, Theme.Tween.Fill, { Size = UDim2.fromScale(ratio, 1) }):Play()
-		else
-			fill.Size = UDim2.fromScale(ratio, 1)
-		end
+		fillTo(fill, ratio, animate)
 
 		local mailReady = state.MailboxReady == true
 		local goalsReady = goalReady(data, state)
@@ -2171,7 +2845,7 @@ function Hud.init(ctx: Types.Ctx)
 			elseif news.Hospital or news.Branch then "Hospital"
 			else nil
 		-- Progression v2: a branch reward waiting (and nothing else) makes the dot a 🃏 (a perk card to pick) or 🌳
-		-- (tree points to spend) sticker; it bounces once when it appears, never again (no pressure, red line 3).
+		-- (tree points to spend) sticker; it pops once when it appears, never again (no pressure, red line 3).
 		local branchOnly = news.Branch and not (news.Rooms or news.Decor or news.Hospital)
 		local rebirth = (state :: any).Rebirth
 		local offer = type(rebirth) == "table" and type(rebirth.Offer) == "table" and #rebirth.Offer > 0
@@ -2181,33 +2855,25 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		branchWasNews = news.Branch
 		if animate and mailReady and not mailWasReady then
-			Hud.shake(buttons.Mailbox)
+			Hud.pop(buttons.Mailbox, 1.2)
 		end
 		if animate and goalsReady and not goalsWereReady then
-			Hud.shake(buttons.Goals)
+			Hud.pop(buttons.Goals, 1.2)
 		end
 		mailWasReady, goalsWereReady = mailReady, goalsReady
-
-		local visitor = if type(state.TodaysVisitor) == "string" then state.TodaysVisitor else ""
-		local look = Hud.lookOf(visitor)
-		if visitor ~= shownVisitor then
-			shownVisitor = visitor
-			visitorFace:ClearAllChildren()
-			if look then
-				Hud.portrait(look).Parent = visitorFace
-			end
-		end
-		-- Only for a clinic it can come to ("None": no plot, or no station here can treat it), and ✅ once cured.
-		local status = state.VisitorStatus
-		visitorMark.Text = if status == "Done" then "✅" else "⭐"
-		paint(visitorChip, if status == "Done" then Theme.Colors.Good else Theme.Colors.Pink)
-		visitorChip.Visible = look ~= nil and (status == "Coming" or status == "Done")
 
 		if isServerState then
 			watchPlot(state)
 		end
+		if comboShown > 0 and TutorialLogic.active(state.Tutorial) then
+			renderCombo()
+		end
+		renderGoal(state, animate)
+		renderSettings()
 		renderPlay()
 	end)
+	renderHands()
+	renderCombo()
 end
 
 return Hud

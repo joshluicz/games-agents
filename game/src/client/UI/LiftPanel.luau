@@ -1,11 +1,14 @@
 --!strict
--- The 🛗 lift's floor picker and the ride on this client (Progression v2 build plan §B3/§B4/§B9, §C T6). OWNER: T6.
+-- The 🛗 lift's floor picker and the ride on this client (Progression v2 build plan §B3/§B4/§B9, §C T6). OWNER: T6;
+-- the look overhaul's T7 put the picker on the one modal template (look build plan §D T7; its PURE block is unchanged:
+-- tests/Hospital.spec loads it).
 --   init(ctx)
 --     · A LiftPrompt this player triggers (ProximityPromptService on this client) fires ctx.fire("Open", "Lift",
---       { Building, From }) and the picker opens: one big button per floor of THAT building only ("🛎️ G", "🛏️ 1",
---       "🛁 2", "💊 3", "🚁 R", from Data/Departments by floor), the top floor first; the floor you're on shows 📍 and
---       can't be picked. A tap asks RideLift(floor) (Hud.ask); a refusal toasts the server's words with a shake.
---       Walking away from the landing closes it.
+--       { Building, From }) and the picker opens: a Popup on the shared shell (the navy header, no look of its own) of
+--       big Secondary buttons, one per floor of THAT building only ("🛎️ G", "🛏️ 1", "🛁 2", "💊 3", "🚁 R", from
+--       Data/Departments by floor), the top floor first; the floor you're on shows 📍 and can't be picked. A tap asks
+--       RideLift(floor) (Hud.ask); a refusal toasts the server's words with a shake. Walking away from the landing
+--       closes it.
 --     · Your ride: when the server sets YOUR player attribute LiftRide ("<plot>,<from>,<to>,<seconds>,<serverTime>",
 --       Server/Lift), this client plays the Ding, steps you into the car, closes its drawn doors, slides the car with
 --       you inside (your root anchored on this client, so the camera eases along: no cut), opens the doors and steps
@@ -416,7 +419,6 @@ function LiftPanel.init(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = "Lift",
 		Title = "🛗 Lift",
-		Accent = Theme.Colors.Cyan,
 		Layer = "Popup",
 		MaxSize = Vector2.new(420, 500),
 	})
@@ -429,7 +431,7 @@ function LiftPanel.init(ctx: Types.Ctx)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
-	layout.CellPadding = UDim2.fromOffset(Theme.Size.Gap, Theme.Size.Gap)
+	layout.CellPadding = UDim2.fromOffset(Theme.Space.Gap, Theme.Space.Gap)
 	layout.Parent = grid
 	grid.Parent = modal.Body
 
@@ -468,12 +470,12 @@ function LiftPanel.init(ctx: Types.Ctx)
 		local list = Pure.buttons(building:GetAttribute("Floors"), here, ctx.Data.Departments)
 		-- Two columns once there are more than three floors, so five fit a small landscape phone.
 		local columns = if #list > 3 then 2 else 1
-		layout.CellSize = UDim2.new(1 / columns, if columns > 1 then -Theme.Size.Gap / 2 else 0, 0, BUTTON_HEIGHT)
+		layout.CellSize = UDim2.new(1 / columns, if columns > 1 then -Theme.Space.Gap / 2 else 0, 0, BUTTON_HEIGHT)
 		local first: GuiObject? = nil
 		for index, entry in list do
 			local button = Kit.button({
 				Name = "Floor_" .. entry.Floor,
-				Kind = if entry.Here then "Quiet" else "Cyan",
+				Kind = "Secondary",
 				Text = if entry.Here then "📍 " .. entry.Text else entry.Text,
 				TextSize = Theme.TextSize.Title,
 				LayoutOrder = index,

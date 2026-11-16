@@ -4,36 +4,53 @@
 -- LayoutOrder, ...), plus Parent (set last) and the extras noted below. Colours and sizes come from Theme.
 --
 --   Kit.screen(name, displayOrder): ScreenGui       ResetOnSpawn off, inside the safe area, in PlayerGui
---   Kit.panel(props?): Frame                       white card, thick outline; extras: Title = "🛒 Shop" adds
---                                                  the header band with an outlined title: Theme.Colors.Header
---                                                  (navy, flat) unless Accent = Color3 is given (old callers; a
---                                                  modal never passes one)
+--   Kit.panel(props?): Frame                       flat white card, the Panel stroke; extra: Title = "🛒 Shop" adds
+--                                                  THE header: a Kit.HEADER (64) px navy band (Theme.Colors.Header)
+--                                                  with the title in white display text. Accent is IGNORED (every
+--                                                  header is navy: look build plan §B8)
 --   Kit.label(props?): TextLabel                   extra: Outlined = true -> display font, white text, dark stroke
---   Kit.button(props?): TextButton                 glossy button with an outline, a press bounce and (with a
---                                                  mouse) a hover grow; extra: Kind, min 56 px tall. The ROLES (look
---                                                  build plan §B8): "Primary" | "Collect" | "Secondary" | "Quiet" |
---                                                  "Destructive" | "Icon". Old kinds still work until T6 maps them
---                                                  (Good -> Collect, Danger -> Destructive, Pink/Purple/Cyan/Cash ->
---                                                  Secondary, Card -> Quiet)
+--   Kit.button(props?): TextButton                 a button with a press bounce and (with a mouse) a hover grow, min
+--                                                  56 px tall; extras: Kind (its ROLE), Fill (a game piece's own
+--                                                  colour, e.g. a triage floor: candy roles only). The ROLES (look
+--                                                  build plan §B8, ux audit §3.3):
+--                                                    "Primary"     orange candy: Buy, Hire, Level up, List. One per
+--                                                                  view; NEVER shines or breathes (red line 3)
+--                                                    "Collect"     green candy: Claim, Open!, Yay!, ✅ Take it. The only
+--                                                                  role that may shine or breathe
+--                                                    "Secondary"   a quiet flat fill, ink text: everything else
+--                                                    "Quiet"       no fill, no outline, ink text: links ("See odds")
+--                                                    "Destructive" red candy: Sell, Reset, Throw away (always behind
+--                                                                  Hud.confirm or a hold), and the modal's ✖
+--                                                    "Icon"        a white plate with the Bold outline (HUD and tabs)
+--                                                  Old kinds map (Kit.Juice.role): Good -> Collect, Danger ->
+--                                                  Destructive, Pink/Purple/Cyan/Cash -> Secondary, Card -> Quiet; an
+--                                                  unknown kind is Secondary. Kind nil = Primary (as before)
+--   Kit.setRole(button, kind)                      repaints a Kit button as another role (or the "Disabled" look:
+--                                                  grey with grey text, for "can't yet"; pair it with a gate chip)
 --   Kit.tab(button, selected, stripe?)             THE tab look (Modal.tabs paints with it). Unselected: Card fill,
 --                                                  ink caption · selected: Header (navy) fill, white outlined
---                                                  caption, a 3 px outline · stripe: a 6 px left edge in the
+--                                                  caption, the Bold outline · stripe: a 6 px left edge in the
 --                                                  section's own colour (a wing, a rarity, a board)
 --   Kit.textLimit(label, maxPx)                    THE text fit: a UITextSizeConstraint with MinTextSize =
 --                                                  Theme.TextSize.Caption (18, the floor) and MaxTextSize =
 --                                                  max(maxPx, 18). For TextScaled labels; no local copies
--- Kit.tab, Kit.textLimit and the role names are the look overhaul Foundation's first versions: T6 restyles them and
--- keeps the names and signatures.
---   Kit.iconButton(props?): TextButton             big emoji square; extras: Icon, Caption, Kind; has a "Dot"
---   Kit.setDot(button, visible, glyph?)            the red "something new" dot: pops in, then hops now and then;
---                                                  a glyph (an emoji) turns it into a slightly bigger sticker
---   Kit.setEnabled(button, enabled)
+--   Kit.iconButton(props?): TextButton             the Icon plate: white, the Bold outline, the emoji at 60%, an
+--                                                  optional caption, a "Dot" top-right; extras: Icon, Caption, Kind
+--                                                  (default "Icon"), Glass = true (the dark-glass plate of the
+--                                                  top-bar row, beside Roblox's own buttons)
+--   Kit.setDot(button, visible, glyph?)            the red "something new" dot: pops in ONCE and stays still (no hop
+--                                                  loop); a glyph (an emoji) turns it into a slightly bigger still
+--                                                  sticker
+--   Kit.setEnabled(button, enabled)                off: the Disabled look and no taps · on: its role again (and the
+--                                                  KitColor attribute's fill, for callers that set their own)
 --   Kit.corner(parent, radius?) · Kit.pad(parent, px?) · Kit.stroke(parent, colour?, px?)
+--                                                  radius: px or a UDim (Theme.Radius.Round); default Radius.Medium
 --   Kit.outline(text, px?): UIStroke              outlined text (a dark stroke around the letters)
 --   Kit.list(parent, direction?, gap?) · Kit.popIn(gui) · Kit.popOut(gui, onDone?)
 --   Kit.shade(colour, amount) · Kit.lighten(colour, amount)
---   Kit.shine(button): () -> ()                     a white shine sweeps across every few seconds (calls to
---                                                  action only); returns stop. Paused with reduced motion.
+--   Kit.shine(button): () -> ()                     a white shine sweeps across every few seconds. Collect buttons
+--                                                  only (any other role rests: Kit.Juice.mayLoop); returns stop.
+--                                                  Paused with reduced motion.
 --   Kit.rays(parent, colour?): Frame               a slowly turning sunburst behind a reward (ZIndex 0, behind
 --                                                  the parent's other children). Still with reduced motion.
 --   Kit.bump(gui)                                  a quick springy grow-and-settle (a number changed, a reward)
@@ -51,13 +68,14 @@
 --   Kit.confetti(parent, count?, origin?)          one burst of candy confetti inside `parent` (origin: a UDim2 in
 --                                                  the parent; nil = it rains from the top). Nothing with reduced
 --                                                  motion
---   Kit.rarityFrame(gui, rarity): () -> ()         the rarity's frame: a UIStroke "RarityFrame" with a shimmer in
+--   Kit.rarityFrame(gui, rarity): () -> ()         the rarity's frame: a UIStroke "RarityFrame" with a gradient in
 --                                                  its colours (Common grey, Rare blue, Epic purple, Legendary
---                                                  rainbow, Mythic cosmic, Secret gold); returns stop. Still (but
---                                                  coloured) with reduced motion
+--                                                  rainbow, Mythic cosmic, Secret gold); returns stop. Always
+--                                                  still (the motion budget: nothing on it loops)
 --   Kit.rarityColor(rarity): Color3                the rarity's colour (Data/Rarities; unknown = Common grey)
---   Kit.breathing(gui, amount?): () -> ()          idle "breathing" on a call to action: a slow gentle grow and
---                                                  shrink, paused while it's pressed or bounced; returns stop
+--   Kit.breathing(gui, amount?): () -> ()          idle "breathing" on a Collect button while its reward waits: a
+--                                                  slow gentle grow and shrink, paused while it's pressed or bounced
+--                                                  (any other role rests); returns stop
 -- Progression v2 (build plan §B9; T8 juiced the Foundation's first versions, same signatures):
 --   Kit.ring(parent, color): (fraction) -> ()      a filling ring (ability cooldowns) round the edge of `parent`:
 --                                                  Theme.Juice.RingBeads beads light up clockwise (the newest pops),
@@ -75,8 +93,12 @@
 --   Kit.Clicked: Signal (button)                   fires on every Kit button press (Sounds plays a click)
 --   Kit.Ticked: Signal (label, progress)           a count-up showed a new number (progress 0..1; Sounds ticks)
 --   Kit.reducedMotion(): boolean                   honour it in your own tweens too
--- Every looping effect here (rays, breathing, dot hops, shimmer, count-ups, confetti) runs on ONE shared loop that
+-- Every looping effect here (rays, breathing, shines, shimmer, count-ups, confetti) runs on ONE shared loop that
 -- skips anything not on screen and sleeps (4 checks a second) while nothing is moving.
+-- THE MOTION BUDGET (Theme.Motion.Perpetual = 1; ux audit §3.4): shines and breathing are "perpetual" effects, and
+-- only ONE button's may run on screen at a time: the Collect button on the topmost screen (its ScreenGui's
+-- DisplayOrder), the oldest first on a tie (Kit.Juice.pickPerpetual). The others rest until it goes.
+-- Radii come from Theme.Radius and strokes from Theme.Stroke (look build plan §B8).
 
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
@@ -244,31 +266,94 @@ function Juice.holdFill(held: number, seconds: number, steps: number?): number
 	end
 	return share
 end
+
+-- The look overhaul's button roles (look build plan §B8; ux audit §3.3), and what each old colour kind became.
+Juice.ROLES = { "Primary", "Collect", "Secondary", "Quiet", "Destructive", "Icon" }
+Juice.OLD_KINDS = {
+	Good = "Collect",
+	Danger = "Destructive",
+	Pink = "Secondary",
+	Purple = "Secondary",
+	Cyan = "Secondary",
+	Cash = "Secondary",
+	Card = "Quiet",
+}
+
+-- A Kind's role: a role is itself, an old kind maps, "Disabled" is the can't-yet look, nil is Primary (Kit.button's
+-- default since the start), and anything else is the calm Secondary (never a loud colour by accident).
+function Juice.role(kind: any): string
+	if kind == nil then
+		return "Primary"
+	end
+	if type(kind) ~= "string" then
+		return "Secondary"
+	end
+	if kind == "Disabled" or table.find(Juice.ROLES, kind) then
+		return kind
+	end
+	return Juice.OLD_KINDS[kind] or "Secondary"
+end
+
+export type Look = {
+	Fill: string, -- a Theme.Colors key
+	Text: string, -- a Theme.Colors key
+	Candy: boolean, -- gradient, gloss, display font and white outlined text
+	Stroke: string?, -- a Theme.Stroke key; nil = no outline
+	Clear: boolean, -- no fill at all
+}
+-- How each role (and the Disabled look) is drawn, by Theme key: Kit paints from this table.
+Juice.LOOKS = {
+	Primary = { Fill = "Primary", Text = "OnColor", Candy = true, Stroke = "Bold", Clear = false },
+	Collect = { Fill = "Collect", Text = "OnColor", Candy = true, Stroke = "Bold", Clear = false },
+	Destructive = { Fill = "Destructive", Text = "OnColor", Candy = true, Stroke = "Bold", Clear = false },
+	Secondary = { Fill = "Secondary", Text = "Ink", Candy = false, Stroke = "Fine", Clear = false },
+	Quiet = { Fill = "Secondary", Text = "Ink", Candy = false, Stroke = nil, Clear = true },
+	Icon = { Fill = "Plate", Text = "Ink", Candy = false, Stroke = "Bold", Clear = false },
+	Disabled = { Fill = "Disabled", Text = "DisabledText", Candy = false, Stroke = "Fine", Clear = false },
+} :: { [string]: Look }
+
+function Juice.look(kind: any): Look
+	return Juice.LOOKS[Juice.role(kind)] or Juice.LOOKS.Secondary
+end
+
+-- Only a Collect button may shine or breathe (red line 3: nothing loud points at spending).
+function Juice.mayLoop(role: any): boolean
+	return role == "Collect"
+end
+
+-- The motion budget: which of the perpetual effects on screen may run. Each candidate is { Order = its screen's
+-- DisplayOrder, Seq = when it was made }; the topmost screen wins, then the oldest. Returns its index (nil for none).
+function Juice.pickPerpetual(candidates: { { Order: number, Seq: number } }): number?
+	local best: number? = nil
+	for index, candidate in candidates do
+		local current = if best then candidates[best] else nil
+		if
+			current == nil
+			or candidate.Order > current.Order
+			or (candidate.Order == current.Order and candidate.Seq < current.Seq)
+		then
+			best = index
+		end
+	end
+	return best
+end
 -- END JUICE
 
 Kit.Juice = Juice
 
-local KIND_COLORS: { [string]: Color3 } = {
-	-- the roles (look build plan §B8)
-	Primary = Theme.Colors.Primary,
-	Collect = Theme.Colors.Collect,
-	Secondary = Theme.Colors.Secondary,
-	Destructive = Theme.Colors.Destructive,
-	Icon = Theme.Colors.Plate,
-	-- old kinds (T6 maps them onto the roles)
-	Good = Theme.Colors.Good,
-	Danger = Theme.Colors.Danger,
-	Pink = Theme.Colors.Pink,
-	Purple = Theme.Colors.Purple,
-	Cyan = Theme.Colors.Cyan,
-	Cash = Theme.Colors.Cash,
-	Quiet = Theme.Colors.Quiet,
-	Card = Theme.Colors.Card,
-}
--- Light kinds carry dark, un-outlined text; every other kind carries white outlined text.
-local LIGHT_KINDS = { Quiet = true, Card = true, Secondary = true, Icon = true }
-local EXTRA_KEYS =
-	{ Parent = true, Kind = true, Title = true, Icon = true, Caption = true, Accent = true, Outlined = true }
+-- The header band's height (ux audit §3.2): Kit.panel draws it, UI/Modal lays its body out under it.
+Kit.HEADER = 64
+
+-- Props that are Kit's own, not Instance properties.
+local EXTRA_KEYS: { [string]: boolean } = {}
+for _, key in { "Parent", "Kind", "Title", "Icon", "Caption", "Accent", "Outlined", "Fill", "Glass" } do
+	EXTRA_KEYS[key] = true
+end
+
+local function colorOf(key: string): Color3
+	local color = (Theme.Colors :: any)[key]
+	return if typeof(color) == "Color3" then color else Theme.Colors.Secondary
+end
 
 local function apply(instance: Instance, props: Props?)
 	if not props then
@@ -309,9 +394,12 @@ function Kit.lighten(color: Color3, amount: number): Color3
 	return color:Lerp(Color3.new(1, 1, 1), amount)
 end
 
-function Kit.corner(parent: Instance, radius: number?): UICorner
+-- radius: px (a Theme.Radius token) or a UDim (Theme.Radius.Round); default Theme.Radius.Medium.
+function Kit.corner(parent: Instance, radius: (number | UDim)?): UICorner
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius or Theme.Size.Corner)
+	corner.CornerRadius = if typeof(radius) == "UDim"
+		then radius
+		else UDim.new(0, if type(radius) == "number" then radius else Theme.Radius.Medium)
 	corner.Parent = parent
 	return corner
 end
@@ -330,7 +418,7 @@ end
 function Kit.stroke(parent: Instance, color: Color3?, px: number?): UIStroke
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = color or Theme.Colors.Stroke
-	stroke.Thickness = px or Theme.Size.Stroke
+	stroke.Thickness = px or Theme.Stroke.Bold
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.Parent = parent
@@ -338,7 +426,7 @@ function Kit.stroke(parent: Instance, color: Color3?, px: number?): UIStroke
 end
 
 function Kit.outline(text: GuiObject, px: number?): UIStroke
-	return Palette.outlineText(text, px or Theme.Size.TextStroke)
+	return Palette.outlineText(text, px or Theme.Stroke.Text)
 end
 
 function Kit.list(parent: Instance, direction: Enum.FillDirection?, gap: number?): UIListLayout
@@ -447,11 +535,45 @@ type Job = {
 	Resting: boolean,
 	Stopped: boolean,
 	Orphaned: number?, -- when it lost its parent (removed after ORPHAN_SECONDS without one)
+	Owner: GuiObject?, -- a perpetual effect's button (shine, breathing): the motion budget runs one owner's
+	Seq: number,
 }
 
 local ORPHAN_SECONDS = 5
 local jobs: { Job } = {}
 local looping = false
+local jobSeq = 0
+
+-- The DisplayOrder of the screen a gui is on (0 when it isn't on one).
+local function screenOrder(gui: Instance): number
+	local screen = gui:FindFirstAncestorWhichIsA("LayerCollector")
+	return if screen and screen:IsA("ScreenGui") then screen.DisplayOrder else 0
+end
+
+-- The motion budget: the one owner whose perpetual effects may run this frame (Kit.Juice.pickPerpetual), among the
+-- Collect buttons on screen with one.
+local function perpetualOwner(): GuiObject?
+	local owners: { GuiObject } = {}
+	local candidates: { { Order: number, Seq: number } } = {}
+	local seen: { [GuiObject]: boolean } = {}
+	for _, job in jobs do
+		local owner = job.Owner
+		if
+			owner
+			and not seen[owner]
+			and not job.Stopped
+			and owner.Parent ~= nil
+			and Juice.mayLoop(owner:GetAttribute("KitKind"))
+			and isShown(job.Gui)
+		then
+			seen[owner] = true
+			table.insert(owners, owner)
+			table.insert(candidates, { Order = screenOrder(owner), Seq = job.Seq })
+		end
+	end
+	local pick = Juice.pickPerpetual(candidates)
+	return if pick then owners[pick] else nil
+end
 
 local function runLoop()
 	if looping then
@@ -465,6 +587,7 @@ local function runLoop()
 			local dt = math.min(now - last, 0.1)
 			last = now
 			local calm = Kit.reducedMotion()
+			local allowed = if calm then nil else perpetualOwner()
 			local moving = false
 			local resting = false
 			for index = #jobs, 1, -1 do
@@ -480,7 +603,8 @@ local function runLoop()
 				else
 					job.Orphaned = nil
 					if isShown(gui) then
-						if calm then
+						-- Over the motion budget (another button's turn, or not a Collect button): rest like calm.
+						if calm or (job.Owner ~= nil and job.Owner ~= allowed) then
 							if not job.Resting then
 								job.Resting = true
 								if job.Rest then
@@ -516,8 +640,23 @@ local function runLoop()
 	end)
 end
 
-local function addJob(gui: GuiObject, step: (now: number, dt: number) -> StepResult, rest: (() -> ())?): Job
-	local job: Job = { Gui = gui, Step = step, Rest = rest, Resting = false, Stopped = false, Orphaned = nil }
+local function addJob(
+	gui: GuiObject,
+	step: (now: number, dt: number) -> StepResult,
+	rest: (() -> ())?,
+	owner: GuiObject?
+): Job
+	jobSeq += 1
+	local job: Job = {
+		Gui = gui,
+		Step = step,
+		Rest = rest,
+		Resting = false,
+		Stopped = false,
+		Orphaned = nil,
+		Owner = owner,
+		Seq = jobSeq,
+	}
 	table.insert(jobs, job)
 	gui.Destroying:Once(function()
 		job.Stopped = true
@@ -630,69 +769,58 @@ function Kit.label(props: Props?): TextLabel
 	return finish(label, props)
 end
 
+-- The paper card: flat white (no gradient), the Large radius, the Panel stroke, PadPanel inside. With a Title, THE
+-- header: one Kit.HEADER px navy band (Theme.Colors.Header) across the top, out through the padding, with the icon
+-- and title in white display text (the Title stroke). Accent is ignored: every header is navy (look build plan §B8).
 function Kit.panel(props: Props?): Frame
+	local pad = Theme.Space.PadPanel
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
 	panel.Size = UDim2.fromScale(0.92, 0.8)
 	panel.BackgroundColor3 = Theme.Colors.Paper
 	panel.BorderSizePixel = 0
-	Kit.corner(panel, Theme.Size.CornerLarge)
-	Kit.stroke(panel, Theme.Colors.Outline, Theme.Size.StrokeLarge)
-	Kit.pad(panel)
-	local gradient = Instance.new("UIGradient")
-	gradient.Rotation = 90
-	gradient.Color = ColorSequence.new(Theme.Colors.Paper, Theme.Colors.PaperEdge)
-	gradient.Parent = panel
+	Kit.corner(panel, Theme.Radius.Large)
+	Kit.stroke(panel, Theme.Colors.Stroke, Theme.Stroke.Panel)
+	Kit.pad(panel, pad)
 	local limit = Instance.new("UISizeConstraint")
 	limit.MaxSize = Vector2.new(Theme.Size.PanelMaxWidth, Theme.Size.PanelMaxHeight)
 	limit.Parent = panel
 	apply(panel, props)
 	if props and type(props.Title) == "string" then
-		-- Every header is navy (Theme.Colors.Header), flat. A colour passed in is an old caller's.
-		local custom = typeof(props.Accent) == "Color3"
-		local accent: Color3 = if custom then props.Accent else Theme.Colors.Header
-		-- The header band runs edge to edge (out through the panel's padding) behind the title and close button.
-		local pad = Theme.Size.Pad
 		local header = Instance.new("Frame")
 		header.Name = "Header"
 		header.ZIndex = 0
 		header.Position = UDim2.fromOffset(-pad, -pad)
-		header.Size = UDim2.new(1, pad * 2, 0, Theme.Size.ButtonHeight + pad + 4)
-		header.BackgroundColor3 = if custom then Kit.lighten(accent, 0.08) else accent
+		header.Size = UDim2.new(1, pad * 2, 0, Kit.HEADER)
+		header.BackgroundColor3 = Theme.Colors.Header
 		header.BorderSizePixel = 0
-		Kit.corner(header, Theme.Size.CornerLarge)
-		if custom then
-			Palette.candyGradient(header)
-		end
+		Kit.corner(header, Theme.Radius.Large)
 		local foot = Instance.new("Frame") -- squares off the band's bottom corners
 		foot.Name = "Foot"
 		foot.ZIndex = 0
 		foot.AnchorPoint = Vector2.new(0, 1)
 		foot.Position = UDim2.fromScale(0, 1)
-		foot.Size = UDim2.new(1, 0, 0, Theme.Size.CornerLarge)
-		foot.BackgroundColor3 = if custom then Kit.shade(accent, 0.06) else accent
+		foot.Size = UDim2.new(1, 0, 0, Theme.Radius.Large)
+		foot.BackgroundColor3 = Theme.Colors.Header
 		foot.BorderSizePixel = 0
 		foot.Parent = header
-		local line = Instance.new("Frame") -- the outline under the band
-		line.Name = "Line"
-		line.ZIndex = 0
-		line.AnchorPoint = Vector2.new(0, 1)
-		line.Position = UDim2.fromScale(0, 1)
-		line.Size = UDim2.new(1, 0, 0, Theme.Size.StrokeLarge)
-		line.BackgroundColor3 = Theme.Colors.Outline
-		line.BorderSizePixel = 0
-		line.Parent = header
 		header.Parent = panel
-		Kit.label({
+		local title = Kit.label({
 			Name = "Title",
 			Text = props.Title,
-			TextSize = Theme.TextSize.Title,
+			TextScaled = true,
+			TextWrapped = false,
 			Outlined = true,
-			Size = UDim2.new(1, -Theme.Size.ButtonHeight - Theme.Size.Gap, 0, Theme.Size.ButtonHeight),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromOffset(0, Kit.HEADER / 2 - pad),
+			Size = UDim2.new(1, -Theme.Size.ButtonHeight - Theme.Space.Gap, 0, Kit.HEADER - Theme.Space.PadCard * 2),
 			TextXAlignment = Enum.TextXAlignment.Left,
+			ZIndex = 2,
 			Parent = panel,
 		})
+		Kit.outline(title, Theme.Stroke.Title)
+		Kit.textLimit(title, Theme.TextSize.Title)
 	end
 	return finish(panel, props)
 end
@@ -709,7 +837,7 @@ local function addGloss(button: GuiObject, inset: number?): Frame
 	gloss.BorderSizePixel = 0
 	gloss.Position = UDim2.fromOffset(side, 4)
 	gloss.Size = UDim2.new(1, -side * 2, 0.42, 0)
-	Kit.corner(gloss, Theme.Size.Corner - 5)
+	Kit.corner(gloss, Theme.Radius.Small)
 	local fade = Instance.new("UIGradient")
 	fade.Rotation = 90
 	fade.Transparency = NumberSequence.new(0.15, 1)
@@ -719,40 +847,95 @@ local function addGloss(button: GuiObject, inset: number?): Frame
 end
 Kit.gloss = addGloss
 
-function Kit.button(props: Props?): TextButton
-	local kind = if props and type(props.Kind) == "string" then props.Kind else "Primary"
-	local color = KIND_COLORS[kind] or Theme.Colors.Primary
-	local light = LIGHT_KINDS[kind] == true
-	local fill = if light then color else Kit.lighten(color, 0.08)
+-- The shape outline Kit draws round a button (not the Contextual one round its text).
+local function borderOf(gui: Instance): UIStroke?
+	for _, child in gui:GetChildren() do
+		if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
+			return child
+		end
+	end
+	return nil
+end
 
+-- Paints a button (and its Caption, if it's an iconButton) with a look from Kit.Juice.LOOKS. `fill` overrides the
+-- look's fill (a game piece's own colour, or the KitColor a caller set). Never touches the KitKind attribute.
+local function paint(button: GuiButton, lookName: string, fill: Color3?)
+	local look = Juice.LOOKS[lookName] or Juice.LOOKS.Secondary
+	local base = fill or colorOf(look.Fill)
+	button.BackgroundColor3 = if look.Candy and fill == nil then Kit.lighten(base, 0.08) else base
+	button.BackgroundTransparency = if look.Clear then 1 else 0
+	local textColor = colorOf(look.Text)
+	local function ink(text: Instance?)
+		if text and (text:IsA("TextLabel") or text:IsA("TextButton")) then
+			text.TextColor3 = textColor
+			local outline = text:FindFirstChild("TextOutline")
+			if look.Candy then
+				Kit.outline(text).Enabled = true
+			elseif outline and outline:IsA("UIStroke") then
+				outline.Enabled = false
+			end
+		end
+	end
+	if button:IsA("TextButton") then
+		button.Font = if look.Candy then Theme.DisplayFont else Theme.Font
+		ink(button)
+	end
+	ink(button:FindFirstChild("Caption"))
+	local border = borderOf(button)
+	if border then
+		border.Enabled = look.Stroke ~= nil
+		border.Color = Theme.Colors.Stroke
+		border.Thickness = (Theme.Stroke :: any)[look.Stroke or "Fine"] or Theme.Stroke.Fine
+	end
+	local gradient = button:FindFirstChild("CandyGradient")
+	if gradient and gradient:IsA("UIGradient") then
+		gradient.Enabled = look.Candy
+	end
+	local gloss = button:FindFirstChild("Gloss")
+	if gloss and gloss:IsA("GuiObject") then
+		gloss.Visible = look.Candy
+	end
+end
+
+-- Repaints a Kit button as a role (Kit.Juice.role maps old kinds), or the "Disabled" can't-yet look.
+function Kit.setRole(button: GuiButton, kind: string)
+	local role = Juice.role(kind)
+	local fill = button:GetAttribute("KitFill")
+	paint(button, role, if typeof(fill) == "Color3" and (Juice.LOOKS[role] :: any).Candy then fill else nil)
+	button:SetAttribute("KitKind", role)
+	button:SetAttribute("KitColor", button.BackgroundColor3)
+end
+
+function Kit.button(props: Props?): TextButton
+	local role = Juice.role(if props then props.Kind else nil)
 	local button = Instance.new("TextButton")
 	button.Size = UDim2.fromOffset(180, Theme.Size.ButtonHeight)
-	button.BackgroundColor3 = fill
 	button.BorderSizePixel = 0
 	button.AutoButtonColor = false
-	button.Font = if light then Theme.Font else Theme.DisplayFont
 	button.TextSize = Theme.TextSize.Body
-	button.TextColor3 = if light then Theme.Colors.Ink else Theme.Colors.OnColor
 	button.TextStrokeTransparency = 1
 	button.Text = ""
-	button:SetAttribute("KitColor", fill)
-	Kit.corner(button)
-	Kit.stroke(button, Theme.Colors.Outline, Theme.Size.Stroke)
-	if not light then
-		Kit.outline(button)
-	end
+	Kit.corner(button, Theme.Radius.Medium)
+	Kit.stroke(button, Theme.Colors.Stroke, Theme.Stroke.Bold)
 	Palette.candyGradient(button)
 	addGloss(button)
 	local minimum = Instance.new("UISizeConstraint")
 	minimum.MinSize = Vector2.new(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight)
 	minimum.Parent = button
+	if props and typeof(props.Fill) == "Color3" then
+		button:SetAttribute("KitFill", props.Fill)
+	end
+	Kit.setRole(button, role)
 	addBounce(button)
 	apply(button, props)
 	return finish(button, props)
 end
 
+-- THE Icon plate (ux audit §3.3): white with the Bold outline (Glass: the top-bar row's dark glass), the emoji at
+-- 60%, an optional caption under it, and the red dot top-right.
 function Kit.iconButton(props: Props?): TextButton
-	local kind = if props and type(props.Kind) == "string" then props.Kind else "Card"
+	local kind = if props and type(props.Kind) == "string" then props.Kind else "Icon"
+	local glass = props ~= nil and props.Glass == true
 	local button = Kit.button({ Kind = kind, Size = UDim2.fromOffset(Theme.Size.IconButton, Theme.Size.IconButton) })
 	local caption = if props and type(props.Caption) == "string" then props.Caption else nil
 
@@ -761,25 +944,39 @@ function Kit.iconButton(props: Props?): TextButton
 		Text = if props and type(props.Icon) == "string" then props.Icon else "",
 		TextScaled = true,
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.08),
-		Size = UDim2.fromScale(0.7, if caption then 0.6 else 0.84),
+		Position = UDim2.fromScale(0.5, if caption then 0.06 else 0.2),
+		Size = UDim2.fromScale(0.6, if caption then 0.56 else 0.6),
 		ZIndex = 2,
 		Parent = button,
 	})
 	if caption then
-		local light = LIGHT_KINDS[kind] == true
-		Kit.label({
+		local label = Kit.label({
 			Name = "Caption",
 			Text = caption,
-			TextSize = Theme.TextSize.Small,
-			Outlined = not light,
-			TextColor3 = if light then Theme.Colors.Ink else Theme.Colors.OnColor,
+			TextScaled = true,
+			TextWrapped = false,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.fromScale(0.5, 0.97),
-			Size = UDim2.fromScale(1, 0.3),
+			Position = UDim2.fromScale(0.5, 0.98),
+			Size = UDim2.new(1, -Theme.Space.Step[1], 0.36, 0),
 			ZIndex = 2,
 			Parent = button,
 		})
+		Kit.textLimit(label, Theme.TextSize.Caption)
+	end
+	Kit.setRole(button, kind) -- again, now the caption is there
+	if glass then
+		-- Roblox's own top-bar buttons: dark glass, white glyph, no outline.
+		button.BackgroundColor3 = Theme.Colors.Shade
+		button.BackgroundTransparency = 0.3
+		button:SetAttribute("KitColor", Theme.Colors.Shade)
+		local border = borderOf(button)
+		if border then
+			border.Enabled = false
+		end
+		local label = button:FindFirstChild("Caption")
+		if label and label:IsA("TextLabel") then
+			label.TextColor3 = Theme.Colors.OnColor
+		end
 	end
 
 	local dot = Instance.new("Frame")
@@ -791,19 +988,21 @@ function Kit.iconButton(props: Props?): TextButton
 	dot.BorderSizePixel = 0
 	dot.Visible = false
 	dot.ZIndex = 3
-	Kit.corner(dot, Theme.Size.Dot)
-	Kit.stroke(dot, Theme.Colors.Outline, 2.5)
+	Kit.corner(dot, Theme.Radius.Round)
+	Kit.stroke(dot, Theme.Colors.Stroke, Theme.Stroke.Fine)
 	dot.Parent = button
 
 	apply(button, props)
 	return finish(button, props)
 end
 
--- THE tab look (first version; T6 restyles it). `button` is a Kit.iconButton (its Icon and Caption labels) or any
--- text button.
+-- THE tab look (look build plan §B8; Modal.tabs paints with it). `button` is a Kit.iconButton (its Icon and Caption
+-- labels) or any text button. Unselected: the Card fill and ink · selected: the navy Header fill, white outlined
+-- caption and the Bold outline · stripe: a 6 px left edge in the section's own colour (its only colour here).
 function Kit.tab(button: GuiButton, selected: boolean, stripe: Color3?)
 	local fill = if selected then Theme.Colors.Header else Theme.Colors.Card
 	button.BackgroundColor3 = fill
+	button.BackgroundTransparency = 0
 	button:SetAttribute("KitColor", fill)
 	button:SetAttribute("Selected", selected)
 	for _, name in { "Gloss", "CandyGradient" } do
@@ -814,8 +1013,9 @@ function Kit.tab(button: GuiButton, selected: boolean, stripe: Color3?)
 			shine.Enabled = false
 		end
 	end
-	local border = button:FindFirstChildOfClass("UIStroke")
+	local border = borderOf(button)
 	if border then
+		border.Enabled = true
 		border.Color = Theme.Colors.Stroke
 		border.Thickness = if selected then Theme.Stroke.Bold else Theme.Stroke.Fine
 	end
@@ -824,9 +1024,9 @@ function Kit.tab(button: GuiButton, selected: boolean, stripe: Color3?)
 			text.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
 			local outline = text:FindFirstChild("TextOutline")
 			if selected then
-				Kit.outline(text)
-			elseif outline then
-				outline:Destroy()
+				Kit.outline(text).Enabled = true
+			elseif outline and outline:IsA("UIStroke") then
+				outline.Enabled = false
 			end
 		end
 	end
@@ -864,39 +1064,8 @@ function Kit.textLimit(label: TextLabel | TextButton, maxPx: number): UITextSize
 	return limit
 end
 
--- The red dot pops in when it appears, then hops (a little jump and wiggle) every Theme.Juice.DotHopEvery seconds
--- while it shows. One hop job per dot, made the first time it shows.
-local dotJobs: { [GuiObject]: Job } = setmetatable({}, { __mode = "k" }) :: any
-local DOT_HOP_SECONDS = 0.42
-
-local function startDotHops(dot: GuiObject)
-	local existing = dotJobs[dot]
-	if existing and not existing.Stopped then
-		return
-	end
-	local scale = scaleOf(dot)
-	local started = os.clock()
-	local resting = true -- only write while it hops (or once to land it back at rest)
-	dotJobs[dot] = addJob(dot, function(now): StepResult
-		if isBusy(scale, now) then
-			return nil
-		end
-		local hop = Juice.hop(now - started, Theme.Juice.DotHopEvery, DOT_HOP_SECONDS)
-		if hop <= 0 and resting then
-			return "idle"
-		end
-		resting = hop <= 0
-		scale.Scale = 1 + 0.28 * hop
-		dot.Rotation = 14 * hop * math.sin((now - started) * 30)
-		return nil
-	end, function()
-		if not isBusy(scale, os.clock()) then
-			scale.Scale = 1
-		end
-		dot.Rotation = 0
-	end)
-end
-
+-- The red dot pops in ONCE when it appears and then stays still (the motion budget: no hop loop). A glyph sticker
+-- (🃏 / 🌳) is still too.
 function Kit.setDot(button: GuiObject, visible: boolean, glyph: string?)
 	local dot = button:FindFirstChild("Dot")
 	if not (dot and dot:IsA("GuiObject")) then
@@ -931,14 +1100,21 @@ function Kit.setDot(button: GuiObject, visible: boolean, glyph: string?)
 	dot.Visible = visible
 	if appeared then
 		Kit.punch(dot, 0.2, Theme.Tween.PopIn)
-		startDotHops(dot)
 	end
 end
 
+-- Off: the Disabled look (grey, grey text) and no taps. On: the button's role again, with the fill a caller stored in
+-- KitColor (the role's own when none).
 function Kit.setEnabled(button: GuiButton, enabled: boolean)
 	button.Interactable = enabled
-	local color = button:GetAttribute("KitColor")
-	button.BackgroundColor3 = if enabled and typeof(color) == "Color3" then color else Theme.Colors.Disabled
+	local role = button:GetAttribute("KitKind")
+	local roleName = if type(role) == "string" then role else "Secondary"
+	if enabled then
+		local color = button:GetAttribute("KitColor")
+		paint(button, roleName, if typeof(color) == "Color3" then color else nil)
+	else
+		paint(button, "Disabled", nil)
+	end
 	local shine = button:FindFirstChild("Shine")
 	if shine and shine:IsA("GuiObject") then
 		shine.Visible = enabled
@@ -984,7 +1160,8 @@ function Kit.popOut(gui: GuiObject, onDone: (() -> ())?)
 	end
 end
 
--- A white shine that sweeps across a call-to-action button every Theme.ShineEvery seconds. Returns stop.
+-- A white shine that sweeps across a Collect button every Theme.ShineEvery seconds (any other role rests: red line 3,
+-- nothing loud points at spending). It runs on the shared loop under the motion budget. Returns stop.
 -- The shine is a rounded frame the size of the button, so the sweep never spills past the corners.
 function Kit.shine(button: GuiObject): () -> ()
 	local existing = button:FindFirstChild("Shine")
@@ -997,7 +1174,7 @@ function Kit.shine(button: GuiObject): () -> ()
 	shine.Size = UDim2.fromScale(1, 1)
 	shine.BackgroundColor3 = Color3.new(1, 1, 1)
 	shine.BorderSizePixel = 0
-	Kit.corner(shine, Theme.Size.Corner)
+	Kit.corner(shine, Theme.Radius.Medium)
 	local band = Instance.new("UIGradient")
 	band.Rotation = 20
 	band.Transparency = NumberSequence.new({
@@ -1011,21 +1188,28 @@ function Kit.shine(button: GuiObject): () -> ()
 	band.Parent = shine
 	shine.Parent = button
 
-	local running = true
-	task.spawn(function()
-		while running and shine.Parent do
-			task.wait(Theme.ShineEvery)
-			if not running or not shine.Parent then
-				break
-			end
-			if isShown(shine) and not Kit.reducedMotion() then
-				band.Offset = Vector2.new(-1, 0)
-				TweenService:Create(band, Theme.Tween.Shine, { Offset = Vector2.new(1, 0) }):Play()
-			end
+	-- A sweep every ShineEvery seconds; between sweeps the band rests off the edge (an idle step).
+	local sweep = Theme.Tween.Shine.Time
+	local started = os.clock()
+	local resting = true
+	local function park()
+		if not resting then
+			resting = true
+			band.Offset = Vector2.new(-1, 0)
 		end
-	end)
+	end
+	local job = addJob(shine, function(now): StepResult
+		local phase = (now - started) % (Theme.ShineEvery + sweep)
+		if phase < Theme.ShineEvery then
+			park()
+			return "idle"
+		end
+		resting = false
+		band.Offset = Vector2.new(-1 + 2 * Juice.ease((phase - Theme.ShineEvery) / sweep), 0)
+		return nil
+	end, park, button)
 	return function()
-		running = false
+		job.Stopped = true
 		shine:Destroy()
 	end
 end
@@ -1184,7 +1368,7 @@ function Kit.confetti(parent: GuiObject, count: number?, origin: UDim2?)
 		piece.Rotation = math.random(0, 359)
 		piece.ZIndex = 8
 		if math.random() < 0.35 then
-			Kit.corner(piece, 6) -- a few round ones
+			Kit.corner(piece, Theme.Radius.Round) -- a few round ones
 		end
 		piece.Parent = holder
 		local x, y, vx, vy = 0, 0, 0, 0
@@ -1265,7 +1449,7 @@ function Kit.rarityColor(rarity: string): Color3
 			return color
 		end
 	end
-	return Theme.Colors.Quiet
+	return Theme.Colors.Secondary
 end
 
 -- How each frame shimmers: its colours (a ColorSequence over the stroke), whether the gradient turns round the
@@ -1287,7 +1471,7 @@ local function shimmerFor(rarity: string): Shimmer
 	local frame = if info then info.Frame else "Grey"
 	local color = Kit.rarityColor(rarity)
 	local seconds = Theme.Juice.ShimmerSeconds
-	local width = Theme.Size.Stroke + 1
+	local width = Theme.Stroke.Bold + 1
 	if frame == "Rainbow" then
 		return {
 			Colors = ColorSequence.new({
@@ -1346,7 +1530,9 @@ local function shimmerFor(rarity: string): Shimmer
 end
 
 -- The rarity's frame on a card or chip: a UIStroke named RarityFrame (white, so its UIGradient "Shimmer" carries
--- the colours), shimmering on the shared loop while it's on screen. Returns stop (removes it).
+-- the colours). It is STILL (look overhaul: a list shows up to 60 of these, and Theme.Motion.Perpetual allows one
+-- looping effect on screen, the Collect button's): the colours and the bright band stay, nothing moves. Returns
+-- stop (removes it).
 function Kit.rarityFrame(gui: GuiObject, rarity: string): () -> ()
 	local existing = gui:FindFirstChild("RarityFrame")
 	if existing then
@@ -1368,29 +1554,7 @@ function Kit.rarityFrame(gui: GuiObject, rarity: string): () -> ()
 	gradient.Parent = stroke
 	stroke.Parent = gui
 
-	local started = os.clock()
-	local job = addJob(gui, function(now, dt): StepResult
-		if not stroke.Parent then
-			return "done"
-		end
-		if look.Motion == "Spin" then
-			gradient.Rotation = (gradient.Rotation + dt * look.Speed) % 360
-		else
-			-- The bright band crosses from one side to the other, then rests off the edge a moment.
-			local phase = ((now - started) * look.Speed) % 1.6
-			gradient.Offset = Vector2.new(math.clamp(phase, 0, 1.6) * 2 - 1.6, 0)
-		end
-		if look.Pulse then
-			stroke.Thickness = look.Width + 0.8 * Juice.breath(now - started, 1.2)
-		end
-		return nil
-	end, function()
-		gradient.Rotation = 35
-		gradient.Offset = Vector2.zero
-		stroke.Thickness = look.Width
-	end)
 	return function()
-		job.Stopped = true
 		stroke:Destroy()
 	end
 end
@@ -1413,9 +1577,9 @@ function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
 	holder.ZIndex = parent.ZIndex + 1
 	local aspect = Instance.new("UIAspectRatioConstraint")
 	aspect.Parent = holder
-	Kit.corner(holder, 999)
+	Kit.corner(holder, Theme.Radius.Round)
 	-- The ready outline: hidden until every bead is lit.
-	local glow = Kit.stroke(holder, color, 3)
+	local glow = Kit.stroke(holder, color, Theme.Stroke.Bold)
 	glow.Name = "Glow"
 	glow.Enabled = false
 
@@ -1431,8 +1595,8 @@ function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
 		bead.BackgroundColor3 = pale
 		bead.BorderSizePixel = 0
 		bead.ZIndex = holder.ZIndex
-		Kit.corner(bead, 999)
-		local edge = Kit.stroke(bead, Theme.Colors.Outline, 1.5)
+		Kit.corner(bead, Theme.Radius.Round)
+		local edge = Kit.stroke(bead, Theme.Colors.Outline, Theme.Stroke.Fine)
 		edge.Transparency = 0.35
 		bead.Parent = holder
 		beads[index] = bead
@@ -1480,7 +1644,7 @@ function Kit.holdButton(button: TextButton, seconds: number, onDone: () -> ()): 
 	fill.BorderSizePixel = 0
 	fill.Size = UDim2.fromScale(0, 1)
 	fill.ZIndex = button.ZIndex
-	Kit.corner(fill, Theme.Size.Corner)
+	Kit.corner(fill, Theme.Radius.Medium)
 	-- A brighter leading edge, so the band reads as moving.
 	local shade = Instance.new("UIGradient")
 	shade.Transparency = NumberSequence.new({
@@ -1587,8 +1751,9 @@ function Kit.holdButton(button: TextButton, seconds: number, onDone: () -> ()): 
 	end
 end
 
--- Idle breathing on a call to action: a slow, gentle grow and shrink (`amount`, default Theme.Juice.BreathScale),
--- paused while a press, hover or bump owns its scale, and restarting from rest after. Returns stop.
+-- Idle breathing on a Collect button while its reward waits: a slow, gentle grow and shrink (`amount`, default
+-- Theme.Juice.BreathScale), paused while a press, hover or bump owns its scale, and restarting from rest after. Any
+-- other role rests (the motion budget: one perpetual effect, on the one Collect button). Returns stop.
 function Kit.breathing(gui: GuiObject, amount: number?): () -> ()
 	local scale = scaleOf(gui)
 	local amp = amount or Theme.Juice.BreathScale
@@ -1604,7 +1769,7 @@ function Kit.breathing(gui: GuiObject, amount: number?): () -> ()
 		if not isBusy(scale, os.clock()) then
 			scale.Scale = 1
 		end
-	end)
+	end, gui)
 	return function()
 		job.Stopped = true
 		if not isBusy(scale, os.clock()) then

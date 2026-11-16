@@ -36,6 +36,8 @@
 --   "Banner" (spec)                            a big top banner, optional countdown (UI.BeltView -> UI.Toasts)
 --   "Celebrate" (info)                         rays + confetti + a big title (UI.Celebrate); also fired by Feel/CureFX
 --                                              for a new room: Kind "Room" with an extra Room = <RoomId>
+--   "CelebrateClosed" (kind)                   a celebration screen closed (UI.Celebrate; UI.Tutorial rings 📖 for a
+--                                              few seconds after the "Tutorial" finale)
 --   "Open" ("Nurses") · "Open" ("Shop", "Hospital")   the Nurses panel; the Shop's Hospital tab
 --   "Open" ("NurseOdds")                       the belt's odds popup (UI/BeltView; UI/NursePanel's 🎲 chips open it too)
 -- Progression v2 (docs/plan/2026-11-16-progression-v2-build-plan.md §B9). The server events AgencyNews, MarketNews and
@@ -266,7 +268,7 @@ local function fallbackToast(text: string)
 	label.TextScaled = true
 	label.Text = text
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 12)
+	corner.CornerRadius = UDim.new(0, 12) -- uirules: allow CornerLiteral (the fallback loads no Theme)
 	corner.Parent = label
 	label.Parent = fallbackHolder
 	task.delay(2.5, function()

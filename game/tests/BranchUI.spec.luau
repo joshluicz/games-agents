@@ -416,6 +416,28 @@ T.describe("BranchPanel (pure): themes and opening", function()
 		local cheat = Pure.themeCards(snap({ Rebirth = { Count = 0, Theme = "Royal" } }), Themes)
 		eq(cheat[1].State, "On")
 	end)
+	test("theme cards show the Roof and Trim swatches only: a theme never recolours the walls (look §G4)", function()
+		eq(Pure.SWATCHES, { "Roof", "Trim" })
+		for _, themeId in Themes.Order do
+			local theme = rawget(Themes, themeId)
+			for _, key in Pure.SWATCHES do
+				-- a hex colour, or "" for Candy (the building's own trim and dark roof)
+				local value = theme[key]
+				assert(value == "" or string.match(value, "^#%x%x%x%x%x%x$"), themeId .. "." .. key .. ": " .. value)
+			end
+		end
+		eq(Pure.TEXT.WallsStay, "🎨 Walls stay your colour")
+	end)
+	test("the tree reset asks through THE confirm: Destructive, its own words, no hold", function()
+		eq(Pure.resetConfirm(), {
+			Title = Pure.TEXT.ResetTitle,
+			Line = Pure.TEXT.ResetNote,
+			Yes = Pure.TEXT.ResetYes,
+			Kind = "Destructive",
+			Hold = 0,
+		})
+		assert(Pure.words(Pure.TEXT.ResetTitle) <= 2, "a confirm title is two words at most")
+	end)
 	test("firstTab: the tab asked for, else a card, else tree points, else Open", function()
 		eq(Pure.firstTab("Themes", snap(), Tree), "Themes")
 		eq(Pure.firstTab("Nope", snap(), Tree), "Open")

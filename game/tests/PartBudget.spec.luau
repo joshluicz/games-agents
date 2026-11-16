@@ -18,7 +18,7 @@ local Themes = require("../src/shared/Data/Themes")
 local world = require("./worldmock").new()
 
 -- Flip to true when T3 and T4 are in: then every share is a hard limit here too.
-local SHARES_HOLD = false
+local SHARES_HOLD = true
 
 T.describe("Part budget (the built plot)", function()
 	local PlotBuilder = world.load("src/server/PlotBuilder.luau")

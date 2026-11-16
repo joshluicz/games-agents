@@ -278,7 +278,7 @@ local function flashAmbulance(ambulance: Instance)
 		light.Size = UDim2.fromScale(0.42, 1)
 		light.BackgroundColor3 = if index == 1 then RED else BLUE
 		light.BorderSizePixel = 0
-		Kit.corner(light, 999)
+		Kit.corner(light, Theme.Radius.Round)
 		Kit.stroke(light, Theme.Colors.Outline, 2)
 		light.Parent = gui
 		lights[index] = light
@@ -853,7 +853,7 @@ local function addRing(entry: Nurse)
 		badge.AnchorPoint = Vector2.new(0.5, 0.5)
 		badge.Position = UDim2.fromScale(0.5, 0.5)
 		badge.Size = UDim2.fromScale(0.62, 0.62)
-		Kit.corner(badge, 999)
+		Kit.corner(badge, Theme.Radius.Round)
 		Kit.stroke(badge, Theme.Colors.Outline, 1.5)
 		badge.Parent = gui
 		local icon = Instance.new("TextLabel")

@@ -163,7 +163,7 @@ T.describe("Building.clear: nothing solid where the plot needs room", function()
 
 	test("the Counter, the line spots, the gate, the sign and the owner's spawn, at every level", function()
 		local zones = {
-			Counter = rect(-6.4, 6.4, -16, -13), -- the CounterTop (12.8 x 3 at z -14.5)
+			Counter = rect(-6.4, 6.4, -16, -13), -- the CounterTop (13 x 3 at z -14.5: it fills the reception window, x ±6.5)
 			Gate = rect(-7, 7, -35, -33),
 			Sign = rect(-18.5, -7.5, -35, -32),
 			OwnerSpawn = around(-6.5, -22, 2),

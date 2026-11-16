@@ -68,7 +68,7 @@ T.describe("Levels", function()
 		expect(LevelsData[3].Unlocks).toEqual({
 			"🛁 Hydro hot tub",
 			"🔀 Pick the floor",
-			"✚ Big sign",
+			"🐾 Big sign",
 			"🌻 Garden",
 		})
 		expect(LevelsData[4].Unlocks).toEqual({ "💊 Pharmacy", "🛏️ 4 beds", "🏢 3 floors" })

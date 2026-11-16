@@ -1,26 +1,31 @@
 --!strict
--- Toasts and banners (build plan Task 6; depth update T6): short messages stacked at the top centre.
+-- Toasts and banners (build plan Task 6; depth update T6; look overhaul T5): ONE notice stack under the HUD's Now card.
 --   init(ctx)   listens to ctx.on("Toast", text) and ctx.on("Banner", spec: Types.BannerSpec)
 -- Every toast in the game, from the server or from ctx.toast, arrives on the client bus as "Toast" (Main.client
 -- wires that). Banners come from UI/BeltView (Golden Hour, Night Rush, an Epic+ nurse stepping on the belt; none of
--- them sends EndsAt, red line 3): `{ Id, Icon, Text (≤ 6 words), Color?, EndsAt? (server time: a countdown to it),
--- Seconds? }`. A
--- banner with the same Id replaces the old one in place (it bumps); Seconds = 0 hides it; with no Seconds it stays
--- until EndsAt (else a few seconds). Banners sit above the toasts; at most MAX_BANNERS at once.
--- The look is candy pop (memory-20261116-007): a chunky pill with a glossy top, a thick dark outline and white
--- outlined text. Toasts are purple; a banner is a wider ribbon in its Color (purple by default) with its icon in a
--- white bubble, a shine sweeping across it and the countdown in a dark chip. Motion: each one slides down into its
--- place with a springy overshoot while the others make room smoothly, and slides up and away when it goes. The same
--- toast text twice in a row bumps a "×2" counter instead of stacking a copy. At most MAX_SHOWN toasts; the oldest
--- goes first. Calm (Hud.calm()): no sliding or fading, they just appear and go. A soft blip plays for each new one.
+-- them sends EndsAt, red line 3) and other panels' reward cheers: `{ Id, Icon, Text (≤ 6 words), Color?, EndsAt?
+-- (server time: a countdown to it, free events only), Seconds? }`. A banner with the same Id replaces the old one in
+-- place (it bumps); Seconds = 0 hides it; with no Seconds it stays until EndsAt (else a few seconds). Banners sit
+-- above the toasts; at most MAX_BANNERS at once.
+-- Where (look build plan §B7; ux audit §3.1): top centre, 8 px under the Now card (Hud.nowBottom; under the top bar
+-- when no card shows), as wide as the Now card. It follows the card as it comes, goes or changes height
+-- (Hud.NowMoved). The screen uses the same device-safe insets as the HUD's zones, so their numbers line up.
+-- The look (ux audit §3.2 and §3.5): a white plate (Theme.Colors.Plate) with the Bold outline, the Large radius and
+-- the one shadow, ink words in the body font. A banner is the same plate with an icon tile in its event's colour
+-- (its Color; the night purple by default) and, with EndsAt, a small ink clock chip. Nothing on them loops (no shine).
+-- Motion: each one slides down into its place with a springy overshoot while the others make room, and slides up
+-- and away when it goes. The same toast text twice in a row bumps a "×2" counter instead of stacking a copy. At most
+-- MAX_SHOWN toasts; the oldest goes first. Calm (Hud.calm()): no sliding or fading, they just appear and go. A soft
+-- blip plays for each new one.
 
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
+local HudZones = require(Shared:WaitForChild("Logic"):WaitForChild("HudZones"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
@@ -34,20 +39,18 @@ local BASE_SECONDS = 2.6
 local SECONDS_PER_EXTRA_CHAR = 0.03 -- longer messages stay a little longer
 local MAX_SECONDS = 5
 local BANNER_SECONDS = 4 -- a banner with neither Seconds nor EndsAt
-local BANNER_HEIGHT = 60
-local FILL = Theme.Colors.Purple
--- A CanvasGroup clips whatever is drawn outside it, so the card sits this far inside to keep its outline.
+local TILE = 44 -- a banner's icon tile
+local CLOCK_WIDTH = 72 -- a banner's clock chip
+-- A CanvasGroup clips whatever is drawn outside it, so the card sits this far inside to keep its outline (and, at
+-- the bottom, its shadow).
 local OUTLINE_ROOM = 4
--- The HUD's wallet (top left) and clock (top right) are about this wide; toasts sit between them when they fit.
-local SIDE_RESERVE = 214
-local MIN_WIDTH = 240
-local MAX_WIDTH = 440
--- Narrow screens: under the HUD's cash and stars pills (margin 12 + cash 52 + gap 8 + stars 56, plus a little).
-local BELOW_WALLET_Y = 132
+local SHADOW_ROOM = OUTLINE_ROOM + Theme.Shadow.Offset.Y
 -- A new one starts this share of its height above its place, a little small, and springs into it.
 local SLIDE_FROM = 0.7
 local POP_FROM = 0.85
 local REPEAT_FROM = 1.12
+local JUMP = 24 -- px: the stack glides to a new place further than this, and follows smaller moves directly
+local MOVE_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 type Entry = {
 	Kind: "Toast" | "Banner",
@@ -57,7 +60,8 @@ type Entry = {
 	Slot: Frame, -- in the stack, sized by hand so the others slide to make room
 	Group: CanvasGroup, -- what fades and slides inside the slot
 	Scale: UIScale,
-	Card: Frame,
+	Card: Frame, -- the white plate
+	Tile: Frame?, -- banners: the icon tile
 	Label: TextLabel,
 	Icon: TextLabel?, -- banners
 	Clock: TextLabel?, -- banners with EndsAt
@@ -69,83 +73,81 @@ type Entry = {
 	Height: number,
 }
 
-local function gloss(frame: Frame, inset: number)
-	local shine = Instance.new("Frame")
-	shine.Name = "Gloss"
-	shine.ZIndex = 0
-	shine.BackgroundColor3 = Palette.White
-	shine.BackgroundTransparency = 0.5
-	shine.BorderSizePixel = 0
-	shine.Position = UDim2.fromOffset(inset, 3)
-	shine.Size = UDim2.new(1, -inset * 2, 0, 14)
-	Kit.corner(shine, 7)
-	local fade = Instance.new("UIGradient")
-	fade.Rotation = 90
-	fade.Transparency = NumberSequence.new(0.15, 1)
-	fade.Parent = shine
-	shine.Parent = frame
+-- The white plate with its one shadow (Theme.Shadow), inside the entry's CanvasGroup. The shadow follows the plate's
+-- height by hand (an automatic size can't take it from a sibling).
+local function plate(group: CanvasGroup): Frame
+	local holder = Instance.new("Frame")
+	holder.Name = "Holder"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromScale(1, 0)
+	holder.AutomaticSize = Enum.AutomaticSize.Y
+	holder.Parent = group
+	local shadow = Instance.new("Frame")
+	shadow.Name = "Shadow"
+	shadow.BackgroundColor3 = Theme.Shadow.Color
+	shadow.BackgroundTransparency = Theme.Shadow.Transparency
+	shadow.BorderSizePixel = 0
+	shadow.Position = UDim2.fromOffset(Theme.Shadow.Offset.X, Theme.Shadow.Offset.Y)
+	shadow.Size = UDim2.fromScale(1, 0)
+	shadow.ZIndex = 1
+	Kit.corner(shadow, Theme.Radius.Large)
+	shadow.Parent = holder
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.Size = UDim2.fromScale(1, 0)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	card.BackgroundColor3 = Theme.Colors.Plate
+	card.BorderSizePixel = 0
+	card.ZIndex = 2
+	Kit.corner(card, Theme.Radius.Large)
+	Kit.stroke(card, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	card.Parent = holder
+	local function follow()
+		local scale = group:FindFirstChildOfClass("UIScale")
+		local factor = if scale and scale.Scale > 0.01 then scale.Scale else 1
+		shadow.Size = UDim2.new(1, 0, 0, math.floor(card.AbsoluteSize.Y / factor + 0.5))
+	end
+	card:GetPropertyChangedSignal("AbsoluteSize"):Connect(follow)
+	task.defer(follow)
+	return card
 end
 
--- A candy pill (fill, gradient, glossy top, thick dark outline).
-local function pillCard(group: CanvasGroup, color: Color3): Frame
-	local frame = Instance.new("Frame")
-	frame.Name = "Card"
-	frame.Size = UDim2.fromScale(1, 0)
-	frame.AutomaticSize = Enum.AutomaticSize.Y
-	frame.BackgroundColor3 = Kit.lighten(color, 0.08)
-	frame.BorderSizePixel = 0
-	Kit.corner(frame, Theme.Size.CornerLarge)
-	Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
-	Palette.candyGradient(frame)
-	gloss(frame, 14)
-	frame.Parent = group
-	return frame
-end
-
--- A toast's card: the pill holding the outlined text in its own padded holder (so the gloss stays on top).
+-- A toast: the plate holding ink words.
 local function toastCard(group: CanvasGroup, text: string): (Frame, TextLabel)
-	local frame = pillCard(group, FILL)
-	local body = Instance.new("Frame")
-	body.Name = "Body"
-	body.BackgroundTransparency = 1
-	body.Size = UDim2.fromScale(1, 0)
-	body.AutomaticSize = Enum.AutomaticSize.Y
-	local pad = Kit.pad(body, 8)
-	pad.PaddingLeft = UDim.new(0, 16)
-	pad.PaddingRight = UDim.new(0, 16)
-	body.Parent = frame
-
+	local card = plate(group)
+	local pad = Kit.pad(card, Theme.Space.Step[2])
+	pad.PaddingLeft = UDim.new(0, Theme.Space.PadPanel)
+	pad.PaddingRight = UDim.new(0, Theme.Space.PadPanel)
 	local label = Kit.label({
 		Name = "Text",
 		Text = text,
 		Size = UDim2.fromScale(1, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		TextSize = Theme.TextSize.Body,
-		TextColor3 = Theme.Colors.OnColor,
+		TextColor3 = Theme.Colors.Ink,
 		TextWrapped = true,
-		Parent = body,
+		ZIndex = 3,
+		Parent = card,
 	})
-	Kit.outline(label)
-	return frame, label
+	return card, label
 end
 
--- A banner's card: a fixed-height ribbon, its icon in a white bubble on the left, the words, a countdown chip on
--- the right (shown only with EndsAt), and a shine that sweeps across now and then.
-local function bannerCard(group: CanvasGroup, color: Color3): (Frame, TextLabel, TextLabel, TextLabel)
-	local frame = pillCard(group, color)
-	frame.AutomaticSize = Enum.AutomaticSize.None
-	frame.Size = UDim2.new(1, 0, 0, BANNER_HEIGHT)
-	local bubble = Instance.new("Frame")
-	bubble.Name = "Bubble"
-	bubble.AnchorPoint = Vector2.new(0, 0.5)
-	bubble.Position = UDim2.new(0, 8, 0.5, 0)
-	bubble.Size = UDim2.fromOffset(BANNER_HEIGHT - 16, BANNER_HEIGHT - 16)
-	bubble.BackgroundColor3 = Theme.Colors.Paper
-	bubble.BorderSizePixel = 0
-	bubble.ZIndex = 2
-	Kit.corner(bubble, (BANNER_HEIGHT - 16) // 2)
-	Kit.stroke(bubble, Theme.Colors.Outline, Theme.Size.Stroke)
-	bubble.Parent = frame
+-- A banner: the plate with its icon tile on the left, the words, and a clock chip on the right (only with EndsAt).
+local function bannerCard(group: CanvasGroup): (Frame, Frame, TextLabel, TextLabel, TextLabel)
+	local card = plate(group)
+	Kit.pad(card, Theme.Space.Step[2])
+	local list = Kit.list(card, Enum.FillDirection.Horizontal, Theme.Space.Step[3])
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	local tile = Instance.new("Frame")
+	tile.Name = "Tile"
+	tile.LayoutOrder = 1
+	tile.Size = UDim2.fromOffset(TILE, TILE)
+	tile.BackgroundColor3 = Theme.Colors.Night
+	tile.BorderSizePixel = 0
+	tile.ZIndex = 3
+	Kit.corner(tile, Theme.Radius.Medium)
+	Kit.stroke(tile, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	tile.Parent = card
 	local icon = Kit.label({
 		Name = "Icon",
 		Text = "",
@@ -153,75 +155,97 @@ local function bannerCard(group: CanvasGroup, color: Color3): (Frame, TextLabel,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromScale(0.74, 0.74),
-		ZIndex = 2,
-		Parent = bubble,
+		ZIndex = 4,
+		Parent = tile,
+	})
+	local text = Kit.label({
+		Name = "Text",
+		Text = "",
+		LayoutOrder = 2,
+		Size = UDim2.new(1, -(TILE + Theme.Space.Step[3]), 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		TextSize = Theme.TextSize.Body,
+		TextColor3 = Theme.Colors.Ink,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 3,
+		Parent = card,
 	})
 	local clock = Kit.label({
 		Name = "Clock",
 		Text = "",
-		Outlined = true,
-		TextScaled = true,
+		LayoutOrder = 3,
+		TextSize = Theme.TextSize.Caption,
+		TextColor3 = Theme.Colors.Ink,
 		TextWrapped = false,
-		BackgroundColor3 = Theme.Colors.Outline,
-		BackgroundTransparency = 0.45,
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(70, 36),
+		BackgroundColor3 = Theme.Colors.Card,
+		BackgroundTransparency = 0,
+		Size = UDim2.fromOffset(CLOCK_WIDTH, Theme.Size.ButtonHeight - 20),
 		Visible = false,
-		ZIndex = 2,
-		Parent = frame,
+		ZIndex = 3,
+		Parent = card,
 	})
-	Kit.corner(clock, 18)
-	Kit.pad(clock, 4)
-	local text = Kit.label({
-		Name = "Text",
-		Text = "",
-		Outlined = true,
-		TextScaled = true,
-		TextWrapped = false,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, BANNER_HEIGHT, 0.5, 0),
-		Size = UDim2.new(1, -BANNER_HEIGHT - 12, 0, 32),
-		ZIndex = 2,
-		Parent = frame,
-	})
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = 30
-	limit.MinTextSize = 14
-	limit.Parent = text
-	Kit.shine(frame)
-	return frame, text, icon, clock
+	Kit.corner(clock, Theme.Radius.Small)
+	Kit.stroke(clock, Theme.Colors.CardLine, Theme.Stroke.Fine)
+	-- At least a tap target tall, so a one-line banner still reads as a banner.
+	local minimum = Instance.new("UISizeConstraint")
+	minimum.MinSize = Vector2.new(0, Theme.Size.ButtonHeight)
+	minimum.Parent = card
+	return card, tile, text, icon, clock
 end
 
 function Toasts.init(ctx: Types.Ctx)
 	local gui = Kit.screen("Toasts", Theme.DisplayOrder.Toast)
+	gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets -- the HUD zones' insets (Hud.nowBottom's numbers)
 
 	local holder = Instance.new("Frame")
 	holder.Name = "Stack"
 	holder.AnchorPoint = Vector2.new(0.5, 0)
-	holder.Position = UDim2.new(0.5, 0, 0, Theme.Size.Margin)
-	holder.Size = UDim2.fromOffset(MAX_WIDTH, 0)
+	holder.Position = UDim2.new(0.5, 0, 0, Hud.Pure.noticeTop(0, Hud.topbar()))
+	holder.Size = UDim2.fromOffset(HudZones.NOW_MAX, 0)
 	holder.AutomaticSize = Enum.AutomaticSize.Y
 	holder.BackgroundTransparency = 1
 	holder.Parent = gui
-	local list = Kit.list(holder, Enum.FillDirection.Vertical, 0) -- each one's OUTLINE_ROOM is the gap
+	local list = Kit.list(holder, Enum.FillDirection.Vertical, 0) -- each one's padding is the gap
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 
-	-- Between the wallet and the clock when there's room; on narrow screens, full width under the wallet.
-	local function fit()
-		local width = gui.AbsoluteSize.X
-		local between = width - SIDE_RESERVE * 2
-		if between >= MIN_WIDTH then
-			holder.Size = UDim2.fromOffset(math.min(MAX_WIDTH, between), 0)
-			holder.Position = UDim2.new(0.5, 0, 0, Theme.Size.Margin)
+	-- Under the Now card (or the top bar), as wide as the Now card. Small moves (the card growing as it pops) are
+	-- followed directly; a jump (the card coming or going) glides.
+	local moving: Tween? = nil
+	local function place(glide: boolean)
+		local size = gui.AbsoluteSize
+		if size.X <= 0 or size.Y <= 0 then
+			return
+		end
+		local topbar = Hud.topbar()
+		local layout = HudZones.layout(size.X, size.Y, topbar)
+		holder.Size = UDim2.fromOffset(Hud.Pure.noticeWidth(layout, size.X), 0)
+		local y = Hud.Pure.noticeTop(Hud.nowBottom(), topbar)
+		local target = UDim2.new(0.5, 0, 0, y)
+		if moving then
+			moving:Cancel()
+			moving = nil
+		end
+		if glide and not Hud.calm() and math.abs(holder.Position.Y.Offset - y) > JUMP then
+			local tween = TweenService:Create(holder, MOVE_INFO, { Position = target })
+			moving = tween
+			tween:Play()
 		else
-			holder.Size = UDim2.fromOffset(math.min(MAX_WIDTH, width - Theme.Size.Margin * 2), 0)
-			holder.Position = UDim2.new(0.5, 0, 0, BELOW_WALLET_Y)
+			holder.Position = target
 		end
 	end
-	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-	fit()
+	Hud.NowMoved:Connect(function()
+		place(true)
+	end)
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		place(false)
+	end)
+	pcall(function()
+		GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(function()
+			place(false)
+		end)
+	end)
+	place(false)
 
 	local toasts: { Entry } = {}
 	local banners: { Entry } = {}
@@ -288,7 +312,8 @@ function Toasts.init(ctx: Types.Ctx)
 		group.BackgroundTransparency = 1
 		group.BorderSizePixel = 0
 		group.GroupTransparency = 1
-		Kit.pad(group, OUTLINE_ROOM)
+		local pad = Kit.pad(group, OUTLINE_ROOM)
+		pad.PaddingBottom = UDim.new(0, SHADOW_ROOM)
 		local scale = Instance.new("UIScale")
 		scale.Parent = group
 		group.Parent = slot
@@ -381,6 +406,7 @@ function Toasts.init(ctx: Types.Ctx)
 			Group = group,
 			Scale = scale,
 			Card = card,
+			Tile = nil,
 			Label = label,
 			Icon = nil,
 			Clock = nil,
@@ -444,8 +470,10 @@ function Toasts.init(ctx: Types.Ctx)
 	end
 
 	local function paintBanner(entry: Entry, spec: any)
-		local color: Color3 = if typeof(spec.Color) == "Color3" then spec.Color else FILL
-		entry.Card.BackgroundColor3 = Kit.lighten(color, 0.08)
+		local tile = entry.Tile
+		if tile then
+			tile.BackgroundColor3 = if typeof(spec.Color) == "Color3" then spec.Color else Theme.Colors.Night
+		end
 		entry.Label.Text = spec.Text
 		if entry.Icon then
 			entry.Icon.Text = spec.Icon
@@ -455,7 +483,8 @@ function Toasts.init(ctx: Types.Ctx)
 		local clock = entry.Clock
 		if clock then
 			clock.Visible = endsAt ~= nil
-			entry.Label.Size = UDim2.new(1, -BANNER_HEIGHT - 12 - (if endsAt then 82 else 0), 0, 32)
+			local room = TILE + Theme.Space.Step[3] + (if endsAt then CLOCK_WIDTH + Theme.Space.Step[3] else 0)
+			entry.Label.Size = UDim2.new(1, -room, 0, 0)
 			if endsAt then
 				clock.Text = Kit.Juice.clock(endsAt - Workspace:GetServerTimeNow())
 			end
@@ -506,7 +535,7 @@ function Toasts.init(ctx: Types.Ctx)
 		end
 		order += 1
 		local slot, group, scale = newEntry("Banner", -10000 + order) -- banners above every toast
-		local card, text, icon, clock = bannerCard(group, FILL)
+		local card, tile, text, icon, clock = bannerCard(group)
 		local entry: Entry = {
 			Kind = "Banner",
 			Id = spec.Id,
@@ -516,6 +545,7 @@ function Toasts.init(ctx: Types.Ctx)
 			Group = group,
 			Scale = scale,
 			Card = card,
+			Tile = tile,
 			Label = text,
 			Icon = icon,
 			Clock = clock,

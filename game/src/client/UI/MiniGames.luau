@@ -1,11 +1,18 @@
 --!strict
 -- Treatment mini-games (depth-update design §1, build plan §B3/§B9). Client only. OWNER: T2; Progression v2: T8.
 --   init(ctx)   listens for the bus "TreatStart" (Types.TreatSession, forwarded from the server by Main.client)
---   stage(): GuiObject?   the current game's stage, for UI/Tutorial's touch hand (nil when no game is up).
---               STUB (T6): always nil until T6 moves the card onto Modal.modal (look build plan §B8)
+--   stage(): GuiObject?   the current game's stage, for UI/Tutorial's touch hand (nil when no game is up)
+--   isOpen(): boolean     a treat card is open now (UI/Celebrate waits for it)
 --
--- One short game per session.Games entry, in recipe order, on a candy card in the middle of the screen. Big targets
--- (56 px or more), touch and mouse; Space or the gamepad's A button plays every game too.
+-- The card is THE modal template (UI/Modal, look build plan §B8): Layer Panel, HudMode "Game" (the HUD keeps the
+-- wallet and the Now card, hides the rails and Status), the navy header with the game's icon and name and the 🔥
+-- combo chip where the ✖ would be, NO ✖ and a dim that neither closes it nor takes a tap (the thumbstick still works
+-- under it); ButtonB never closes it. Its ScreenGui sits over panels and pop-ups, under cure pops and toasts. The
+-- games' own colours stay inside the card (they're the game). Text never under 18 px (Kit.textLimit). While the
+-- first-session tutorial runs, no time bar drains (Pure.drainBar). Gamepad prompts show the pad's own button
+-- picture (UserInputService:GetImageForKeyCode: ✕ on PlayStation), never "🅰️".
+-- One short game per session.Games entry, in recipe order. Big targets (56 px or more), touch and mouse; Space or
+-- the gamepad's A button plays every game too.
 --   🧪 Pour   hold to fill the bottle, let go in the green ⭐ band       score = the fill when let go (0..1)
 --   🩹 Patch  3 sore spots pop up on the creature, tap each one          score = spots patched in Patch.Seconds
 --   🛁 Scrub  bubbles pop up around the creature in its bath, pop them   score = bubbles popped in Scrub.Seconds
@@ -54,8 +61,10 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local MiniGame = require(Shared:WaitForChild("Logic"):WaitForChild("MiniGame"))
+local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
+local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
 
 local MiniGames = {}
@@ -353,6 +362,15 @@ function Pure.multText(multiplier: number): string
 	return "×" .. (string.gsub(string.format("%.1f", m), "%.0$", ""))
 end
 
+-- The draining time bar's share, or nil to hide it: while the first-session tutorial runs no clock ever runs down
+-- (look build plan §B8; the game still ends on time, and OK still cures).
+function Pure.drainBar(share: any, tutorialActive: boolean): number?
+	if tutorialActive then
+		return nil
+	end
+	return math.clamp(finite(share) or 0, 0, 1)
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- PURE:END
 ------------------------------------------------------------------------------------------------------------------
@@ -360,13 +378,13 @@ end
 local DISPLAY_ORDER = Theme.DisplayOrder.Popup + 5 -- over panels and pop-ups, under cure pops and toasts
 local ACTION = "MiniGamesAction" -- Space / gamepad A while the card is open
 local MIN_TAP = Theme.Size.ButtonHeight
+local NAME = "MiniGame" -- the modal's name (ModalOpened / ModalClosed)
 
--- The card (px): header band, status strip (steps + time bar), the stage, the hint line.
-local HEADER = 58
+-- The card's body (px, under UI/Modal's navy header): the status strip (steps + time bar), the stage, the hint line.
 local STATUS = 26
 local HINT = 40
-local GAP = 6
-local DIM = 0.55 -- the shade behind the card (transparency): the world stays visible
+local GAP = Theme.Space.Step[2]
+local GLYPH = 32 -- the pad's button picture on the hint line
 
 -- Timing (seconds). The games' own numbers are in Config.MiniGame.
 local INTRO = 0.4 -- each game's picture pops in before it takes taps
@@ -394,7 +412,9 @@ local MUD = Color3.fromRGB(150, 98, 56)
 local BUBBLE = Color3.fromRGB(196, 238, 255)
 local STEAM = Color3.fromRGB(232, 236, 252)
 local COCOA = Color3.fromRGB(132, 74, 44)
+local CALM_BLUE = Palette.Candy.Blue -- "OK!": a calm blue, never a grey "fail"
 
+-- Each game's colour lives INSIDE the card (it's the game: its pop, its chips); the header is always navy.
 type GameLook = { Icon: string, Title: string, Hint: string, Color: Color3, Sound: string }
 local GAME_LOOK: { [string]: GameLook } = {
 	Pour = {
@@ -421,18 +441,19 @@ local GAME_LOOK: { [string]: GameLook } = {
 	},
 }
 local TAP_LOOK: GameLook =
-	{ Icon = "✨", Title = "Tap!", Hint = "Tap to help!", Color = Theme.Colors.Good, Sound = "Pop" }
+	{ Icon = "✨", Title = "Tap!", Hint = "Tap to help!", Color = Theme.Colors.Collect, Sound = "Pop" }
 -- Progression v2: the Hydro hot tub's bubble bath (TreatSession Kind "Soak": one Scrub game, a tip only)
 local SOAK_LOOK: GameLook =
 	{ Icon = "🫧", Title = "Bubble bath!", Hint = "Pop the bubbles!", Color = Theme.Colors.Cyan, Sound = "Scrub" }
--- The triage card's floor buttons (Kit kinds), in the colour of each department's badge chip (CreatureBuilder.setDept)
-local DEPT_KINDS: { [string]: string } = {
-	Reception = "Primary",
-	AE = "Danger",
-	Wards = "Pink",
-	Hydro = "Cyan",
-	Pharmacy = "Good",
-	Roof = "Purple",
+-- The triage card's floor buttons wear each department's badge-chip colour (CreatureBuilder.setDept): the colour is
+-- the game ("Match the badge!"), so they're candy buttons with their own Fill.
+local DEPT_COLORS: { [string]: Color3 } = {
+	Reception = Theme.Colors.Primary,
+	AE = Theme.Colors.Destructive,
+	Wards = Theme.Colors.Pink,
+	Hydro = Theme.Colors.Cyan,
+	Pharmacy = Theme.Colors.Collect,
+	Roof = Theme.Colors.Purple,
 }
 local AUTO_HOLD = 0.5 -- an ability's PERFECT game shows its sparkle this long before the rating pop
 local TRIAGE_MARGIN = 0.3 -- the floor buttons stop taking taps this long before the server stops waiting
@@ -442,8 +463,8 @@ local TRIAGE_LEAD = 0.45 -- the results flash this long before the floor buttons
 type RatingLook = { Text: string, Icon: string, Color: Color3 }
 local RATING_LOOK: { [string]: RatingLook } = {
 	Perfect = { Text = "PERFECT!", Icon = "⭐", Color = Theme.Colors.Cash },
-	Good = { Text = "GOOD!", Icon = "👍", Color = Theme.Colors.Good },
-	OK = { Text = "OK!", Icon = "🙂", Color = Theme.Colors.Secondary },
+	Good = { Text = "GOOD!", Icon = "👍", Color = Theme.Colors.Collect },
+	OK = { Text = "OK!", Icon = "🙂", Color = CALM_BLUE },
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -518,20 +539,23 @@ local function new(className: string, props: { [string]: any }): any
 	return instance
 end
 
-local function corner(gui: GuiObject, radius: UDim?)
-	new("UICorner", { CornerRadius = radius or UDim.new(0.5, 0), Parent = gui })
+-- Round by default (Theme.Radius.Round); otherwise a Theme.Radius token.
+local function corner(gui: GuiObject, radius: (number | UDim)?)
+	Kit.corner(gui, radius or Theme.Radius.Round)
 end
 
 local function minSize(gui: GuiObject, px: number)
 	new("UISizeConstraint", { MinSize = Vector2.new(px, px), Parent = gui })
 end
 
-local function maxText(label: TextLabel | TextButton, px: number)
-	new("UITextSizeConstraint", { MaxTextSize = px, MinTextSize = 10, Parent = label })
-end
-
 -- A filled round shape with the candy outline (a circle unless `radius` says otherwise).
-local function blob(parent: Instance, name: string, color: Color3, props: { [string]: any }, radius: UDim?): Frame
+local function blob(
+	parent: Instance,
+	name: string,
+	color: Color3,
+	props: { [string]: any },
+	radius: (number | UDim)?
+): Frame
 	local frame = new("Frame", {
 		Name = name,
 		BackgroundColor3 = color,
@@ -542,7 +566,7 @@ local function blob(parent: Instance, name: string, color: Color3, props: { [str
 		frame[key] = value
 	end
 	corner(frame, radius)
-	Kit.stroke(frame, OUTLINE, Theme.Size.Stroke)
+	Kit.stroke(frame, OUTLINE, Theme.Stroke.Bold)
 	return frame
 end
 
@@ -601,15 +625,52 @@ local function burst(parent: GuiObject, at: UDim2, icon: string, count: number, 
 	end
 end
 
--- The hint's first icon: what to press with on this device.
-local function pointer(): string
+local function usesGamepad(): boolean
 	local preferred = UserInputService.PreferredInput
-	if preferred == Enum.PreferredInput.Gamepad or preferred == Enum.PreferredInput.MicroGamepad then
-		return "🅰️"
-	elseif preferred == Enum.PreferredInput.KeyboardAndMouse then
+	return preferred == Enum.PreferredInput.Gamepad or preferred == Enum.PreferredInput.MicroGamepad
+end
+
+-- The gamepad's own picture of the button that plays (ButtonA: ✕ on PlayStation, A on Xbox), from
+-- UserInputService:GetImageForKeyCode. Nil without a gamepad (or when Roblox has no picture for it).
+local function padImage(): string?
+	if not usesGamepad() then
+		return nil
+	end
+	local ok, image = pcall(function()
+		return UserInputService:GetImageForKeyCode(Enum.KeyCode.ButtonA)
+	end)
+	return if ok and type(image) == "string" and image ~= "" then image else nil
+end
+
+-- The hint's first icon: what to press with on this device. A gamepad's is a picture (padImage), never "🅰️": here
+-- it's "🎮" only when Roblox has no picture for the pad.
+local function pointer(): string
+	if usesGamepad() then
+		return if padImage() then "" else "🎮"
+	elseif UserInputService.PreferredInput == Enum.PreferredInput.KeyboardAndMouse then
 		return "🖱️"
 	end
 	return "👆"
+end
+
+-- A "press here" mark: the pad's button picture (an ImageLabel) on a gamepad, else the pointer emoji.
+local function pressMark(parent: Instance, props: { [string]: any }): GuiObject
+	local image = padImage()
+	if image then
+		local picture = new("ImageLabel", {
+			Name = "PadGlyph",
+			BackgroundTransparency = 1,
+			Image = image,
+			ScaleType = Enum.ScaleType.Fit,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Parent = parent,
+		})
+		for key, value in props do
+			picture[key] = value
+		end
+		return picture
+	end
+	return emoji(parent, pointer(), props)
 end
 
 -- The running session's Config.MiniGame, eased by 🎯 Steady Hands (Pure.eased); nil between sessions.
@@ -630,27 +691,25 @@ local function num(value: any, fallback: number): number
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The card
+-- The card: UI/Modal's template (Layer Panel, HudMode "Game", no ✖, a dim that never closes it or takes a tap)
 ------------------------------------------------------------------------------------------------------------------
 
 type View = {
+	Modal: Modal.Modal,
 	Gui: ScreenGui,
-	Dim: Frame,
 	Root: Frame,
 	Card: Frame,
-	Header: Frame,
-	HeaderFoot: Frame,
-	Icon: TextLabel,
-	Title: TextLabel,
-	Combo: Frame,
-	ComboText: TextLabel,
+	Combo: TextLabel, -- the header's meta chip: "🔥 Go!" / "🔥 6"
 	ComboMult: TextLabel,
+	ComboOn: boolean, -- the chip shows (not in Simple mode)
 	Status: Frame,
 	Steps: Frame,
 	TimeTrack: Frame,
 	TimeFill: Frame,
 	Stage: TextButton,
-	Hint: TextLabel,
+	Hint: Frame,
+	HintGlyph: ImageLabel,
+	HintText: TextLabel,
 	Pop: Frame,
 	PopRays: Frame,
 	PopText: TextLabel,
@@ -658,171 +717,62 @@ type View = {
 	ComboValue: number,
 }
 
-local function build(): View
-	local gui = Kit.screen("MiniGames", DISPLAY_ORDER)
-	gui.Enabled = false
+local current: Run? = nil
+local closing = false -- closeCard is closing the modal (anything else closing it ends the run)
+local stop: (run: Run) -> () -- ends a run (below)
 
-	-- The shade bleeds past the safe area; it never takes input, so the thumbstick and camera still work.
-	local dim = new("Frame", {
-		Name = "Dim",
-		BackgroundColor3 = Theme.Colors.Shade,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(-400, -400),
-		Size = UDim2.new(1, 800, 1, 800),
-		Parent = gui,
+local function build(ctx: Types.Ctx): View
+	local modal = Modal.modal(ctx, {
+		Name = NAME,
+		Title = "🧪 Pour!",
+		Layer = "Panel",
+		HudMode = "Game",
+		CloseButton = false,
+		DimCloses = false, -- the dim is a shade only: the thumbstick and camera still work under it
+		AutoFocus = false, -- Space / gamepad A play the games; the triage card picks its own focus
+		MaxSize = Vector2.new(540, 514),
+		Scale = Vector2.new(0.96, 0.94),
+		OnClose = function()
+			-- Only closeCard closes it. If anything else ever does, the run ends (the server settles it as OK).
+			local run = current
+			if not closing and run and run.Alive then
+				task.defer(stop, run)
+			end
+		end,
 	})
+	modal.Gui.DisplayOrder = DISPLAY_ORDER -- over panels and pop-ups, under cure pops and toasts
+	new("UIAspectRatioConstraint", { AspectRatio = 1.05, Parent = modal.Root })
+	local body = modal.Body
 
-	local root = new("Frame", {
-		Name = "Root",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.96, 0.94),
-		BackgroundTransparency = 1,
-		Visible = false,
-		Parent = gui,
-	})
-	new("UIAspectRatioConstraint", { AspectRatio = 1.05, Parent = root })
-	new("UISizeConstraint", { MaxSize = Vector2.new(540, 514), Parent = root })
-
-	local shadow = new("Frame", {
-		Name = "Shadow",
-		Position = UDim2.fromOffset(0, 8),
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = OUTLINE,
-		BackgroundTransparency = 0.5,
-		BorderSizePixel = 0,
-		Parent = root,
-	})
-	corner(shadow, UDim.new(0, Theme.Size.CornerLarge))
-
-	local card = new("Frame", {
-		Name = "Card",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Theme.Colors.Paper,
-		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = root,
-	})
-	corner(card, UDim.new(0, Theme.Size.CornerLarge))
-	Kit.stroke(card, OUTLINE, Theme.Size.StrokeLarge)
-	new("UIGradient", {
-		Rotation = 90,
-		Color = ColorSequence.new(Theme.Colors.Paper, Theme.Colors.PaperEdge),
-		Parent = card,
-	})
-
-	-- Header band: the game's icon and name, and the 🔥 combo chip.
-	local header = new("Frame", {
-		Name = "Header",
-		Size = UDim2.new(1, 0, 0, HEADER),
-		BackgroundColor3 = Theme.Colors.Purple,
-		BorderSizePixel = 0,
-		Parent = card,
-	})
-	corner(header, UDim.new(0, Theme.Size.CornerLarge))
-	Palette.candyGradient(header)
-	local foot = new("Frame", {
-		Name = "Foot",
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.fromScale(0, 1),
-		Size = UDim2.new(1, 0, 0, Theme.Size.CornerLarge),
-		BackgroundColor3 = Theme.Colors.Purple,
-		BorderSizePixel = 0,
-		Parent = header,
-	})
-	new("Frame", {
-		Name = "Line",
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.fromScale(0, 1),
-		Size = UDim2.new(1, 0, 0, Theme.Size.StrokeLarge),
-		BackgroundColor3 = OUTLINE,
-		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = header,
-	})
-	local icon = emoji(header, "🧪", {
-		Name = "Icon",
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 12, 0.5, -2),
-		Size = UDim2.fromOffset(42, 42),
-		ZIndex = 3,
-	})
-	local title = Kit.label({
-		Name = "Title",
-		Text = "",
-		Outlined = true,
-		TextScaled = true,
-		TextWrapped = false,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 62, 0.5, -2),
-		Size = UDim2.new(1, -62 - 116, 0, 38),
-		ZIndex = 3,
-		Parent = header,
-	})
-	maxText(title, Theme.TextSize.Title)
-
-	local combo = new("Frame", {
-		Name = "Combo",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, -2),
-		Size = UDim2.fromOffset(92, 42),
-		BackgroundColor3 = Theme.Colors.Quiet,
-		BorderSizePixel = 0,
-		ZIndex = 3,
-		Parent = header,
-	})
-	corner(combo)
-	Kit.stroke(combo, OUTLINE, Theme.Size.Stroke)
-	Palette.candyGradient(combo)
-	Kit.gloss(combo, 10)
-	emoji(combo, "🔥", {
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 6, 0.5, 0),
-		Size = UDim2.fromOffset(32, 32),
-		ZIndex = 4,
-	})
-	local comboText = Kit.label({
-		Name = "Count",
-		Text = "Go!",
-		Outlined = true,
-		TextScaled = true,
-		TextWrapped = false,
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -8, 0.5, 0),
-		Size = UDim2.new(1, -48, 0, 32),
-		ZIndex = 4,
-		Parent = combo,
-	})
-	maxText(comboText, Theme.TextSize.Title)
+	-- The 🔥 combo is the header's ONE meta chip (white, ink text; there's no ✖), with its ×multiplier tag under it.
+	local combo = modal.Meta
 	local comboMult = Kit.label({
 		Name = "Multiplier",
 		Text = "",
-		Outlined = true,
+		Font = Theme.DisplayFont,
 		TextScaled = true,
 		TextWrapped = false,
 		BackgroundTransparency = 0,
 		BackgroundColor3 = Theme.Colors.Cash,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(0.5, 0, 1, 4),
-		Size = UDim2.fromOffset(54, 22),
+		-- Under the chip's right end (a sibling, so the chip's automatic width never counts it).
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, Theme.Space.Step[2], 0, Kit.HEADER - Theme.Space.PadPanel - Theme.Space.Step[1]),
+		Size = UDim2.fromOffset(56, 24),
 		Visible = false,
 		ZIndex = 5,
-		Parent = combo,
+		Parent = modal.Panel,
 	})
-	corner(comboMult)
-	Kit.stroke(comboMult, OUTLINE, 2.5)
-	maxText(comboMult, 18)
+	corner(comboMult, Theme.Radius.Small)
+	Kit.stroke(comboMult, OUTLINE, Theme.Stroke.Fine)
+	Kit.textLimit(comboMult, Theme.TextSize.Caption)
 
 	-- Status strip: one chip per game (only with 2+), then the soft time bar (timed games only).
 	local status = new("Frame", {
 		Name = "Status",
-		Position = UDim2.fromOffset(14, HEADER + GAP + 2),
-		Size = UDim2.new(1, -28, 0, STATUS),
+		Size = UDim2.new(1, 0, 0, STATUS),
 		BackgroundTransparency = 1,
 		ZIndex = 3,
-		Parent = card,
+		Parent = body,
 	})
 	local steps = new("Frame", {
 		Name = "Steps",
@@ -833,7 +783,7 @@ local function build(): View
 	})
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 4),
+		Padding = UDim.new(0, Theme.Space.Step[1]),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 		Parent = steps,
@@ -843,18 +793,17 @@ local function build(): View
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.fromScale(1, 0.5),
 		Size = UDim2.new(1, 0, 0, 14),
-		BackgroundColor3 = Theme.Colors.Card,
+		BackgroundColor3 = Theme.Colors.Well,
 		BorderSizePixel = 0,
 		Visible = false,
 		ZIndex = 3,
 		Parent = status,
 	})
 	corner(track)
-	Kit.stroke(track, OUTLINE, 2.5)
 	local fill = new("Frame", {
 		Name = "Fill",
 		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Theme.Colors.Good,
+		BackgroundColor3 = Theme.Colors.Collect,
 		BorderSizePixel = 0,
 		ZIndex = 4,
 		Parent = track,
@@ -862,7 +811,7 @@ local function build(): View
 	corner(fill)
 
 	-- The stage: where each game draws. A button, so a tap here never reaches the world behind.
-	local top = HEADER + GAP * 2 + STATUS + 2
+	local top = STATUS + GAP
 	local stage = new("TextButton", {
 		Name = "Stage",
 		Text = "",
@@ -870,24 +819,51 @@ local function build(): View
 		Selectable = false,
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
-		Position = UDim2.fromOffset(10, top),
-		Size = UDim2.new(1, -20, 1, -(top + HINT + GAP)),
+		Position = UDim2.fromOffset(0, top),
+		Size = UDim2.new(1, 0, 1, -(top + HINT + GAP)),
 		ZIndex = 3,
-		Parent = card,
+		Parent = body,
 	})
 
-	local hint = Kit.label({
+	-- The hint line: the pad's button picture (gamepads), then the words.
+	local hint = new("Frame", {
 		Name = "Hint",
-		Text = "",
-		TextScaled = true,
-		TextWrapped = false,
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.new(1, -28, 0, HINT - 10),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.new(1, 0, 0, HINT),
+		BackgroundTransparency = 1,
 		ZIndex = 3,
-		Parent = card,
+		Parent = body,
 	})
-	maxText(hint, Theme.TextSize.Body)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, Theme.Space.Step[2]),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = hint,
+	})
+	local hintGlyph = new("ImageLabel", {
+		Name = "Glyph",
+		BackgroundTransparency = 1,
+		ScaleType = Enum.ScaleType.Fit,
+		Size = UDim2.fromOffset(GLYPH, GLYPH),
+		LayoutOrder = 1,
+		Visible = false,
+		ZIndex = 3,
+		Parent = hint,
+	})
+	local hintText = Kit.label({
+		Name = "Text",
+		Text = "",
+		TextSize = Theme.TextSize.Body,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, HINT),
+		LayoutOrder = 2,
+		ZIndex = 3,
+		Parent = hint,
+	})
 
 	-- The rating pop: huge outlined words over the middle of the card.
 	local pop = new("Frame", {
@@ -898,7 +874,7 @@ local function build(): View
 		BackgroundTransparency = 1,
 		Visible = false,
 		ZIndex = 10,
-		Parent = root,
+		Parent = modal.Root,
 	})
 	local popRays = new("Frame", {
 		Name = "Rays",
@@ -921,27 +897,25 @@ local function build(): View
 		ZIndex = 3,
 		Parent = pop,
 	})
-	maxText(popText, 112)
-	local popStroke = Kit.outline(popText, 6)
+	Kit.textLimit(popText, 112)
+	local popStroke = Kit.outline(popText, Theme.Stroke.Panel)
 
 	return {
-		Gui = gui,
-		Dim = dim,
-		Root = root,
-		Card = card,
-		Header = header,
-		HeaderFoot = foot,
-		Icon = icon,
-		Title = title,
+		Modal = modal,
+		Gui = modal.Gui,
+		Root = modal.Root,
+		Card = modal.Panel,
 		Combo = combo,
-		ComboText = comboText,
 		ComboMult = comboMult,
+		ComboOn = true,
 		Status = status,
 		Steps = steps,
 		TimeTrack = track,
 		TimeFill = fill,
 		Stage = stage,
 		Hint = hint,
+		HintGlyph = hintGlyph,
+		HintText = hintText,
 		Pop = pop,
 		PopRays = popRays,
 		PopText = popText,
@@ -950,12 +924,22 @@ local function build(): View
 	}
 end
 
-local function setHeader(v: View, icon: string, title: string, color: Color3)
-	v.Icon.Text = icon
-	v.Title.Text = title
-	v.Header.BackgroundColor3 = Kit.lighten(color, 0.08)
-	v.HeaderFoot.BackgroundColor3 = Kit.shade(color, 0.04)
-	punch(v.Icon, 1.4, 0.35)
+-- The header says which game this is (always on the navy band; the game's colour is inside the card).
+local function setHeader(v: View, icon: string, title: string, _color: Color3)
+	v.Modal.setTitle(icon .. " " .. title)
+	local label = v.Modal.Title
+	if label then
+		punch(label, 1.15, 0.35)
+	end
+end
+
+-- The hint line. withPress: it starts with what to press (the pad's picture on a gamepad, else 👆 / 🖱️).
+local function setHint(v: View, text: string, withPress: boolean?)
+	local image = if withPress then padImage() else nil
+	v.HintGlyph.Visible = image ~= nil
+	v.HintGlyph.Image = image or ""
+	local mark = if withPress and not image then pointer() else ""
+	v.HintText.Text = if mark ~= "" and text ~= "" then mark .. " " .. text else text
 end
 
 local function setTime(v: View, share: number?)
@@ -1015,19 +999,20 @@ end
 local function showCombo(ctx: Types.Ctx, v: View, value: number, animate: boolean)
 	local before = v.ComboValue
 	v.ComboValue = value
-	-- No combo reads as a cheer, never a loss (only an OK resets it; a GOOD! holds it: build plan §E7): the chip stays
-	-- warm (a soft orange, not grey) and says "Go!" instead of a bare 0.
-	v.ComboText.Text = if value <= 0 then "Go!" else tostring(value)
+	-- No combo reads as a cheer, never a loss (only an OK resets it; a GOOD! holds it: build plan §E7): the chip says
+	-- "🔥 Go!" instead of a bare 0, in a softer ink.
+	v.Modal.setMeta(if v.ComboOn then "🔥 " .. (if value <= 0 then "Go!" else tostring(value)) else "")
 	local multiplier = MiniGame.multiplier(value, ctx.Config)
 	local tag = Pure.multText(multiplier)
 	v.ComboMult.Text = tag
-	v.ComboMult.Visible = tag ~= ""
-	v.Combo.BackgroundColor3 = Kit.lighten(Theme.Colors.Primary, if value > 0 then 0.08 else 0.45)
-	if animate and value > before then
+	v.ComboMult.Visible = v.ComboOn and tag ~= ""
+	v.Combo.TextColor3 = if value > 0 then Theme.Colors.Ink else Theme.Colors.InkSoft
+	if animate and v.ComboOn and value > before then
 		punch(v.Combo, 1.3)
 		if multiplier > MiniGame.multiplier(before, ctx.Config) then
 			punch(v.ComboMult, 1.8, 0.45)
-			burst(v.Combo, UDim2.fromScale(0.5, 0.5), "🔥", 5, 0.7)
+			-- Out of the chip's corner of the card (not inside the chip: its width follows its text).
+			burst(v.Card, UDim2.new(1, -Theme.Space.Step[6], 0, Theme.Space.PadPanel), "🔥", 5, 0.1)
 		end
 	end
 end
@@ -1101,6 +1086,7 @@ type Run = {
 	Started: number,
 	Cleanups: { () -> () },
 	Rng: Random,
+	HideDrain: boolean, -- the first-session tutorial: no time bar runs down (Pure.drainBar)
 }
 
 -- Everything a game needs. Each game builds into Layer, waits on intro(), loops while alive() and returns a score.
@@ -1117,11 +1103,11 @@ type Env = {
 	pause: (seconds: number) -> boolean, -- false when the run ended meanwhile
 	onPress: (gui: GuiObject, fn: (input: InputObject) -> ()) -> (), -- mouse or touch down on gui
 	onAction: (fn: ((began: boolean) -> ())?) -> (), -- Space / gamepad A, down (true) and up (false)
+	drain: (share: number) -> (), -- the draining time bar (hidden while the tutorial runs)
 	r01: () -> number,
 }
 
 local view: View? = nil
-local current: Run? = nil
 local actionHandler: ((boolean) -> ())? = nil
 local runs = 0
 
@@ -1139,11 +1125,7 @@ end
 
 local function openCard(v: View)
 	clearPop(v)
-	v.Gui.Enabled = true
-	v.Dim.BackgroundTransparency = 1
-	ease(v.Dim, Theme.Tween.Fade, { BackgroundTransparency = DIM })
-	Kit.popIn(v.Root)
-	sound("Whoosh")
+	v.Modal.open() -- the dim, the pop in, the Whoosh, and ModalOpened (MiniGame, "Game") for the HUD
 	ContextActionService:BindActionAtPriority(
 		ACTION,
 		handleAction,
@@ -1159,16 +1141,13 @@ local function closeCard(v: View)
 	actionHandler = nil
 	clearPop(v)
 	setTime(v, nil)
-	ease(v.Dim, Theme.Tween.Fade, { BackgroundTransparency = 1 })
-	Kit.popOut(v.Root, function()
-		if current == nil then
-			v.Gui.Enabled = false
-		end
-	end)
+	closing = true
+	v.Modal.close()
+	closing = false
 end
 
 -- Ends a run: its connections and layers go, and the card closes unless a newer run already owns it.
-local function stop(run: Run)
+stop = function(run: Run)
 	if not run.Alive then
 		return
 	end
@@ -1253,7 +1232,7 @@ local function playPour(env: Env): number
 		ZIndex = 3,
 		Parent = body,
 	})
-	corner(liquid, UDim.new(0, 12))
+	corner(liquid, Theme.Radius.Medium)
 	Palette.candyGradient(liquid)
 	local surface = new("Frame", {
 		Name = "Surface",
@@ -1278,8 +1257,8 @@ local function playPour(env: Env): number
 	end
 	band("GoodHigh", hi, goodHi, Theme.Colors.Cash, 0.6, 5)
 	band("GoodLow", goodLo, lo, Theme.Colors.Cash, 0.6, 5)
-	local perfect = band("Perfect", lo, hi, Theme.Colors.Good, 0.35, 6)
-	local glow = Kit.stroke(perfect, WHITE, 3)
+	local perfect = band("Perfect", lo, hi, Theme.Colors.Collect, 0.35, 6)
+	local glow = Kit.stroke(perfect, WHITE, Theme.Stroke.Bold)
 	glow.Enabled = false
 	local starY = NECK + (1 - NECK) * (1 - (lo + hi) / 2)
 	local stars: { TextLabel } = {}
@@ -1313,7 +1292,7 @@ local function playPour(env: Env): number
 	corner(stream)
 	local handProps = squareAt(0.2, UDim2.fromScale(0.5, 0.66))
 	handProps.ZIndex = 8
-	local hand = emoji(layer, pointer(), handProps)
+	local hand = pressMark(layer, handProps) -- 👆 / 🖱️, or the pad's own button picture
 
 	local pressedAt: number? = nil
 	local result: number? = nil
@@ -1479,7 +1458,7 @@ local function playPatch(env: Env): number
 		button.BorderSizePixel = 0
 		button.ZIndex = 10
 		corner(button)
-		Kit.stroke(button, OUTLINE, Theme.Size.Stroke)
+		Kit.stroke(button, OUTLINE, Theme.Stroke.Bold)
 		minSize(button, MIN_TAP)
 		local core = new("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1500,7 +1479,7 @@ local function playPatch(env: Env): number
 			Parent = button,
 		})
 		corner(ring)
-		local ringStroke = Kit.stroke(ring, SORE, 4)
+		local ringStroke = Kit.stroke(ring, SORE, Theme.Stroke.Panel)
 		button.Parent = holder
 		punch(button, 0.2, 0.28)
 		local spot: Spot =
@@ -1534,7 +1513,7 @@ local function playPatch(env: Env): number
 			shown += 1
 			spawnSpot(points[shown])
 		end
-		setTime(env.View, 1 - t / seconds)
+		env.drain(1 - t / seconds)
 		if patched >= spots then
 			burst(holder, UDim2.fromScale(0.5, 0.45), "💖", 6, 0.16)
 			sound("Sparkle")
@@ -1556,7 +1535,7 @@ local function playPatch(env: Env): number
 	end
 	ready = false
 	if env.alive() then
-		setTime(env.View, 0)
+		env.drain(0)
 	end
 	for _, spot in live do
 		if not spot.Done then
@@ -1705,7 +1684,7 @@ local function playScrub(env: Env): number
 		button.BorderSizePixel = 0
 		button.ZIndex = 20
 		corner(button)
-		Kit.stroke(button, OUTLINE, Theme.Size.Stroke)
+		Kit.stroke(button, OUTLINE, Theme.Stroke.Bold)
 		minSize(button, MIN_TAP + 4)
 		local shine = new("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1763,7 +1742,7 @@ local function playScrub(env: Env): number
 				bubble.Button.Rotation = math.sin(age * 5) * 6
 			end
 		end
-		setTime(env.View, 1 - t / seconds)
+		env.drain(1 - t / seconds)
 		if popped >= goal then
 			burst(holder, UDim2.fromScale(0.5, 0.45), "✨", 8, 0.14)
 			sound("Sparkle")
@@ -1776,7 +1755,7 @@ local function playScrub(env: Env): number
 	end
 	ready = false
 	if env.alive() then
-		setTime(env.View, 0)
+		env.drain(0)
 	end
 	for index = #live, 1, -1 do
 		local bubble = live[index]
@@ -1829,7 +1808,7 @@ local function playCool(env: Env): number
 	target.BackgroundTransparency = 1
 	target.ZIndex = 4
 	corner(target)
-	local targetStroke = Kit.stroke(target, Theme.Colors.InkSoft, 4)
+	local targetStroke = Kit.stroke(target, Theme.Colors.InkSoft, Theme.Stroke.Panel)
 	targetStroke.Transparency = 0.55
 	target.Parent = layer
 	local steam = blob(layer, "Steam", STEAM, squareAt(RING * RING_MIN, UDim2.fromScale(0.5, RING_Y)))
@@ -1914,9 +1893,9 @@ local function playCool(env: Env): number
 			size = Pure.ring(t, pulse, RING_MIN)
 			local hot = Pure.goodBlow(t, pulse, window)
 			steam.Size = UDim2.fromScale(RING * size, RING * size)
-			steam.BackgroundColor3 = if hot then Kit.lighten(Theme.Colors.Good, 0.35) else STEAM
-			steamStroke.Thickness = if hot then 4 else Theme.Size.Stroke
-			targetStroke.Color = if hot then Theme.Colors.Good else Theme.Colors.InkSoft
+			steam.BackgroundColor3 = if hot then Kit.lighten(Theme.Colors.Collect, 0.35) else STEAM
+			steamStroke.Thickness = if hot then Theme.Stroke.Panel else Theme.Stroke.Bold
+			targetStroke.Color = if hot then Theme.Colors.Collect else Theme.Colors.InkSoft
 			targetStroke.Transparency = if hot then 0 else 0.55
 			if not ticked and t >= pulse / 2 then
 				ticked = true
@@ -1984,10 +1963,12 @@ local function playTap(env: Env, look: GameLook): number
 	local iconProps = squareAt(0.46, UDim2.fromScale(0.5, 0.36))
 	iconProps.ZIndex = 3
 	local icon = emoji(layer, look.Icon, iconProps)
+	-- A Collect button (taking help is free): the one shine on screen.
+	local mark = pointer()
 	local button = Kit.button({
 		Name = "Tap",
-		Kind = "Good",
-		Text = pointer() .. " Tap!",
+		Kind = "Collect",
+		Text = if mark ~= "" then mark .. " Tap!" else "Tap!",
 		TextScaled = true,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -6),
@@ -1995,7 +1976,16 @@ local function playTap(env: Env, look: GameLook): number
 		ZIndex = 4,
 		Parent = layer,
 	})
-	maxText(button, Theme.TextSize.Title)
+	Kit.textLimit(button, Theme.TextSize.Title)
+	if padImage() then
+		-- The pad's own button picture at the left end (✕ on PlayStation, A on Xbox).
+		pressMark(button, {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0),
+			Size = UDim2.fromOffset(40, 40),
+			ZIndex = 5,
+		})
+	end
 	local stopShine = Kit.shine(button)
 	local tapped = false
 	local ready = false
@@ -2046,7 +2036,7 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 	local simple = session.Simple or not known
 	local look = if session.Kind == "Soak" and gameId == "Scrub" then SOAK_LOOK else GAME_LOOK[gameId] or TAP_LOOK
 	setHeader(v, look.Icon, if simple and look ~= SOAK_LOOK then TAP_LOOK.Title else look.Title, look.Color)
-	v.Hint.Text = pointer() .. " " .. (if simple then TAP_LOOK.Hint else look.Hint)
+	setHint(v, if simple then TAP_LOOK.Hint else look.Hint, true)
 	setTime(v, nil)
 	markStep(v, index, nil)
 
@@ -2128,6 +2118,11 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 				actionHandler = fn
 			end
 		end,
+		drain = function(share: number)
+			if alive() then
+				setTime(v, Pure.drainBar(share, run.HideDrain))
+			end
+		end,
 		r01 = function(): number
 			return run.Rng:NextNumber()
 		end,
@@ -2169,7 +2164,7 @@ end
 local function playAuto(v: View, run: Run, index: number, gameId: string): string
 	local look = GAME_LOOK[gameId] or TAP_LOOK
 	setHeader(v, "✨", "Magic help!", Theme.Colors.Cash)
-	v.Hint.Text = look.Icon .. " ✨ Done for you!"
+	setHint(v, look.Icon .. " ✨ Done for you!")
 	setTime(v, nil)
 	markStep(v, index, nil)
 	local layer = new("Frame", {
@@ -2242,7 +2237,7 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 			Size = UDim2.fromScale(1, 1),
 			SizeConstraint = Enum.SizeConstraint.RelativeYY,
 			ZIndex = 3,
-		}, UDim.new(0, Theme.Size.Corner))
+		}, Theme.Radius.Medium)
 		Kit.gloss(chip, 8)
 		emoji(chip, if type(item) == "table" then item.Icon else (GAME_LOOK[gameId] or TAP_LOOK).Icon, {
 			Position = UDim2.fromScale(0.5, 0.45),
@@ -2271,22 +2266,22 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 			ZIndex = 4,
 			Parent = layer,
 		})
-		Kit.outline(tipLabel, Theme.Size.Stroke)
-		maxText(tipLabel, 44)
+		Kit.outline(tipLabel, Theme.Stroke.Bold)
+		Kit.textLimit(tipLabel, 44)
 		punch(tipLabel, 1.5, 0.35)
 	end
 	if run.Session.Kind == "Soak" then
 		setHeader(v, "🫧", "So bubbly!", Theme.Colors.Cyan)
-		v.Hint.Text = if type(outcome) == "table" then "🛁 Ahh, so cosy!" else ""
+		setHint(v, if type(outcome) == "table" then "🛁 Ahh, so cosy!" else "")
 	elseif type(outcome) ~= "table" then
-		setHeader(v, "✨", "Nice!", Theme.Colors.Good)
-		v.Hint.Text = ""
+		setHeader(v, "✨", "Nice!", Theme.Colors.Collect)
+		setHint(v, "")
 	elseif outcome.Complete == true then
-		setHeader(v, "💖", "All better!", Theme.Colors.Good)
-		v.Hint.Text = "🛏️ Time to rest!"
+		setHeader(v, "💖", "All better!", Theme.Colors.Collect)
+		setHint(v, "🛏️ Time to rest!")
 	else
-		setHeader(v, "👍", "Nice!", Theme.Colors.Secondary)
-		v.Hint.Text = "🔜 Make the next one!"
+		setHeader(v, "👍", "Nice!", CALM_BLUE)
+		setHint(v, "🔜 Make the next one!")
 	end
 end
 
@@ -2325,7 +2320,7 @@ local function runTriage(ctx: Types.Ctx, v: View, run: Run, card: TriageCard, si
 		old:Destroy()
 	end
 	setHeader(v, "🔀", "Which floor?", Theme.Colors.Purple)
-	v.Hint.Text = "👀 Match the badge!"
+	setHint(v, "👀 Match the badge!")
 	local layer = new("Frame", {
 		Name = "Triage",
 		Size = UDim2.fromScale(1, 1),
@@ -2380,9 +2375,11 @@ local function runTriage(ctx: Types.Ctx, v: View, run: Run, card: TriageCard, si
 		end)
 	end
 	for index, option in card.Options do
+		-- A candy button in its department's badge colour (the colour IS the game: "Match the badge!").
 		local button = Kit.button({
 			Name = "Floor_" .. option.Dept,
-			Kind = DEPT_KINDS[option.Dept] or "Secondary",
+			Kind = "Primary",
+			Fill = DEPT_COLORS[option.Dept] or CALM_BLUE,
 			Text = "",
 			LayoutOrder = index,
 			Size = UDim2.fromScale(1, 1),
@@ -2427,8 +2424,8 @@ local function runTriage(ctx: Types.Ctx, v: View, run: Run, card: TriageCard, si
 	setTime(v, nil)
 	local look = if answer then Pure.TRIAGE_TEXT[answer] else nil
 	if look then
-		setHeader(v, look.Icon, look.Text, if answer == "Right" then Theme.Colors.Good else Theme.Colors.Secondary)
-		v.Hint.Text = if answer == "Right" then "💰 +bonus!" else "🛗 Off it goes!"
+		setHeader(v, look.Icon, look.Text, if answer == "Right" then Theme.Colors.Collect else CALM_BLUE)
+		setHint(v, if answer == "Right" then "💰 +bonus!" else "🛗 Off it goes!")
 		if answer == "Right" then
 			burst(layer, UDim2.fromScale(0.5, 0.48), "✨", 10, 0.2)
 			sound("Sparkle")
@@ -2439,12 +2436,12 @@ end
 
 local function runSession(ctx: Types.Ctx, run: Run)
 	local session = run.Session
-	local v = view or build()
+	local v = view or build(ctx)
 	view = v
 	setSteps(ctx, v, session)
 	v.ComboValue = session.Combo
+	v.ComboOn = not session.Simple
 	showCombo(ctx, v, session.Combo, false)
-	v.Combo.Visible = not session.Simple
 	openCard(v)
 	if session.Kind == "Soak" then
 		sound("Splash")
@@ -2527,6 +2524,8 @@ local function start(ctx: Types.Ctx, raw: any)
 		Started = os.clock(),
 		Cleanups = {},
 		Rng = Random.new(),
+		-- The first-session tutorial: no draining time bar (look build plan §B8). OK still cures.
+		HideDrain = TutorialLogic.active(ctx.State.Tutorial),
 	}
 	current = run
 	-- 🎯 Steady Hands: this session's games draw and rate with wider Perfect windows.
@@ -2553,8 +2552,13 @@ function MiniGames.isOpen(): boolean
 	return current ~= nil
 end
 
--- STUB (T6): the current game's stage (look build plan §B8). Nil = no game is up.
+-- The current game's stage (look build plan §B8): where the games draw, for UI/Tutorial's touch hand. Nil = no game
+-- is up.
 function MiniGames.stage(): GuiObject?
+	local v = view
+	if current ~= nil and v ~= nil then
+		return v.Stage
+	end
 	return nil
 end
 
@@ -2564,7 +2568,7 @@ function MiniGames.init(ctx: Types.Ctx)
 		start(ctx, raw)
 	end)
 	-- Build the card now (hidden), so the first treatment doesn't wait for it and a broken build shows at join.
-	local ok, built = pcall(build)
+	local ok, built = pcall(build, ctx)
 	if ok then
 		view = view or built
 	else

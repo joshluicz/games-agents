@@ -1,5 +1,5 @@
 --!strict
--- Big celebration screens (depth-update design §4, build plan §B9). OWNER: T6; Progression v2: T8.
+-- Big celebration screens (depth-update design §4, build plan §B9). OWNER: T6; Progression v2: T8; look overhaul: T8.
 --   init(ctx)   listens for the bus "Celebrate" (info: Types.CelebrateInfo): from the server for a level-up
 --               ("LevelUp"), a first-time hire ("NewNurse") and a completed Journal group ("JournalSet"); Feel/CureFX
 --               fires "Room" for a room you just got (with an extra field `Room = <RoomId>`, see Words.of)
@@ -13,28 +13,42 @@
 -- with no Rebirth to join shows on its own. A new nurse also shows its trick (its Data/Abilities chip).
 -- What it shows: the screen dims, candy confetti rains, and in the middle the reward sits in a big white bubble on
 -- turning rays (Kit.celebrate) under a big outlined title on a ribbon in the moment's colour: the new level's name
--- and its unlock chips (Data/Levels), the nurse's face with its rarity frame shimmering (Kit.rarityFrame) and its
--- rarity and role chips, a Journal group's 💰 and decor reward, or the room's name. A "🎉 Yay!" button breathes
--- (Kit.breathing) and closes it; so does a tap anywhere after a moment, ButtonB, or Theme.Juice.CelebrateSeconds
+-- and its unlock chips (Data/Levels), the nurse's face with its rarity frame (Kit.rarityFrame, still) and its
+-- rarity and role chips, a Journal group's 💰 and decor reward, or the room's name. A Collect "🎉 Yay!" button shines
+-- (Kit.shine) and closes it; so does a tap anywhere after a moment, ButtonB, or Theme.Juice.CelebrateSeconds
 -- passing (no countdown: it just gets out of the way). On closing, a Journal group's cash flies into 💰 and a new
 -- nurse's icon into the 👩‍⚕️ button. One at a time (a short queue), never while the first-session tutorial runs
--- (it waits for the tutorial to end). A treat card stays playable: one nobody tapped for (Words.PASSIVE: NurseLevel,
+-- (it waits for the tutorial to end; the tutorial's own finale is the one exception). A treat card stays playable: one nobody tapped for (Words.PASSIVE: NurseLevel,
 -- a lone Unlock) waits for an open card to close, and a card opening (bus TreatStart) closes whatever is up.
 -- Calm (Kit.reducedMotion()): the rays hold still, no confetti, no bounce.
--- Sounds (Feel/Sounds over the bus): LevelUp, Celebrate (nurses, Journal sets, unlocks), Fanfare (rooms), and
--- Progression v2's Rebirth, Perk and LevelNurse.
+-- Sounds (Feel/Sounds over the bus): LevelUp, Celebrate (nurses, Journal sets, unlocks), Fanfare (rooms and the
+-- tutorial's finale), and Progression v2's Rebirth, Perk and LevelNurse.
 -- Display only: the server already granted whatever this shows.
+--
+-- Look overhaul (look build plan §B9, §D T8; memory-20261117-001):
+--   · Kind "Tutorial": the tutorial's finale, fired on the client by UI/Tutorial and shown EVEN WHILE the tutorial
+--     still runs (it jumps the queue; everything else still waits for the tutorial to end). "🎉 YOU DID IT!" with the
+--     guide nurse's face in the bubble (Data/Guide.Look), its Chips ("📖 Collect them all", "🎯 Daily goals",
+--     "👩‍⚕️ Hire nurses") and ONE "COMING UP" chip for info.Next (a FREE event only: Logic/NextEvent picked it; minutes,
+--     never seconds, and it never ticks: memory-20261116-022).
+--   · Restyled on the tokens: flat fills (no candy gradients or gloss), Theme.Radius.Large and Theme.Stroke.Bold, the
+--     title at Theme.TextSize.Hero, text never under 18 (Kit.textLimit), and ONE perpetual effect: the shine on its
+--     Collect "🎉 Yay!" (no breathing).
+--   · Rebirth: the ribbon and the rays in the new theme's Roof colour and the bubble's ring in its Trim; the bubble
+--     stays white (the walls stay the plot colour: themes no longer recolour walls, §G4).
+--   · Fires the bus event "CelebrateClosed" (kind) as a screen closes (UI/Tutorial rings 📖 after the finale).
 
 local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
+local NextEvent = require(Shared:WaitForChild("Logic"):WaitForChild("NextEvent"))
 local RebirthLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Rebirth"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
@@ -64,6 +78,9 @@ export type CelebrateWords = {
 	Colors: { string }?, -- Rebirth: the branch theme's Wall, Roof and Trim (hex), for the ribbon, bubble and rays
 	Action: string?, -- "Perks": the button says "🃏 Pick a card!" and opens the Branch panel's perk cards
 	Points: number?, -- Rebirth: tree points that fly into 🛒 as it closes
+	-- Look overhaul
+	Portrait: string?, -- "Guide": the tutorial's guide nurse's face in the bubble (Data/Guide.Look)
+	Next: string?, -- Tutorial: the one "COMING UP" chip's words ("🌟 Golden Hour in 12m"); a FREE event only
 }
 
 local KINDS = {
@@ -76,8 +93,12 @@ local KINDS = {
 	Perk = "Perk",
 	NurseLevel = "LevelNurse",
 	Unlock = "Celebrate",
+	-- Look overhaul (T8)
+	Tutorial = "Fanfare",
 }
 Words.KINDS = KINDS
+-- Kinds that show even while the first-session tutorial runs (everything else waits for it to end).
+Words.DURING_TUTORIAL = { Tutorial = true } :: { [string]: boolean }
 -- Kinds nobody tapped for just now (a nurse levelling from cures, an unlock on its own): they wait for an open treat
 -- card to close before they show (UI/Celebrate's queue).
 Words.PASSIVE = { NurseLevel = true, Unlock = true } :: { [string]: boolean }
@@ -201,10 +222,27 @@ function Words.fold(words: CelebrateWords, unlockId: any, data: any): boolean
 	return true
 end
 
+-- The tutorial finale's "COMING UP" chip: "🌟 Golden Hour in 12m" (label = Logic/NextEvent.label: minutes only).
+-- nil for junk, an event already started, or no label function.
+function Words.nextChip(next: any, now: any, label: any): string?
+	if type(next) ~= "table" or type(label) ~= "function" then
+		return nil
+	end
+	local at, clock = finite(next.At), finite(now)
+	if not (at and clock) or at <= clock then
+		return nil
+	end
+	if type(next.Icon) ~= "string" or type(next.Name) ~= "string" or next.Name == "" then
+		return nil
+	end
+	return next.Icon .. " " .. next.Name .. " " .. tostring(label(at - clock))
+end
+
 -- What to show for a CelebrateInfo; nil for junk (no table, an unknown Kind, no Title or Icon).
 -- data = { Nurses, Rarities, Levels, Decor, Rooms } (ctx.Data), and for Progression v2 also Perks, Themes,
--- Abilities, Unlocks (Logic/Rebirth.UNLOCKS) and Config (Rebirth, Roster, GoldenChance).
-function Words.of(info: any, data: any): CelebrateWords?
+-- Abilities, Unlocks (Logic/Rebirth.UNLOCKS) and Config (Rebirth, Roster, GoldenChance); for the look overhaul's
+-- "Tutorial" kind NextLabel (Logic/NextEvent.label), with `now` on the same clock as info.Next.At.
+function Words.of(info: any, data: any, now: number?): CelebrateWords?
 	if type(info) ~= "table" or type(info.Kind) ~= "string" or KINDS[info.Kind] == nil then
 		return nil
 	end
@@ -226,6 +264,8 @@ function Words.of(info: any, data: any): CelebrateWords?
 		Colors = nil,
 		Action = nil,
 		Points = nil,
+		Portrait = nil,
+		Next = nil,
 	}
 	local function chip(text: string?)
 		if text and text ~= "" and #words.Chips < words.MaxChips then
@@ -358,6 +398,17 @@ function Words.of(info: any, data: any): CelebrateWords?
 				end
 			end
 		end
+	elseif info.Kind == "Tutorial" then
+		-- The finale: the guide nurse's face, what's next to do, and one free event coming up.
+		words.Portrait = "Guide"
+		if type(info.Chips) == "table" then
+			for _, text in info.Chips do
+				if type(text) == "string" and #words.Chips < words.MaxChips - 1 then
+					chip(text)
+				end
+			end
+		end
+		words.Next = Words.nextChip(info.Next, now, data.NextLabel)
 	elseif info.Kind == "Unlock" then
 		local chips = Words.unlockChips(info.Unlock, data)
 		local row = entry(data.Unlocks, info.Unlock)
@@ -390,6 +441,7 @@ local ACCENTS: { [string]: Color3 } = {
 	Perk = Theme.Colors.Pink,
 	NurseLevel = Theme.Colors.Cyan,
 	Unlock = Theme.Colors.Good,
+	Tutorial = Theme.Colors.Primary,
 }
 local EXTRA_SECONDS = { Rebirth = 3 } -- a rebirth has more to read before it closes by itself
 
@@ -410,13 +462,6 @@ local function usesDirectionalFocus(): boolean
 	return preferred == Enum.PreferredInput.Gamepad or preferred == Enum.PreferredInput.MicroGamepad
 end
 
-local function textLimit(label: TextLabel, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 14
-	limit.Parent = label
-end
-
 function Celebrate.init(ctx: Types.Ctx)
 	local data = ctx.Data :: any
 	-- What Words.of reads: the Data tables, plus the rebirth unlocks and the Config numbers it shows.
@@ -431,6 +476,8 @@ function Celebrate.init(ctx: Types.Ctx)
 		Abilities = data.Abilities,
 		Unlocks = RebirthLogic.UNLOCKS,
 		Config = ctx.Config,
+		Guide = data.Guide,
+		NextLabel = NextEvent.label,
 	}
 	local gui = Kit.screen("Celebrate", Theme.DisplayOrder.Celebrate)
 	gui.Enabled = false
@@ -500,7 +547,9 @@ function Celebrate.init(ctx: Types.Ctx)
 	ring.Size = UDim2.fromOffset(BUBBLE + 12, BUBBLE + 12)
 	ring.BackgroundTransparency = 1
 	ring.ZIndex = 2
-	Kit.corner(ring, (BUBBLE + 12) // 2)
+	local ringRound = Instance.new("UICorner")
+	ringRound.CornerRadius = Theme.Radius.Round
+	ringRound.Parent = ring
 	ring.Parent = core
 	local bubble = Instance.new("Frame")
 	bubble.Name = "Bubble"
@@ -510,9 +559,10 @@ function Celebrate.init(ctx: Types.Ctx)
 	bubble.BackgroundColor3 = Theme.Colors.Paper
 	bubble.BorderSizePixel = 0
 	bubble.ZIndex = 2
-	Kit.corner(bubble, BUBBLE // 2)
-	Kit.stroke(bubble, Theme.Colors.Outline, Theme.Size.StrokeLarge)
-	Palette.candyGradient(bubble)
+	local bubbleRound = Instance.new("UICorner")
+	bubbleRound.CornerRadius = Theme.Radius.Round
+	bubbleRound.Parent = bubble
+	Kit.stroke(bubble, Theme.Colors.Stroke, Theme.Stroke.Bold)
 	bubble.Parent = core
 	local face = Instance.new("Frame") -- the icon or the nurse's portrait
 	face.Name = "Face"
@@ -538,20 +588,19 @@ function Celebrate.init(ctx: Types.Ctx)
 		ZIndex = 4,
 		Parent = bubble,
 	})
-	Kit.corner(sticker, 17)
-	Kit.stroke(sticker, Theme.Colors.Outline, 2.5)
-	Kit.pad(sticker, 4)
+	Kit.corner(sticker, Theme.Radius.Medium)
+	Kit.stroke(sticker, Theme.Colors.Stroke, Theme.Stroke.Text)
+	Kit.pad(sticker, Theme.Space.Step[1])
+	Kit.textLimit(sticker, Theme.TextSize.Body) -- never under 18
 
-	-- The title on a candy ribbon.
+	-- The title on a flat ribbon in the moment's colour.
 	local ribbon = Instance.new("Frame")
 	ribbon.Name = "Ribbon"
 	ribbon.LayoutOrder = 2
 	ribbon.Size = UDim2.new(0.92, 0, 0, 72)
 	ribbon.BorderSizePixel = 0
-	Kit.corner(ribbon, Theme.Size.CornerLarge)
-	Kit.stroke(ribbon, Theme.Colors.Outline, Theme.Size.StrokeLarge)
-	Palette.candyGradient(ribbon)
-	Kit.gloss(ribbon, 14)
+	Kit.corner(ribbon, Theme.Radius.Large)
+	Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Bold)
 	ribbon.Parent = content
 	local title = Kit.label({
 		Name = "Title",
@@ -565,8 +614,8 @@ function Celebrate.init(ctx: Types.Ctx)
 		ZIndex = 2,
 		Parent = ribbon,
 	})
-	textLimit(title, 56)
-	Kit.outline(title, Theme.Size.StrokeLarge)
+	Kit.textLimit(title, Theme.TextSize.Hero)
+	Kit.outline(title, Theme.Stroke.Title)
 
 	local sub = Kit.label({
 		Name = "Sub",
@@ -579,8 +628,8 @@ function Celebrate.init(ctx: Types.Ctx)
 		Size = UDim2.new(0.92, 0, 0, 36),
 		Parent = content,
 	})
-	textLimit(sub, 30)
-	Kit.outline(sub, Theme.Size.Stroke)
+	Kit.textLimit(sub, Theme.TextSize.Title)
+	Kit.outline(sub, Theme.Stroke.Text)
 
 	local chips = Instance.new("Frame")
 	chips.Name = "Chips"
@@ -597,17 +646,57 @@ function Celebrate.init(ctx: Types.Ctx)
 	chipPad.PaddingBottom = UDim.new(0, 3)
 	chipPad.Parent = chips
 
+	-- The tutorial finale's one "COMING UP" chip (a free event, in minutes; it never ticks).
+	local comingUp = Instance.new("Frame")
+	comingUp.Name = "ComingUp"
+	comingUp.LayoutOrder = 5
+	comingUp.AutomaticSize = Enum.AutomaticSize.X
+	comingUp.Size = UDim2.fromOffset(0, 48)
+	comingUp.BackgroundColor3 = Theme.Colors.Header
+	comingUp.BorderSizePixel = 0
+	comingUp.Visible = false
+	Kit.corner(comingUp, Theme.Radius.Medium)
+	Kit.stroke(comingUp, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	local comingPad = Kit.pad(comingUp, Theme.Space.PadCard)
+	comingPad.PaddingTop = UDim.new(0, 0)
+	comingPad.PaddingBottom = UDim.new(0, 0)
+	local comingList = Kit.list(comingUp, Enum.FillDirection.Horizontal, Theme.Space.Gap)
+	comingList.VerticalAlignment = Enum.VerticalAlignment.Center
+	comingUp.Parent = content
+	Kit.label({
+		Name = "Caption",
+		Text = "COMING UP",
+		Outlined = true,
+		TextColor3 = Theme.Colors.Cash,
+		TextSize = Theme.TextSize.Caption,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, 40),
+		LayoutOrder = 1,
+		Parent = comingUp,
+	})
+	local comingText = Kit.label({
+		Name = "Event",
+		Text = "",
+		TextColor3 = Theme.Colors.OnColor,
+		TextSize = Theme.TextSize.Body,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, 40),
+		LayoutOrder = 2,
+		Parent = comingUp,
+	})
+
 	local yay = Kit.button({
 		Name = "Yay",
-		Kind = "Good",
+		Kind = "Collect",
 		Text = "🎉 Yay!",
 		TextSize = Theme.TextSize.Title,
-		LayoutOrder = 5,
+		LayoutOrder = 6,
 		Size = UDim2.fromOffset(220, 64),
 		Parent = content,
 	})
-	Kit.shine(yay)
-	Kit.breathing(yay)
+	Kit.shine(yay) -- the one perpetual effect (Theme.Motion.Perpetual): a Collect button may shine
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Showing one
@@ -640,12 +729,12 @@ function Celebrate.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(math.clamp(textWidth(text) * 12 + 40, 190, 300), 40),
 			Parent = chips,
 		})
-		textLimit(label, 22)
-		Kit.corner(label, 20)
-		Kit.stroke(label, Theme.Colors.Outline, Theme.Size.Stroke)
-		local pad = Kit.pad(label, 6)
-		pad.PaddingLeft = UDim.new(0, 12)
-		pad.PaddingRight = UDim.new(0, 12)
+		Kit.textLimit(label, Theme.TextSize.Body)
+		Kit.corner(label, Theme.Radius.Large)
+		Kit.stroke(label, Theme.Colors.Stroke, Theme.Stroke.Fine)
+		local pad = Kit.pad(label, Theme.Space.Step[2])
+		pad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
+		pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
 		return label
 	end
 
@@ -661,32 +750,33 @@ function Celebrate.init(ctx: Types.Ctx)
 		chips.Visible = #words.Chips > 0
 	end
 
-	-- The moment's colours: a nurse's rarity, a branch theme's (Rebirth), else the kind's accent.
-	local function colorsOf(words: CelebrateWords): (Color3, Color3?, Color3?)
+	-- The moment's colours: a nurse's rarity, a branch theme's (Rebirth: its Roof for the ribbon and rays, its Trim
+	-- for the ring; never its Wall: the walls stay the plot colour), else the kind's accent.
+	local function colorsOf(words: CelebrateWords): (Color3, Color3?)
 		local accent = if words.Rarity
 			then Kit.rarityColor(words.Rarity)
 			else ACCENTS[words.Kind] or Theme.Colors.Primary
 		local themed = words.Colors
 		if themed then
-			local wall = fromHex(themed[1], Theme.Colors.Paper)
 			local roof = fromHex(themed[2], accent)
 			local trim = fromHex(themed[3], Theme.Colors.Paper)
-			return roof, wall, trim
+			return roof, trim
 		end
-		return accent, nil, nil
+		return accent, nil
 	end
 
 	local function draw(words: CelebrateWords)
-		local accent, wall, trim = colorsOf(words)
-		ribbon.BackgroundColor3 = Kit.lighten(accent, 0.08)
+		local accent, trim = colorsOf(words)
+		ribbon.BackgroundColor3 = accent
 		title.Text = words.Icon .. " " .. words.Title
 		sub.Text = words.Sub
 		sub.Visible = words.Sub ~= ""
 
 		face:ClearAllChildren()
 		local nurse = if words.NurseId then rawget(data.Nurses, words.NurseId) else nil
-		if nurse then
-			local portrait = Hud.portrait(nurse.Look)
+		local guide = if words.Portrait == "Guide" and type(data.Guide) == "table" then data.Guide else nil
+		if nurse or guide then
+			local portrait = Hud.portrait(if nurse then nurse.Look else guide.Look)
 			portrait.ZIndex = 3
 			portrait.Parent = face
 		else
@@ -699,7 +789,7 @@ function Celebrate.init(ctx: Types.Ctx)
 				Parent = face,
 			})
 		end
-		bubble.BackgroundColor3 = if nurse then Kit.lighten(accent, 0.55) else wall or Theme.Colors.Paper
+		bubble.BackgroundColor3 = if nurse then Kit.lighten(accent, 0.55) else Theme.Colors.Paper
 
 		local frame = ring:FindFirstChild("RarityFrame")
 		if frame then
@@ -713,12 +803,12 @@ function Celebrate.init(ctx: Types.Ctx)
 			table.insert(stopFx, Kit.rarityFrame(ring, words.Rarity))
 		elseif trim then
 			-- A branch theme: its trim colour rings the bubble.
-			local stroke = Kit.stroke(ring, trim, Theme.Size.StrokeLarge + 2)
+			local stroke = Kit.stroke(ring, trim, Theme.Stroke.Panel + Theme.Stroke.Fine)
 			stroke.Name = "ThemeTrim"
 		end
 		if words.Sticker then
 			sticker.Text = words.Sticker
-			sticker.BackgroundColor3 = Kit.lighten(accent, 0.08)
+			sticker.BackgroundColor3 = accent
 			sticker.Visible = true
 		elseif words.Kind == "NewNurse" then
 			sticker.Text = "NEW!"
@@ -727,13 +817,15 @@ function Celebrate.init(ctx: Types.Ctx)
 		elseif words.Rarity then
 			local rarity = rawget(data.Rarities, words.Rarity)
 			sticker.Text = if rarity then rarity.Icon else ""
-			sticker.BackgroundColor3 = Kit.lighten(accent, 0.08)
+			sticker.BackgroundColor3 = accent
 			sticker.Visible = rarity ~= nil
 		else
 			sticker.Visible = false
 		end
 
 		drawChips(words)
+		comingText.Text = words.Next or ""
+		comingUp.Visible = words.Next ~= nil
 		-- The button: "🃏 Pick a card!" after a rebirth (it opens the perk cards), else "🎉 Yay!".
 		local picks = words.Action == "Perks"
 		yay.Text = if picks then "🃏 Pick a card!" else "🎉 Yay!"
@@ -804,7 +896,7 @@ function Celebrate.init(ctx: Types.Ctx)
 		end
 		Kit.popIn(stage)
 		local raysColor = if words.Colors
-			then colorsOf(words)
+			then (colorsOf(words))
 			else Kit.lighten(ACCENTS[words.Kind] or Theme.Colors.Cash, 0.2)
 		table.insert(stopFx, Kit.celebrate(core, raysColor))
 		Kit.confetti(rain, Theme.Juice.ConfettiPieces + (if words.Kind == "Rebirth" then 24 else 12))
@@ -860,8 +952,8 @@ function Celebrate.init(ctx: Types.Ctx)
 		showing = true
 		task.spawn(function()
 			while #queue > 0 do
-				-- The first-session tutorial stays quiet: wait for it to end.
-				while TutorialLogic.active(ctx.State.Tutorial) do
+				-- The first-session tutorial stays quiet: wait for it to end (its own finale shows at once).
+				while TutorialLogic.active(ctx.State.Tutorial) and not Words.DURING_TUTORIAL[queue[1].Kind] do
 					task.wait(1)
 				end
 				-- One nobody tapped for (a nurse levelling from cures, a lone unlock) never covers a treat card: its dim
@@ -913,6 +1005,7 @@ function Celebrate.init(ctx: Types.Ctx)
 			Kit.popOut(stage, finish)
 		end
 		afterClose(words)
+		ctx.fire("CelebrateClosed", words.Kind)
 		if byButton == true and words.Action == "Perks" then
 			ctx.fire("Open", "Branch", "Perks")
 		end
@@ -963,11 +1056,17 @@ function Celebrate.init(ctx: Types.Ctx)
 		if foldUnlock(info) then
 			return
 		end
-		local words = Words.of(info, wordsData)
-		if not words or #queue >= MAX_QUEUE then
+		local words = Words.of(info, wordsData, Workspace:GetServerTimeNow())
+		if not words then
 			return
 		end
-		table.insert(queue, words)
+		if Words.DURING_TUTORIAL[words.Kind] then
+			table.insert(queue, 1, words) -- the tutorial's finale never waits behind the screens the tutorial holds
+		elseif #queue >= MAX_QUEUE then
+			return
+		else
+			table.insert(queue, words)
+		end
 		nextOne()
 	end)
 end

@@ -1,6 +1,6 @@
 --!strict
 -- PlayGifts (game/README.md "Play gifts, Doctor ranks, boosts and badges"): the 🎁 panel.
---   init(ctx)   opens on ctx.fire("Open", "Gifts") (the HUD's 🎁 button under the wallet)
+--   init(ctx)   opens on ctx.fire("Open", "Gifts") (the HUD's 🎁 right-rail button)
 --
 -- From the top:
 --   the Doctor rank card   "🩺 Doctor rank: Resident", then "4h 12m played · next: 🥼 Doctor at 10h" and a bar to it
@@ -16,13 +16,15 @@
 -- Bus: fires "Claimed" ("PlayGift", index) after the server says yes, and "Cheer" (icon, text, colour) when the
 -- Snapshot's Doctor rank goes up (BadgeBook shows the banner).
 -- Phones: the content scrolls, the cards go two to a row on a narrow panel, and every button is >= 56 px tall.
+-- Look (the look overhaul's template, look build plan §B8): UI/Modal's navy header, tinted cards on flat paper,
+-- neutral tiles. A READY gift is the reward moment: a warm gold card, rays behind its icon and the Collect "Open!",
+-- which may shine (one perpetual effect on screen: Kit's motion budget). No text under 18 px.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
 local PlaytimeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Playtime"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
@@ -32,22 +34,8 @@ local PlayGifts = {}
 
 local NAME = "Gifts"
 local CARD_HEIGHT = 184
-local GAP = 10
-local RANK_COLOR = Theme.Colors.Purple
-
-local function textLimit(label: TextLabel, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 12
-	limit.Parent = label
-end
-
--- A Kit button's colour (and the colour Kit.setEnabled restores).
-local function paintButton(button: TextButton, color: Color3)
-	local fill = Kit.lighten(color, 0.08)
-	button.BackgroundColor3 = fill
-	button:SetAttribute("KitColor", fill)
-end
+local GAP = Theme.Space.Gap
+local RANK_COLOR = Theme.Colors.Purple -- the Doctor rank's own colour: its bar, and its cheer
 
 local function rewardText(data: any, gift: any): string
 	local parts = { "💰" .. Hud.format(gift.Cash) }
@@ -100,10 +88,10 @@ function PlayGifts.init(ctx: Types.Ctx)
 	local list = Kit.list(scroll, Enum.FillDirection.Vertical, GAP)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 3)
-	pad.PaddingBottom = UDim.new(0, 8)
-	pad.PaddingLeft = UDim.new(0, 3) -- scrolling frames clip: keep the outlines whole
-	pad.PaddingRight = UDim.new(0, 12)
+	pad.PaddingTop = UDim.new(0, Theme.Space.Step[1])
+	pad.PaddingBottom = UDim.new(0, Theme.Space.Gap)
+	pad.PaddingLeft = UDim.new(0, Theme.Space.Step[1]) -- scrolling frames clip: keep the outlines whole
+	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
 	pad.Parent = scroll
 
 	--------------------------------------------------------------------------------------------------------------
@@ -112,24 +100,21 @@ function PlayGifts.init(ctx: Types.Ctx)
 	local rankCard = Instance.new("Frame")
 	rankCard.Name = "Rank"
 	rankCard.LayoutOrder = 1
-	rankCard.BackgroundColor3 = Kit.lighten(RANK_COLOR, 0.86)
+	rankCard.BackgroundColor3 = Theme.Colors.Card
 	rankCard.BorderSizePixel = 0
 	rankCard.Size = UDim2.new(1, 0, 0, 100)
-	Kit.corner(rankCard, 16)
-	Kit.stroke(rankCard, Theme.Colors.Outline, Theme.Size.Stroke)
+	Kit.corner(rankCard, Theme.Radius.Medium)
+	Kit.stroke(rankCard, Theme.Colors.CardLine, Theme.Stroke.Fine)
 	rankCard.Parent = scroll
 
 	local rankTile = Instance.new("Frame")
 	rankTile.Name = "Tile"
 	rankTile.AnchorPoint = Vector2.new(0, 0.5)
-	rankTile.Position = UDim2.new(0, 10, 0.5, 0)
+	rankTile.Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0)
 	rankTile.Size = UDim2.fromOffset(72, 72)
-	rankTile.BackgroundColor3 = Kit.lighten(RANK_COLOR, 0.08)
+	rankTile.BackgroundColor3 = Theme.Colors.Well
 	rankTile.BorderSizePixel = 0
-	Kit.corner(rankTile, 18)
-	Kit.stroke(rankTile, Theme.Colors.Outline, Theme.Size.Stroke)
-	Palette.candyGradient(rankTile)
-	Kit.gloss(rankTile, 4)
+	Kit.corner(rankTile, Theme.Radius.Medium)
 	rankTile.Parent = rankCard
 	local rankIcon = Kit.label({
 		Name = "Icon",
@@ -143,13 +128,15 @@ function PlayGifts.init(ctx: Types.Ctx)
 	local rankTitle = Kit.label({
 		Name = "Title",
 		Text = "",
+		Font = Theme.DisplayFont,
 		TextScaled = true,
+		TextWrapped = false,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Position = UDim2.fromOffset(94, 10),
 		Size = UDim2.new(1, -104, 0, 30),
 		Parent = rankCard,
 	})
-	textLimit(rankTitle, 24)
+	Kit.textLimit(rankTitle, Theme.TextSize.Button)
 	local rankSub = Kit.label({
 		Name = "Played",
 		Text = "",
@@ -160,23 +147,21 @@ function PlayGifts.init(ctx: Types.Ctx)
 		Size = UDim2.new(1, -104, 0, 22),
 		Parent = rankCard,
 	})
-	textLimit(rankSub, 20)
+	Kit.textLimit(rankSub, Theme.TextSize.Body)
 	local rankTrack = Instance.new("Frame")
 	rankTrack.Name = "Track"
 	rankTrack.Position = UDim2.fromOffset(94, 70)
 	rankTrack.Size = UDim2.new(1, -108, 0, 16)
-	rankTrack.BackgroundColor3 = Theme.Colors.Paper
+	rankTrack.BackgroundColor3 = Theme.Colors.Well
 	rankTrack.BorderSizePixel = 0
-	Kit.corner(rankTrack, 8)
-	Kit.stroke(rankTrack, Theme.Colors.Outline, 2)
+	Kit.corner(rankTrack, Theme.Radius.Small)
 	rankTrack.Parent = rankCard
 	local rankFill = Instance.new("Frame")
 	rankFill.Name = "Fill"
 	rankFill.Size = UDim2.fromScale(0, 1)
-	rankFill.BackgroundColor3 = Kit.lighten(RANK_COLOR, 0.08)
+	rankFill.BackgroundColor3 = RANK_COLOR
 	rankFill.BorderSizePixel = 0
-	Kit.corner(rankFill, 8)
-	Palette.candyGradient(rankFill)
+	Kit.corner(rankFill, Theme.Radius.Small)
 	rankFill.Parent = rankTrack
 
 	--------------------------------------------------------------------------------------------------------------
@@ -190,7 +175,7 @@ function PlayGifts.init(ctx: Types.Ctx)
 		Size = UDim2.new(1, 0, 0, 30),
 		Parent = scroll,
 	})
-	textLimit(boostLine, 22)
+	Kit.textLimit(boostLine, Theme.TextSize.Body)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- The gift cards
@@ -223,7 +208,7 @@ function PlayGifts.init(ctx: Types.Ctx)
 		Size = UDim2.new(1, 0, 0, 32),
 		Parent = scroll,
 	})
-	textLimit(footer, 24)
+	Kit.textLimit(footer, Theme.TextSize.Button)
 
 	local cards: { Card } = {}
 	local claiming: number? = nil
@@ -233,10 +218,10 @@ function PlayGifts.init(ctx: Types.Ctx)
 		local frame = Instance.new("Frame")
 		frame.Name = "Gift" .. index
 		frame.LayoutOrder = index
-		frame.BackgroundColor3 = Theme.Colors.Paper
+		frame.BackgroundColor3 = Theme.Colors.Card
 		frame.BorderSizePixel = 0
-		Kit.corner(frame, 16)
-		Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
+		Kit.corner(frame, Theme.Radius.Medium)
+		Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
 		frame.Parent = grid
 
 		local minutes = Kit.label({
@@ -248,7 +233,7 @@ function PlayGifts.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -12, 0, 24),
 			Parent = frame,
 		})
-		textLimit(minutes, 20)
+		Kit.textLimit(minutes, Theme.TextSize.Body)
 
 		local holder = Instance.new("Frame")
 		holder.Name = "Holder"
@@ -288,8 +273,8 @@ function PlayGifts.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -12, 0, 22),
 			Parent = frame,
 		})
-		textLimit(reward, 20)
-		Kit.outline(reward, 2)
+		Kit.textLimit(reward, Theme.TextSize.Body)
+		Kit.outline(reward, Theme.Stroke.Fine)
 
 		local stateLabel = Kit.label({
 			Name = "State",
@@ -301,11 +286,11 @@ function PlayGifts.init(ctx: Types.Ctx)
 			Size = UDim2.new(1, -16, 0, 34),
 			Parent = frame,
 		})
-		textLimit(stateLabel, 24)
+		Kit.textLimit(stateLabel, Theme.TextSize.Button)
 
 		local claim = Kit.button({
 			Name = "Claim",
-			Kind = "Good",
+			Kind = "Collect",
 			Text = "Open!",
 			TextScaled = true,
 			AnchorPoint = Vector2.new(0.5, 1),
@@ -314,8 +299,8 @@ function PlayGifts.init(ctx: Types.Ctx)
 			Visible = false,
 			Parent = frame,
 		})
-		textLimit(claim :: any, Theme.TextSize.Body)
-		Kit.shine(claim)
+		Kit.textLimit(claim, Theme.TextSize.Body)
+		Kit.shine(claim) -- READY: the one allowed shine (Collect, while it shows)
 
 		local card: Card = {
 			Frame = frame,
@@ -406,15 +391,17 @@ function PlayGifts.init(ctx: Types.Ctx)
 			card.Claim.Visible = ready and claiming ~= index or claiming == index
 			card.State.Visible = not card.Claim.Visible
 			if giftState == "Locked" then
+				-- A FREE gift's play time still to go (memory-20261116-022: countdowns only for free things; it
+				-- only moves while you play).
 				local left = PlaytimeLogic.giftSeconds(gift) - save.TodaySeconds
 				card.State.Text = "⏳ " .. PlaytimeLogic.clock(left)
-				card.Frame.BackgroundColor3 = Theme.Colors.Paper
+				card.Frame.BackgroundColor3 = Theme.Colors.Card
 			elseif giftState == "Claimed" then
 				card.State.Text = "✅ Opened"
-				card.Frame.BackgroundColor3 = Kit.lighten(Theme.Colors.Good, 0.85)
+				card.Frame.BackgroundColor3 = Kit.lighten(Theme.Colors.Collect, 0.86)
 			else
 				card.Frame.BackgroundColor3 = Kit.lighten(Theme.Colors.Cash, 0.8)
-				paintButton(card.Claim, Theme.Colors.Good)
+				Kit.setRole(card.Claim, "Collect")
 				focus = focus or card.Claim
 			end
 			if ready and card.Shown ~= "Ready" and card.Shown ~= "" then

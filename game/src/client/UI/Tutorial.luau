@@ -1,33 +1,66 @@
 --!strict
--- Tutorial (client): the first-session step card, its pointer, the welcome title card and the first-join camera
--- sweep (docs/plan/2026-11-16-first-session-design.md). The server owns the step (Snapshot.Tutorial, kept by
--- Server/Tutorial); this module only shows it, and the only thing it ever asks is TutorialAck, which can only move
--- the server past the welcome card.
+-- Tutorial (client): the first-session tutorial's screen side (look build plan §B9 and §D T8;
+-- docs/research/2026-11-16-tutorial-ux.md §3; memory-20261117-001/-002/-003). OWNER: T8.
+-- The server owns the step (Snapshot.Tutorial, kept by Server/Tutorial); this module only shows it. It asks only
+-- three things, each a remote the server checks: TutorialAck (the welcome sweep ended), TutorialSkip and
+-- TutorialReplay (each behind Hud.confirm).
 --   init(ctx)
+--   Tutorial.Pure   the card words per device, the pips, the tab, the finale's "coming up" candidates, the confirm
+--                   texts and the nurse's lines (tests/TutorialFlow loads the PURE block on its own)
 --
--- The card sits at the bottom centre, just above the HUD's hands and buttons (clear of the thumbstick and the jump
--- button). Icon first, 8 words or fewer. It never takes a touch except on the welcome card, and it hides while a
--- panel is open (the pointer stays) and for good once the tutorial is done.
---   1 👋 Welcome to your clinic, Doctor!            tap it, or WELCOME_SECONDS: TutorialAck
---   2 🤧 A patient! The bubble shows what's wrong.  the Guide's pin over the first patient (Guide.setSteer)
---   3 🧪 Hold at the potion table!                   + ⌨️ Hold E / 👆 Tap and hold / 🎮 Hold X; the Guide's arrow
---   4 🏥 Take it to the Counter. Treat!              the Guide's arrow to the Counter
---   5 🛏️ Resting… Cured! 🎉                         the pin over the resting patient, on its bed
---   6 💪 Cure 2 more! (n/2)                          the Guide's usual arrows (n = Snapshot.TutorialCures)
---   7 🛒 Spend 💰 in the Shop!                       a bouncing 👇 and a ring on the 🛒 button, then (Shop open)
---                                                    on the cheapest upgrade's buy button
---   8 📖 Collect every creature in your Book!        the 👇 on the 📖 button; tapping it hides the card (the
---                                                    server finishes the tutorial a few seconds later)
--- Nothing is timed against the player: the two timers only move the tutorial on by itself.
--- The card and the 👇 follow the HUD's layout every frame only while they're needed (the card shows, or steps 7-8);
--- once the tutorial is done that loop is gone for good (depth update perf pass).
---
--- The first-ever join (step 1, once per session): when your character reaches your clinic, a CAMERA_SWEEP_SECONDS
--- camera sweep over the clinic under a title card "🏥 Welcome to Cure a Creature!", then the normal camera and the
--- step 1 card. Reduced motion (Kit.reducedMotion): no sweep, just the title card. Your controls rest during the
--- sweep. And for every owner (done players too): whenever your character arrives at your clinic (on joining or
--- respawning), the camera turns to look the way the character faces, at the clinic (design §A1).
+-- THE CARD (the top-centre Now card: Hud.setNow("Tutorial", card, 20)). Navy (Theme.Colors.NowPlate), with:
+--   · the "TUTORIAL n/7" tab in gold outlined display text, and a "⏭️ Skip" chip (a 56 x 44 hit area; never
+--     selectable by a gamepad: pads use the ⚙️ row);
+--   · a thumbnail of the target's icon on its colour (it flips to ✅ on success), a white caps title and a gold
+--     subtitle with the device's own key ([E] from GetStringForKeyCode, the pad's real glyph from
+--     GetImageForKeyCode; it switches live with PreferredInput);
+--   · a 7-segment bar that fills on success and never drains (card 6 fills its segment by halves: two pips);
+--   · the guide nurse's face (Hud.portrait(Data/Guide.Look); its name is a placeholder the screen never shows) peeking
+--     out of the right edge with a 2-4-word line in a bubble under the card, and a Chirp.
+--   It uses TextSize + AutomaticSize (not TextScaled), so Larger Text works; nothing is under 18 px. It is 88 px (76
+--   under 500 px tall) plus its 24 px tab, and while a mini-game is up (HudMode "Game", or MiniGames open) it shrinks
+--   to the 44 px slim strip ("TUTORIAL 4/7 · Hold… let go on ⭐"). While a Panel is open it steps out of the slot.
+-- The 7 cards (Logic/Tutorial.card; words: Pure.words):
+--   1 PATIENT (and WELCOME after the sweep)  A SICK CREATURE!   "🤧 Look at its bubble", then "It needs a 🧪!"
+--                                            the pin 👀 and the glow on the patient, no beam
+--   2 MAKE        MAKE A POTION              "Follow the arrows · hold [E]" / "· hold 👆 Make" / "· hold [□]"
+--                                            the beam to the 🧪 table, chevrons, glow, pin, the touch hand (UI/Guide)
+--   3 TREAT       GIVE IT THE POTION         "Go to the glowing Counter · [E]" / "Go to the Counter · tap Treat"
+--   4 TREAT while the mini-game is up        POUR IT IN! "Hold… let go on ⭐" (the slim strip; the touch hand on
+--                                            MiniGames.stage())
+--   5 REST        RESTING… then CURED! 🎉    the pin 🛏️ over the bed; on the cure: rays and confetti behind the
+--                                            thumbnail (Kit.celebrate), held Config.Tutorial.FirstCureHold
+--   6 MORE        CURE 2 MORE ○○             follows the patient: "🤕 New patient! Check its bubble" / "It needs a
+--                                            🩹!" / "Now to the Counter · [E]"; the Guide's usual targets
+--   7 SHOP, BOOK  UPGRADE YOUR CLINIC        "Tap 🛒 · buy a ⚡" / "Click 🛒 · buy a ⚡" / "[A] on 🛒": the UI pointer
+--                                            (a 55% dim with a cutout round the 🛒 rail button, a ring, a ripple and
+--                                            a tapping hand; in the Shop the cheapest upgrade's Buy, "Buy this! ⚡";
+--                                            a pad's focus through GuiService.SelectedObject). It never says spend, and the
+--                                            pointer never lands on anything paid
+-- SUCCESS BEATS: each card's ✓ holds Config.Tutorial.SuccessHold before the next slides in: the ✅, a 12-piece
+--   confetti burst from the thumbnail, a Chime, the segment filling. Card 3 -> 4 is at once (the game is the payoff).
+-- THE FINALE: entering BOOK (the purchase) fires Celebrate { Kind = "Tutorial", Title = "YOU DID IT!", Chips, Next }
+--   locally: Next = Logic/NextEvent.pick over Golden Hour (Workspace.GoldenStartsAt), the next night (PhaseEndsAt
+--   while it's day) and the next play gift (FREE events only, red line 3; minutes, never seconds). When it closes
+--   (bus "CelebrateClosed"), a ring sits on 📖 for BOOK_RING_SECONDS. The HUD's staggered reveal is Hud's (T5).
+-- THE WELCOME: on the first-ever arrival the 3 s camera sweep plays under the title card (reduced motion: only the
+--   title card); the client acks AS THE SWEEP ENDS (no welcome card), and the first patient is already hopping in.
+-- SKIP (the card's chip, or the ⚙️ row: bus "SkipTutorial") opens Hud.confirm: "⏭️ Skip the tutorial?" · "You can
+--   replay it any time from ⚙️" (binding text, memory-20261117-002) · "⏭️ Skip" · "Keep going" (the default). Then
+--   the TutorialSkip remote. The Guide keeps its arrows until Config.Tutorial.ArrowsUntilCures cures.
+-- REPLAY (the ⚙️ row: bus "ReplayTutorial") opens Hud.confirm: "🔁 Replay the tutorial?" · "Your waiting patients go
+--   home" · "🔁 Replay" · "Not now" (the default). Then the TutorialReplay remote. A replay has no sweep, no gift and
+--   the full HUD (Snapshot.TutorialReplay), and can be skipped again.
+-- THE IDLE NUDGE: after Config.Tutorial.NudgeSeconds without progress on a walking step (Logic.nudge), the nurse says
+--   "Psst! Follow the arrows ➜" and the beam brightens once (Wayfinder.flash). Once per step, never a number, and no
+--   time counts while a panel is open.
+-- For every owner (done players too): whenever your character arrives at your clinic (joining or respawning), the
+-- camera turns to look the way the character faces, at the clinic (first-session design §A1).
+-- Loops: the UI pointer's follow runs every frame only during card 7 and the 📖 ring; the card itself never loops.
+-- Every motion honours Kit.reducedMotion(): the card appears instead of sliding, no confetti, the rays hold, the hand
+-- and the ripple hold still (with the word "TAP"/"HOLD").
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -37,14 +70,18 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local Palette = require(Shared:WaitForChild("Palette"))
-local Prices = require(Shared:WaitForChild("Logic"):WaitForChild("Prices"))
-local Logic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
+local LogicFolder = Shared:WaitForChild("Logic")
+local Prices = require(LogicFolder:WaitForChild("Prices"))
+local Logic = require(LogicFolder:WaitForChild("Tutorial"))
+local NextEvent = require(LogicFolder:WaitForChild("NextEvent"))
+local PlaytimeLogic = require(LogicFolder:WaitForChild("Playtime"))
+local HudZones = require(LogicFolder:WaitForChild("HudZones"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
+local Wayfinder = require(script.Parent.Wayfinder)
 
--- Guide and Shop are optional: if one of them failed to load, the tutorial still runs without its pointer.
+-- Guide, Shop and MiniGames are optional: if one of them failed to load, the tutorial still runs without that part.
 local function optional(name: string): any
 	local ok, result = pcall(function()
 		return require(script.Parent:WaitForChild(name, 5) :: ModuleScript)
@@ -53,29 +90,237 @@ local function optional(name: string): any
 end
 local Guide = optional("Guide")
 local Shop = optional("Shop")
+local MiniGames = optional("MiniGames")
 
 local Tutorial = {}
+
+-- PURE-BEGIN
+-- Words and small rules, no Roblox types: tests/TutorialFlow.spec loads this block on its own.
+local Pure = {}
+
+Pure.CARDS = 7
+-- The confirms (look build plan §B9; the Skip line is binding text, memory-20261117-002, the one line over 6 words).
+Pure.SKIP = {
+	Title = "⏭️ Skip the tutorial?",
+	Line = "You can replay it any time from ⚙️",
+	Yes = "⏭️ Skip",
+	No = "Keep going",
+}
+Pure.REPLAY = {
+	Title = "🔁 Replay the tutorial?",
+	Line = "Your waiting patients go home",
+	Yes = "🔁 Replay",
+	No = "Not now",
+}
+-- The guide nurse's lines (2-4 words; tutorial-ux §4).
+Pure.SAY = {
+	Hello = "Hi, Doctor!",
+	Made = "Yay, you made it!",
+	Potion = "Yay, a potion!",
+	Rated = "Any ⭐ is great!",
+	Cured = "You did it, Doctor!",
+	OneMore = "One more!",
+	Super = "Super job!",
+	Upgrade = "Wow, an upgrade!",
+	Nudge = "Psst! Follow the arrows ➜",
+}
+-- The finale (Celebrate Kind "Tutorial").
+Pure.FINALE = {
+	Title = "YOU DID IT!",
+	Icon = "🎉",
+	Chips = { "📖 Collect them all", "🎯 Daily goals", "👩‍⚕️ Hire nurses" },
+}
+Pure.SKIP_CHIP = "⏭️ Skip"
+Pure.BUY_LABEL = "Buy this! ⚡"
+-- Card 4's words per mini-game (they mirror UI/MiniGames' own hints). "Tap" = Simple mode's one tap.
+Pure.GAMES = {
+	Pour = { Title = "POUR IT IN!", Sub = "Hold… let go on ⭐", Icon = "🧪" },
+	Patch = { Title = "PATCH IT UP!", Sub = "Tap the sore spots!", Icon = "🩹" },
+	Scrub = { Title = "SCRUB IT CLEAN!", Sub = "Pop the bubbles!", Icon = "🛁" },
+	Cool = { Title = "COOL IT DOWN!", Sub = "Blow when it's biggest!", Icon = "☕" },
+	Tap = { Title = "TAP TO HELP!", Sub = "Tap to help!", Icon = "✨" },
+}
+
+export type Device = "Keyboard" | "Touch" | "Pad"
+-- What the card can see right now.
+export type Situation = {
+	Device: Device?,
+	Item: string?, -- the front patient's item NAME ("Potion"), cards 2 and 3
+	Need: string?, -- the icon of what the front patient needs ("🧪"), once it waits at the Counter
+	Waiting: boolean?, -- a patient waits at the Counter
+	Carrying: boolean?, -- you carry what it needs
+	Cures: number?, -- card 6: cures so far
+	Total: number?, -- card 6: cures to go in all (Logic.MORE_CURES)
+	Cured: boolean?, -- card 5: the cure landed
+	Game: string?, -- card 4: Pure.GAMES key
+}
+-- A card's words. Key: a key chip in the subtitle ("Prompt" = the prompt's key E / ButtonX; "Confirm" = ButtonA),
+-- after the words unless KeyFirst.
+export type Words = { Title: string, Sub: string, Key: ("Prompt" | "Confirm")?, KeyFirst: boolean? }
+
+-- The device the words are for, from UserInputService.PreferredInput's name (nil on an engine without it: then the
+-- enabled inputs decide).
+function Pure.device(preferred: string?, touch: boolean?, keyboard: boolean?, gamepad: boolean?): Device
+	if preferred == "Touch" then
+		return "Touch"
+	elseif preferred == "Gamepad" or preferred == "MicroGamepad" then
+		return "Pad"
+	elseif preferred == "KeyboardAndMouse" then
+		return "Keyboard"
+	end
+	if touch and not keyboard then
+		return "Touch"
+	end
+	if gamepad and not keyboard then
+		return "Pad"
+	end
+	return "Keyboard"
+end
+
+-- Words on screen: tokens with a letter or a digit (an emoji, "·" or "…" isn't a word).
+function Pure.countWords(text: string): number
+	local n = 0
+	for token in string.gmatch(text, "%S+") do
+		if string.find(token, "[%w]") then
+			n += 1
+		end
+	end
+	return n
+end
+
+-- "TUTORIAL 2/7"
+function Pure.tab(card: number, cards: number?): string
+	return "TUTORIAL " .. card .. "/" .. (cards or Pure.CARDS)
+end
+
+-- Card 6's pips: "○○", "●○", "●●".
+function Pure.pips(done: number, total: number): string
+	local count = math.max(math.floor(total), 0)
+	local filled = math.clamp(math.floor(done), 0, count)
+	return string.rep("●", filled) .. string.rep("○", count - filled)
+end
+
+-- How full each bar segment is while `card` shows (1..cards): the cards before it are full, card 6 fills by halves
+-- with its cures, and a card's own segment fills on its success.
+function Pure.segments(card: number, success: boolean, cures: number?, total: number?, cards: number?): { number }
+	local out: { number } = {}
+	for index = 1, cards or Pure.CARDS do
+		local fill = 0
+		if index < card or (index == card and success) then
+			fill = 1
+		elseif index == card and card == 6 and type(total) == "number" and total > 0 then
+			fill = math.clamp((cures or 0) / total, 0, 1)
+		end
+		out[index] = fill
+	end
+	return out
+end
+
+-- An item's name for a caps title, only when it's one word ("POTION"); else the potion (the first patient's).
+local function itemWord(name: string?): string
+	if type(name) == "string" and string.match(name, "^%a+$") then
+		return string.upper(name)
+	end
+	return "POTION"
+end
+
+function Pure.words(card: number, s: Situation): Words
+	local device = s.Device or "Keyboard"
+	if card == 1 then
+		return {
+			Title = "A SICK CREATURE!",
+			Sub = if s.Waiting and s.Need then "It needs a " .. s.Need .. "!" else "🤧 Look at its bubble",
+		}
+	elseif card == 2 then
+		local word = itemWord(s.Item)
+		local title = if word == "POTION" then "MAKE A POTION" else "MAKE THE " .. word
+		if device == "Touch" then
+			return { Title = title, Sub = "Follow the arrows · hold 👆 Make" }
+		end
+		return { Title = title, Sub = "Follow the arrows · hold", Key = "Prompt" }
+	elseif card == 3 then
+		local title = "GIVE IT THE " .. itemWord(s.Item)
+		if device == "Touch" then
+			return { Title = title, Sub = "Go to the Counter · tap Treat" }
+		end
+		return { Title = title, Sub = "Go to the glowing Counter ·", Key = "Prompt" }
+	elseif card == 4 then
+		local game = Pure.GAMES[s.Game or "Pour"] or Pure.GAMES.Pour
+		return { Title = game.Title, Sub = game.Sub }
+	elseif card == 5 then
+		if s.Cured then
+			return { Title = "CURED! 🎉", Sub = "🛏️ All better now!" }
+		end
+		return { Title = "RESTING…", Sub = "🛏️ It's getting better" }
+	elseif card == 6 then
+		local total = math.max(math.floor(s.Total or 2), 1)
+		local title = "CURE " .. total .. " MORE " .. Pure.pips(s.Cures or 0, total)
+		if s.Carrying then
+			if device == "Touch" then
+				return { Title = title, Sub = "Now to the Counter · tap Treat" }
+			end
+			return { Title = title, Sub = "Now to the Counter ·", Key = "Prompt" }
+		elseif s.Waiting and s.Need then
+			return { Title = title, Sub = "It needs a " .. s.Need .. "!" }
+		end
+		return { Title = title, Sub = "🤕 New patient! Check its bubble" }
+	elseif card == 7 then
+		if device == "Touch" then
+			return { Title = "UPGRADE YOUR CLINIC", Sub = "Tap 🛒 · buy a ⚡" }
+		elseif device == "Pad" then
+			return { Title = "UPGRADE YOUR CLINIC", Sub = "on 🛒", Key = "Confirm", KeyFirst = true }
+		end
+		return { Title = "UPGRADE YOUR CLINIC", Sub = "Click 🛒 · buy a ⚡" }
+	end
+	return { Title = "", Sub = "" }
+end
+
+-- The finale's "coming up" candidates: FREE events only (memory-20261116-022; Logic/NextEvent never picks a paid
+-- one either). goldenAt = Workspace.GoldenStartsAt, phaseEndsAt = Workspace.PhaseEndsAt (the night comes then while
+-- it's day), giftSeconds = active play until the next play gift (nil when none is left today).
+function Pure.candidates(
+	now: number,
+	goldenAt: any,
+	isNight: boolean,
+	phaseEndsAt: any,
+	giftSeconds: any
+): { { Id: string, Icon: string, Name: string, At: number } }
+	local out = {}
+	if type(goldenAt) == "number" then
+		table.insert(out, { Id = "Golden", Icon = "🌟", Name = "Golden Hour", At = goldenAt })
+	end
+	if not isNight and type(phaseEndsAt) == "number" then
+		table.insert(out, { Id = "Night", Icon = "🌙", Name = "Night", At = phaseEndsAt })
+	end
+	if type(giftSeconds) == "number" and giftSeconds > 0 then
+		table.insert(out, { Id = "Gift", Icon = "🎁", Name = "Next gift", At = now + giftSeconds })
+	end
+	return out
+end
+-- PURE-END
+
+Tutorial.Pure = Pure
+
+------------------------------------------------------------------------------------------------------------------
+-- Tuning (Config.Tutorial owns the shared numbers; these are this screen's own)
+------------------------------------------------------------------------------------------------------------------
 
 local CAMERA_SWEEP_SECONDS = 3
 local TITLE_STILL_SECONDS = 2.6 -- reduced motion: the title card alone
 local HOME_STUDS = 14 -- your character this close to your clinic's QueueStart = arrived
 local HOME_WAIT_SECONDS = 4
-local CARD_GAP = 8 -- px between the card and the HUD's bottom cluster
-local FINGER_ROOM = 64 -- extra px the card rises while the 👇 points at a bottom button
 local CAMERA_BACK = 13 -- the camera behind your character after a sweep or on arrival
 local CAMERA_UP = 5.5
-
-type Line = { Icon: string, Text: string, Color: Color3 }
-local LINES: { [number]: Line } = {
-	[Logic.WELCOME] = { Icon = "👋", Text = "Welcome to your clinic, Doctor!", Color = Theme.Colors.Primary },
-	[Logic.PATIENT] = { Icon = "🤧", Text = "A patient! The bubble shows what's wrong.", Color = Theme.Colors.Pink },
-	[Logic.MAKE] = { Icon = "🧪", Text = "Hold at the potion table!", Color = Theme.Colors.Purple },
-	[Logic.TREAT] = { Icon = "🏥", Text = "Take it to the Counter. Treat!", Color = Theme.Colors.Good },
-	[Logic.REST] = { Icon = "🛏️", Text = "Resting… Cured! 🎉", Color = Theme.Colors.Cyan },
-	[Logic.MORE] = { Icon = "💪", Text = "Cure %d more! (%d/%d)", Color = Theme.Colors.Primary },
-	[Logic.SHOP] = { Icon = "🛒", Text = "Spend 💰 in the Shop!", Color = Theme.Colors.Pink },
-	[Logic.BOOK] = { Icon = "📖", Text = "Collect every creature in your Book!", Color = Theme.Colors.Purple },
-}
+local SAY_SECONDS = 2.4 -- how long the nurse's line stays
+local BOOK_RING_SECONDS = 4 -- the ring on 📖 after the finale
+local RIPPLE_SECONDS = 1.2 -- the UI pointer's ripple and tap
+local DIM = 0.55 -- the UI pointer's dim (Transparency)
+local CONFETTI_STEP = 12 -- a step's burst
+local PORTRAIT = 56 -- the nurse's face
+local KEY_PX = 28 -- a key chip's height (and a glyph's size)
+local SEGMENT_PX = 8
+local SKIP_HIT = Vector2.new(96, 44) -- the Skip chip's hit area (at least 56 x 44)
+local TREAT_SETTLE = 0.6 -- after TreatDone, look again once the game card has closed
 
 local player = Players.LocalPlayer
 
@@ -99,25 +344,17 @@ local function isShown(gui: GuiObject): boolean
 	return false
 end
 
-local function deviceHint(): string
-	local ok, preferred = pcall(function()
-		return UserInputService.PreferredInput
+local function device(): Device
+	local preferred: string? = nil
+	pcall(function()
+		preferred = UserInputService.PreferredInput.Name
 	end)
-	if not ok then
-		-- An engine without PreferredInput: a touch screen without a keyboard is a phone or tablet.
-		if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-			return "👆 Tap and hold"
-		end
-		return if UserInputService.GamepadEnabled and not UserInputService.KeyboardEnabled
-			then "🎮 Hold X"
-			else "⌨️ Hold E"
-	end
-	if preferred == Enum.PreferredInput.Touch then
-		return "👆 Tap and hold"
-	elseif preferred == Enum.PreferredInput.Gamepad or preferred == Enum.PreferredInput.MicroGamepad then
-		return "🎮 Hold X"
-	end
-	return "⌨️ Hold E"
+	return Pure.device(
+		preferred,
+		UserInputService.TouchEnabled,
+		UserInputService.KeyboardEnabled,
+		UserInputService.GamepadEnabled
+	)
 end
 
 local function plotModel(state: Types.Snapshot): Model?
@@ -131,6 +368,11 @@ local function rootOf(): BasePart?
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	return if root and root:IsA("BasePart") then root else nil
+end
+
+local function textAttribute(instance: Instance?, name: string): string
+	local value = if instance then instance:GetAttribute(name) else nil
+	return if type(value) == "string" then value else ""
 end
 
 -- Waits (up to `timeout`) for your character to stand at your clinic: the server moves it there on joining and on
@@ -175,11 +417,17 @@ local function setControls(on: boolean)
 	end)
 end
 
+local function round(gui: GuiObject, radius: UDim)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = radius
+	corner.Parent = gui
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- The welcome: title card and camera sweep
 ------------------------------------------------------------------------------------------------------------------
 
--- The title card: a pink candy ribbon with the game's name, on turning rays (still with reduced motion).
+-- The title card: a navy ribbon with the game's name, over a paw badge on still or turning rays.
 local function showTitle(seconds: number)
 	local gui = Kit.screen("TutorialTitle", Theme.DisplayOrder.Popup)
 	local holder = Instance.new("Frame")
@@ -198,12 +446,10 @@ local function showTitle(seconds: number)
 	ribbon.AnchorPoint = Vector2.new(0.5, 1)
 	ribbon.Position = UDim2.fromScale(0.5, 1)
 	ribbon.Size = UDim2.new(1, 0, 0, 84)
-	ribbon.BackgroundColor3 = Kit.lighten(Theme.Colors.Pink, 0.08)
+	ribbon.BackgroundColor3 = Theme.Colors.Header
 	ribbon.BorderSizePixel = 0
-	Kit.corner(ribbon, Theme.Size.CornerLarge)
-	Kit.stroke(ribbon, Theme.Colors.Outline, Theme.Size.StrokeLarge)
-	Palette.candyGradient(ribbon)
-	Kit.gloss(ribbon, 18)
+	Kit.corner(ribbon, Theme.Radius.Large)
+	Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Panel)
 	ribbon.ZIndex = 2 -- over the sunburst behind the icon
 	ribbon.Parent = holder
 	local text = Kit.label({
@@ -218,12 +464,9 @@ local function showTitle(seconds: number)
 		ZIndex = 2,
 		Parent = ribbon,
 	})
-	Kit.outline(text, Theme.Size.Stroke)
-	local textLimit = Instance.new("UITextSizeConstraint")
-	textLimit.MaxTextSize = Theme.TextSize.Big
-	textLimit.MinTextSize = Theme.TextSize.Small
-	textLimit.Parent = text
-	-- The clinic icon on top of the ribbon, on a little sunburst (behind it, ZIndex 0).
+	Kit.outline(text, Theme.Stroke.Title)
+	Kit.textLimit(text, Theme.TextSize.Big)
+	-- Our paw badge on top of the ribbon, on a little sunburst (behind it, ZIndex 0).
 	local badge = Instance.new("Frame")
 	badge.Name = "Badge"
 	badge.AnchorPoint = Vector2.new(0.5, 0)
@@ -235,7 +478,7 @@ local function showTitle(seconds: number)
 	Kit.rays(badge, Theme.Colors.Cash)
 	Kit.label({
 		Name = "Icon",
-		Text = "🏥",
+		Text = "🐾",
 		TextScaled = true,
 		Size = UDim2.fromScale(1, 1),
 		ZIndex = 1,
@@ -286,121 +529,384 @@ end
 
 function Tutorial.init(ctx: Types.Ctx)
 	local data = ctx.Data :: any
+	local tuning = (ctx.Config :: any).Tutorial
+	local guideLook = if type(data.Guide) == "table" then data.Guide.Look else nil
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The card
+	-- The card (offered to the HUD's Now slot; Hud places it and sets its width, the card sets its height)
 	--------------------------------------------------------------------------------------------------------------
-	local cardGui = Kit.screen("TutorialCard", Theme.DisplayOrder.Hud + 2)
+	local NAVY = Theme.Colors.NowPlate
+	local TAB = Theme.Zone.NowTab
+	local PAD = Theme.Space.Step[2]
+
 	local card = Instance.new("Frame")
-	card.Name = "Card"
-	card.AnchorPoint = Vector2.new(0.5, 1)
-	card.Position = UDim2.new(0.5, 0, 1, -Theme.Size.Margin)
-	card.Size = UDim2.new(0.5, 0, 0, 84)
-	card.BackgroundColor3 = Theme.Colors.Paper
-	card.BorderSizePixel = 0
-	card.Active = false -- touches go through to the world and the thumbstick
-	card.Visible = false
-	local cardLimit = Instance.new("UISizeConstraint")
-	cardLimit.MinSize = Vector2.new(300, 0)
-	cardLimit.MaxSize = Vector2.new(440, 200)
-	cardLimit.Parent = card
-	Kit.corner(card, Theme.Size.CornerLarge)
-	Kit.stroke(card, Theme.Colors.Outline, Theme.Size.StrokeLarge)
-	local paper = Instance.new("UIGradient")
-	paper.Rotation = 90
-	paper.Color = ColorSequence.new(Theme.Colors.Paper, Theme.Colors.PaperEdge)
-	paper.Parent = card
-	card.Parent = cardGui
+	card.Name = "TutorialCard"
+	card.BackgroundTransparency = 1
+	card.Size = UDim2.new(1, 0, 0, TAB + Theme.Zone.NowHeight)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	card.Active = false -- touches go through to the world and the thumbstick (only Skip takes one)
 
-	local tile = Instance.new("Frame")
-	tile.Name = "Tile"
-	tile.AnchorPoint = Vector2.new(0, 0.5)
-	tile.Position = UDim2.new(0, 12, 0.5, 0)
-	tile.Size = UDim2.fromOffset(58, 58)
-	tile.BorderSizePixel = 0
-	Kit.corner(tile, Theme.Size.Corner)
-	Kit.stroke(tile, Theme.Colors.Outline, Theme.Size.Stroke)
-	Palette.candyGradient(tile)
-	Kit.gloss(tile, 7)
-	tile.Parent = card
-	local icon = Kit.label({
+	-- What slides in (the card itself belongs to the HUD's slot).
+	local inner = Instance.new("Frame")
+	inner.Name = "Inner"
+	inner.BackgroundTransparency = 1
+	inner.Size = UDim2.fromScale(1, 0)
+	inner.AutomaticSize = Enum.AutomaticSize.Y
+	inner.Parent = card
+
+	local tab = Instance.new("Frame")
+	tab.Name = "Tab"
+	tab.Position = UDim2.fromOffset(Theme.Space.PadPanel, 0)
+	tab.Size = UDim2.fromOffset(0, TAB + Theme.Radius.Small)
+	tab.AutomaticSize = Enum.AutomaticSize.X
+	tab.BackgroundColor3 = NAVY
+	tab.BorderSizePixel = 0
+	Kit.corner(tab, Theme.Radius.Small)
+	Kit.stroke(tab, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	local tabPad = Instance.new("UIPadding")
+	tabPad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
+	tabPad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
+	tabPad.Parent = tab
+	tab.Parent = inner
+	local tabText = Kit.label({
+		Name = "Text",
+		Text = "",
+		Outlined = true,
+		TextColor3 = Theme.Colors.Cash,
+		TextSize = Theme.TextSize.Caption,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, TAB),
+		Parent = tab,
+	})
+
+	-- Skip: a small chip with a 56 x 44 hit area, never a gamepad's focus (pads use the ⚙️ row).
+	local skip = Instance.new("TextButton")
+	skip.Name = "Skip"
+	skip.Text = ""
+	skip.AutoButtonColor = false
+	skip.BackgroundTransparency = 1
+	skip.Selectable = false
+	skip.AnchorPoint = Vector2.new(1, 0)
+	skip.Position = UDim2.new(1, -Theme.Space.PadCard, 0, -10)
+	skip.Size = UDim2.fromOffset(SKIP_HIT.X, SKIP_HIT.Y) -- at least the 56 x 44 hit area, wide enough for its words
+	skip.ZIndex = 5
+	skip.Parent = inner
+	local skipChip = Kit.label({
+		Name = "Chip",
+		Text = Pure.SKIP_CHIP,
+		TextColor3 = Theme.Colors.OnColor,
+		TextSize = Theme.TextSize.Caption,
+		TextWrapped = false,
+		BackgroundColor3 = NAVY,
+		BackgroundTransparency = 0,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.fromScale(1, 0.5),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, TAB + 2),
+		ZIndex = 5,
+		Parent = skip,
+	})
+	Kit.corner(skipChip, Theme.Radius.Small)
+	Kit.stroke(skipChip, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	local skipPad = Instance.new("UIPadding")
+	skipPad.PaddingLeft = UDim.new(0, Theme.Space.Step[2])
+	skipPad.PaddingRight = UDim.new(0, Theme.Space.Step[2])
+	skipPad.Parent = skipChip
+
+	local body = Instance.new("Frame")
+	body.Name = "Body"
+	body.Position = UDim2.fromOffset(0, TAB)
+	body.Size = UDim2.new(1, 0, 0, Theme.Zone.NowHeight)
+	body.AutomaticSize = Enum.AutomaticSize.Y
+	body.BackgroundColor3 = NAVY
+	body.BorderSizePixel = 0
+	body.ZIndex = 2
+	Kit.corner(body, Theme.Radius.Large)
+	Kit.stroke(body, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.pad(body, PAD)
+	body.Parent = inner
+	-- The one shadow (Theme.Shadow), under the card only.
+	local shadow = Instance.new("Frame")
+	shadow.Name = "Shadow"
+	shadow.Position = UDim2.fromOffset(Theme.Shadow.Offset.X, TAB + Theme.Shadow.Offset.Y)
+	shadow.Size = UDim2.new(1, 0, 0, Theme.Zone.NowHeight)
+	shadow.BackgroundColor3 = Theme.Shadow.Color
+	shadow.BackgroundTransparency = Theme.Shadow.Transparency
+	shadow.BorderSizePixel = 0
+	shadow.ZIndex = 1
+	Kit.corner(shadow, Theme.Radius.Large)
+	shadow.Parent = inner
+
+	local thumb = Instance.new("Frame")
+	thumb.Name = "Thumb"
+	thumb.Size = UDim2.fromOffset(72, 72)
+	thumb.BorderSizePixel = 0
+	thumb.ZIndex = 3
+	Kit.corner(thumb, Theme.Radius.Medium)
+	Kit.stroke(thumb, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	thumb.Parent = body
+	local thumbIcon = Kit.label({
 		Name = "Icon",
 		Text = "",
 		TextScaled = true,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromScale(0.74, 0.74),
-		ZIndex = 2,
-		Parent = tile,
+		ZIndex = 4,
+		Parent = thumb,
 	})
+	-- Behind the thumbnail: the first cure's rays and confetti (Kit.celebrate).
+	local burst = Instance.new("Frame")
+	burst.Name = "Burst"
+	burst.BackgroundTransparency = 1
+	burst.Size = thumb.Size
+	burst.ZIndex = 2
+	burst.Parent = body
 
-	local line = Kit.label({
-		Name = "Line",
-		Text = "",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 82, 0.5, 0),
-		Size = UDim2.new(1, -96, 0, 60),
-		Parent = card,
-	})
-	local lineLimit = Instance.new("UITextSizeConstraint")
-	lineLimit.MaxTextSize = 28
-	lineLimit.MinTextSize = Theme.TextSize.Small
-	lineLimit.Parent = line
-
-	-- Step 3's "how to hold": a small candy chip under the line.
-	local hint = Kit.label({
-		Name = "Hint",
+	local column = Instance.new("Frame")
+	column.Name = "Text"
+	column.BackgroundTransparency = 1
+	column.AutomaticSize = Enum.AutomaticSize.Y
+	column.ZIndex = 3
+	column.Parent = body
+	local columnList = Kit.list(column, Enum.FillDirection.Vertical, Theme.Space.Step[1])
+	columnList.SortOrder = Enum.SortOrder.LayoutOrder
+	local title = Kit.label({
+		Name = "Title",
 		Text = "",
 		Outlined = true,
-		TextSize = Theme.TextSize.Small,
-		TextWrapped = false,
-		BackgroundColor3 = Kit.lighten(Theme.Colors.Secondary, 0.08),
-		BackgroundTransparency = 0,
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 82, 1, -10),
-		Size = UDim2.fromOffset(168, 32),
-		Visible = false,
-		Parent = card,
+		TextSize = Theme.TextSize.Title,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.fromScale(1, 0),
+		LayoutOrder = 1,
+		ZIndex = 3,
+		Parent = column,
 	})
-	Kit.corner(hint, 16)
-	Kit.stroke(hint, Theme.Colors.Outline, 2.5)
+	local subRow = Instance.new("Frame")
+	subRow.Name = "SubRow"
+	subRow.BackgroundTransparency = 1
+	subRow.AutomaticSize = Enum.AutomaticSize.Y
+	subRow.Size = UDim2.fromScale(1, 0)
+	subRow.LayoutOrder = 2
+	subRow.ZIndex = 3
+	subRow.Parent = column
+	local subList = Kit.list(subRow, Enum.FillDirection.Horizontal, Theme.Space.Step[2])
+	subList.SortOrder = Enum.SortOrder.LayoutOrder
+	subList.VerticalAlignment = Enum.VerticalAlignment.Center
+	subList.Wraps = true
+	local sub = Kit.label({
+		Name = "Sub",
+		Text = "",
+		TextColor3 = Theme.Colors.Cash,
+		TextSize = Theme.TextSize.Body,
+		TextWrapped = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AutomaticSize = Enum.AutomaticSize.XY,
+		Size = UDim2.fromOffset(0, 0),
+		LayoutOrder = 2,
+		ZIndex = 3,
+		Parent = subRow,
+	})
+	local keyCap = Kit.label({ -- the keyboard's key ([E]) as a little white keycap
+		Name = "Key",
+		Text = "",
+		TextColor3 = Theme.Colors.Ink,
+		TextSize = Theme.TextSize.Caption,
+		TextWrapped = false,
+		BackgroundColor3 = Theme.Colors.Plate,
+		BackgroundTransparency = 0,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(KEY_PX, KEY_PX),
+		Visible = false,
+		ZIndex = 3,
+		Parent = subRow,
+	})
+	Kit.corner(keyCap, Theme.Radius.Small)
+	Kit.stroke(keyCap, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	local keyPad = Instance.new("UIPadding")
+	keyPad.PaddingLeft = UDim.new(0, Theme.Space.Step[2])
+	keyPad.PaddingRight = UDim.new(0, Theme.Space.Step[2])
+	keyPad.Parent = keyCap
+	local glyph = Instance.new("ImageLabel") -- the pad's real button glyph (GetImageForKeyCode)
+	glyph.Name = "Glyph"
+	glyph.BackgroundTransparency = 1
+	glyph.Size = UDim2.fromOffset(KEY_PX, KEY_PX)
+	glyph.Visible = false
+	glyph.ZIndex = 3
+	glyph.Parent = subRow
 
-	-- The welcome card can be tapped (and only that one: the button is hidden on every other step).
-	local tap = Instance.new("TextButton")
-	tap.Name = "Tap"
-	tap.Text = ""
-	tap.BackgroundTransparency = 1
-	tap.Size = UDim2.fromScale(1, 1)
-	tap.ZIndex = 5
-	tap.Visible = false
-	tap.Parent = card
+	-- The bar: 7 segments that fill on success (card 6's by halves: its two pips).
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.BackgroundTransparency = 1
+	bar.Size = UDim2.new(1, 0, 0, SEGMENT_PX)
+	bar.LayoutOrder = 3
+	bar.ZIndex = 3
+	bar.Parent = column
+	local barList = Kit.list(bar, Enum.FillDirection.Horizontal, Theme.Space.Step[1])
+	barList.SortOrder = Enum.SortOrder.LayoutOrder
+	local fills: { Frame } = {}
+	local segments: { Frame } = {}
+	local gap = Theme.Space.Step[1]
+	for index = 1, Logic.CARDS do
+		local segment = Instance.new("Frame")
+		segment.Name = "Segment_" .. index
+		segment.LayoutOrder = index
+		segment.Size = UDim2.new(1 / Logic.CARDS, -gap * (Logic.CARDS - 1) / Logic.CARDS, 1, 0)
+		segment.BackgroundColor3 = Kit.lighten(NAVY, 0.22)
+		segment.BorderSizePixel = 0
+		segment.ClipsDescendants = true
+		segment.ZIndex = 3
+		Kit.corner(segment, Theme.Radius.Small)
+		segment.Parent = bar
+		local fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.Size = UDim2.fromScale(0, 1)
+		fill.BackgroundColor3 = Theme.Colors.Cash
+		fill.BorderSizePixel = 0
+		fill.ZIndex = 4
+		Kit.corner(fill, Theme.Radius.Small)
+		fill.Parent = segment
+		if index == 6 then
+			local divider = Instance.new("Frame") -- card 6's two pips
+			divider.Name = "Pips"
+			divider.AnchorPoint = Vector2.new(0.5, 0)
+			divider.Position = UDim2.fromScale(0.5, 0)
+			divider.Size = UDim2.new(0, Theme.Stroke.Fine, 1, 0)
+			divider.BackgroundColor3 = NAVY
+			divider.BorderSizePixel = 0
+			divider.ZIndex = 5
+			divider.Parent = segment
+		end
+		fills[index] = fill
+		segments[index] = segment
+	end
+
+	-- The slim strip (while a mini-game is up): the tab's words and the subtitle on one line.
+	local slim = Kit.label({
+		Name = "Slim",
+		Text = "",
+		RichText = true,
+		TextColor3 = Theme.Colors.OnColor,
+		TextSize = Theme.TextSize.Caption,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextWrapped = false,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+		ZIndex = 3,
+		Parent = body,
+	})
+
+	-- The guide nurse: its face peeks out of the right edge, its line in a bubble under the card.
+	local nurse = Instance.new("Frame")
+	nurse.Name = "Nurse"
+	nurse.AnchorPoint = Vector2.new(1, 0.5)
+	nurse.Position = UDim2.new(1, PAD + PORTRAIT / 3, 0.5, 0)
+	nurse.Size = UDim2.fromOffset(PORTRAIT, PORTRAIT)
+	nurse.BackgroundColor3 = Theme.Colors.Plate
+	nurse.BorderSizePixel = 0
+	nurse.Visible = false
+	nurse.ZIndex = 6
+	round(nurse, Theme.Radius.Round)
+	Kit.stroke(nurse, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	nurse.Parent = body
+	if guideLook then
+		local face = Hud.portrait(guideLook)
+		face.ZIndex = 7
+		face.Parent = nurse
+	end
+	local bubble = Kit.label({
+		Name = "Bubble",
+		Text = "",
+		TextColor3 = Theme.Colors.Ink,
+		TextSize = Theme.TextSize.Body,
+		TextWrapped = false,
+		BackgroundColor3 = Theme.Colors.Plate,
+		BackgroundTransparency = 0,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -Theme.Space.PadCard, 0, TAB + Theme.Zone.NowHeight + Theme.Space.Step[2]),
+		AutomaticSize = Enum.AutomaticSize.XY,
+		Size = UDim2.fromOffset(0, 0),
+		Visible = false,
+		ZIndex = 6,
+		Parent = inner,
+	})
+	Kit.corner(bubble, Theme.Radius.Medium)
+	Kit.stroke(bubble, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	Kit.pad(bubble, Theme.Space.Step[2])
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The UI pointer (steps 7 and 8): a ring round the target and a bouncing 👇 above it, over panels
+	-- The UI pointer (card 7, and the 📖 ring after the finale): over panels
 	--------------------------------------------------------------------------------------------------------------
 	local pointerGui = Kit.screen("TutorialPointer", Theme.DisplayOrder.Panel + 5)
-	local ringOuter = Instance.new("Frame")
-	ringOuter.Name = "Ring"
-	ringOuter.BackgroundTransparency = 1
-	ringOuter.Visible = false
-	Kit.corner(ringOuter, Theme.Size.Corner + 6)
-	Kit.stroke(ringOuter, Theme.Colors.Outline, 8)
-	ringOuter.Parent = pointerGui
-	local ringInner = Instance.new("Frame")
-	ringInner.Name = "Glow"
-	ringInner.BackgroundTransparency = 1
-	ringInner.Size = UDim2.fromScale(1, 1)
-	Kit.corner(ringInner, Theme.Size.Corner + 6)
-	Kit.stroke(ringInner, Theme.Colors.Cash, 4)
-	ringInner.Parent = ringOuter
-	local finger = Kit.label({
-		Name = "Finger",
-		Text = "👇",
+	local dims: { Frame } = {}
+	for _, name in { "DimTop", "DimBottom", "DimLeft", "DimRight" } do
+		local dim = Instance.new("Frame")
+		dim.Name = name
+		dim.BackgroundColor3 = Theme.Colors.Shade
+		dim.BackgroundTransparency = DIM
+		dim.BorderSizePixel = 0
+		dim.Active = false -- touches pass through
+		dim.Visible = false
+		dim.Parent = pointerGui
+		table.insert(dims, dim)
+	end
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.BackgroundTransparency = 1
+	ring.Visible = false
+	Kit.corner(ring, Theme.Radius.Large)
+	Kit.stroke(ring, Theme.Colors.Cash, Theme.Stroke.Panel)
+	ring.Parent = pointerGui
+	local ripple = Instance.new("Frame")
+	ripple.Name = "Ripple"
+	ripple.AnchorPoint = Vector2.new(0.5, 0.5)
+	ripple.BackgroundTransparency = 1
+	ripple.Visible = false
+	Kit.corner(ripple, Theme.Radius.Large)
+	local rippleStroke = Kit.stroke(ripple, Theme.Colors.Plate, Theme.Stroke.Bold)
+	ripple.Parent = pointerGui
+	local hand = Kit.label({
+		Name = "Hand",
+		Text = "👆",
 		TextScaled = true,
-		AnchorPoint = Vector2.new(0.5, 1),
+		AnchorPoint = Vector2.new(0.5, 0),
 		Size = UDim2.fromOffset(54, 54),
+		Visible = false,
+		Parent = pointerGui,
+	})
+	local handWord = Kit.label({
+		Name = "Word",
+		Text = "TAP",
+		Outlined = true,
+		TextSize = Theme.TextSize.Caption,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Size = UDim2.fromOffset(72, 24),
+		Visible = false,
+		Parent = pointerGui,
+	})
+	local buyLabel = Kit.label({
+		Name = "Label",
+		Text = Pure.BUY_LABEL,
+		Outlined = true,
+		TextSize = Theme.TextSize.Body,
+		TextWrapped = false,
+		AnchorPoint = Vector2.new(0.5, 1),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, 30),
+		Visible = false,
+		Parent = pointerGui,
+	})
+	-- The mini-game's touch hand (card 4, touch only), pressing on MiniGames.stage().
+	local gameHand = Kit.label({
+		Name = "GameHand",
+		Text = "👆",
+		TextScaled = true,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Size = UDim2.fromOffset(64, 64),
 		Visible = false,
 		Parent = pointerGui,
 	})
@@ -410,9 +916,46 @@ function Tutorial.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	local welcome: "None" | "Intro" | "Card" = "None"
 	local acking = false
-	local bookSeen = false
-	local shownStep = 0 -- the step the card shows (0 = hidden)
-	local shownText = ""
+	local lastStep: number? = nil -- the last known server step (nil until the first real snapshot)
+	local presented: number? = nil -- the card on show (nil = none)
+	local offered = false -- the card is in the HUD's Now slot
+	local slimNow = false
+	local shortNow = false
+	local holding = false -- a success beat is holding the old card
+	local beatToken = 0
+	local filled: { number } = table.create(Logic.CARDS, 0)
+	local cured = false -- card 5: the cure landed (the CURED! moment)
+	local stopRays: (() -> ())? = nil
+	local finaleFired = false
+	local treating = false -- card 4: a treat card opened during step TREAT
+	local treatGame = "Pour"
+	local rated = false
+	local saidHello = false
+	local lastCures = 0
+	local modes: { [string]: string } = {} -- open modals by name -> HudMode
+	local bookRingUntil = 0
+	local focusTarget: GuiObject? = nil
+
+	local function panelOpen(): boolean
+		for _, mode in modes do
+			if mode == "Panel" then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function gameOpen(): boolean
+		for _, mode in modes do
+			if mode == "Game" then
+				return true
+			end
+		end
+		local ok, open = pcall(function()
+			return MiniGames ~= nil and MiniGames.isOpen()
+		end)
+		return ok and open == true
+	end
 
 	local function ack()
 		if acking then
@@ -422,15 +965,535 @@ function Tutorial.init(ctx: Types.Ctx)
 		task.spawn(function()
 			local ok = Hud.ask(ctx.Remotes.TutorialAck)
 			if not ok then
-				acking = false -- tap again (the server also moves on by itself)
+				acking = false -- the server also moves on by itself
 			end
 		end)
 	end
-	tap.Activated:Connect(function()
-		Kit.bump(card)
-		ack()
-	end)
 
+	-- The guide nurse says a short line (only while the card shows).
+	local sayToken = 0
+	local function say(line: string)
+		if not offered then
+			return
+		end
+		sayToken += 1
+		local mine = sayToken
+		bubble.Text = line
+		if Kit.reducedMotion() then
+			nurse.Visible = true
+			bubble.Visible = true
+		else
+			Kit.popIn(nurse)
+			Kit.popIn(bubble)
+		end
+		Hud.sound("Chirp", 0.9)
+		task.delay(SAY_SECONDS, function()
+			if sayToken == mine then
+				nurse.Visible = false
+				bubble.Visible = false
+			end
+		end)
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- What the card says
+	--------------------------------------------------------------------------------------------------------------
+	local function carried(): { string }
+		local value = player:GetAttribute("Carry")
+		return if type(value) == "string" and value ~= "" then string.split(value, ",") else {}
+	end
+
+	-- The front patient (QueueIndex 1) on your plot, if it's there.
+	local function frontPatient(plot: Instance?): Model?
+		local folder = plot and plot:FindFirstChild("Patients")
+		if not folder then
+			return nil
+		end
+		for _, child in folder:GetChildren() do
+			if child:IsA("Model") and child:GetAttribute("QueueIndex") == 1 then
+				return child
+			end
+		end
+		return nil
+	end
+
+	local function ailmentIcon(patient: Model?): string?
+		local id = if patient then patient:GetAttribute("Ailment") else nil
+		local ailment = if type(id) == "string" then rawget(data.Ailments, id) else nil
+		return if type(ailment) == "table" then ailment.Icon else nil
+	end
+
+	type Look = { Situation: Situation, Icon: string, Color: Color3 }
+
+	local function look(cardNumber: number): Look
+		local state = ctx.State
+		local plot = plotModel(state)
+		local frontItem = textAttribute(plot, "FrontItem")
+		local frontStation = textAttribute(plot, "FrontStation")
+		local frontNeeds = textAttribute(plot, "FrontNeeds")
+		local itemId = if frontItem ~= "" then frontItem else nil
+		local station = if frontStation ~= "" then rawget(data.Stations, frontStation) else nil
+		if not itemId and station then
+			itemId = station.Item
+		end
+		local item = if itemId then rawget(data.Items, itemId) else nil
+		local hands = carried()
+		local carrying = false
+		for id in string.gmatch(frontNeeds .. "," .. frontItem, "[^,]+") do
+			if table.find(hands, id) then
+				carrying = true
+				break
+			end
+		end
+		local situation: Situation = {
+			Device = device(),
+			Item = if item then item.Name else nil,
+			Need = if item then item.Icon else nil,
+			Waiting = frontItem ~= "",
+			Carrying = carrying,
+			Cures = math.clamp(state.TutorialCures or 0, 0, Logic.MORE_CURES),
+			Total = Logic.MORE_CURES,
+			Cured = cured,
+			Game = treatGame,
+		}
+		local patientIcon = ailmentIcon(frontPatient(plot)) or "🤧"
+		local stationColor = if station then station.Color else Theme.Colors.Purple
+		local stationIcon = if station then station.Icon elseif item then item.Icon else "🧪"
+		local icon, color = "🤧", Theme.Colors.Pink
+		if cardNumber == 1 then
+			icon, color = patientIcon, Theme.Colors.Pink
+		elseif cardNumber == 2 then
+			icon, color = stationIcon, stationColor
+		elseif cardNumber == 3 then
+			icon, color = patientIcon, Theme.Colors.Collect
+		elseif cardNumber == 4 then
+			local game = Pure.GAMES[treatGame] or Pure.GAMES.Pour
+			icon, color = game.Icon, Theme.Colors.Purple
+		elseif cardNumber == 5 then
+			icon, color = if cured then "🎉" else "🛏️", Theme.Colors.Cyan
+		elseif cardNumber == 6 then
+			if carrying then
+				icon, color = patientIcon, Theme.Colors.Collect
+			elseif situation.Waiting then
+				icon, color = stationIcon, stationColor
+			else
+				icon, color = "🤕", Theme.Colors.Pink
+			end
+		elseif cardNumber == 7 then
+			icon, color = "🛒", Theme.Colors.Cash
+		end
+		return { Situation = situation, Icon = icon, Color = color }
+	end
+
+	-- The key chip: the prompt's key (E, or the pad's X glyph) or the pad's confirm (A).
+	local function showKey(key: ("Prompt" | "Confirm")?, first: boolean)
+		keyCap.Visible = false
+		glyph.Visible = false
+		if not key then
+			return
+		end
+		local order = if first then 1 else 3
+		if device() == "Pad" then
+			local code = if key == "Confirm" then Enum.KeyCode.ButtonA else Enum.KeyCode.ButtonX
+			local ok, image = pcall(function()
+				return UserInputService:GetImageForKeyCode(code)
+			end)
+			if ok and type(image) == "string" and image ~= "" then
+				glyph.Image = image
+				glyph.LayoutOrder = order
+				glyph.Visible = true
+				return
+			end
+			keyCap.Text = if key == "Confirm" then "A" else "X"
+		else
+			local ok, text = pcall(function()
+				return UserInputService:GetStringForKeyCode(Enum.KeyCode.E)
+			end)
+			keyCap.Text = if ok and type(text) == "string" and text ~= "" then string.upper(text) else "E"
+		end
+		keyCap.LayoutOrder = order
+		keyCap.Visible = true
+	end
+
+	-- The bar: each segment to its fill (Theme.Tween.Fill; at once when calm). Never drains within a run.
+	local function paintBar(target: { number }, animate: boolean)
+		for index, fill in fills do
+			local want = math.max(target[index] or 0, if filled[index] then filled[index] else 0)
+			if want ~= filled[index] then
+				filled[index] = want
+				local size = UDim2.fromScale(want, 1)
+				if animate and not Kit.reducedMotion() then
+					TweenService:Create(fill, Theme.Tween.Fill, { Size = size }):Play()
+					Kit.bump(segments[index])
+				else
+					fill.Size = size
+				end
+			end
+		end
+	end
+
+	-- Sizes for the screen (88 px, or 76 on a screen under 500 px tall), or the 44 px slim strip.
+	local function layout(slimStrip: boolean)
+		local camera = Workspace.CurrentCamera
+		local short = camera ~= nil and camera.ViewportSize.Y < HudZones.NOW_SHORT_BREAK
+		slimNow, shortNow = slimStrip, short
+		local height = if short then Theme.Zone.NowHeightShort else Theme.Zone.NowHeight
+		local side = height - PAD * 2
+		tab.Visible = not slimStrip
+		skip.Visible = not slimStrip
+		thumb.Visible = not slimStrip
+		column.Visible = not slimStrip
+		slim.Visible = slimStrip
+		if slimStrip then
+			body.AutomaticSize = Enum.AutomaticSize.None
+			body.Position = UDim2.fromOffset(0, 0)
+			body.Size = UDim2.new(1, 0, 0, Theme.Zone.NowSlim)
+			shadow.Position = UDim2.fromOffset(Theme.Shadow.Offset.X, Theme.Shadow.Offset.Y)
+			shadow.Size = body.Size
+			bubble.Position = UDim2.new(1, -Theme.Space.PadCard, 0, Theme.Zone.NowSlim + Theme.Space.Step[2])
+			card.Size = UDim2.new(card.Size.X.Scale, card.Size.X.Offset, 0, Theme.Zone.NowSlim)
+			return
+		end
+		body.AutomaticSize = Enum.AutomaticSize.Y
+		body.Position = UDim2.fromOffset(0, TAB)
+		body.Size = UDim2.new(1, 0, 0, height)
+		bubble.Position = UDim2.new(1, -Theme.Space.PadCard, 0, TAB + height + Theme.Space.Step[2])
+		shadow.Position = UDim2.fromOffset(Theme.Shadow.Offset.X, TAB + Theme.Shadow.Offset.Y)
+		shadow.Size = body.Size
+		thumb.Size = UDim2.fromOffset(side, side)
+		burst.Size = thumb.Size
+		column.Position = UDim2.fromOffset(side + Theme.Space.PadCard, 0)
+		column.Size = UDim2.new(1, -(side + Theme.Space.PadCard + PORTRAIT / 2), 0, 0)
+		title.TextSize = if short then Theme.TextSize.Button else Theme.TextSize.Title
+		sub.TextSize = if short then Theme.TextSize.Caption else Theme.TextSize.Body
+		card.Size = UDim2.new(card.Size.X.Scale, card.Size.X.Offset, 0, TAB + height)
+	end
+
+	-- The card number on screen right now, or nil for no card.
+	local function wantedCard(): number?
+		local state = ctx.State
+		local step = state.Tutorial
+		if not Logic.active(step) or state.PlotIndex == nil then
+			return nil
+		end
+		if step == Logic.WELCOME and welcome ~= "Card" then
+			return nil -- the title card and sweep come first
+		end
+		if finaleFired and step >= Logic.BOOK then
+			return nil -- the finale took over
+		end
+		return Logic.card(step, treating and step == Logic.TREAT)
+	end
+
+	-- Offers or withdraws the card (the HUD's slot shows the highest priority).
+	local function offer(on: boolean)
+		if on then
+			Hud.setNow("Tutorial", card, 20)
+		elseif offered then
+			Hud.setNow("Tutorial", nil, 20)
+		end
+		offered = on
+	end
+
+	local syncPointer: () -> () = function() end
+	local armNudge: (fresh: boolean) -> () = function(_fresh: boolean) end
+
+	-- Shows `cardNumber` (sliding in when it's new), with its words for the moment.
+	local function present(cardNumber: number)
+		local fresh = presented ~= cardNumber
+		local entry = look(cardNumber)
+		local words = Pure.words(cardNumber, entry.Situation)
+		if fresh then
+			presented = cardNumber
+			if stopRays then
+				stopRays()
+				stopRays = nil
+			end
+			paintBar(Pure.segments(cardNumber, false), false)
+		end
+		if cardNumber == 6 then
+			paintBar(Pure.segments(6, false, entry.Situation.Cures, entry.Situation.Total), true)
+		end
+		tabText.Text = Pure.tab(cardNumber, Logic.CARDS)
+		local changedTitle = title.Text ~= words.Title
+		title.Text = words.Title
+		sub.Text = words.Sub
+		sub.LayoutOrder = 2
+		showKey(words.Key, words.KeyFirst == true)
+		thumbIcon.Text = entry.Icon
+		thumb.BackgroundColor3 = entry.Color
+		slim.Text = '<font color="#'
+			.. Theme.Colors.Cash:ToHex()
+			.. '">'
+			.. Pure.tab(cardNumber, Logic.CARDS)
+			.. "</font>  "
+			.. words.Sub
+		local wantSlim = cardNumber == 4 or gameOpen()
+		if wantSlim ~= slimNow or fresh then
+			layout(wantSlim)
+			if offered then
+				Hud.setNow("Tutorial", card, 20) -- its height changed: the slot measures it again
+			end
+		end
+		if fresh then
+			offer(true)
+			if not Kit.reducedMotion() then
+				inner.Position = UDim2.fromOffset(0, -Theme.Space.Step[5])
+				TweenService:Create(inner, Theme.Tween.Slide, { Position = UDim2.fromOffset(0, 0) }):Play()
+			else
+				inner.Position = UDim2.fromOffset(0, 0)
+			end
+			Hud.sound("Pop", 0.8)
+			if cardNumber == 1 and not saidHello then
+				saidHello = true
+				task.delay(0.4, say, Pure.SAY.Hello)
+			end
+			armNudge(true)
+		elseif changedTitle and not Kit.reducedMotion() then
+			Kit.punch(title, 1.12, Theme.Tween.Bump)
+		end
+	end
+
+	local function render()
+		local wanted = wantedCard()
+		local hidden = wanted == nil or panelOpen()
+		if hidden then
+			if offered then
+				offer(false)
+			end
+			if wanted == nil and not holding then
+				presented = nil
+			end
+			syncPointer()
+			return
+		end
+		if holding then
+			if not offered and presented then
+				offer(true)
+				layout(slimNow)
+			end
+			syncPointer()
+			return -- the ✓ beat holds the old card; the hold's end renders the new one
+		end
+		if not offered and presented == wanted then
+			offer(true) -- back after a panel closed: no re-pop
+			layout(slimNow)
+		end
+		present(wanted :: number)
+		syncPointer()
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- Success beats
+	--------------------------------------------------------------------------------------------------------------
+	-- The ✓ on `cardNumber`: the ✅, its segment, a burst from the thumbnail, a Chime and maybe a line; then (after
+	-- `hold` seconds) the next card. `after` runs when the hold ends.
+	local function beat(cardNumber: number, hold: number, line: string?, after: (() -> ())?)
+		if presented ~= cardNumber or not offered then
+			-- Not on screen (a panel is open, or it went past too fast): just fill its segment.
+			paintBar(Pure.segments(cardNumber, true), false)
+			if after then
+				after()
+			end
+			render()
+			return
+		end
+		beatToken += 1
+		local mine = beatToken
+		holding = true
+		thumbIcon.Text = "✅"
+		thumb.BackgroundColor3 = Theme.Colors.Collect
+		if not Kit.reducedMotion() then
+			Kit.bump(thumb)
+			local centre = thumb.AbsolutePosition - inner.AbsolutePosition + thumb.AbsoluteSize / 2
+			Kit.confetti(inner, CONFETTI_STEP, UDim2.fromOffset(centre.X, centre.Y))
+		end
+		paintBar(Pure.segments(cardNumber, true), true)
+		Hud.sound("Chime")
+		if line then
+			say(line)
+		end
+		task.delay(hold, function()
+			if beatToken ~= mine then
+				return
+			end
+			holding = false
+			if after then
+				after()
+			end
+			render()
+		end)
+	end
+
+	-- The first cure: the card's title turns to CURED! 🎉 with rays and confetti behind the thumbnail, held
+	-- FirstCureHold, then card 6.
+	local function curedMoment()
+		if presented ~= 5 or not offered then
+			paintBar(Pure.segments(5, true), false)
+			render()
+			return
+		end
+		beatToken += 1
+		local mine = beatToken
+		holding = true
+		cured = true
+		local entry = look(5)
+		local words = Pure.words(5, entry.Situation)
+		title.Text = words.Title
+		sub.Text = words.Sub
+		thumbIcon.Text = entry.Icon
+		if not Kit.reducedMotion() then
+			Kit.punch(title, 1.3, Theme.Tween.Bump)
+		end
+		stopRays = Kit.celebrate(burst, Theme.Colors.Cash)
+		paintBar(Pure.segments(5, true), true)
+		Hud.sound("Celebrate")
+		say(Pure.SAY.Cured)
+		task.delay(tuning.FirstCureHold, function()
+			if beatToken ~= mine then
+				return
+			end
+			holding = false
+			if stopRays then
+				stopRays()
+				stopRays = nil
+			end
+			render()
+		end)
+	end
+
+	-- The finale (Celebrate Kind "Tutorial"), with ONE free event coming up.
+	local function fireFinale()
+		finaleFired = true
+		local now = Workspace:GetServerTimeNow()
+		local giftSeconds: number? = nil
+		pcall(function()
+			local save, day = Hud.livePlay(ctx.State)
+			local index, left = PlaytimeLogic.nextGift(save, day, data.Playtime.Gifts)
+			if index then
+				giftSeconds = left
+			end
+		end)
+		local candidates = Pure.candidates(
+			now,
+			Workspace:GetAttribute("GoldenStartsAt"),
+			Workspace:GetAttribute("IsNight") == true,
+			Workspace:GetAttribute("PhaseEndsAt"),
+			giftSeconds
+		)
+		local info: Types.CelebrateInfo = {
+			Kind = "Tutorial",
+			Title = Pure.FINALE.Title,
+			Icon = Pure.FINALE.Icon,
+			Chips = table.clone(Pure.FINALE.Chips),
+			Next = NextEvent.pick(now, candidates :: any),
+		}
+		ctx.fire("Celebrate", info)
+	end
+
+	-- A new run (a Replay, or the admin restart): the bar and the beats start again.
+	local function resetRun()
+		beatToken += 1
+		holding = false
+		presented = nil
+		filled = table.create(Logic.CARDS, 0)
+		for _, fill in fills do
+			fill.Size = UDim2.fromScale(0, 1)
+		end
+		cured = false
+		finaleFired = false
+		treating = false
+		rated = false
+		saidHello = false
+		lastCures = 0
+		if stopRays then
+			stopRays()
+			stopRays = nil
+		end
+	end
+
+	-- A server step change: the right beat for it.
+	local function onStep(from: number?, to: number)
+		if from == nil or from == to then
+			return
+		end
+		if not Logic.active(from) and Logic.active(to) then
+			resetRun()
+			-- A replay has no sweep; the admin's restart (back to the welcome) plays it again as you respawn.
+			welcome = if ctx.State.TutorialReplay == true or to ~= Logic.WELCOME then "Card" else "None"
+			return
+		end
+		if to ~= Logic.TREAT then
+			treating = false
+		end
+		if from == Logic.SHOP and to == Logic.BOOK then
+			beat(7, tuning.SuccessHold, Pure.SAY.Upgrade, fireFinale)
+			return
+		end
+		if to == Logic.DONE then
+			return -- skipped (or the admin's finish): no beats; the Guide keeps its arrows until 3 cures
+		end
+		if from == Logic.REST and to == Logic.MORE then
+			curedMoment()
+			return
+		end
+		local a = Logic.card(from, presented == 4)
+		local b = Logic.card(to)
+		if a and b and b > a then
+			local line = if a == 2
+				then (if look(2).Situation.Item == "Potion" then Pure.SAY.Potion else Pure.SAY.Made)
+				else nil
+			beat(a, tuning.SuccessHold, line)
+		end
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The idle nudge: once per walking step, never a number, paused while a panel is open
+	--------------------------------------------------------------------------------------------------------------
+	local nudgeThread: thread? = nil
+	local nudgeLeft = tuning.NudgeSeconds
+	local nudgeStarted = 0
+	local nudged: { [number]: boolean } = {}
+
+	local function stopNudge()
+		local thread = nudgeThread
+		if thread then
+			nudgeThread = nil
+			pcall(task.cancel, thread)
+		end
+	end
+
+	armNudge = function(fresh: boolean)
+		stopNudge()
+		if fresh then
+			nudgeLeft = tuning.NudgeSeconds
+		end
+		local step = ctx.State.Tutorial
+		if not Logic.nudge(step) or nudged[step] or panelOpen() or not offered then
+			return
+		end
+		nudgeStarted = os.clock()
+		nudgeThread = task.delay(nudgeLeft, function()
+			nudgeThread = nil
+			if ctx.State.Tutorial == step and not nudged[step] and not panelOpen() and offered then
+				nudged[step] = true
+				nudgeLeft = tuning.NudgeSeconds
+				say(Pure.SAY.Nudge)
+				Wayfinder.flash()
+			end
+		end)
+	end
+
+	local function pauseNudge()
+		if nudgeThread then
+			nudgeLeft = math.max(0, nudgeLeft - (os.clock() - nudgeStarted))
+			stopNudge()
+		end
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The UI pointer: card 7's dim, ring, ripple and hand, and the 📖 ring after the finale
+	--------------------------------------------------------------------------------------------------------------
 	local function cheapestUpgrade(): string?
 		local best: string?, bestPrice = nil, math.huge
 		local levels = ctx.State.Upgrades or {}
@@ -443,145 +1506,195 @@ function Tutorial.init(ctx: Types.Ctx)
 		return best
 	end
 
-	-- The step the card shows right now, or nil for no card.
-	local function cardStep(): number?
-		local state = ctx.State
-		local step = state.Tutorial
-		if not Logic.active(step) or state.PlotIndex == nil or Hud.isOpen() then
-			return nil
-		end
-		if step == Logic.WELCOME and welcome ~= "Card" then
-			return nil -- the title card and sweep come first
-		end
-		if step == Logic.BOOK and bookSeen then
-			return nil
-		end
-		return step
-	end
-
-	-- Starts or stops the per-frame layout follow (set below, once the card and pointer exist).
-	local syncLayout: () -> () = function() end
-
-	local function render()
-		local step = cardStep()
-		if not step then
-			card.Visible = false
-			shownStep, shownText = 0, ""
-			syncLayout()
-			return
-		end
-		local entry = LINES[step]
-		local text = entry.Text
-		if step == Logic.MORE then
-			local done = math.clamp(ctx.State.TutorialCures or 0, 0, Logic.MORE_CURES)
-			text = string.format(entry.Text, Logic.MORE_CURES, done, Logic.MORE_CURES)
-		end
-		local hintText = if step == Logic.MAKE then deviceHint() else ""
-		icon.Text = entry.Icon
-		line.Text = text
-		hint.Text = hintText
-		hint.Visible = hintText ~= ""
-		card.Size = UDim2.new(0.5, 0, 0, if hintText ~= "" then 112 else 84)
-		line.Position = UDim2.new(0, 82, if hintText ~= "" then 0.36 else 0.5, 0)
-		line.Size = UDim2.new(1, -96, 0, if hintText ~= "" then 52 else 60)
-		tile.BackgroundColor3 = Kit.lighten(entry.Color, 0.08)
-		tap.Visible = step == Logic.WELCOME
-		if step ~= shownStep then
-			Kit.popIn(card) -- a new step (or back after a panel closed): pops in (still with reduced motion)
-			Hud.sound("Pop", 0.8)
-		elseif text ~= shownText then
-			Kit.bump(tile) -- the same step, a new count (6: "1/2")
-		end
-		shownStep, shownText = step, text
-		card.Visible = true
-		syncLayout()
-	end
-
-	--------------------------------------------------------------------------------------------------------------
-	-- Following the layout every frame while the tutorial shows something: the card above the HUD's bottom
-	-- cluster, the pointer on its target (syncLayout starts and stops it)
-	--------------------------------------------------------------------------------------------------------------
-	local function clusterTop(): number?
-		local top: number? = nil
-		for _, name in { "Hands", "Shop", "Book", "Mailbox", "Goals" } do
-			local piece = Hud.target(name)
-			if piece and isShown(piece) then
-				local y = piece.AbsolutePosition.Y
-				top = if top then math.min(top, y) else y
-			end
-		end
-		return top
-	end
-
-	local function uiTarget(): GuiObject?
+	-- What the pointer points at, whether it dims round it, and whether it carries the "Buy this!" label.
+	local function uiTarget(): (GuiObject?, boolean, boolean)
 		local step = ctx.State.Tutorial
-		if step == Logic.SHOP then
+		if step == Logic.SHOP and not finaleFired then
 			if Hud.isOpen("Shop") then
 				local id = cheapestUpgrade()
-				local button = if Shop and id then Shop.upgradeButton(id) else nil
-				if button and isShown(button) then
-					return button
+				local okButton, button = pcall(function()
+					return if Shop and id then Shop.upgradeButton(id) else nil
+				end)
+				if okButton and button and isShown(button) then
+					return button, false, true
 				end
-				local tab = if Shop then Shop.tabButton("Upgrades") else nil
-				return if tab and isShown(tab) then tab else nil
+				local okTab, shopTab = pcall(function()
+					return if Shop then Shop.tabButton("Upgrades") else nil
+				end)
+				return if okTab and shopTab and isShown(shopTab) then shopTab else nil, false, false
 			end
-			return if Hud.isOpen() then nil else Hud.target("Shop")
-		elseif step == Logic.BOOK and not bookSeen then
-			return if Hud.isOpen() then nil else Hud.target("Book")
+			if Hud.isOpen() then
+				return nil, false, false
+			end
+			local shop = Hud.target("Shop")
+			return if shop and isShown(shop) then shop else nil, true, false
 		end
-		return nil
+		if bookRingUntil > os.clock() and not Hud.isOpen() then
+			local book = Hud.target("Book")
+			return if book and isShown(book) then book else nil, false, false
+		end
+		return nil, false, false
+	end
+
+	local function hidePointer()
+		for _, dim in dims do
+			dim.Visible = false
+		end
+		ring.Visible = false
+		ripple.Visible = false
+		hand.Visible = false
+		handWord.Visible = false
+		buyLabel.Visible = false
 	end
 
 	local function followLayout()
-		debug.profilebegin("Tutorial layout")
-		local target = if Logic.active(ctx.State.Tutorial) then uiTarget() else nil
-		if card.Visible then
-			local top = clusterTop()
-			-- While the 👇 points at a bottom button, lift the card clear of it so the finger never covers the words.
-			local fingerRoom = if target and not Hud.isOpen() then FINGER_ROOM else 0
-			local bottom = if top
-				then top - cardGui.AbsolutePosition.Y - CARD_GAP - fingerRoom
-				else cardGui.AbsoluteSize.Y - Theme.Size.Margin
-			card.Position = UDim2.new(0.5, 0, 0, bottom)
+		debug.profilebegin("Tutorial pointer")
+		local target, dimmed, labelled = uiTarget()
+		if not (target and target.AbsoluteSize.X > 0) then
+			hidePointer()
+			debug.profileend()
+			return
 		end
-
-		if target and isShown(target) and target.AbsoluteSize.X > 0 then
-			local at = target.AbsolutePosition - pointerGui.AbsolutePosition
-			local size = target.AbsoluteSize
-			ringOuter.Position = UDim2.fromOffset(at.X - 7, at.Y - 7)
-			ringOuter.Size = UDim2.fromOffset(size.X + 14, size.Y + 14)
-			local bob = if Kit.reducedMotion() then 0 else math.abs(math.sin(os.clock() * 4)) * 10
-			finger.Position = UDim2.fromOffset(at.X + size.X / 2, at.Y - 10 - bob)
-			ringOuter.Visible = true
-			finger.Visible = true
-		else
-			ringOuter.Visible = false
-			finger.Visible = false
+		local origin = pointerGui.AbsolutePosition
+		local screen = pointerGui.AbsoluteSize
+		local at = target.AbsolutePosition - origin
+		local size = target.AbsoluteSize
+		local margin = Theme.Space.Step[2]
+		local x0, y0 = at.X - margin, at.Y - margin
+		local x1, y1 = at.X + size.X + margin, at.Y + size.Y + margin
+		ring.Position = UDim2.fromOffset(x0, y0)
+		ring.Size = UDim2.fromOffset(x1 - x0, y1 - y0)
+		ring.Visible = true
+		-- The dim: four frames round the cutout, reaching well past the safe area.
+		local bleed = 400
+		local rects = {
+			{ -bleed, -bleed, screen.X + bleed * 2, y0 + bleed },
+			{ -bleed, y1, screen.X + bleed * 2, screen.Y - y1 + bleed },
+			{ -bleed, y0, x0 + bleed, y1 - y0 },
+			{ x1, y0, screen.X - x1 + bleed, y1 - y0 },
+		}
+		for index, dim in dims do
+			local r = rects[index]
+			dim.Position = UDim2.fromOffset(r[1], r[2])
+			dim.Size = UDim2.fromOffset(math.max(r[3], 0), math.max(r[4], 0))
+			dim.Visible = dimmed
+		end
+		-- The ripple and the tapping hand share one rhythm; still (with the word) when calm.
+		local still = Kit.reducedMotion()
+		local centre = Vector2.new((x0 + x1) / 2, (y0 + y1) / 2)
+		local phase = (os.clock() % RIPPLE_SECONDS) / RIPPLE_SECONDS
+		ripple.Visible = not still
+		if not still then
+			local grow = 1 + phase * 0.35
+			ripple.Position = UDim2.fromOffset(centre.X, centre.Y)
+			ripple.Size = UDim2.fromOffset((x1 - x0) * grow, (y1 - y0) * grow)
+			rippleStroke.Transparency = phase
+		end
+		local press = if still then 0 else math.max(0, math.sin(phase * math.pi * 2)) * 8
+		hand.Position = UDim2.fromOffset(centre.X + size.X * 0.2, y1 - size.Y * 0.35 - press)
+		hand.Visible = true
+		handWord.Position = UDim2.fromOffset(centre.X + size.X * 0.2, y1 + 54 - size.Y * 0.35)
+		handWord.Visible = still
+		buyLabel.Position = UDim2.fromOffset(centre.X, y0 - Theme.Space.Step[1])
+		buyLabel.Visible = labelled
+		-- A pad's focus: once per new target.
+		if target ~= focusTarget then
+			focusTarget = target
+			if device() == "Pad" and target:IsA("GuiButton") and target.Selectable then
+				GuiService.SelectedObject = target
+			end
 		end
 		debug.profileend()
 	end
 
-	-- It runs every frame only while there's something to follow: the card on screen, or steps 7-8 (the 👇 can point
-	-- into an open panel). Everyone past the tutorial (nearly every session) never runs it.
-	local layoutConnection: RBXScriptConnection? = nil
-	syncLayout = function()
+	-- It runs every frame only during card 7 and the 📖 ring; everyone else (nearly every session) never runs it.
+	local pointerConnection: RBXScriptConnection? = nil
+	syncPointer = function()
 		local step = ctx.State.Tutorial
-		local wanted = Logic.active(step) and (card.Visible or step == Logic.SHOP or step == Logic.BOOK)
-		local current = layoutConnection
+		local wanted = (step == Logic.SHOP and not finaleFired) or bookRingUntil > os.clock()
+		local current = pointerConnection
 		if wanted and not current then
-			layoutConnection = RunService.RenderStepped:Connect(followLayout)
+			pointerConnection = RunService.RenderStepped:Connect(followLayout)
 			followLayout()
 		elseif not wanted and current then
-			layoutConnection = nil
+			pointerConnection = nil
 			current:Disconnect()
-			ringOuter.Visible = false
-			finger.Visible = false
+			hidePointer()
+			focusTarget = nil
 		end
 	end
-	syncLayout()
+
+	-- The mini-game's touch hand (card 4): pressing on the stage, touch only.
+	local function syncGameHand()
+		local stage: GuiObject? = nil
+		if treating and presented == 4 and device() == "Touch" then
+			pcall(function()
+				stage = if MiniGames then MiniGames.stage() else nil
+			end)
+		end
+		local shownStage = stage
+		if not (shownStage and isShown(shownStage)) then
+			gameHand.Visible = false
+			return
+		end
+		local at = shownStage.AbsolutePosition - pointerGui.AbsolutePosition + shownStage.AbsoluteSize / 2
+		gameHand.Position = UDim2.fromOffset(at.X, at.Y)
+		gameHand.Visible = true
+		if not Kit.reducedMotion() then
+			TweenService:Create(
+				gameHand,
+				TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 3, true, 0.5),
+				{ Position = UDim2.fromOffset(at.X, at.Y + 10) }
+			):Play()
+		end
+	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The world pointer: the Guide's pin and arc (steps 2 and 5 here; 3, 4 and 6 are its usual arrows)
+	-- Skip and Replay: always behind Hud.confirm ("Not now"/"Keep going" focused), then the remote
+	--------------------------------------------------------------------------------------------------------------
+	local function ask(remote: RemoteFunction)
+		task.spawn(function()
+			local ok, message = Hud.ask(remote)
+			if not ok and message ~= "" then
+				ctx.toast(message)
+			end
+		end)
+	end
+
+	local function askSkip()
+		if Hud.isOpen("Confirm") or not Logic.canSkip(ctx.State.Tutorial) then
+			return
+		end
+		Hud.confirm(ctx, {
+			Title = Pure.SKIP.Title,
+			Line = Pure.SKIP.Line,
+			Yes = Pure.SKIP.Yes,
+			No = Pure.SKIP.No,
+		}, function()
+			ask(ctx.Remotes.TutorialSkip)
+		end)
+	end
+
+	local function askReplay()
+		if Hud.isOpen("Confirm") or not Logic.isDone(ctx.State.Tutorial) then
+			return
+		end
+		Hud.confirm(ctx, {
+			Title = Pure.REPLAY.Title,
+			Line = Pure.REPLAY.Line,
+			Yes = Pure.REPLAY.Yes,
+			No = Pure.REPLAY.No,
+		}, function()
+			ask(ctx.Remotes.TutorialReplay)
+		end)
+	end
+
+	skip.Activated:Connect(askSkip)
+	ctx.on("SkipTutorial", askSkip)
+	ctx.on("ReplayTutorial", askReplay)
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The world guide: the tutorial steers UI/Guide (cards 1 and 5 here; 2, 3 and 6 are its usual targets)
 	--------------------------------------------------------------------------------------------------------------
 	local function patients(plot: Instance): { Model }
 		local found: { Model } = {}
@@ -597,25 +1710,37 @@ function Tutorial.init(ctx: Types.Ctx)
 	end
 
 	-- The pin floats just over the patient's badge, so the badge itself stays readable.
-	local function pinOver(patient: Model, pinIcon: string, color: Color3): any
+	local function pinOver(patient: Model, pinIcon: string, color: Color3, glowing: boolean): any
 		local root = patient.PrimaryPart :: BasePart
 		local anchor = root:FindFirstChild("IconAnchor")
 		local height = if anchor and anchor:IsA("Attachment") then anchor.WorldPosition.Y + 2.6 else root.Position.Y + 6
-		return { Part = root, Icon = pinIcon, Color = color, Height = height }
+		return {
+			Part = root,
+			Target = patient,
+			Icon = pinIcon,
+			Color = color,
+			Height = height,
+			Beam = false,
+			Glow = glowing,
+		}
 	end
 
 	if Guide then
 		Guide.setSteer(function(plot: Instance): any
 			local step = ctx.State.Tutorial
 			if not Logic.active(step) then
-				return nil -- done: the Guide as it always was
+				return nil -- done (or skipped): the Guide as it always was, until 3 cures
 			end
-			if step == Logic.WELCOME or step >= Logic.SHOP then
-				return false
-			elseif step == Logic.PATIENT then
+			if step >= Logic.SHOP or gameOpen() then
+				return false -- a UI step, or the mini-game covers the middle
+			end
+			if step == Logic.WELCOME and welcome ~= "Card" then
+				return false -- the sweep
+			end
+			if step <= Logic.PATIENT then
 				for _, patient in patients(plot) do
 					if patient:GetAttribute("QueueIndex") == 1 then
-						return pinOver(patient, "👀", Theme.Colors.Pink)
+						return pinOver(patient, "👀", Theme.Colors.Pink, true)
 					end
 				end
 				return false
@@ -623,12 +1748,12 @@ function Tutorial.init(ctx: Types.Ctx)
 				for _, patient in patients(plot) do
 					local state = patient:GetAttribute("State")
 					if state == "Treated" or state == "Recovering" then
-						return pinOver(patient, "🛏️", Theme.Colors.Cyan)
+						return pinOver(patient, "🛏️", Theme.Colors.Cyan, false)
 					end
 				end
 				return false
 			end
-			return nil -- 3, 4 and 6: the Guide's usual arrows
+			return nil -- 3, 4 and 6: the Guide's usual targets
 		end)
 	end
 
@@ -651,7 +1776,6 @@ function Tutorial.init(ctx: Types.Ctx)
 				end
 			end
 			setControls(true)
-			task.wait(0.5)
 		else
 			local camera = Workspace.CurrentCamera
 			if root and camera then
@@ -659,13 +1783,12 @@ function Tutorial.init(ctx: Types.Ctx)
 			end
 			showTitle(TITLE_STILL_SECONDS)
 		end
+		-- The sweep is over: ack now (no welcome card), and card 1 shows while the first patient hops in.
 		welcome = "Card"
+		if ctx.State.Tutorial == Logic.WELCOME then
+			ack()
+		end
 		render()
-		task.delay(Logic.WELCOME_SECONDS, function()
-			if ctx.State.Tutorial == Logic.WELCOME then
-				ack()
-			end
-		end)
 	end
 
 	-- Every owner: once the server has moved your character to your clinic, turn the camera to the clinic.
@@ -677,7 +1800,7 @@ function Tutorial.init(ctx: Types.Ctx)
 		if not plot then
 			return
 		end
-		if state.Tutorial == Logic.WELCOME and welcome == "None" then
+		if state.Tutorial == Logic.WELCOME and welcome == "None" and state.TutorialReplay ~= true then
 			welcome = "Intro"
 			intro(plot)
 			return
@@ -685,6 +1808,7 @@ function Tutorial.init(ctx: Types.Ctx)
 		if welcome == "Intro" then
 			return -- the sweep handles the camera
 		end
+		welcome = "Card"
 		local root = waitForHome(plot, HOME_WAIT_SECONDS)
 		local camera = Workspace.CurrentCamera
 		if root and camera and mine == arriving and camera.CameraType == Enum.CameraType.Custom then
@@ -696,6 +1820,40 @@ function Tutorial.init(ctx: Types.Ctx)
 	-- Wiring
 	--------------------------------------------------------------------------------------------------------------
 	local hadPlot = false
+	local watchedPlot: Instance? = nil
+	local plotConnections: { RBXScriptConnection } = {}
+	local function watchPlot(state: Types.Snapshot)
+		local plot = if Logic.active(state.Tutorial) then plotModel(state) else nil
+		if plot == watchedPlot then
+			return
+		end
+		watchedPlot = plot
+		for _, connection in plotConnections do
+			connection:Disconnect()
+		end
+		table.clear(plotConnections)
+		if plot then
+			for _, name in { "FrontItem", "FrontStation", "FrontNeeds" } do
+				table.insert(
+					plotConnections,
+					plot:GetAttributeChangedSignal(name):Connect(function()
+						render()
+						armNudge(true)
+					end)
+				)
+			end
+			local folder = plot:FindFirstChild("Patients")
+			if folder then
+				table.insert(
+					plotConnections,
+					folder.ChildAdded:Connect(function()
+						task.defer(render)
+					end)
+				)
+			end
+		end
+	end
+
 	ctx.onState(function(state: Types.Snapshot)
 		-- The first server snapshot with your clinic starts the arrival (and the welcome). The client's default
 		-- snapshot says Tutorial 0, so it never counts.
@@ -705,6 +1863,24 @@ function Tutorial.init(ctx: Types.Ctx)
 			task.spawn(arrive)
 		end
 		hadPlot = hasPlot
+		if known then
+			local from = lastStep
+			lastStep = state.Tutorial
+			onStep(from, state.Tutorial)
+			-- Card 6's pips: a cure fills one with a pop and a line.
+			local cures = if state.Tutorial == Logic.MORE then state.TutorialCures or 0 else 0
+			if state.Tutorial == Logic.MORE and cures > lastCures and presented == 6 and not holding then
+				if not Kit.reducedMotion() then
+					local centre = thumb.AbsolutePosition - inner.AbsolutePosition + thumb.AbsoluteSize / 2
+					Kit.confetti(inner, CONFETTI_STEP, UDim2.fromOffset(centre.X, centre.Y))
+				end
+				Hud.sound("Chime", 0.7)
+				say(if cures >= Logic.MORE_CURES then Pure.SAY.Super else Pure.SAY.OneMore)
+				armNudge(true)
+			end
+			lastCures = cures
+		end
+		watchPlot(state)
 		render()
 	end)
 
@@ -713,22 +1889,83 @@ function Tutorial.init(ctx: Types.Ctx)
 			task.spawn(arrive)
 		end
 	end)
+	player:GetAttributeChangedSignal("Carry"):Connect(function()
+		if Logic.active(ctx.State.Tutorial) then
+			render()
+			armNudge(true)
+		end
+	end)
 
-	ctx.on("Open", function(name: any)
-		if name == "Book" and ctx.State.Tutorial == Logic.BOOK then
-			bookSeen = true
+	-- Card 4: the treat card during step TREAT.
+	ctx.on("TreatStart", function(session: any)
+		if ctx.State.Tutorial ~= Logic.TREAT then
+			render()
+			return
+		end
+		local games = if type(session) == "table" then session.Games else nil
+		local first = if type(games) == "table" then games[1] else nil
+		local simple = type(session) == "table" and session.Simple == true
+		treatGame = if simple then "Tap" elseif type(first) == "string" and Pure.GAMES[first] then first else "Pour"
+		if not treating and presented == 3 then
+			paintBar(Pure.segments(3, true), true) -- card 3's success is the game itself: card 4 takes over at once
+			Hud.sound("Chime", 0.7)
+		end
+		treating = true
+		rated = false
+		render()
+		task.delay(0.3, syncGameHand)
+	end)
+	ctx.on("MiniGameRated", function()
+		if presented == 4 and not rated then
+			rated = true
+			say(Pure.SAY.Rated)
+		end
+		gameHand.Visible = false
+	end)
+	ctx.on("TreatDone", function()
+		gameHand.Visible = false
+		render()
+		task.delay(TREAT_SETTLE, render)
+	end)
+
+	ctx.on("ModalOpened", function(name: any, hudMode: any)
+		if type(name) == "string" then
+			modes[name] = if type(hudMode) == "string" then hudMode else "None"
+		end
+		if panelOpen() then
+			pauseNudge()
 		end
 		render()
 	end)
-	ctx.on("ModalOpened", function()
+	ctx.on("ModalClosed", function(name: any)
+		if type(name) == "string" then
+			modes[name] = nil
+		end
 		render()
+		if not panelOpen() then
+			armNudge(false)
+		end
 	end)
-	ctx.on("ModalClosed", function()
-		render()
+	ctx.on("CelebrateClosed", function(kind: any)
+		if kind == "Tutorial" then
+			bookRingUntil = os.clock() + BOOK_RING_SECONDS
+			syncPointer()
+			task.delay(BOOK_RING_SECONDS + 0.1, syncPointer)
+		end
 	end)
 	pcall(function()
 		UserInputService:GetPropertyChangedSignal("PreferredInput"):Connect(render)
 	end)
+	GuiService:GetPropertyChangedSignal("ReducedMotionEnabled"):Connect(render)
+	local camera = Workspace.CurrentCamera
+	if camera then
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			local short = camera.ViewportSize.Y < HudZones.NOW_SHORT_BREAK
+			if presented and short ~= shortNow then
+				layout(slimNow)
+			end
+		end)
+	end
 end
 
 return Tutorial

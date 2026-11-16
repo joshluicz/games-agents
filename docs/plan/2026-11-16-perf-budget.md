@@ -11,8 +11,9 @@ come from reading the scripts, and the lead fills in the measured column during 
 | Rule | Limit | Who keeps it |
 |---|---|---|
 | Frame rate | 60 fps on a mid phone with 6 full plots and the belt | everyone; the lead measures |
-| Parts per plot | ≤ 400 at hospital Lv 5 for the plot, rooms and building (Progression v2: 372, or 378 with the biggest theme prop; [table below](#progression-v2-the-walkable-hospital-t6)), **plus decor**: 10 slots, ≤ 25 parts a piece (548 counted with every slot filled, the heaviest placeholder pieces) (review fix 2026-11-16: the two numbers used to disagree on whether decor counted) | T6 `PlotBuilder` (`tests/Hospital.spec` fails past 400 at any level in any theme); `DecorBuilder` warns once per DecorId over 25 |
-| Parts per creature | under 40 (placeholder); a night creature adds 1 (its glow ring) | `CreatureBuilder`, `NurseBuilder` |
+| Parts per plot | ≤ 400 at hospital Lv 5 for the plot, rooms and building (look overhaul: 331, or 337 with the biggest theme prop; [table below](#look-overhaul-2026-11-17-the-counts-that-replace-v2s); the shares Building ≤ 160, rooms ≤ 90, plot ≤ 115), **plus decor**: 10 slots, ≤ 25 parts a piece (507 counted with every slot filled, the heaviest placeholder pieces) (review fix 2026-11-16: the two numbers used to disagree on whether decor counted) | `HospitalBuilder`, `PlotBuilder`, `World/Props` (`tests/PartBudget.spec` fails past 400, or past a share, at any level in any theme); `DecorBuilder` warns once per DecorId over 25 |
+| Parts in the town | ≤ 600 for `ClinicTown` (counted: 512) | `TownBuilder` (`tests/PartBudget.spec`, `tests/TownWorld.spec`) |
+| Parts per creature | under 40 (blocky placeholder: patients at most 39 with Root and Core, nurses at most 38 with the cap); a night creature adds 1 (its square glow pad, still named GlowRing) | `CreatureBuilder`, `NurseBuilder` |
 | Highlights | **at most 1 in the whole world**; creatures, nurses, riders and kit models never use one | `CreatureBuilder` (creatures and kit creatures); `PlotBuilder`, `DecorBuilder`, `NurseBuilder` and `NurseBelt` remove any in kit models (applied at integration) |
 | Lights | no light casts shadows (`Shadows = false` on every PointLight, SpotLight and SurfaceLight) | every builder; kit models are forced off |
 | Shadow casters | creature parts under 1.5 studs across don't cast shadows (the body's shadow covers them) | `CreatureBuilder` |
@@ -57,7 +58,56 @@ existing ones). The Bloom at night (`DayNight`) makes the Neon glow.
 
 MicroProfiler labels to look for: `CreatureMotion`, `Atmosphere sway`, `Tutorial layout`.
 
+## Look overhaul (2026-11-17): the counts that replace v2's
+Build plan `docs/plan/2026-11-17-look-overhaul-build-plan.md` §C3 and §G 18. The v2 table below (372 / 378) is kept
+for history only: the building, the rooms, the plot and the town were all rebuilt. Counted by running the shipped
+builders under `tests/worldmock` in Lune (`tests/PartBudget.spec`, `Hospital.spec`, `PlotWorld.spec`,
+`TownWorld.spec`, `BlockyCreatures.spec`): Plot_1 with every room, no creatures, no nurses, no decor. **Not measured
+in Studio yet**: the lead checks with the command-bar count in [How to measure](#how-to-measure-lead-d-item-14).
+
+| Hospital level | Whole plot (Candy) | Building | Rooms | The plot's own share | SurfaceGuis in the Building | See-through parts in the Building |
+|---|---|---|---|---|---|---|
+| Lv 1 | 209 | 24 | 75 | 110 | 1 | 1 |
+| Lv 2 | 268 | 83 | 75 | 110 | 6 | 4 |
+| Lv 3 | 294 | 109 | 75 | 110 | 8 | 5 |
+| Lv 4 | 316 | 131 | 75 | 110 | 10 | 6 |
+| Lv 5 | **331** | 146 | 75 | 110 | 11 | 6 |
+
+- **The heaviest plot** (Lv 5, Jungle or Royal: a 6-part theme prop) is **337 of 400**. Arctic, Space and Ocean are
+  336.
+- **The shares are hard limits** in `tests/PartBudget.spec` (`Config.Look`): Building ≤ 160 (max 152), rooms ≤ 90
+  (75: Stand 17, Bath Room 11, Cozy Ward 16, Winter Wing 18, Garden 13; they were 146), the plot's own share ≤ 115
+  (110: 41 of its own and 69 from `World/Props`; 115 with every prop at its contract maximum; it was 151).
+- **With decor:** 10 slots, each piece ≤ 25 parts; the 10 heaviest placeholder pieces add 170, so a Lv 5 plot with
+  every room and every decor slot filled is **507** (was 548). The 400 budget is without decor, as before.
+- **Props (`World/Props`, T2):** a tree is 6 parts (was 5), a bush 1 (was 4), a lamp and a bench 3 each, fence posts
+  at least 14 studs apart (a fence is at most 2 + floor(length / 14) + 1 parts), a kiosk shell 9.
+- **The town (`ClinicTown`): 512 of 600** (`Config.Look.TownParts`): 276 GrassB checker tiles over 18 lawn regions
+  (they become ONE Texture once `Config.Look.CheckerTexture` is set), 26 trees of 6 parts (4 blossom), 12 lamps, 2
+  arches, the plaza (2 benches, 2 planters, 4 lamps), the road, its lines and curbs. The kiosks are 10 parts each
+  (were 16 and 19).
+- **SurfaceGuis:** at most 11 in a Building (limit 12) and 18 on the rest of a Lv 5 plot with every room (v2: 62 on
+  the whole plot), each with a `MaxDistance`. **Glass:** 6 see-through parts in a Building at Lv 4-5 (limit 6), so
+  the hot-tub water is opaque.
+- **Creatures (T9, blocky):** under 40 parts each, Root and Core included: patients 29-39 (BuzzBun 39), regulars
+  33-35, nurses 28-38 with the cap; a night creature adds 1 (its square glow pad, still named `GlowRing`). 4-5
+  SurfaceGuis each, one more on a nurse (the `CapGui`). Up from 29-35 parts: re-check the phone frame rate with 6
+  full plots, 8 nurses each and the belt.
+- **Lighting (T1):** `LightingStyle` Soft with `PrioritizeLightingQuality` (the sun's shadow map) and one SunRays
+  effect; no light casts shadows (`World/NightLights` sets `Shadows = false` on every Light under a tagged part each
+  time it switches). Measure at Quality 1, 4 and 10.
+- **Client loops:**
+  - `Feel/Cutaway`: one check a second off a building, 4 a second on one; nothing per frame.
+  - `UI/Wayfinder` (the tutorial guide): one RenderStepped, connected only while the beam shows; a client-only
+    `PathfindingService` route, at most one `ComputeAsync` every 0.5 s and only after you moved 3 studs or the
+    target changed; ONE Highlight, re-pointed, never re-made; everything stops with `Wayfinder.destroy()`.
+  - `UI/Hud`: nothing loops; the Status clock rewrites its text every 0.25 s while shown and every 1 s while hidden.
+  - `Kit`: at most ONE perpetual effect on screen (the shine and breathing on one Collect button). Rarity frames are
+    still (a Market page shows up to 60 of them) and red dots pop once.
+
 ## Progression v2: the walkable hospital (T6)
+**Superseded by the look overhaul's counts above** (kept for history).
+
 Build plan `docs/plan/2026-11-16-progression-v2-build-plan.md` §B4 and Review focus 4. Counted by running the shipped
 `Server/PlotBuilder` under a small Instance mock in Lune (`tests/Hospital.spec`, "the built world"): Plot_1 with
 every room (Stand, Bath Room, Ward, Winter Wing, Garden), no creatures, no nurses, no decor. **Not measured in Studio
@@ -139,7 +189,9 @@ These trade looks for speed, so the brothers decide:
 | Network receive per client while patients hop (KB/s) | lower than `main` | | |
 | Highlights in the world | ≤ 1 | | |
 | Shadow-casting lights | 0 | | |
-| Parts in Plot_1 at Lv 5 (no creatures, no decor) | ≤ 400 (counted from the code: 418 before, 372 after; 378 in Jungle/Royal) | | |
-| Parts in Plot_1 at Lv 2 / 3 / 4 (Progression v2) | ≤ 400 (counted: 339 / 348 / 362) | | |
+| Parts in Plot_1 at Lv 5 (no creatures, no decor) | ≤ 400 (counted from the code: 331; 337 in Jungle/Royal; v2 was 372 / 378) | | |
+| Parts in Plot_1 at Lv 1 / 2 / 3 / 4 (look overhaul) | ≤ 400 (counted: 209 / 268 / 294 / 316) | | |
+| Parts in `ClinicTown` | ≤ 600 (counted: 512) | | |
+| FPS at Quality 1 / 4 / 10 with the relight (Soft, SunRays), day and night | 60 | | |
 | Network receive per client during a lift ride and an ambulance (KB/s) | no spike | | |
-| Parts in Plot_1 at Lv 5 with every decor slot filled (no creatures) | about 500 (counted from the code: 548 with the 10 heaviest placeholder pieces) | | |
+| Parts in Plot_1 at Lv 5 with every decor slot filled (no creatures) | about 500 (counted from the code: 507 with the 10 heaviest placeholder pieces) | | |

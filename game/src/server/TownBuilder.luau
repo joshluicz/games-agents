@@ -1,17 +1,26 @@
 --!strict
--- The town round the plots (look build plan §B4/§B5). Server only. Moved from PlotBuilder by the look overhaul's
--- Foundation; T2 owns it and rebuilds it to §B5 (the dark smooth road, the row-2 plaza, the studded checker lawns,
--- voxel trees, floating text on the arches).
+-- The town round the plots (look build plan §B4/§B5; art-direction §2, §4.1, §4.4). Server only. OWNER: T2. Moved
+-- from PlotBuilder by the look overhaul's Foundation and rebuilt to the studs look:
+--   · the Lawn: one studded GrassA slab with GrassB checker tiles (LawnTile: thin studded parts, 0.2 tall, their tops
+--     0.05 above the lawn, on whole studs) wherever the lawn shows: Config.Look.CheckerStuds (4) cells within 20 studs
+--     of the street and in the gaps between plots, CheckerFarStuds (8) elsewhere. When Config.Look.CheckerTexture is
+--     set, ONE checker Texture on the lawn's top replaces the tiles (§B2);
+--   · the Street: dark (World.Road) and smooth, with warm RoadLine edge lines and zebra crossings at the outer gate
+--     pairs; NO centre dashes (the road's centre line belongs to the Nurse Belt, memory-20261117-001 #3); Slate curbs;
+--   · the plaza on the street's row-2 half (Config.Town.Plaza): a plank pad with benches, planters and lamps inside
+--     its rectangle, clear of the spawn, the kiosks, the odds sign and the row-2 middle gate's mouth (no pink ring);
+--   · voxel trees (World/Props.tree) in the plot gaps, the ends and behind the plots, in three greens, at most one
+--     blossom tree in six; dark street lamps between the plots (x +-39, +-117; z +-16.4);
+--   · the welcome arches at both ends (x +-132): wooden posts, a dark beam, the motto in floating outlined letters.
+-- Nothing solid stands in the belt's lane (|z| <= Config.Town.BeltClear, x -121.5..121.5): only flat road paint
+-- (tests/TownWorld.spec builds the real town and checks it, with the parts budget Config.Look.TownParts).
 --   TownBuilder.build(count): Model        Workspace.ClinicTown for `count` plots (NOT parented: PlotBuilder does)
---   TownBuilder.spawn(): SpawnLocation     TownSpawn at Config.Town.Origin + Config.Town.SpawnOffset (a kit one,
---                                          already in Workspace, is kept)
+--   TownBuilder.spawn(): SpawnLocation     TownSpawn at Config.Town.Origin + Config.Town.SpawnOffset, studded, facing -z
+--                                          (toward the belt); a kit one, already in Workspace, is kept
+--   TownBuilder.Pure                       plotRects, lawnRegions, checker: where the lawn shows and its tiles
 -- It never requires PlotBuilder (PlotBuilder requires this). The street's half width, the plot gap and the lawn's
--- height are repeated from PlotBuilder: tests/TownLayout.spec checks the two files agree.
---
--- STUB (T2): everything in `build` is still the candy town, laid out for the old belt. The Nurse Belt now runs down
--- the road's centre line (Config.Belt.Offset z = 0, memory-20261117-001 #3), so until T2 lands the old plaza disc,
--- its planters, the two benches at x = +-15 and the centre dashes sit in the belt's lane (Config.Town.BeltClear).
--- Only the spawn has moved already (Config.Town.SpawnOffset / SpawnSize).
+-- height are repeated from PlotBuilder: tests/TownLayout.spec checks the two files agree. The part names Lawn and
+-- Street are read by Server/BoardBuilder (the Hall of Fame garden's frame) and Server/NurseBelt (the street's top).
 
 local Workspace = game:GetService("Workspace")
 
@@ -20,10 +29,9 @@ local Config = require(Shared.Config)
 local Palette = require(Shared.Palette)
 local Parts = require(script.Parent.World.Parts)
 local Props = require(script.Parent.World.Props)
+local Studs = require(script.Parent.World.Studs)
 
-local part, soft, ball, cylinder, paint = Parts.part, Parts.soft, Parts.ball, Parts.cylinder, Parts.paint
-local candyLabel, candyBoard = Parts.candyLabel, Parts.candyBoard
-local darken = Parts.darken
+local part, paint = Parts.part, Parts.paint
 
 local TownBuilder = {}
 
@@ -31,21 +39,259 @@ local STREET_HALF_WIDTH = 18
 local PLOT_GAP = 8
 local BASE_TOP = 0.3 -- the town lawn's top, just above a default baseplate at y = 0
 
-local WHITE = Palette.White
-local CANDY = Palette.Candy
+local NEAR_STUDS = 20 -- the lawn this close to the street gets the small checker cells
 local WORLD = Palette.World
+local ACCENT = Palette.Accent
 
-local COLORS = {
-	TownLawn = WORLD.GrassDark,
-	Lawn = WORLD.Grass,
-	Street = WORLD.Street,
-	StreetLine = WORLD.StreetLine,
-	Curb = WHITE,
-	PlazaRing = CANDY.Pink,
-	Plaza = WORLD.Path,
-	Spawn = CANDY.Yellow,
+-- PURE-BEGIN
+-- Numbers only (no Roblox types): tests/TownWorld.spec loads this block on its own.
+local Pure = {}
+
+type Rect = { X0: number, X1: number, Z0: number, Z1: number }
+-- A lawn region in (x, u) space, u = |z| (studs out from the street's centre line) on one side (Side = -1 for row 1,
+-- +1 for row 2). Its checker counts cells from (AX, AU), so the bands of one gap line up.
+type Region = {
+	X0: number,
+	X1: number,
+	U0: number,
+	U1: number,
+	Side: number,
+	Cell: number,
+	AX: number,
+	AU: number,
 }
-local PLANTERS = { CANDY.Pink, CANDY.Blue, CANDY.Yellow, CANDY.Purple }
+
+-- The plots' footprints (studs from Origin): row 1 (plots 1..ceil(count / 2)) at -z, row 2 at +z, as PlotBuilder lays
+-- them out.
+function Pure.plotRects(count: number, size: number, half: number, gap: number): { Rect }
+	local perRow = math.ceil(count / 2)
+	local out: { Rect } = {}
+	for index = 1, count do
+		local row = if index <= perRow then 1 else 2
+		local column = if row == 1 then index else index - perRow
+		local x = (column - (perRow + 1) / 2) * (size + gap)
+		local near, far = half, half + size
+		table.insert(out, {
+			X0 = x - size / 2,
+			X1 = x + size / 2,
+			Z0 = if row == 1 then -far else near,
+			Z1 = if row == 1 then -near else far,
+		})
+	end
+	return out
+end
+
+-- Where the town lawn shows (not under the street or a plot), each region with its checker cell: `nearCell` within
+-- `near` studs of the street and in the gaps between plots, `farCell` elsewhere (the town's ends past the plots, and
+-- the strip behind them).
+function Pure.lawnRegions(
+	count: number,
+	size: number,
+	half: number,
+	gap: number,
+	near: number,
+	nearCell: number,
+	farCell: number
+): { Region }
+	local perRow = math.ceil(count / 2)
+	local xEdge = (perRow * (size + gap) + 40) / 2
+	local uEdge = half + size + 20
+	local plotFar = half + size
+	local nearEdge = math.min(half + near, plotFar)
+	local plots = Pure.plotRects(count, size, half, gap)
+	local regions: { Region } = {}
+	for _, side in { -1, 1 } do
+		local spans: { { number } } = {}
+		for _, r in plots do
+			if (r.Z0 + r.Z1) * side > 0 then
+				table.insert(spans, { r.X0, r.X1 })
+			end
+		end
+		table.sort(spans, function(a, b)
+			return a[1] < b[1]
+		end)
+		local free: { { number } } = {}
+		local cursor = -xEdge
+		for _, span in spans do
+			if span[1] > cursor then
+				table.insert(free, { cursor, span[1] })
+			end
+			cursor = math.max(cursor, span[2])
+		end
+		if cursor < xEdge then
+			table.insert(free, { cursor, xEdge })
+		end
+		local function add(x0: number, x1: number, u0: number, u1: number, cell: number, ax: number, au: number)
+			if x1 - x0 > 1e-6 and u1 - u0 > 1e-6 then
+				table.insert(
+					regions,
+					{ X0 = x0, X1 = x1, U0 = u0, U1 = u1, Side = side, Cell = cell, AX = ax, AU = au }
+				)
+			end
+		end
+		for _, span in free do
+			local inner = span[1] > -xEdge + 1e-6 and span[2] < xEdge - 1e-6
+			add(span[1], span[2], half, nearEdge, nearCell, span[1], half)
+			add(span[1], span[2], nearEdge, plotFar, if inner then nearCell else farCell, span[1], half)
+		end
+		add(-xEdge, xEdge, plotFar, uEdge, farCell, -xEdge, plotFar)
+	end
+	return regions
+end
+
+-- The GrassB tiles: a checker over each region (a cell is a tile when (i + j) is odd, counted from the region's
+-- anchor), each tile clipped to its region and dropped when thinner than a stud. Rects in (x, z), studs from Origin.
+function Pure.checker(regions: { Region }): { Rect }
+	local tiles: { Rect } = {}
+	for _, r in regions do
+		local cell = r.Cell
+		local i0 = math.floor((r.X0 - r.AX) / cell + 1e-6)
+		local i1 = math.ceil((r.X1 - r.AX) / cell - 1e-6) - 1
+		local j0 = math.floor((r.U0 - r.AU) / cell + 1e-6)
+		local j1 = math.ceil((r.U1 - r.AU) / cell - 1e-6) - 1
+		for i = i0, i1 do
+			for j = j0, j1 do
+				if (i + j) % 2 == 1 then
+					local x0 = math.max(r.X0, r.AX + i * cell)
+					local x1 = math.min(r.X1, r.AX + (i + 1) * cell)
+					local u0 = math.max(r.U0, r.AU + j * cell)
+					local u1 = math.min(r.U1, r.AU + (j + 1) * cell)
+					if x1 - x0 >= 1 and u1 - u0 >= 1 then
+						table.insert(tiles, {
+							X0 = x0,
+							X1 = x1,
+							Z0 = if r.Side > 0 then u0 else -u1,
+							Z1 = if r.Side > 0 then u1 else -u0,
+						})
+					end
+				end
+			end
+		end
+	end
+	return tiles
+end
+
+-- Every n-th tree is a blossom tree (art-direction §4.2: at most 1 in 6).
+function Pure.blossom(index: number, every: number): boolean
+	return every > 0 and index % every == 0
+end
+-- PURE-END
+
+TownBuilder.Pure = Pure
+
+local BLOSSOM_EVERY = 6
+
+-- The checker: GrassB tiles over the shown lawn, or one Texture when Config.Look.CheckerTexture is set.
+local function buildChecker(town: Model, lawn: BasePart, ground: CFrame, count: number)
+	local look = Config.Look
+	local texture = if type(look.CheckerTexture) == "string" then look.CheckerTexture else ""
+	if texture ~= "" then
+		local checker = Instance.new("Texture")
+		checker.Name = "Checker"
+		checker.Texture = texture
+		checker.Face = Enum.NormalId.Top
+		checker.StudsPerTileU = 2 * look.CheckerStuds
+		checker.StudsPerTileV = 2 * look.CheckerStuds
+		checker.Transparency = 0.85
+		checker.Parent = lawn
+		return
+	end
+	local regions = Pure.lawnRegions(
+		count,
+		Config.Town.PlotSize,
+		STREET_HALF_WIDTH,
+		PLOT_GAP,
+		NEAR_STUDS,
+		look.CheckerStuds,
+		look.CheckerFarStuds
+	)
+	for _, tile in Pure.checker(regions) do
+		local width, length = tile.X1 - tile.X0, tile.Z1 - tile.Z0
+		local at = ground * CFrame.new((tile.X0 + tile.X1) / 2, -0.05, (tile.Z0 + tile.Z1) / 2)
+		local p = part(town, "LawnTile", Vector3.new(width, 0.2, length), at, WORLD.GrassB)
+		p.CanCollide = false -- the lawn under it is the floor; a tile never trips anyone
+		p.CanQuery = false
+		p.CanTouch = false
+		Studs.apply(p)
+	end
+end
+
+-- Road paint: flat, walk-through, shadowless, just above the street's top.
+local PAINT_Y = 0.235
+local function roadPaint(town: Model, name: string, x0: number, x1: number, z: number, depth: number, ground: CFrame)
+	paint(
+		part(
+			town,
+			name,
+			Vector3.new(x1 - x0, 0.05, depth),
+			ground * CFrame.new((x0 + x1) / 2, PAINT_Y, z),
+			WORLD.RoadLine
+		)
+	)
+end
+
+-- The welcome arches at both ends of the street (the clinic's motto, design §5.1): two wooden posts with studded
+-- yellow caps, a dark beam, and the motto floating on both of its faces (art-direction §4.4: no board).
+local MOTTO = "Everyone welcome. Even the weird ones."
+local function buildArch(town: Model, ground: CFrame, x: number, h: number, side: number)
+	for _, zSide in { -1, 1 } do
+		part(
+			town,
+			"ArchPost",
+			Vector3.new(2, 14, 2),
+			ground * CFrame.new(x, 7, zSide * (h - 2)),
+			WORLD.Beam,
+			Enum.Material.Wood
+		)
+		local cap =
+			part(town, "ArchCap", Vector3.new(2, 2, 2), ground * CFrame.new(x, 15, zSide * (h - 2)), ACCENT.Yellow)
+		Studs.apply(cap)
+	end
+	local beam = part(town, "ArchBeam", Vector3.new(1.4, 3.4, h * 2 - 2), ground * CFrame.new(x, 12.4, 0), WORLD.Roof)
+	-- Both faces: the inner one (toward the town's centre) and the outer one (toward the Hall of Fame or the fields).
+	local inner = if side < 0 then Enum.NormalId.Right else Enum.NormalId.Left
+	local outer = if side < 0 then Enum.NormalId.Left else Enum.NormalId.Right
+	for _, face in { inner, outer } do
+		local gui = Parts.surface(beam, if face == inner then "WelcomeGui" else "WelcomeGuiBack", face, 30, 320, 0)
+		Parts.floatText(gui, MOTTO, {
+			Shadow = true,
+			Size = UDim2.fromScale(0.94, 0.78),
+			Position = UDim2.fromScale(0.03, 0.11),
+		})
+	end
+end
+
+-- The plaza: a plank pad on the street's row-2 half, with benches facing the belt, planters and lamps, all inside its
+-- rectangle and clear of the spawn, the kiosks (Config.Agency/Market.Offset), the odds sign (Config.Belt.SignOffset)
+-- and the row-2 middle gate's mouth (|x| <= 3, z 15..18).
+local function buildPlaza(town: Model, ground: CFrame, streetTop: number)
+	local plaza = Config.Town.Plaza
+	local pad = part(
+		town,
+		"Plaza",
+		Vector3.new(plaza.X1 - plaza.X0, 0.15, plaza.Z1 - plaza.Z0),
+		ground * CFrame.new((plaza.X0 + plaza.X1) / 2, streetTop + 0.075, (plaza.Z0 + plaza.Z1) / 2),
+		WORLD.Plank,
+		Enum.Material.WoodPlanks
+	)
+	pad.CastShadow = false
+	local top = streetTop + 0.15
+	local function at(x: number, z: number): CFrame
+		return ground * CFrame.new(x, top, z)
+	end
+	-- A bench's LookVector is -z as built: its sitters watch the belt go by. Nothing stands between the odds sign and
+	-- the spawn (the sign faces it across the Market's front).
+	for _, x in { 19.5, 25.5 } do
+		Props.bench(town, at(x, 15))
+	end
+	Props.planter(town, at(23, 7.5), Vector3.new(6, 1, 2))
+	Props.planter(town, at(-28, 11), Vector3.new(2, 1, 6))
+	for _, x in { -28.5, 29 } do
+		for _, z in { 6.5, 16 } do
+			Props.lamp(town, at(x, z), 7)
+		end
+	end
+end
 
 function TownBuilder.build(count: number): Model
 	local origin = Config.Town.Origin
@@ -55,116 +301,114 @@ function TownBuilder.build(count: number): Model
 	local depth = 2 * (STREET_HALF_WIDTH + size) + 40
 	local h = STREET_HALF_WIDTH
 	local ground = CFrame.new(origin + Vector3.new(0, BASE_TOP, 0))
+	local streetTop = 0.2 -- above the lawn's top
 
 	local town = Instance.new("Model")
 	town.Name = "ClinicTown"
 
-	part(town, "TownLawn", Vector3.new(width, 2, depth), ground * CFrame.new(0, -1, 0), COLORS.TownLawn)
-	part(town, "Street", Vector3.new(width, 0.2, h * 2), ground * CFrame.new(0, 0.1, 0), COLORS.Street)
-	for _, side in { -1, 1 } do
-		part(town, "Curb", Vector3.new(width, 0.4, 0.8), ground * CFrame.new(0, 0.2, side * (h - 0.4)), COLORS.Curb)
-	end
-	-- The plaza: a candy-pink ring round a cream disc.
-	local plazaRadius = h - 1
-	cylinder(town, "Plaza", 0.2, plazaRadius * 2, ground * CFrame.new(0, 0.3, 0), COLORS.PlazaRing)
-	cylinder(town, "PlazaInner", 0.25, plazaRadius * 2 - 4, ground * CFrame.new(0, 0.325, 0), COLORS.Plaza)
+	-- The lawn: studded GrassA, the checker on top.
+	local lawn = part(town, "Lawn", Vector3.new(width, 2, depth), ground * CFrame.new(0, -1, 0), WORLD.GrassA)
+	Studs.apply(lawn)
+	buildChecker(town, lawn, ground, count)
 
-	-- Road paint: a white zebra crossing in front of each pair of facing gates (the middle pair opens onto the
-	-- plaza), and white dashes down the middle of the street.
+	-- The street: dark and smooth, between two Slate curbs.
+	local street =
+		part(town, "Street", Vector3.new(width, streetTop, h * 2), ground * CFrame.new(0, streetTop / 2, 0), WORLD.Road)
+	Studs.smooth(street)
+	for _, side in { -1, 1 } do
+		part(
+			town,
+			"Curb",
+			Vector3.new(width, 0.4, 0.8),
+			ground * CFrame.new(0, 0.2, side * (h - 0.4)),
+			WORLD.Curb,
+			Enum.Material.Slate
+		)
+	end
+
+	-- Zebra crossings in front of each outer pair of facing gates (the middle row-2 gate opens onto the plaza). No
+	-- stripe under the belt's bed (|z| <= BeltClear): the conveyor covers it.
+	local plaza = Config.Town.Plaza
 	local crossings: { number } = {}
 	for column = 1, perRow do
 		local x = (column - (perRow + 1) / 2) * (size + PLOT_GAP)
-		if math.abs(x) > plazaRadius + 4 then
+		if math.abs(x) > plaza.X1 + 4 then
 			table.insert(crossings, x)
 			for z = -(h - 4), h - 4, 4 do
-				paint(
-					part(town, "Crossing", Vector3.new(8, 0.05, 2), ground * CFrame.new(x, 0.235, z), COLORS.StreetLine)
-				)
+				if math.abs(z) - 1 > Config.Town.BeltClear then
+					roadPaint(town, "Crossing", x - 4, x + 4, z, 2, ground)
+				end
 			end
-		end
-	end
-	local function nearCrossing(x: number): boolean
-		for _, crossingX in crossings do
-			if math.abs(x - crossingX) < 7 then
-				return true
-			end
-		end
-		return false
-	end
-	for _, side in { -1, 1 } do
-		local x = plazaRadius + 4
-		while x < width / 2 - 3 do
-			if not nearCrossing(side * x) then
-				paint(
-					part(
-						town,
-						"RoadLine",
-						Vector3.new(4, 0.05, 0.6),
-						ground * CFrame.new(side * x, 0.235, 0),
-						COLORS.StreetLine
-					)
-				)
-			end
-			x += 8
 		end
 	end
 
-	-- Plaza: round candy planters with little trees beside the spawn, benches facing it. The planters sit 5 studs
-	-- either side of the centre line, so the Nurse Belt (Config.Belt: 11 studs off it, 3.4 each side) runs past them.
-	for i, corner in { Vector2.new(1, 1), Vector2.new(1, -1), Vector2.new(-1, 1), Vector2.new(-1, -1) } do
-		local at = ground * CFrame.new(corner.X * 10.5, 0.4, corner.Y * 5)
-		cylinder(town, "Planter", 1.2, 4, at * CFrame.new(0, 0.6, 0), PLANTERS[i])
-		soft(cylinder(town, "PlanterGrass", 0.1, 3.4, at * CFrame.new(0, 1.22, 0), COLORS.Lawn))
-		Props.tree(town, at * CFrame.new(0, 1.2, 0), 0.55, i % 2 == 0)
-	end
+	-- The edge lines: one warm line along each side, broken at the crossings, the plaza and the arches. The centre is
+	-- the belt's: no dashes there.
+	local lineEnd = width / 2 - 7 -- clear of the welcome arches' posts
+	local lineU = h - 2.8
 	for _, side in { -1, 1 } do
-		local at = ground * CFrame.new(side * 15, 0.4, 0)
-		Props.bench(town, CFrame.lookAt(at.Position, ground.Position + Vector3.new(0, 0.4, 0))) -- sits facing the spawn
-		Props.lamp(town, ground * CFrame.new(side * 15, 0.4, 4.5), 8)
+		local cuts: { { number } } = {}
+		for _, x in crossings do
+			table.insert(cuts, { x - 4.5, x + 4.5 })
+		end
+		if side > 0 then
+			table.insert(cuts, { plaza.X0 - 1, plaza.X1 + 1 })
+		end
+		table.sort(cuts, function(a, b)
+			return a[1] < b[1]
+		end)
+		local cursor = -lineEnd
+		for _, cut in cuts do
+			if cut[1] > cursor + 1 then
+				roadPaint(town, "RoadLine", cursor, cut[1], side * lineU, 0.6, ground)
+			end
+			cursor = math.max(cursor, cut[2])
+		end
+		if lineEnd > cursor + 1 then
+			roadPaint(town, "RoadLine", cursor, lineEnd, side * lineU, 0.6, ground)
+		end
 	end
 
-	-- Street lamps between the plots, and trees in the gaps between plots.
+	buildPlaza(town, ground, streetTop)
+
+	-- Street lamps between the plots (x +-39 and +-117 with 6 plots), on the road by each curb.
 	for column = 0, perRow do
 		local x = (column - perRow / 2) * (size + PLOT_GAP)
-		for _, side in { -1, 1 } do
-			if math.abs(x) > 1 then
-				Props.lamp(town, ground * CFrame.new(x, 0.4, side * (h - 1.6)), 8)
+		if math.abs(x) > 1 then
+			for _, side in { -1, 1 } do
+				Props.lamp(town, ground * CFrame.new(x, streetTop, side * (h - 1.6)), 8)
 			end
-			Props.tree(town, ground * CFrame.new(x, 0, side * (h + size / 2)), 1.1, column % 2 == 0)
 		end
 	end
 
-	-- Welcome arches at both ends of the street (the clinic's motto, design §5.1): white posts with candy balls on
-	-- top and a glossy pink board.
+	-- Voxel trees: in the gaps between plots and at the ends (beside the street lamps), at the far ends, and along
+	-- the strip behind the plots. Every sixth one is a blossom tree.
+	local trees = 0
+	local function plant(x: number, z: number, scale: number)
+		trees += 1
+		Props.tree(town, ground * CFrame.new(x, 0, z), scale, Pure.blossom(trees, BLOSSOM_EVERY))
+	end
+	local back = h + size + 10
+	local endX = width / 2 - 12
 	for _, side in { -1, 1 } do
-		local x = side * (width / 2 - 5)
-		for _, zSide in { -1, 1 } do
-			part(town, "ArchPost", Vector3.new(1.6, 12, 1.6), ground * CFrame.new(x, 6, zSide * (h - 2)), WHITE)
-			soft(ball(town, "ArchCap", 1.8, ground * CFrame.new(x, 14.9, zSide * (h - 2)), CANDY.Yellow))
+		for column = 0, perRow do
+			local x = (column - perRow / 2) * (size + PLOT_GAP)
+			if math.abs(x) > 1 then
+				plant(x, side * (h + size / 2), 1.1)
+			end
 		end
-		local beam = part(
-			town,
-			"ArchBeam",
-			Vector3.new(1.4, 3.4, h * 2 - 2),
-			ground * CFrame.new(x, 12.4, 0),
-			darken(CANDY.Pink, 0.15)
-		)
-		local gui = Instance.new("SurfaceGui")
-		gui.Name = "WelcomeGui"
-		gui.Face = if side < 0 then Enum.NormalId.Right else Enum.NormalId.Left -- faces the town centre
-		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		gui.PixelsPerStud = 30
-		gui.LightInfluence = 0
-		candyBoard(gui, CANDY.Pink, 6, 16, 4)
-		candyLabel(
-			gui,
-			"Motto",
-			"Everyone welcome. Even the weird ones.",
-			UDim2.fromScale(0.94, 0.7),
-			UDim2.fromScale(0.03, 0.15),
-			4
-		)
-		gui.Parent = beam
+		for _, xSide in { -1, 1 } do
+			plant(xSide * endX, side * (h + size - 8), 1.2)
+		end
+		local step = (width - 34) / 6
+		for k = 0, 6 do
+			plant(-width / 2 + 17 + k * step, side * back, if k % 2 == 0 then 1.2 else 1)
+		end
+	end
+
+	-- The welcome arches at both ends of the street.
+	for _, side in { -1, 1 } do
+		buildArch(town, ground, side * (width / 2 - 5), h, side)
 	end
 
 	return town
@@ -182,10 +426,8 @@ function TownBuilder.spawn(): SpawnLocation
 	spawn.Size = Vector3.new(side, 1, side)
 	-- Facing -z: toward the belt on the road's centre line.
 	spawn.CFrame = CFrame.new(Config.Town.Origin + Config.Town.SpawnOffset + Vector3.new(0, BASE_TOP, 0))
-	spawn.Color = COLORS.Spawn
-	spawn.Material = Enum.Material.SmoothPlastic
-	spawn.TopSurface = Enum.SurfaceType.Smooth
-	spawn.BottomSurface = Enum.SurfaceType.Smooth
+	spawn.Color = ACCENT.Yellow
+	Studs.apply(spawn)
 	spawn.Neutral = true
 	spawn.Duration = 0 -- no force field bubble
 	spawn.Parent = Workspace
