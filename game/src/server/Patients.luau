@@ -45,7 +45,8 @@
 -- For the client (read-only, the server sets them):
 --   patient Model (in Plot.Patients): attributes PatientId, Kind ("Patient"|"Regular"|"Visitor"), Regular
 --     (RegularId or nil), Ailment, Station, Item, Variant (nil = none), Night, QueueIndex (1 = front, 0 = out),
---     State ("Arriving"|"Waiting"|"Treated"|"Recovering"|"Cured"|"Sad")
+--     State ("Arriving"|"Waiting"|"Treated"|"Recovering"|"Cured"|"Sad"), PatienceFraction (0..1 in 0.05 steps, set
+--     only when it changes: Feel/CreatureActing makes a patient wave, then bounce with a "!", as it runs low)
 --   plot Model: attributes FrontItem and FrontStation, the ItemId / StationId the front patient needs while it
 --     waits to be treated ("" otherwise). The Guide arrow can follow these.
 --   Counter.TreatAttachment.TreatPrompt: enabled only while a front patient waits; ObjectText = its ailment icon.
@@ -111,6 +112,7 @@ local HOP_HEIGHT = 0.9
 local LEAN = 0.14 -- radians forward at the top of a hop
 local SHAKE_SECONDS = 0.55
 local RING_STEPS = 48 -- the ring moves in 7.5 degree steps, so it replicates a few times a second at most
+local PATIENCE_STEPS = 20 -- the PatienceFraction attribute moves in 0.05 steps (about 20 changes in a whole wait)
 
 -- The patience ring, candy pop (memory-20261116-007): bright green, then yellow, then red; pink while healing.
 local RING_CALM = Palette.Candy.Lime
@@ -200,6 +202,7 @@ type Patient = {
 	Patience: number,
 	PatienceMax: number,
 	PatienceLeft: number, -- 0..1, frozen when treated (Cure ctx)
+	PatienceShown: number, -- the PatienceFraction attribute
 	RingStep: number,
 	RingColor: Color3?,
 	NextIdle: number,
@@ -620,6 +623,15 @@ local function ringColor(fraction: number): Color3
 	return RING_LOW
 end
 
+-- The PatienceFraction attribute for the client's acting (Feel/CreatureActing), only when its 0.05 step changes.
+local function showPatience(p: Patient, fraction: number)
+	local shown = math.ceil(math.clamp(fraction, 0, 1) * PATIENCE_STEPS) / PATIENCE_STEPS
+	if shown ~= p.PatienceShown then
+		p.PatienceShown = shown
+		p.Model:SetAttribute("PatienceFraction", shown)
+	end
+end
+
 local function showRing(p: Patient, fraction: number, color: Color3)
 	local stepIndex = math.floor(math.clamp(fraction, 0, 1) * RING_STEPS + 0.5)
 	if stepIndex == p.RingStep and color == p.RingColor then
@@ -1013,6 +1025,7 @@ local function spawnPatient(state: PlotState, patientId: string, regular: string
 		Patience = patience,
 		PatienceMax = patience,
 		PatienceLeft = 1,
+		PatienceShown = 1,
 		RingStep = -1,
 		RingColor = nil,
 		NextIdle = 0,
@@ -1052,6 +1065,7 @@ local function spawnPatient(state: PlotState, patientId: string, regular: string
 	model:SetAttribute("Variant", variant)
 	model:SetAttribute("Night", night)
 	model:SetAttribute("State", "Arriving")
+	model:SetAttribute("PatienceFraction", 1)
 	-- PivotTo, not root.CFrame: the model isn't in Workspace yet, so its welds aren't live and the body would stay
 	-- behind at the origin (each weld then locks in that gap when the model is parented in).
 	model:PivotTo(start)
@@ -1234,6 +1248,7 @@ local function tickPatience(state: PlotState, dt: number)
 			p.Patience = math.max(p.Patience - dt * rate, 0)
 			local fraction = p.Patience / p.PatienceMax
 			showRing(p, fraction, ringColor(fraction))
+			showPatience(p, fraction)
 			if p.Patience <= 0 then
 				table.insert(outOfPatience, p)
 			end

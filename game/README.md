@@ -33,7 +33,8 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids) |
 | `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`, `Admin` and `GetBoards`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
-| `shared/Data/*.luau` | **Content**: `Ailments`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`. Keyed maps carry `.Order`, and everything is frozen |
+| `shared/Data/*.luau` | **Content**: `Ailments`, `AilmentActing`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`. Keyed maps carry `.Order`, and everything is frozen |
+| `shared/Data/AilmentActing.luau` | How a waiting patient **acts out its ailment** (Joshua: "animations corresponding to their illness or need for attention ... visible with perhaps props. but not gory"): per ailment its Motion (the beat), how often, its Props, a particle Burst, an Ambient, the Face on the beat, Squint, cold Cheeks, a dimmed night Glow. Plus `Attention` (wave at ≤ 50% patience, both arms + a "!" at ≤ 25%), `Default`, and the `Vocabulary` the client can play (specs check it) |
 | `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done), `isNewer(saved)`. `WeekCures` = { Week, Count } for the weekly leaderboard |
 | `shared/Logic/Tutorial.luau` | The first-session tutorial's rules: the steps (1 welcome .. 8 Book, 9 done), `advance(step, event)`, `resume` after a rejoin, who Patients may send (`spawnPlan`, `queueCap`), the shop top-up (`cheapest`, `topUp`) |
 | `shared/Logic/Pay.luau` | Cash and ⭐ for a cure |
@@ -44,6 +45,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Logic/Daily.luau` | UTC day, Today's Visitor, banked goals, mailbox |
 | `shared/Logic/Leaderboard.luau` | The leaderboards' rules ([Leaderboards](#leaderboards)): the boards, the UTC week, store names, a player's values from their save, what changed since the last write, backoff, permanent errors, the live merge and rank, admin exclusion |
 | `shared/Logic/Admin.luau` | The admin panel's rules: who is an admin, the fixed action list and the argument each takes, the alone-in-server rule ([Admin panel](#admin-panel)) |
+| `shared/Logic/CreatureSize.luau` | A creature's build scale: its species' `Look.Scale` (0.75 small .. 1.25 big) × `Config.CreatureSize` (1.6, player-sized) × this patient's wobble (±`Config.CreatureSizeJitter`, 8%) |
 
 `Logic/*` is **pure**: no Roblox services and no requires, so Lune can test it. The server passes `Config` in as
 `cfg`.
@@ -67,8 +69,8 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/DayReport.luau` | Counts each player's cures and new pages, and sends the Day Report when night ends |
 | `server/DayNight.luau` | The day/night cycle (`IsNight`, `PhaseEndsAt`) and the candy-pop lighting grade (the `CandyColor` ColorCorrection, Atmosphere, Bloom), set from code by day and by night |
 | `server/Stations.luau` | A hold-to-make prompt on every `Station_*`, with the hold time checked on the server |
-| `server/Patients.luau` | A queue per plot, the `Treat` prompt on the Counter, beds, patience, night patients, variants, visitors and regulars. During an owner's tutorial: its two patients, one at a time, no patience running out (steps 1-6), no regulars or visitor |
-| `server/CreatureBuilder.luau` | A creature Model from its `Look`, or a clone of `ServerStorage.Creatures.<PatientId>`. The badge and bubble stop growing up close (`DistanceLowerLimit`) |
+| `server/Patients.luau` | A queue per plot, the `Treat` prompt on the Counter, beds, patience, night patients, variants, visitors and regulars. Sets the patient attributes the client acts from (`Ailment`, `State`, `PatienceFraction` in 0.05 steps, only on change). During an owner's tutorial: its two patients, one at a time, no patience running out (steps 1-6), no regulars or visitor |
+| `server/CreatureBuilder.luau` | A creature Model from its `Look` (29-35 parts: a glossy toy body, shiny eyes with a coloured glow, brows, cheeks, a mouth that is sick / happy / sad / a sleepy smile, little arms, ears, a hat, an extra and the species' `Bits`), or a clone of `ServerStorage.Creatures.<PatientId>`. Sized by `Logic/CreatureSize`. Rigged for client acting: every part welds to `Core`, which hangs on `Root.PoseJoint` (Motor6D); arms/wings/flippers and tails on their own Motor6Ds; prop sockets (Attachments) on `Core`; tag `ClinicCreature`. The badge and bubble stop growing up close (`DistanceLowerLimit`) |
 | `server/Cure.luau` | One cure, in order: pay, cash (with `Cured` and this UTC week's `WeekCures`), ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` |
 | `server/Visits.luau` | Hearts on the sign (once per owner per UTC day), the owner's `OpenHelpers` toggle, the friend referral reward |
@@ -95,6 +97,8 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/Feel/Sounds.luau` | One table of built-in `rbxasset://` sound cues; any module plays one with `ctx.fire("Sound", name)` |
 | `client/Feel/CureFX.luau` | Cure sparkles, the "💰 +n" / "⭐ +n" pop, the NEW PAGE banner, new-room and placed-decor celebrations, hearts on your sign |
 | `client/Feel/Atmosphere.luau` | Snow while `IsWinter`, fireflies at night, gentle decor sway, the calm-effects setting (`ReduceEffects`; its switch is in the HUD's ⚙️) |
+| `client/Feel/CreatureActing.luau` | Every patient near you **acts out its ailment** (`Data/AilmentActing`): it sets the creature's Motor6D `Transform`s on this client only (never `Root.CFrame`), so it hiccup-hops, sneezes, coughs, sways dizzily, sniffles, droops, tugs, shakes off mud, shivers or warms its nose, and waves (then bounces with a "!") as its `PatienceFraction` runs low. Treated: the props pop off with a sparkle; Cured: a happy wave, a wag and candy sparkles. Calm effects make it all small and slow. No loop runs when no creature is around |
+| `client/Feel/CreatureProps.luau` | Its library: the client-only props (a glass of water, tissue and red nose, mask, plaster cross and circling ⭐, cheek plaster and a tear, an empty jar, honey, mud spots, a scarf, an ice cap and earmuffs), the particle bursts, the extra mouths (hic, ooh, achoo, chattering teeth) and squeezed-shut eyes (> <), the cold cheeks, the dimmed night glow and the "!" |
 | `client/Music.client.luau` | Background music (`Config.Music`), day and night playlists, muted by `MusicMuted` (its switch is in the HUD's ⚙️) |
 
 ### Tests
@@ -102,7 +106,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `tests/run.luau` | Runs every `tests/*.spec.luau`, prints PASS/FAIL and exits 1 on any failure |
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
-| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin`, `Leaderboard` |
+| `tests/*.spec.luau` | `Schema`, `Data` (incl. creature sizes, `Bits` and `AilmentActing`), `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin`, `Leaderboard`, `CreatureSize` |
 
 ## Boot order
 **Server (`Main.server.luau`):**
@@ -124,13 +128,14 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 
 **Client (`Main.client.luau`):** waits for `game.Loaded` and builds `ctx`. Then it loads `UI.Toasts`, `Hud`, `Shop`,
 `BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter`, `AdminPanel`, `Boards` and `Tutorial`, then
-`Feel.Sounds`,
-`CureFX` and `Atmosphere`. Each one is loaded in its own pcall, and its `init(ctx)` runs. A missing or broken module
-warns `[Client] ...` and is skipped. `Music.client` and `RoofFade.client` are separate LocalScripts. Until the
-server's first snapshot arrives, `ctx.State.Tutorial` is 0 ("not known yet"), so the HUD starts calm (only 💰).
+`Feel.Sounds`, `CureFX`, `Atmosphere` and `CreatureActing` (`Feel.CreatureProps` is its library). Each one is loaded in
+its own pcall, and its `init(ctx)` runs. A missing or broken module warns `[Client] ...` and is skipped. `Music.client`
+is a separate LocalScript. Until the server's first snapshot arrives, `ctx.State.Tutorial` is 0 ("not known yet"), so
+the HUD starts calm (only 💰).
 
 ## The loop
-A patient walks in and queues at `QueueStart`, with its ailment icon and a patience ring → you **hold at the matching
+A patient walks in and queues at `QueueStart`, with its ailment icon and a patience ring. While it waits it acts out
+what's wrong with props (`Data/AilmentActing`) and waves for you as its patience runs low → you **hold at the matching
 `Station_*`** to make the item (🧪 Potion, 🩹 Plaster, 🧼 Bubbles, ☕ Cocoa) → you carry it → you **Treat at the
 Counter** → the patient goes to a free `Bed_*` (or recovers in place) → `Cure.resolve`: cash, ⭐, a Book stamp, goal
 progress, a story beat → a happy hop, and it leaves. A wrong item gets a head-shake and a hint. Running out of
@@ -294,7 +299,7 @@ benches, lamps and planters (within 17 of the centre), the street lamps (x = ±3
 | `ClinicKit.Stand`, `.BathRoom`, `.Ward`, `.WinterWing`, `.Garden` | The placeholder room. It needs a `Floor` Part plus its `Station_*`, `Bed_<n>` and `DecorSlot_<n>` parts |
 | `ClinicKit.Plot` | The placeholder plot. It needs `Ground`, `Sign`/`SignGui`, `Counter`, the 3 markers and `Slots.RoomSlot_*` |
 | `ClinicKit.Decor.<DecorId>` | The placeholder decor (4×4 footprint, pivot at the bottom centre) |
-| `Creatures.<PatientId>` | The placeholder creature |
+| `Creatures.<PatientId>` | The placeholder creature. It still acts its ailment: props go on sockets guessed from its bounding box, and the whole body leans and bobs (no separate arms or tail to wave) |
 
 Anything missing or misnamed makes PlotBuilder fall back to its placeholder and print a `[PlotBuilder] ...` warning in
 Output. A kit `Station_*` without an `IconGui` gets the placeholder's floating station icon. Kit models are cloned
@@ -333,6 +338,9 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
     (`LastGrantDay`, `Mailbox.LastSeenDay`, `HeartsGiven`, `VisitorDay`, a story's `LastBeatDay`). The next load
     pulls those days back to the real UTC day (`Schema.reconcile`), so the account isn't locked out, but it can
     still lose that day's mail or goal. A spare account, or API access off, is still the cleanest.
+- **Creature check:** a line has small, medium and big patients that never overlap; each acts its ailment with its
+  props (see `Data/AilmentActing`), waves at ≤ 50% patience and bounces with a "!" at ≤ 25%; the props pop off with a
+  sparkle on Treat; with 💤 calm effects every motion is small and slow (no shivering, no circling stars).
 - **Feel check:** a cure gives sparkles, a pop, a chime and the NEW PAGE banner; in ⚙️, the ✨ switch turns to 💤
   and the effects calm down, and 🎵 turns to 🔇 and the music fades; `ForceWinter` brings snow; at night there are
   fireflies and the lamps and lanterns glow.

@@ -63,7 +63,7 @@ local UI_MODULES = {
 	"Boards",
 	"Tutorial",
 }
-local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere" }
+local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureActing" } -- Feel.CreatureProps is its library
 local DATA_NAMES = {
 	"Ailments",
 	"Stations",

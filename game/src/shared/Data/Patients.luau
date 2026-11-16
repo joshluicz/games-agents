@@ -10,8 +10,15 @@
 --   Ears   "None" | "Round" | "Floppy" | "Pointy" | "Long" | "Tufts"
 --   Top    "None" | "Leaf" | "Bow" | "Cloud" | "Antennae" | "Crust" | "Pleat" | "Scoop" | "Star" | "Lid"
 --   Extra  "None" | "Wings" | "Tail" | "Flippers" | "Spout"
---   Scale  1 = about 3 studs tall
--- Every creature gets big friendly eyes and rosy cheeks; nothing scary, gross or sharp (Rated Minimal).
+--   Scale  the species' own size, 0.75 (small) .. 1.25 (big); 1 = about 3 units tall. Every creature is then
+--          Config.CreatureSize bigger (player-sized) and each patient varies by ±Config.CreatureSizeJitter
+--          (Logic/CreatureSize), so a line has small, medium and big patients. The biggest still fit the 7-stud line.
+--   Bits   optional small accessories that make the species its own (CreatureBuilder.BITS):
+--          "Toes" "Spots" "Bell" "Nose" "PinkNose" "Butter" "Cherry" "CottonTail" "Whiskers" "Puddle" "Glasses"
+--          "PinkPaws" "Beak" "OrangeFeet" "Syrup" "EyeRings" "Hem" "MothWings" "WingSpots" "Fluff" "Daisy"
+--          "Blush" "Dots" "GrumpyBrows" "Trail"
+-- Every creature gets big shiny eyes, brows, rosy cheeks and little arms; nothing scary, gross or sharp (Rated
+-- Minimal). What a waiting patient acts out (and the props it wears) is Data/AilmentActing.
 -- Colours are candy pop (memory-20261116-007): a saturated body colour of its own per species, so no two look alike
 -- across a clinic, and a light or contrasting accent. Night patients glow in a rich version of their body colour.
 
@@ -24,6 +31,7 @@ export type Look = {
 	Top: string,
 	Extra: string,
 	Scale: number,
+	Bits: { string }?,
 }
 export type Patient = {
 	Name: string,
@@ -47,6 +55,7 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Top = "Pleat",
 			Extra = "None",
 			Scale = 1,
+			Bits = { "Toes", "Spots" },
 		},
 	},
 	CloudSheep = {
@@ -60,7 +69,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "Floppy",
 			Top = "Cloud",
 			Extra = "None",
-			Scale = 1.05,
+			Scale = 0.95,
+			Bits = { "Bell" },
 		},
 	},
 	ToastPup = {
@@ -74,7 +84,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "Floppy",
 			Top = "Crust",
 			Extra = "Tail",
-			Scale = 1,
+			Scale = 1.05,
+			Bits = { "Nose", "Butter" },
 		},
 	},
 	JellyBun = {
@@ -88,7 +99,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "Long",
 			Top = "None",
 			Extra = "None",
-			Scale = 0.95,
+			Scale = 0.8,
+			Bits = { "Cherry", "CottonTail" },
 		},
 	},
 
@@ -104,7 +116,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "Pointy",
 			Top = "None",
 			Extra = "Tail",
-			Scale = 1,
+			Scale = 0.9,
+			Bits = { "Whiskers", "Puddle" },
 		},
 	},
 	MossMole = {
@@ -118,7 +131,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "Round",
 			Top = "Leaf",
 			Extra = "None",
-			Scale = 0.95,
+			Scale = 1.25,
+			Bits = { "PinkNose", "Glasses", "PinkPaws" },
 		},
 	},
 
@@ -134,7 +148,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "None",
 			Top = "Scoop",
 			Extra = "Flippers",
-			Scale = 1,
+			Scale = 1.15,
+			Bits = { "Beak", "OrangeFeet", "Syrup" },
 		},
 	},
 	IcicleOwl = {
@@ -148,7 +163,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "Tufts",
 			Top = "None",
 			Extra = "Wings",
-			Scale = 1,
+			Scale = 0.9,
+			Bits = { "Beak", "EyeRings" },
 		},
 	},
 
@@ -165,7 +181,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "None",
 			Top = "None",
 			Extra = "None",
-			Scale = 1,
+			Scale = 1.1,
+			Bits = { "Hem" },
 		},
 	},
 	MoonMoth = {
@@ -180,7 +197,8 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Ears = "None",
 			Top = "Antennae",
 			Extra = "Wings",
-			Scale = 0.95,
+			Scale = 0.8,
+			Bits = { "MothWings", "WingSpots", "Fluff" },
 		},
 	},
 }

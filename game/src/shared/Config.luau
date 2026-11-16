@@ -25,6 +25,7 @@ Config.MaxQueue = 4 -- patients waiting at one clinic at once
 Config.QueueSpacing = 7 -- studs between patients in the queue (creatures are player-sized)
 Config.QueueDepth = 7 -- studs the line runs straight back from the counter before it turns sideways
 Config.CreatureSize = 1.6 -- every creature's size multiplier (about a player's height)
+Config.CreatureSizeJitter = 0.08 -- each patient is up to 8% smaller or bigger than its species (Logic/CreatureSize)
 Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7)
 Config.RecoverSeconds = 4 -- time in bed (or in place) before the cure lands
 Config.QueuePatienceRate = 0.5 -- patience drains at this speed behind the front of the line (1 = full speed)
