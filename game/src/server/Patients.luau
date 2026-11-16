@@ -7,6 +7,11 @@
 --       Config.MaxQueue picks wait their turn. Refused when no station on the plot can treat it.
 --   Patients.reopen(owner): boolean   empties the owner's clinic and opens it again, as on a fresh join (a patient
 --       already treated is cured on the spot first, exactly as when an owner leaves)
+--   Progression v2 (build plan §B8; STUB (T7) until T7 lands them):
+--   Patients.adminAmbulance(owner): (ok, message)    an ambulance now (Lv 2+)
+--   Patients.adminHelicopter(owner): (ok, message)   an air ambulance now (Lv 5; no R2 needed)
+--   FOUNDATION: until T7 lands the Sunny/Sky rules, a patient whose wing needs rebirths or a helicopter (Data/Wings
+--   Rebirths / Only) never comes, so nothing changes for anyone before T7.
 --
 -- A visit, step by step:
 --   1. Arrive. Each owned plot gets a patient every few seconds (the owner's hospital level: Levels.spawnSeconds,
@@ -93,6 +98,7 @@ local ItemsData = require(Shared.Data.Items)
 local PatientsData = require(Shared.Data.Patients)
 local RegularsData = require(Shared.Data.Regulars)
 local StationsData = require(Shared.Data.Stations)
+local WingsData = require(Shared.Data.Wings)
 
 local Carry = require(script.Parent.Carry)
 local CreatureBuilder = require(script.Parent.CreatureBuilder)
@@ -1359,6 +1365,11 @@ local function trySpawn(state: PlotState, plan: string)
 		if not entry or not treatable(entry.Ailment) or not makeable(patientId, nil) then
 			return false
 		end
+		-- STUB (T7): Progression v2's wings wait for T7's rules (Sunny from R1, Sky by helicopter only)
+		local wing = rawget(WingsData :: any, entry.Wing)
+		if type(wing) == "table" and (wing.Rebirths ~= nil or wing.Only ~= nil) then
+			return false
+		end
 		if entry.Night and not isNight then
 			return false
 		end
@@ -1913,6 +1924,16 @@ function Patients.reopen(owner: Player): boolean
 	deactivate(plot)
 	activate(owner, plot)
 	return true
+end
+
+-- STUB (T7): an ambulance now (Lv 2+)
+function Patients.adminAmbulance(_owner: Player): (boolean, string)
+	return false, Remotes.SOON
+end
+
+-- STUB (T7): an air ambulance now (Lv 5; no R2 needed)
+function Patients.adminHelicopter(_owner: Player): (boolean, string)
+	return false, Remotes.SOON
 end
 
 function Patients.start()

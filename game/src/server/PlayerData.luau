@@ -1,5 +1,5 @@
 --!strict
--- Loads, holds and saves each player's progress: save schema v2 (Logic/Schema). Server only.
+-- Loads, holds and saves each player's progress: save schema v4 (Logic/Schema). Server only.
 --
 -- API (build plan §B5):
 --   PlayerData.get(p): Data?            the live save. READ ONLY: change it with update()
@@ -8,6 +8,14 @@
 --                                       every DataStore wait below is bounded.
 --   PlayerData.Loaded                   signal (p, data), after a load (even a failed one: data is then defaults)
 --   PlayerData.Changed                  signal (p, data), after every update (State listens to push snapshots)
+--   PlayerData.canSave(p): boolean      this session's progress is being saved (also the `DataOk` attribute)
+--   Progression v2 (build plan §B8):
+--   PlayerData.isOpen(p): boolean       loaded and not closing: update() would be accepted now (the Market checks
+--                                       both sides with it before a transfer)
+--   PlayerData.saveNow(p): boolean      yields: writes the save now if this session owns the lock (and may save),
+--                                       true when the write landed. Never two writes for one player at once (it
+--                                       waits for one in flight). False when not loaded, leaving, or not saving.
+--                                       The Market saves the seller THEN the buyer; a rebirth saves at once
 --
 -- Safety (roblox-datastores skill):
 --   · Writes use UpdateAsync with a session lock, so two servers never write over each other (fast rejoin,
@@ -525,6 +533,22 @@ end
 function PlayerData.canSave(player: Player): boolean
 	local session = sessions[player]
 	return session ~= nil and session.CanSave
+end
+
+-- Loaded and not closing: an update() now would be accepted.
+function PlayerData.isOpen(player: Player): boolean
+	local session = sessions[player]
+	return session ~= nil and not session.Released and not session.Final and player.Parent == Players
+end
+
+-- Writes now (yields). write() already waits for a write in flight, so two never run for one player at once.
+function PlayerData.saveNow(player: Player): boolean
+	local session = sessions[player]
+	if not session or session.Released or not session.CanSave or not session.Owned then
+		return false
+	end
+	local ok, result = pcall(write, player, session, false)
+	return ok and result == "Ok"
 end
 
 function PlayerData.start()

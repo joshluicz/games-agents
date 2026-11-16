@@ -10,10 +10,14 @@
 --   MakeSpeed  hold time / (1 + p/100) at a station, never below a floor (Boosts.makeSeconds)
 --   Patience   x (1 + p/100) on how long a patient waits
 --
--- Two sources:
+-- Three sources:
 --   permanent  Effects { Kind, Scope?, Percent } from Doctor ranks and badge tiers. Scope limits one to some cures or
 --              stations ("Night", a WingId, a StationId); nil applies everywhere. The total of a kind is CAPPED
 --              (Config.BoostCaps), so badges can never run away with the economy.
+--   branch     Progression v2: { [Kind]: percent } from the Branch Ability Tree and the perk cards
+--              (Logic/Rebirth.effects), everywhere, with its OWN caps (Config.BranchCaps), so neither source eats the
+--              other's room and neither can run away. (The +25% a rebirth is not a boost here: Server/Boosts
+--              multiplies Cash and Stars by Logic/Rebirth.multiplier on top.)
 --   timed      Data.Boosts = { [BoostId]: secondsLeft } from the play gifts (Data/Boosts). They tick only during
 --              active play, extend instead of stacking (capped), and add on top of the capped permanent part.
 --
@@ -21,12 +25,16 @@
 --   Boosts.applies(effect, scopes?): boolean      Scope nil, or scopes[Scope] == true
 --   Boosts.permanent(effects, kind, scopes?, caps): number   percent, capped at caps[kind] (no cap entry = no cap)
 --   Boosts.timed(timed, defs, kind): number       percent from the timed boosts still running
---   Boosts.percent(effects, timed, defs, kind, scopes?, caps): number   permanent (capped) + timed
+--   Boosts.branch(branch, kind, branchCaps?): number   the branch percent of a kind, capped at branchCaps[kind]
+--   Boosts.percent(effects, timed, defs, kind, scopes?, caps, branch?, branchCaps?): number
+--                                                 min(permanent, caps) + min(branch, branchCaps) + timed
 --   Boosts.multiplier(...same...): number         1 + percent / 100
 --   Boosts.extend(timed, defs, id, seconds, maxSeconds): Timed   adds time to one boost (unknown id: unchanged)
 --   Boosts.tick(timed, seconds): Timed            takes active seconds off every boost; finished ones go
 --   Boosts.soonest(timed): number?                the fewest seconds left on any running boost
---   Boosts.summary(effects, caps): { [Kind]: number }   the everywhere (unscoped) permanent percent of each kind
+--   Boosts.summary(effects, caps, branch?, branchCaps?): { [Kind]: number }   the everywhere (unscoped) permanent
+--                                                 percent of each kind, plus the capped branch part when given
+--   Boosts.branchSummary(branch, branchCaps): { [Kind]: number }   the capped branch percent of each kind
 --   Boosts.makeSeconds(base, percent, floor): number    a hold time with a MakeSpeed percent applied
 -- Every function returns new tables; inputs are never changed.
 
@@ -35,6 +43,7 @@ export type TimedDef = { Name: string, Icon: string, Kind: string, Percent: numb
 export type Timed = { [string]: number }
 export type Caps = { [string]: number }
 export type Scopes = { [string]: boolean }
+export type Branch = { [string]: number }
 
 local Boosts = {}
 
@@ -78,15 +87,27 @@ function Boosts.timed(timed: Timed, defs: any, kind: string): number
 	return total
 end
 
+function Boosts.branch(branch: Branch?, kind: string, branchCaps: Caps?): number
+	local value = if type(branch) == "table" then branch[kind] else nil
+	if not finite(value) or (value :: number) <= 0 then
+		return 0
+	end
+	return math.min(value :: number, capOf(branchCaps, kind))
+end
+
 function Boosts.percent(
 	effects: { Effect },
 	timed: Timed,
 	defs: any,
 	kind: string,
 	scopes: Scopes?,
-	caps: Caps?
+	caps: Caps?,
+	branch: Branch?,
+	branchCaps: Caps?
 ): number
-	return Boosts.permanent(effects, kind, scopes, caps) + Boosts.timed(timed, defs, kind)
+	return Boosts.permanent(effects, kind, scopes, caps)
+		+ Boosts.branch(branch, kind, branchCaps)
+		+ Boosts.timed(timed, defs, kind)
 end
 
 function Boosts.multiplier(
@@ -95,9 +116,11 @@ function Boosts.multiplier(
 	defs: any,
 	kind: string,
 	scopes: Scopes?,
-	caps: Caps?
+	caps: Caps?,
+	branch: Branch?,
+	branchCaps: Caps?
 ): number
-	return 1 + Boosts.percent(effects, timed, defs, kind, scopes, caps) / 100
+	return 1 + Boosts.percent(effects, timed, defs, kind, scopes, caps, branch, branchCaps) / 100
 end
 
 function Boosts.extend(timed: Timed, defs: any, id: string, seconds: number, maxSeconds: number): Timed
@@ -133,10 +156,18 @@ function Boosts.soonest(timed: Timed): number?
 	return best
 end
 
-function Boosts.summary(effects: { Effect }, caps: Caps?): { [string]: number }
+function Boosts.summary(effects: { Effect }, caps: Caps?, branch: Branch?, branchCaps: Caps?): { [string]: number }
 	local out: { [string]: number } = {}
 	for _, kind in Boosts.KINDS do
-		out[kind] = Boosts.permanent(effects, kind, nil, caps)
+		out[kind] = Boosts.permanent(effects, kind, nil, caps) + Boosts.branch(branch, kind, branchCaps)
+	end
+	return out
+end
+
+function Boosts.branchSummary(branch: Branch?, branchCaps: Caps?): { [string]: number }
+	local out: { [string]: number } = {}
+	for _, kind in Boosts.KINDS do
+		out[kind] = Boosts.branch(branch, kind, branchCaps)
 	end
 	return out
 end

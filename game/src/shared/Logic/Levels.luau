@@ -8,7 +8,9 @@
 --   Levels.nextRow(levels, level): Level?          the next level's row, nil at the top
 --   Levels.canLevelUp(data, levels): (ok, message) checks, in order: the top · Clinic Stars (a gate, not spent) ·
 --                                                  cash. Messages: "Max level!", "Need ⭐15", "Need 💰400"; "" when ok
---   Levels.slots / beds / queue / recipeCap (levels, level): number    from the row
+--   Levels.beds / queue / recipeCap / floors (levels, level): number   from the row (Progression v2: slots are gone;
+--                                                  every nurse you own works)
+--   Levels.departments(levels, level): { DeptId }  the departments open at that level (a copy of its row's list)
 --   Levels.spawnSeconds(levels, level): number     seconds between new patients (the row's SpawnSeconds; 13 when a
 --                                                  row has none or junk)
 --   Levels.impliedByRoom(levels, room): number     the highest level whose ⭐ gate is at or below the room's own ⭐
@@ -21,12 +23,12 @@ export type Level = {
 	Icon: string,
 	Stars: number,
 	Cash: number,
-	Slots: number,
 	Beds: number,
 	Queue: number,
 	RecipeCap: number,
 	SpawnSeconds: number,
 	Floors: number,
+	Departments: { string },
 	Unlocks: { string },
 }
 
@@ -77,10 +79,6 @@ function Levels.canLevelUp(data: any, levels: { Level }): (boolean, string)
 	return true, ""
 end
 
-function Levels.slots(levels: { Level }, level: any): number
-	return Levels.row(levels, level).Slots
-end
-
 function Levels.beds(levels: { Level }, level: any): number
 	return Levels.row(levels, level).Beds
 end
@@ -91,6 +89,15 @@ end
 
 function Levels.recipeCap(levels: { Level }, level: any): number
 	return Levels.row(levels, level).RecipeCap
+end
+
+function Levels.floors(levels: { Level }, level: any): number
+	return math.max(0, math.floor(num(Levels.row(levels, level).Floors, 0)))
+end
+
+function Levels.departments(levels: { Level }, level: any): { string }
+	local list = Levels.row(levels, level).Departments
+	return if type(list) == "table" then table.clone(list) else {}
 end
 
 function Levels.spawnSeconds(levels: { Level }, level: any): number

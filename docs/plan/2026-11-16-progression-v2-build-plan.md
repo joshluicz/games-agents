@@ -98,7 +98,7 @@ API in §B8/§B9 (safe defaults), so everything requires and boots before any ta
 
 | Task | Owns (create or modify) |
 |---|---|
-| **0 Foundation** (frozen) | `src/shared/{Config,Types,Remotes,Palette,Signal}.luau` · `src/shared/Data/*.luau` (✚ `Jobs`, ✚ `Departments`, ✚ `Abilities`, ✚ `Perks`, ✚ `Tree`, ✚ `Themes`) · `src/shared/Logic/*.luau` (✚ `Jobs`, ✚ `Abilities`, ✚ `Rebirth`, ✚ `Tree`, ✚ `Agency`, ✚ `Market`, ✚ `Hospital`) · `src/server/{Main.server,PlayerData,State,Boosts,Admin}.luau` · `src/client/Main.client.luau` · `src/client/UI/AdminPanel.luau` · every existing `tests/*.spec.luau` for a Logic or Data module, plus new Logic specs · `game/README.md` |
+| **0 Foundation** (frozen) | (its new Logic specs include `tests/HospitalLogic.spec.luau`, so `Hospital.spec` stays T6's) `src/shared/{Config,Types,Remotes,Palette,Signal}.luau` · `src/shared/Data/*.luau` (✚ `Jobs`, ✚ `Departments`, ✚ `Abilities`, ✚ `Perks`, ✚ `Tree`, ✚ `Themes`) · `src/shared/Logic/*.luau` (✚ `Jobs`, ✚ `Abilities`, ✚ `Rebirth`, ✚ `Tree`, ✚ `Agency`, ✚ `Market`, ✚ `Hospital`) · `src/server/{Main.server,PlayerData,State,Boosts,Admin}.luau` · `src/client/Main.client.luau` · `src/client/UI/AdminPanel.luau` · every existing `tests/*.spec.luau` for a Logic or Data module, plus new Logic specs · `game/README.md` |
 | **T1 Nurse work (server)** | `src/server/Nurses.luau` · ✚ `src/server/Abilities.luau` · `src/server/NurseBuilder.luau` · `tests/NurseServer.spec.luau` · ✚ `tests/NurseWork.spec.luau` |
 | **T2 Branches (rebirth, server)** | ✚ `src/server/Rebirth.luau` · `src/server/Economy.luau` · `src/server/Carry.luau` · `src/server/Plots.luau` · ✚ `tests/RebirthServer.spec.luau` |
 | **T3 Agency + belt** | ✚ `src/server/Agency.luau` · `src/server/NurseBelt.luau` · ✚ `src/client/UI/AgencyPanel.luau` · `src/client/UI/BeltView.luau` · ✚ `tests/AgencyServer.spec.luau` |
@@ -266,7 +266,8 @@ jobs, team bonuses, the next rebirth's cost and the tree's effects from the Snap
   - So a crash or a shutdown ends every listing with nothing to restore.
   - A listed nurse keeps working (🏷️ on its card) until it's sold.
 - **`ListNurse(nurseId, price)`**, checked in this order:
-  1. You own it, and it isn't resting or rebirth-only.
+  1. You own it, and it isn't rebirth-only. A resting nurse may be listed (§E2 and §D P1: listing or selling one is
+     how an over-roster save makes room; Task 0 fixed this line, which said "isn't resting").
   2. It isn't listed already.
   3. `price` is a whole number inside `Logic/Market.band(cfg, rarity, level)` for its level now.
   4. You have fewer than `Config.Market.MaxPerSeller` (3) listings, and the server has fewer than `MaxListings` (30).
@@ -553,7 +554,8 @@ helicopter are client-only (`Feel/HospitalFX`) and driven by one server attribut
 - **`Items`** gains four medicines (a `Medicine = { A, B }` field and a `Tier`), and their mini-game is 🧪 Pour.
   - Tier 1: WarmTonic 🍵 (Potion + Cocoa) and SoapyPatch 🧽 (Bubbles + Plaster).
   - Tier 2 (from R2): SuperSyrup 🍯 (Potion + Plaster) and CocoaFizz 🥤 (Cocoa + Bubbles).
-- **`Stations`** gains `Pharmacy = { Name = "Pharmacy", Icon = "💊", Item = "", Craft = true, Color = Candy.Green }`.
+- **`Stations`** gains `Pharmacy = { Name = "Pharmacy", Icon = "💊", Item = "", Craft = true, Color = Candy.Mint }`
+  (Palette.Candy has no Green; Mint differs from the four station colours and from the patience ring's colours).
   `Data.spec` checks it by reading the source, as for Color3 data.
 - **`Upgrades`** gains three rows with gates. `Level` = the hospital level needed; `Rebirths` = the rebirths needed:
 
@@ -670,9 +672,11 @@ real cures a minute at Lv 3 and Lv 5 (P22's session) and re-run the calculator i
   - `hire(entry?, cap, cfg): (entry, isNew, levelledUp)`: a copy adds `xpToNext(Level)` XP, i.e. exactly one level.
   - `stats(job, rarity, level, cfg, specialty: boolean?): { Every: number?, Patience, Tip, Arrive, Urgent }`.
   - `working(nurses, cap, isKnown): { NurseId }`: Job ≠ "Rest", known, by NurseId, at most `cap`.
-  - `canAdd(data, nurseId, cfg): (ok, message)`: a copy is ok unless at the level cap ("Max level!"); a new nurse
+  - `canAdd(data, nurseId, cfg, isKnown?): (ok, message)`: a copy is ok unless at the level cap ("Max level!"); a new nurse
     needs roster room ("Roster full: sell or list one").
-  - `setJob(nurses, nurseId, job, level, cap, jobs): (ok, message, nurses)`.
+  - `setJob(nurses, nurseId, job, level, cap, jobs, role?): (ok, message, nurses)` (`role` = the nurse's Data Role,
+    so a job equal to it saves as `""`). Also `owned(nurses, isKnown?)`: how many nurses a save owns (the roster
+    count; resting ones count).
   - `mark`, `journal`, `setsDue`: as v3, but rebirth-only nurses (`Source`) are left out of every rarity group and of
     `Percent`.
   - `bestCheer`, plus `best(list, field)`. **`equip` is removed.**
@@ -689,23 +693,34 @@ real cures a minute at Lv 3 and Lv 5 (P22's session) and re-run the calculator i
   - `useful(kind, view): boolean`, where `view = { FrontPatience, LowCount, Waiting, Missing, TrayRoom,
     NearStation, OnCooldown }`.
   - `ready(readyAt, now)`.
-  - `autoGames(games, charges: { Game: string?, Count: number }): ({ boolean }, chargesLeft)`.
+  - `autoGames(games, charges: { Game: string?, Count: number }): ({ boolean }, chargesLeft)`. `charges` may also be a
+    list of them (QuickBandage and GoldenTouch banked at once): a charge for that very game is spent before an
+    any-game one; the result keeps the shape it was given.
 - **✚ `Logic/Rebirth`**:
   - `cost(count, cfg)`: the next rebirth's cost, given `count` done.
   - `canRebirth(data, cfg): (ok, message)`: "Need 🏙️ Lv 5", "Need 💰50,000", or "".
   - `multiplier(count, cfg)`: 1 + 0.25 × min(count, 20).
-  - `apply(data, cfg, offer): ()`: **mutates `data` inside `PlayerData.update`**:
+  - `apply(data, cfg, offer, content): ApplyResult`: **mutates `data` inside `PlayerData.update`**. `content` =
+    `{ Perks, Themes, Nurses, Decor }` (the Shared/Data modules: the start perks, the newest theme, the rebirth-only
+    nurse and the trophy come from them). It returns `{ Count, Theme, Unlocks, Pending, Trophies, RoomsReset }` for
+    the celebrations (Task 0 added the 4th argument and the result):
     - count +1 and points +3; `Offer` = offer;
     - cash → `StartCash` (or SeedMoney); upgrades → 0 (or WarmUp); `Level` → 1 (or ClinicStart);
-    - `Rooms` → `{ Stand }` (+ BathRoom with BathReady); `Decor.Placed` keeps only Stand slots; `Stats.RoomsBefore`
+    - `Rooms` → `{ Stand }` (+ BathRoom with BathReady); `Decor.Placed` keeps only the slots of rooms still owned (the
+      Stand's, + the BathRoom's with BathReady); `Stats.RoomsBefore`
       += rooms reset;
-    - `Theme` → the newest unlocked; `Pending` += the nurse unlocked at this count.
+    - `Theme` → the newest unlocked; `Pending` += the nurse unlocked at this count (unless owned or already pending);
+      `Decor.Owned` += the Branch Trophy of this count (R6-R10; it only ever adds, so the trophy lands in the same
+      ONE update).
     - Never touches Book, Story, Nurses, NurseIndex, JournalSets, Stars, Cured, Badges, Stats (but RoomsBefore),
-      Playtime, Boosts, Decor.Owned, Daily, Mailbox, Hearts*, WeekCures, Tutorial or Simple.
+      Playtime, Boosts, Decor.Owned (but that trophy), Daily, Mailbox, Hearts*, WeekCures, Tutorial or Simple.
   - `offer(owned, pool, r01s): { PerkId }`: up to 3 distinct unowned cards, evenly random; `{ "TreePoints" }` when
     none are left.
-  - `choose(data, perkId, perks): (ok, message)`: mutates.
-  - `unlocks(count): { string }`. Ids: `MythicSecret`, `SunnyWing` (R1), `Helicopter`, `Pharmacy2` (R2), `Golden`,
+  - `choose(data, perkId, perks, cfg?): (ok, message)`: mutates (`cfg` for SeedMoney's `StartCash`). A BathReady chosen
+    now owns the BathRoom in the save: T2 then calls `Plots.syncRooms`, which adds rooms the save owns but the plot
+    lacks as well as removing the others.
+  - `unlocks(count): { string }`: the ids NEW at exactly that count (`has` answers "at or before"); `UNLOCKS[id]` =
+    `{ Icon, Text, Rebirths }` for the chips. Ids: `MythicSecret`, `SunnyWing` (R1), `Helicopter`, `Pharmacy2` (R2), `Golden`,
     `LevelCap15` (R3), `NightClinic` (R4), `FounderFennec`, `Mascot` (R5), `Trophy<n>` (R6–R10).
   - `has(count, unlockId): boolean`.
   - `themes(count, themes): { ThemeId }`; `theme(data, themes): ThemeId`.
@@ -718,8 +733,11 @@ real cures a minute at Lv 3 and Lv 5 (P22's session) and re-run the calculator i
   nodes)`.
 - **✚ `Logic/Agency`**:
   - `restock(uptime, cfg): number`.
-  - `roll(roster, cfg, r01s): { NurseId }`: distinct, by odds, never `Source`.
-  - `personal(roster, cfg, userId, restock, owned): { NurseId }`: a seeded roll (it takes no Random object: the
+  - `roll(roster, cfg, r01s, slots?, taken?): { NurseId }`: distinct, by odds, never `Source`; two r01s a slot; a
+    rarity with nobody left falls to the next lower; never one in `taken`.
+  - `personal(roster, cfg, userId, restock, owned): { NurseId }` (`owned` = the shared stock's nurses this restock,
+    never repeated; it must not depend on anything the player can change, or a buy would re-roll it): a seeded roll
+    (`seeded(seed, n)`; it takes no Random object: the
     seed makes the r01s).
   - `price(cfg, rarity, level, bargain)`, `sellBack(entry, rarity, cfg)`, `odds(cfg)`.
 - **✚ `Logic/Market`**: `band(cfg, rarity, level): (min, max)`, `valid(price, min, max)` (a whole number),
@@ -743,7 +761,8 @@ real cures a minute at Lv 3 and Lv 5 (P22's session) and re-run the calculator i
   - `BonusStars` (0..10, added before the Stars boost).
   - The rebirth multiplier is **not** a Pay arg: `Server/Boosts.multiplier` folds it into CashBoost/StarsBoost (§B8).
 - **`Logic/Recipe`**:
-  - `match(recipe, done, have, medicines?)`: exact items first. A medicine fills every missing slot its two
+  - `match(recipe, done, have, medicines?): ({ index }, used: { ItemId })` (`medicines` = Data/Items; `used` = the
+    carried items it spends, so a medicine is taken once for two slots): exact items first. A medicine fills every missing slot its two
     ingredients cover, and is used only when at least one of them is missing.
   - `expand(itemId, medicines): { ItemId }`.
   - `craft(have, medicines, tier): MedicineId?`.
@@ -831,7 +850,7 @@ contract, a spin on each cure at the plot). It also sets `WalkBoost` and the wal
 
 **T2 `Economy`**: `Purchase("Upgrade", id)` also checks `Logic/Progress.canBuyUpgrade`. Night Clinic, Ward Comfort and
 A&E Speed sell like other upgrades. **`Carry`**: `Carry.capacity(p)` adds BigHands. **`Plots`**:
-`Plots.syncRooms(p)` removes room models the save no longer owns and puts their placed decor away (the save already
+`Plots.syncRooms(p)` adds room models the save owns but the plot lacks (BathReady) and removes room models the save no longer owns and puts their placed decor away (the save already
 did), then re-places Stand decor.
 
 **T3 `Agency`** (✚): `Agency.start()` (the kiosk, restocks, `GetAgency`, `AgencyBuy`, `SellNurse`, `AgencyNews`) ·
@@ -892,6 +911,7 @@ patiencePaused), `Levels`, `Treatment`, `Cure`, and `Logic/Rebirth.effects` on t
 
 **Foundation `Boosts`**: `Boosts.multiplier(p, "Cash" | "Stars", scopes)` = (1 + capped badge part + capped branch
 part + timed) × `Logic/Rebirth.multiplier(count)`. Other kinds take no rebirth factor. `Boosts.list` adds `Branch`
+(the capped percent per kind) and `Rebirth` = `{ Cash, Stars }` (the two multipliers; Task 0 made it a pair)
 (percent per kind) and `Rebirth` (the multiplier).
 
 **Foundation `PlayerData`**: `PlayerData.isOpen(p): boolean` (loaded, not closing) · `PlayerData.saveNow(p): boolean`
@@ -942,7 +962,7 @@ CreatureActing, HospitalFX`.
 **Kit additions (Foundation first versions; T8 owns and juices them):**
 - `Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()`: a filling ring (ability cooldowns). It
   never prints seconds.
-- `Kit.holdButton(button: TextButton, seconds: number, onDone: () -> ())`: hold-to-confirm with a fill (Open branch,
+- `Kit.holdButton(button: TextButton, seconds: number, onDone: () -> ()): () -> ()` (it returns stop): hold-to-confirm with a fill (Open branch,
   selling Epic+); instant fill with reduced motion, same hold.
 
 ### B10. Server boot order (`Main.server`)
@@ -959,29 +979,44 @@ Requires never loop:
 ---
 ## C. Tasks
 ### Task 0: Foundation (lead, first, then frozen)
-- [ ] This plan. `Config` (§B6), `Types` (§B3), `Remotes` (the new events and functions; `EquipNurse` removed),
+Done 2026-11-16 (commit "Progression v2 foundation: schema v4, contracts, data, logic, stubs"; 650 Lune specs pass).
+**Foundation notes for T1-T8** (what Task 0 decided where the plan was silent; the contract text above says the same):
+- Every new RemoteFunction answers `(false, "Coming soon!")` on the server until its system calls `Remotes.serve`
+  (Shared/Remotes), so no client ever waits on an unanswered RemoteFunction.
+- Existing task-owned files got only what booting needs, each marked `FOUNDATION` or `-- STUB (T<n>)`: Nurses (no
+  Equipped; `working` and `grant(p, id, price, source?)` are real, the rest are stubs), NursePanel (the strip shows the
+  roster; Equip on a resting nurse asks `SetJob` with its role), Shop (the ladder shows floors), Levels (`floors`,
+  `departments`), Patients (`adminAmbulance`/`adminHelicopter`, and patients of a wing with `Rebirths`/`Only` never
+  come until T7), Treatment (`waitTriage` answers `right`), Plots (`syncRooms`). The lead's Daily keeps Today's
+  Visitor off those wings.
+- `Data/Abilities.Miracle` has `Cooldown = 600` (only the ring's length) and `Daily = true`.
+- `Logic/Schema` names the tree rank cap `MAX_NODE_RANK` (10): `MAX_RANK` was already the Doctor rank cap.
+- `Logic/Pay`'s urgent multipliers come from `cfg.AE.CashMultiplier` and `cfg.VIP.CashMultiplier`.
+- `Hud.shopNews(...).Branch` counts tree points only when some node can take them, so a full tree never dots.
+- [x] This plan. `Config` (§B6), `Types` (§B3), `Remotes` (the new events and functions; `EquipNurse` removed),
   `Palette` (the theme colours, if any are new).
-- [ ] Schema v4 and migration (§B1), with specs:
+- [x] Schema v4 and migration (§B1), with specs:
   - v2 → v4 and v3 → v4: 16 nurses, 5 equipped → 3 work in Equipped order and the rest "Rest"; XP 0; `Job ""`.
   - Junk in every new field. `isNewer` for v5. Day clamps unchanged.
-- [ ] Data (§B5): Nurses, ✚ Jobs, ✚ Departments, ✚ Abilities, ✚ Perks, ✚ Tree, ✚ Themes, Levels, Items, Stations,
+- [x] Data (§B5): Nurses, ✚ Jobs, ✚ Departments, ✚ Abilities, ✚ Perks, ✚ Tree, ✚ Themes, Levels, Items, Stations,
   Upgrades, Ailments + AilmentActing, Patients, Wings, Variants, Decor, Badges. `Data.spec` covers:
   - every id each table references exists;
   - every nurse has a Specialty and an Ability;
   - the perk and node texts are ≤ 6 words;
   - the new acting uses only the vocabulary.
-- [ ] Logic (§B7) with Lune specs: Nurse (XP curve values, caps, `hire` on a copy, `canAdd`, `working`, `setJob`,
+- [x] Logic (§B7) with Lune specs: Nurse (XP curve values, caps, `hire` on a copy, `canAdd`, `working`, `setJob`,
   journal without `Source`), Jobs, Abilities, Rebirth, Tree, Agency, Market, Hospital, Boosts, Pay, Recipe, MiniGame,
   Belt, Levels, Progress, Prices, Leaderboard, Badges, Admin. Two specs are required:
   - **`Rebirth.apply`:** a table test of every save field, kept or reset.
   - **`Market.band`/`fee`:** the B6.1 table.
-- [ ] `State` (Rebirth, v4 Nurses, no Equipped), `PlayerData` (`isOpen`, `saveNow`), `Boosts` (the branch source and
+- [x] `State` (Rebirth, v4 Nurses, no Equipped), `PlayerData` (`isOpen`, `saveNow`), `Boosts` (the branch source and
   the rebirth multiplier), `Admin` + `AdminPanel` (§B8 actions, a 🏢 page and a nurse picker page),
   `Main.server`/`Main.client` (§B9/§B10; forward `AgencyNews`, `MarketNews`, `BeltScout`; the default snapshot).
-- [ ] Stubs for every ✚ module (§A) with the §B8/§B9 API and safe defaults. Stubs for the new hooks in existing files
+- [x] Stubs for every ✚ module (§A) with the §B8/§B9 API and safe defaults. Stubs for the new hooks in existing files
   owned by tasks (e.g. `Patients.adminAmbulance` answers `false, "Coming soon!"`), each marked `-- STUB (T<n>)`.
-- [ ] The Hud hook (`shopNews.Branch`), `Kit.ring` and `Kit.holdButton` first versions.
-- [ ] Boot in Studio once: `[Main] Clinic is open.`, no red errors. All specs pass.
+- [x] The Hud hook (`shopNews.Branch`), `Kit.ring` and `Kit.holdButton` first versions.
+- [ ] Boot in Studio once: `[Main] Clinic is open.`, no red errors (the lead, at integration: T0 had no Studio).
+  All specs pass (done).
 
 ### T1: Nurse work (server). Load `roblox-luau`, `roblox-networking`.
 - [ ] **Roster, not slots.** `sync` builds `Logic/Nurse.working(...)`. Resting nurses get no model.
@@ -1298,54 +1333,56 @@ Requires never loop:
 
 ---
 ## E. Open points (the design leaves these open; each has the default this plan builds)
+All twenty were decided as their stated defaults (Claude's call, 2026-11-16, at Task 0). Joshua or his brother
+may overrule any of them later; every number they use lives in `Config` or `Shared/Data`.
 1. **Roster ceiling.** memory-019 says 3 nurses +1 per rebirth with no top. Every owned nurse works on the plot and
    each is up to 40 parts, so this plan stops at **8** (reached at R5); later rebirths still give everything else.
-   *Default: 8.*
+   **Decided (Claude's call, 2026-11-16): 8.**
 2. **Saves with more nurses than the roster.** A v3 save (Update 1 tests; Update 1 isn't live yet) can own up to 16.
-   *Default:* nothing is ever deleted. The first 3 (the ones on duty first) keep working and the rest rest (💤) until
+   **Decided (Claude's call, 2026-11-16):** nothing is ever deleted. The first 3 (the ones on duty first) keep working and the rest rest (💤) until
    you sell or list one, or a rebirth adds a slot. Hiring a new nurse waits until you're under the cap.
-3. **Who fires an ability?** §7 asks for a visible cooldown and sparkle, not who presses it. *Default:* each fires by
+3. **Who fires an ability?** §7 asks for a visible cooldown and sparkle, not who presses it. **Decided (Claude's call, 2026-11-16):** each fires by
    itself when it would help (no button to learn). Banked ones (Golden Touch, Double Dose, Star Burst, Quick
    Bandage/Soap) wait for the next treat or cure.
 4. **"Night lasts 30% longer" (perk).** Night is one clock for the whole server, so one player's perk can't stretch
-   it. *Default:* at your clinic, night patients keep coming for 30% of a night after morning (🦉 Night Owl).
+   it. **Decided (Claude's call, 2026-11-16):** at your clinic, night patients keep coming for 30% of a night after morning (🦉 Night Owl).
 5. **"Belt luck within the shown odds" (Fortune).** The belt and the Agency roll once for the whole server, so a
-   per-player luck boost would make the sign wrong. *Default:* Fortune never changes a roll. 🏷️ Bargain makes belt
+   per-player luck boost would make the sign wrong. **Decided (Claude's call, 2026-11-16):** Fortune never changes a roll. 🏷️ Bargain makes belt
    and Agency nurses cheaper (−5% a rank). The capstone 🍀 Lucky Stock gives you 2 extra Agency nurses of your own
    each restock, rolled with the Agency's shown odds.
-6. **Twin Counters ("treat two patients at once").** *Default:* the Counter can treat the first or the second
+6. **Twin Counters ("treat two patients at once").** **Decided (Claude's call, 2026-11-16):** the Counter can treat the first or the second
    patient in line (whichever you carry items for), and Healers and Medics may serve the second too. Still one
    mini-game card at a time per player.
-7. **Escort: required or a bonus?** §6 says you escort the patient upstairs "or a nurse does". *Default:* a bonus,
+7. **Escort: required or a bonus?** §6 says you escort the patient upstairs "or a nurse does". **Decided (Claude's call, 2026-11-16):** a bonus,
    never a chore. A patient going upstairs waits 6 s at the lift. Ride with it (or have a Porter) for +20% cash and
    twice-as-fast rest; otherwise it rides up alone.
-8. **Triage: what a right pick earns, and how long it waits.** *Default:* triage starts at Lv 3, when there are two
+8. **Triage: what a right pick earns, and how long it waits.** **Decided (Claude's call, 2026-11-16):** triage starts at Lv 3, when there are two
    places to go (🛏️ Wards, 🛁 Hydro). A right pick pays +10%. A wrong one says "Oops, not this floor!" and the
    patient goes to the right one. With no pick in 4 s it goes by itself. A Receptionist sends patients at once, with
    the bonus.
 9. **No clocks.** §8 asks for a "server-wide countdown" on the Agency and §7 for a "next nurse in…" belt track. Red
-   line 3 and memory-020 rule out countdowns. *Default:* the Agency says "🔄 New nurses every 5 min" with no ticking
+   line 3 and memory-020 rule out countdowns. **Decided (Claude's call, 2026-11-16):** the Agency says "🔄 New nurses every 5 min" with no ticking
    clock. The nurse house has a lamp that glows brighter as the next nurse nears, with no numbers. Ability cooldowns
    are filling rings (the design asks for a visible cooldown), never seconds.
 10. **A&E's level, and the shipped Lv 4 ambulance bay.** §6 opens A&E and upstairs Wards at Lv 2. The Update 1 shell
-    parks the bay at Lv 4 and has one storey at Lv 2. *Default:* follow §6. The bay moves to Lv 2, and the Lv 2
+    parks the bay at Lv 4 and has one storey at Lv 2. **Decided (Claude's call, 2026-11-16):** follow §6. The bay moves to Lv 2, and the Lv 2
     building gains a ward floor with the lift.
 11. **The Lv 5 helipad vs R2's "A&E helicopter".** §6 puts air-ambulance VIPs on the Lv 5 roof; memory-019 makes the
-    helicopter an R2 unlock. *Default:* Lv 5 builds the helipad, and the air ambulance flies only from R2.
-12. **How +25% per rebirth adds up.** *Default:* added, not multiplied (R1 ×1.25, R4 ×2, R8 ×3), counted up to 20
+    helicopter an R2 unlock. **Decided (Claude's call, 2026-11-16):** Lv 5 builds the helipad, and the air ambulance flies only from R2.
+12. **How +25% per rebirth adds up.** **Decided (Claude's call, 2026-11-16):** added, not multiplied (R1 ×1.25, R4 ×2, R8 ×3), counted up to 20
     rebirths (×6). It applies to the cash and Stars of cures, not to mini-game tips.
-13. **Market: buying a nurse you already have.** *Default:* refused ("You have one!"). Two levelled nurses can't be
+13. **Market: buying a nurse you already have.** **Decided (Claude's call, 2026-11-16):** refused ("You have one!"). Two levelled nurses can't be
     merged without losing XP, and refusing keeps every nurse on a roster unique.
-14. **Selling back a nurse with copies.** "About 30% of its base price": *default* 30% of the belt's base price for
+14. **Selling back a nurse with copies.** "About 30% of its base price": **Decided (Claude's call, 2026-11-16):** 30% of the belt's base price for
     every copy it has (each copy was a purchase). It is never level-scaled, so nothing can be bought and sold back
     for profit.
-15. **The R5 rebirth-only Legendary.** *Default:* it can't be sold or listed. It waits as a gift when your roster is
+15. **The R5 rebirth-only Legendary.** **Decided (Claude's call, 2026-11-16):** it can't be sold or listed. It waits as a gift when your roster is
     full. It has its own Journal tab, so it changes neither the Legendary set nor the Journal % for anyone.
-16. **Resetting the tree.** *Default:* free, any time, every point back.
-17. **When the 12 perk cards run out.** *Default:* the card becomes "🌳 +2 tree points".
-18. **R6+ "a cosmetic each time".** *Default:* R6–R10 each give a Branch Trophy decor; after R10 the cosmetic is the
+16. **Resetting the tree.** **Decided (Claude's call, 2026-11-16):** free, any time, every point back.
+17. **When the 12 perk cards run out.** **Decided (Claude's call, 2026-11-16):** the card becomes "🌳 +2 tree points".
+18. **R6+ "a cosmetic each time".** **Decided (Claude's call, 2026-11-16):** R6–R10 each give a Branch Trophy decor; after R10 the cosmetic is the
     sign's 🏢 number.
-19. **The mascot pet.** *Default:* it stands by your Counter and cheers each cure. It doesn't follow you around (that
+19. **The mascot pet.** **Decided (Claude's call, 2026-11-16):** it stands by your Counter and cheers each cure. It doesn't follow you around (that
     would be a per-frame follow loop on every client).
-20. **The R1 creature wing.** *Default:* a 🌻 Sunny wing whose patients come from the start of each branch after R1,
+20. **The R1 creature wing.** **Decided (Claude's call, 2026-11-16):** a 🌻 Sunny wing whose patients come from the start of each branch after R1,
     using whatever stations you have. Names and looks are placeholders (OPEN #1).

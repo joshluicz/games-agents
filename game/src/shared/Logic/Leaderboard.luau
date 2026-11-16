@@ -31,6 +31,8 @@
 --
 -- Boards that come with the depth update (Hospital Level, Nurse Journal %) are defined here already; they read
 -- Data.Level and Data.NurseIndex only if the save has them, and only show once Config.Leaderboards lists them.
+-- Progression v2 adds 🏢 Most Rebirths ("Rebirths", caption "Branches"): Data.Rebirth.Count (nil before v4). A 0 is
+-- never written (Leaderboard.changed skips zeros), so only players with a rebirth appear.
 
 export type Board = {
 	Id: string,
@@ -84,6 +86,8 @@ Leaderboard.BOARDS = table.freeze({
 	-- The depth update (docs/plan/2026-11-16-depth-update-design.md): add to Config.Leaderboards when it lands.
 	Level = board("Level", "🏨", "Top Hospitals", "Level", "Cyan", false),
 	Journal = board("Journal", "📔", "Nurse Journal", "Journal", "Lime", false),
+	-- Progression v2 (build plan §B7): rebirths done ("branches opened"); admins are kept off it like every board.
+	Rebirths = board("Rebirths", "🏢", "Most Rebirths", "Branches", "Purple", false),
 }) :: { [string]: Board }
 
 function Leaderboard.isBoard(id: any): boolean
@@ -146,6 +150,9 @@ function Leaderboard.valueOf(id: string, data: any, week: number, extra: Extra?)
 		return whole(data.Level) -- nil until the depth update adds Data.Level
 	elseif id == "Journal" then
 		return journalPercent(data.NurseIndex, extra and extra.JournalTotal)
+	elseif id == "Rebirths" then
+		local rebirth = data.Rebirth -- nil before the v4 save (Progression v2)
+		return if type(rebirth) == "table" then whole(rebirth.Count) else nil
 	end
 	return nil
 end

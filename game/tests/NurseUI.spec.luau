@@ -258,26 +258,18 @@ T.describe("NursePanel (pure)", function()
 		eq(PanelPure.levelText({ Level = 5, Copies = 9 }, 5), "Lv 5 MAX")
 		eq(PanelPure.levelText(nil, 5), "Lv 1")
 	end)
-	test("slotChips: slots at your level, then the next level's lock", function()
-		eq(PanelPure.slotChips({}, 1, Levels), { { Kind = "Empty" }, { Kind = "Locked", Level = 2 } })
-		eq(PanelPure.slotChips({ "PuffPup" }, 1, Levels), {
-			{ Kind = "Filled", NurseId = "PuffPup" },
-			{ Kind = "Locked", Level = 2 },
-		})
-		eq(PanelPure.slotChips({ "PuffPup" }, 3, Levels), {
+	test("slotChips (Progression v2 interim): the roster's places, working nurses first", function()
+		eq(PanelPure.slotChips({}, 3), { { Kind = "Empty" }, { Kind = "Empty" }, { Kind = "Empty" } })
+		eq(PanelPure.slotChips({ "PuffPup" }, 3), {
 			{ Kind = "Filled", NurseId = "PuffPup" },
 			{ Kind = "Empty" },
 			{ Kind = "Empty" },
-			{ Kind = "Locked", Level = 4 },
 		})
-		local top = PanelPure.slotChips({ "A", "B", "C", "D", "E" }, 5, Levels)
-		eq(#top, 5) -- no lock at the top
-		eq(top[5], { Kind = "Filled", NurseId = "E" })
-		-- An over-full list (an old save) shows only the slots there are.
-		eq(#PanelPure.slotChips({ "A", "B", "C" }, 1, Levels), 2)
-		-- Junk levels clamp like the server's.
-		eq(PanelPure.slotChips({}, 0, Levels)[2], { Kind = "Locked", Level = 2 })
-		eq(#PanelPure.slotChips({}, 99, Levels), 5)
+		-- An over-full list shows only the places there are.
+		eq(#PanelPure.slotChips({ "A", "B", "C", "D" }, 3), 3)
+		eq(PanelPure.slotChips({ "A", "B" }, 2)[2], { Kind = "Filled", NurseId = "B" })
+		eq(PanelPure.slotChips({}, 0 / 0), {})
+		eq(#PanelPure.slotChips({}, 8), 8)
 	end)
 	test("rewardText for every rarity's journal reward", function()
 		eq(PanelPure.rewardText(rawget(Rarities, "Common"), "🩹"), "💰300 + 🩹")

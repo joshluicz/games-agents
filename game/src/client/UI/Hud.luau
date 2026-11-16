@@ -51,8 +51,11 @@
 --   Hud.portrait(look, dark?): Frame   a cute 2D creature face drawn from a Data `Look` (dark = "not met yet")
 --   Hud.lookOf(id): Look?              the Look of a PatientId or RegularId
 --   Hud.decorSlots(data, state)        every "<RoomId>:<n>" decor slot in your rooms, and what's in it
---   Hud.shopNews(data, state)          { Rooms, Decor, Hospital }: what the 🛒 dot is about (a room you can buy now,
---                                      level gate included; decor to place; a hospital level-up you can afford)
+--   Hud.shopNews(data, state)          { Rooms, Decor, Hospital, Branch }: what the 🛒 dot is about (a room you can
+--                                      buy now, level gate included; decor to place; a hospital level-up you can
+--                                      afford; Progression v2: Branch = a reward to claim, i.e. a perk card waiting
+--                                      or tree points a node can take. NEVER "you can open a branch": no pressure to
+--                                      rebirth, red line 3). Branch dots the 🛒 toward its 🏥 tab
 --   Hud.fly(from, icon, target?, n?)   icons burst from `from` and arc into a HUD piece (Hud.target name: "Cash",
 --                                      "Stars", "Nurses", ...), each landing with a bump and a coin tinkle; with no
 --                                      target (or a hidden one) they float up and fade. `from` is a GuiObject, a
@@ -101,6 +104,7 @@ local PlaytimeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Playtim
 local BoostsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Boosts"))
 local LevelsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Levels"))
 local ProgressLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Progress"))
+local TreeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tree"))
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -1154,11 +1158,37 @@ end
 
 -- What the 🛒 dot points at: a room you could buy right now (stars and cash both enough), or decor you own
 -- that isn't placed while a slot is free (a fresh Book or story reward, say).
-function Hud.shopNews(data: any, state: Types.Snapshot): { Rooms: boolean, Decor: boolean, Hospital: boolean }
-	local news = { Rooms = false, Decor = false, Hospital = false }
+-- Progression v2 (Foundation hook; T8 restyles the dot): a perk card waiting, or tree points some node can take.
+local function branchNews(data: any, state: Types.Snapshot): boolean
+	local rebirth = (state :: any).Rebirth
+	if type(rebirth) ~= "table" then
+		return false
+	end
+	if type(rebirth.Offer) == "table" and #rebirth.Offer > 0 then
+		return true
+	end
+	local points = if type(rebirth.Points) == "number" then rebirth.Points else 0
+	local tree = if type(data.Tree) == "table" then data.Tree.Nodes else nil
+	if points <= 0 or type(tree) ~= "table" or type(tree.Order) ~= "table" then
+		return false
+	end
+	for _, nodeId in tree.Order do
+		if TreeLogic.canBuy(rebirth.Tree, points, nodeId, tree) then
+			return true
+		end
+	end
+	return false
+end
+
+function Hud.shopNews(
+	data: any,
+	state: Types.Snapshot
+): { Rooms: boolean, Decor: boolean, Hospital: boolean, Branch: boolean }
+	local news = { Rooms = false, Decor = false, Hospital = false, Branch = false }
 	if state.PlotIndex == nil then
 		return news
 	end
+	news.Branch = branchNews(data, state)
 	for _, roomId in data.Rooms.Order do
 		local room = data.Rooms[roomId]
 		-- The server's own rule (season, the hospital level a room needs, ⭐ and 💰), so the dot never lights for a
@@ -2420,7 +2450,11 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		Kit.setDot(buttons.Goals, goalsReady)
 		local news = Hud.shopNews(data, state)
-		shopTab = if news.Rooms then "Rooms" elseif news.Decor then "Decor" elseif news.Hospital then "Hospital" else nil
+		shopTab = if news.Rooms
+			then "Rooms"
+			elseif news.Decor then "Decor"
+			elseif news.Hospital or news.Branch then "Hospital"
+			else nil
 		Kit.setDot(buttons.Shop, shopTab ~= nil)
 		if animate and mailReady and not mailWasReady then
 			Hud.shake(buttons.Mailbox)

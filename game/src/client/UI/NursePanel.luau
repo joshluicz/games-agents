@@ -1,5 +1,9 @@
 --!strict
--- NursePanel (depth-update design §2, build plan §B9; memory-20261116-012/-013). OWNER: T4.
+-- NursePanel (depth-update design §2, build plan §B9; memory-20261116-012/-013). OWNER: T5 (Progression v2).
+-- FOUNDATION (Progression v2 Task 0): EquipNurse and slots are gone. Until T5 builds the Team page, the strip shows
+-- the roster (Logic/Nurse.rosterCap: the working nurses, then empty places) and Equip on a resting nurse asks SetJob
+-- for its role (Logic/Nurse.setJob lets a resting nurse work while the roster has room); "off duty" no longer
+-- exists (every nurse you own works).
 -- The 👩‍⚕️ Nurses panel: the Nurse Journal first (a bestiary of every nurse, by rarity), and equipping inside it.
 --   init(ctx)   opens on ctx.fire("Open", "Nurses", rarity?) (the Hud's 👩‍⚕️ button); listens for "NurseNews";
 --               fires "NursesNew" (count) for the button's dot, "Open" ("NurseOdds") for UI/BeltView's odds popup,
@@ -37,7 +41,6 @@ local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local Logic = Shared:WaitForChild("Logic")
 local BeltLogic = require(Logic:WaitForChild("Belt"))
-local LevelsLogic = require(Logic:WaitForChild("Levels"))
 local NurseLogic = require(Logic:WaitForChild("Nurse"))
 local TutorialLogic = require(Logic:WaitForChild("Tutorial"))
 local BeltView = require(script.Parent.BeltView)
@@ -68,7 +71,7 @@ local UNSEEN_FACE = Kit.lighten(Theme.Colors.Disabled, 0.2)
 local SEEN_FACE = Kit.lighten(Theme.Colors.Disabled, 0.45)
 
 ------------------------------------------------------------------------------------------------------------------
--- Pure helpers: no Roblox services or types, only LevelsLogic and BeltPure (UI/BeltView's pure block). A scratch
+-- Pure helpers: no Roblox services or types, only BeltPure (UI/BeltView's pure block). A scratch
 -- Lune harness loads the block between the PURE markers on its own, so keep it that way.
 ------------------------------------------------------------------------------------------------------------------
 -- PURE-BEGIN
@@ -119,23 +122,18 @@ end
 
 export type Chip = { Kind: string, NurseId: string?, Level: number? }
 
--- The on-duty strip: one chip per slot at your level ("Filled" in Equipped order, then "Empty"), then one "Locked"
--- chip for the next level that adds a slot (none at the top level).
-function Pure.slotChips(equipped: { string }, level: number, levels: any): { Chip }
-	local slots = LevelsLogic.slots(levels, level)
+-- The roster strip (Progression v2, the Foundation's interim): one chip per roster place ("Filled" for each working
+-- nurse in order, then "Empty"), at most `cap` (Logic/Nurse.rosterCap). No locked chips: the roster grows with
+-- rebirths, and nothing here pushes toward one.
+function Pure.slotChips(working: { string }, cap: number): { Chip }
+	local places = if type(cap) == "number" and cap == cap then math.max(0, math.floor(cap)) else 0
 	local chips: { Chip } = {}
-	for i = 1, slots do
-		local nurseId = equipped[i]
+	for i = 1, places do
+		local nurseId = if type(working) == "table" then working[i] else nil
 		if type(nurseId) == "string" then
 			table.insert(chips, { Kind = "Filled", NurseId = nurseId })
 		else
 			table.insert(chips, { Kind = "Empty" })
-		end
-	end
-	for nextLevel = LevelsLogic.clamp(levels, level) + 1, LevelsLogic.max(levels) do
-		if LevelsLogic.slots(levels, nextLevel) > slots then
-			table.insert(chips, { Kind = "Locked", Level = nextLevel })
-			break
 		end
 	end
 	return chips
@@ -972,36 +970,34 @@ function NursePanel.init(ctx: Types.Ctx)
 	Hud.fitTabs(tabColumn, tabs, 8)
 
 	--------------------------------------------------------------------------------------------------------------
-	-- On duty: equip and unequip
+	-- The roster (FOUNDATION interim until T5's Team page): who works, and a resting nurse back to work
 	--------------------------------------------------------------------------------------------------------------
-	-- Known nurses only (rawget, so "Order" is never one): the server doesn't count a retired or renamed NurseId
-	-- in the save against the slots either (Server/Nurses.equip).
-	local function equippedNow(): { string }
-		local list = optimistic or ctx.State.Equipped
-		local known: { string } = {}
-		if type(list) == "table" then
-			for _, nurseId in list do
-				if type(nurseId) == "string" and type(rawget(data.Nurses, nurseId)) == "table" then
-					table.insert(known, nurseId)
-				end
-			end
-		end
-		return known
+	local function knownNurse(nurseId: string): boolean
+		return type(rawget(data.Nurses, nurseId)) == "table"
+	end
+
+	local function rebirthsNow(): number
+		local rebirth = (ctx.State :: any).Rebirth
+		return if type(rebirth) == "table" and type(rebirth.Count) == "number" then rebirth.Count else 0
 	end
 
 	local function slotsNow(): number
-		return LevelsLogic.slots(data.Levels, ctx.State.Level)
+		return NurseLogic.rosterCap(rebirthsNow(), cfg)
+	end
+
+	-- Known nurses only (rawget, so "Order" is never one), like the server (Logic/Nurse.working).
+	local function equippedNow(): { string }
+		return optimistic or NurseLogic.working(ctx.State.Nurses, slotsNow(), knownNurse)
 	end
 
 	equip = function(nurseId: string, on: boolean, button: GuiObject?)
 		if busy then
 			return
 		end
-		local state = ctx.State
 		local list = equippedNow()
 		local slots = slotsNow()
 		if on and not table.find(list, nurseId) and #list >= slots then
-			ctx.toast("All slots full!")
+			ctx.toast("Roster full: sell or list one")
 			Hud.shake(button)
 			Hud.pop(dutyTile, 1.2)
 			return
@@ -1012,15 +1008,26 @@ function NursePanel.init(ctx: Types.Ctx)
 		if textButton then
 			textButton.Text = "⏳"
 		end
-		local ok, message = Hud.ask(ctx.Remotes.EquipNurse, nurseId, on)
+		if not on then
+			busy = false
+			if textButton then
+				textButton.Text = before
+			end
+			ctx.toast("👩‍⚕️ Every nurse works!")
+			return
+		end
+		-- A resting nurse back to work: SetJob with its own role (the server checks the roster has room).
+		local nurse = rawget(data.Nurses, nurseId)
+		local role = if nurse then nurse.Role else "Maker"
+		local ok, message = Hud.ask(ctx.Remotes.SetJob, nurseId, role)
 		busy = false
 		if textButton then
 			textButton.Text = before
 		end
 		if ok then
-			local owned = if type(state.Nurses) == "table" then state.Nurses else {}
-			local _, _, nextList = NurseLogic.equip(list, owned, nurseId, on, slots)
-			optimistic = nextList -- the "Equip" cue comes with the server's NurseNews (Feel/Sounds)
+			local nextList = table.clone(list)
+			table.insert(nextList, nurseId)
+			optimistic = nextList
 			if message ~= "" then
 				ctx.toast(message)
 			end
@@ -1142,8 +1149,8 @@ function NursePanel.init(ctx: Types.Ctx)
 		return button
 	end
 
-	local function renderStrip(equipped: { string }, level: number)
-		local chips = Pure.slotChips(equipped, level, data.Levels)
+	local function renderStrip(equipped: { string })
+		local chips = Pure.slotChips(equipped, slotsNow())
 		local parts = {}
 		local filled, slots = 0, 0
 		for _, chip in chips do
@@ -1265,7 +1272,7 @@ function NursePanel.init(ctx: Types.Ctx)
 			end
 			page.Claimed = claimed
 		end
-		renderStrip(equipped, if type(state.Level) == "number" then state.Level else 1)
+		renderStrip(equipped)
 	end
 
 	-- Snapshots come with every cure; the panel only redraws while it's open (and once as it opens).

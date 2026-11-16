@@ -10,11 +10,19 @@
 --      x NightPayMultiplier                     night patients
 --      x SparklyMultiplier / FrostyMultiplier   a rare variant
 --      x VisitorMultiplier                      Today's Visitor
---      x CashBoost                              Logic/Boosts: the helper's Cash boosts (1 = none)
+--      x CashBoost                              Logic/Boosts: the helper's Cash boosts (1 = none; Server/Boosts folds
+--                                               the rebirth multiplier in, so it is no argument here)
+--   Progression v2 (build plan §B7), after those:
+--      x Urgent                                 "AE" x AE.CashMultiplier (3) · "VIP" x VIP.CashMultiplier (4)
+--      x NightClinic                            night only: x (1 + NightClinicPerLevel x the Night Clinic level)
+--      x GoldenMultiplier                       the Variant "Golden" (x5; with Sparkly/Frosty above)
+--      x Extra                                  situational factors Patients knows (escort, spa, triage, team, Ward
+--                                               Comfort, a Double Dose): >= 1, at most Pay.MAX_EXTRA
 -- where the Tip Jar factor also takes TipsBoost (the helper's Tips boosts, as a fraction: 0.5 = +50%) on top, so a
 -- Tips boost works without a Tip Jar too. Rounded to a whole number, and never below 1.
 -- Stars = 3 for a regular or Today's Visitor, 2 at night, otherwise 1. The best reason wins; they don't add up.
--- Then x StarsBoost (the owner's Stars boosts, 1 = none), rounded, never below the unboosted stars.
+-- Then + BonusStars (0..MAX_BONUS_STARS: urgent / VIP stars, a Star Burst), then x StarsBoost (the owner's Stars
+-- boosts, 1 = none), rounded, never below the unboosted stars.
 --
 -- Every input is untrusted: a junk number falls back to its neutral value (patience 0, tips 0) and a missing
 -- Cfg field counts as "no bonus", so a bad call pays a little instead of erroring mid-cure.
@@ -27,6 +35,10 @@ export type Cfg = {
 	SparklyMultiplier: number?,
 	FrostyMultiplier: number?,
 	VisitorMultiplier: number?,
+	GoldenMultiplier: number?,
+	NightClinicPerLevel: number?,
+	AE: any?, -- { CashMultiplier }
+	VIP: any?, -- { CashMultiplier }
 }
 
 export type RewardArgs = {
@@ -43,6 +55,11 @@ export type RewardArgs = {
 	CashBoost: number?, -- a multiplier >= 1 (Server/Boosts); nil or junk = 1
 	TipsBoost: number?, -- a fraction >= 0 added to the Tip Jar factor; nil or junk = 0
 	StarsBoost: number?, -- a multiplier >= 1; nil or junk = 1
+	-- Progression v2 (all optional)
+	Urgent: string?, -- "AE" | "VIP": an ambulance or helicopter patient
+	NightClinic: number?, -- the owner's Night Clinic level (night only)
+	Extra: number?, -- >= 1, at most MAX_EXTRA
+	BonusStars: number?, -- 0..MAX_BONUS_STARS, added before the Stars boost
 }
 
 export type Reward = { Cash: number, Stars: number }
@@ -54,11 +71,14 @@ Pay.STARS_NIGHT = 2
 Pay.STARS_SPECIAL = 3 -- a regular or Today's Visitor
 Pay.MAX_ITEMS = 3 -- recipes are 1..3 items (Logic/Recipe.MAX)
 Pay.MAX_CHEER = 3 -- a sanity cap on the Cheerer multiplier (Cheerers give at most ~1.4)
+Pay.MAX_EXTRA = 5 -- a sanity cap on the situational factors (Progression v2)
+Pay.MAX_BONUS_STARS = 10
 
 -- VariantId -> the Config field holding its cash multiplier.
 local VARIANT_MULTIPLIER: { [string]: string } = {
 	Sparkly = "SparklyMultiplier",
 	Frosty = "FrostyMultiplier",
+	Golden = "GoldenMultiplier", -- Progression v2 (R3)
 }
 
 local function finite(value: any): boolean
@@ -117,12 +137,27 @@ function Pay.reward(args: RewardArgs): Reward
 	end
 	cash *= cashBoost
 
+	-- Progression v2
+	local urgent = if type(cfg) == "table" and (args.Urgent == "AE" or args.Urgent == "VIP")
+		then cfg[args.Urgent]
+		else nil
+	if type(urgent) == "table" then
+		cash *= multiplier(urgent, "CashMultiplier")
+	end
+	local nightClinic = math.max(0, math.floor(numberOr(args.NightClinic, 0)))
+	if args.Night == true and nightClinic > 0 then
+		cash *= 1 + bonus(cfg, "NightClinicPerLevel") * nightClinic
+	end
+	cash *= math.clamp(numberOr(args.Extra, 1), 1, Pay.MAX_EXTRA)
+
 	local stars = Pay.STARS_DAY
 	if args.Regular == true or args.Visitor == true then
 		stars = Pay.STARS_SPECIAL
 	elseif args.Night == true then
 		stars = Pay.STARS_NIGHT
 	end
+
+	stars += math.clamp(math.floor(numberOr(args.BonusStars, 0)), 0, Pay.MAX_BONUS_STARS)
 
 	return {
 		Cash = math.max(1, math.floor(cash + 0.5)),

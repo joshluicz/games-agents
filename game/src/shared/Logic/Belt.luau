@@ -15,16 +15,22 @@
 --                                                means the next one is Rare+
 --   Belt.afterArrival(dry, rarity): number       the new dry count (0 after a Rare+)
 --   Belt.pityLeft(dry, cfg): number              arrivals until the guaranteed Rare+ (the sign's "🎁 in n")
---   Belt.pick(roster, rarity, r01): NurseId?     a nurse of that rarity, evenly (roster = Data/Nurses)
+--   Belt.pick(roster, rarity, r01): NurseId?     a nurse of that rarity, evenly (roster = Data/Nurses); never a
+--                                                rebirth-only one (Source: FounderFennec never rides)
 --   Belt.price(cfg, rarity, level): number       Prices[rarity] x PriceScale[hospital level], rounded
 --   Belt.golden(cfg, uptime): (active, startsAt, endsAt)   the current Golden Hour window, or the next one, in
 --                                                uptime seconds (windows start at 1x, 2x, 3x... GoldenEverySeconds)
 --   Belt.alpha(startAt, now, rideSeconds): number   how far along the belt a rider is, 0..1
---   Belt.canHire(entry?, cfg): (ok, message)     not when that nurse is already at Config.Nurses.MaxLevel
+--   Belt.canHire(entry?, cfg, cap?): (ok, message)   not when that nurse is already at the level cap ("Max level!";
+--                                                cap = Logic/Nurse.levelCap for the hirer, default cfg.Nurses.MaxLevel)
 --   Belt.minLevel(cfg, rarity): number           the hospital level that may hire it (cfg.Belt.MinLevel; 1 = anyone)
 --   Belt.levelOk(cfg, rarity, level): boolean    level >= minLevel. Epic and up still ride for everyone (it's one
 --                                                shared belt, and the odds are the belt's); a lower level only can't
 --                                                hire them yet, and sees "🏥 Lv 3" instead of a price
+--   Belt.minRebirths(cfg, rarity): number        the rebirths that may hire it (cfg.Belt.MinRebirths; 0 = anyone)
+--   Belt.gate(cfg, rarity, level, rebirths): string?   Progression v2: "🏥 Lv 3" (the hospital level gate first),
+--                                                "🏢 R1" (Mythic and Secret need the first rebirth), or nil. The
+--                                                Agency and the Market use the same gates
 --   Belt.path(cfg): (sx, sz, ex, ez)             the belt's start and end, in studs from Config.Town.Origin (X, Z):
 --                                                cfg.Belt.Offset, then Length studs along Heading (degrees from +X)
 --   Belt.distanceToPath(cfg, x, z): number       studs (flat) from a point (from Town.Origin) to the belt's line
@@ -127,7 +133,7 @@ function Belt.pick(roster: any, rarity: Rarity, r01: number): string?
 	if type(order) == "table" then
 		for _, id in order do
 			local nurse = rawget(roster, id)
-			if type(nurse) == "table" and nurse.Rarity == rarity then
+			if type(nurse) == "table" and nurse.Rarity == rarity and nurse.Source == nil then
 				table.insert(ids, id)
 			end
 		end
@@ -185,6 +191,23 @@ function Belt.levelOk(cfg: any, rarity: any, level: any): boolean
 	return math.floor(num(level, 1)) >= Belt.minLevel(cfg, rarity)
 end
 
+function Belt.minRebirths(cfg: any, rarity: any): number
+	local gates = belt(cfg).MinRebirths
+	local value = if type(gates) == "table" and type(rarity) == "string" then gates[rarity] else nil
+	return math.max(0, math.floor(num(value, 0)))
+end
+
+function Belt.gate(cfg: any, rarity: any, level: any, rebirths: any): string?
+	if not Belt.levelOk(cfg, rarity, level) then
+		return "🏥 Lv " .. Belt.minLevel(cfg, rarity)
+	end
+	local needed = Belt.minRebirths(cfg, rarity)
+	if math.floor(num(rebirths, 0)) < needed then
+		return "🏢 R" .. needed
+	end
+	return nil
+end
+
 function Belt.path(cfg: any): (number, number, number, number)
 	local b = belt(cfg)
 	local offset = b.Offset
@@ -206,9 +229,9 @@ function Belt.distanceToPath(cfg: any, x: number, z: number): number
 	return math.sqrt(px * px + pz * pz)
 end
 
-function Belt.canHire(entry: any, cfg: any): (boolean, string)
+function Belt.canHire(entry: any, cfg: any, cap: number?): (boolean, string)
 	local nurses = if type(cfg) == "table" and type(cfg.Nurses) == "table" then cfg.Nurses else {}
-	local maxLevel = num(nurses.MaxLevel, 5)
+	local maxLevel = num(cap, num(nurses.MaxLevel, 10))
 	if type(entry) == "table" and num(entry.Level, 0) >= maxLevel then
 		return false, "Max level!"
 	end

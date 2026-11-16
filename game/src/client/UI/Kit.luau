@@ -45,6 +45,12 @@
 --   Kit.rarityColor(rarity): Color3                the rarity's colour (Data/Rarities; unknown = Common grey)
 --   Kit.breathing(gui, amount?): () -> ()          idle "breathing" on a call to action: a slow gentle grow and
 --                                                  shrink, paused while it's pressed or bounced; returns stop
+-- Progression v2 (build plan §B9; Foundation first versions, T8 juices them and keeps the signatures):
+--   Kit.ring(parent, color): (fraction) -> ()      a filling ring (ability cooldowns) inside `parent`; call the
+--                                                  returned setter with 0..1. It NEVER prints seconds (red line 3)
+--   Kit.holdButton(button, seconds, onDone): () -> ()   hold-to-confirm with a fill across the button: onDone runs
+--                                                  once the hold lasts `seconds`; letting go early empties it. The
+--                                                  same hold with reduced motion (the fill just jumps). Returns stop
 --   Kit.Juice                                      the pure helpers behind all this (no Roblox APIs; see below)
 -- ZIndex 0 is the decoration layer inside a Kit button or panel (Gloss, Shine, Header, Rays): it draws over the
 -- parent's own fill but under every other child, so give your own children ZIndex 1 or more (the default).
@@ -1221,6 +1227,122 @@ function Kit.rarityFrame(gui: GuiObject, rarity: string): () -> ()
 	return function()
 		job.Stopped = true
 		stroke:Destroy()
+	end
+end
+
+-- A filling ring (Progression v2: ability cooldowns). First version: a round track with a disc inside that grows
+-- from the middle as the fraction fills (T8 may juice it into a sweep; the signature stays). Returns a setter for the
+-- fraction (0 = empty, 1 = full: ready). No numbers, ever.
+function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
+	local holder = Instance.new("Frame")
+	holder.Name = "Ring"
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = UDim2.fromScale(0.5, 0.5)
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.ZIndex = parent.ZIndex + 1
+	local aspect = Instance.new("UIAspectRatioConstraint")
+	aspect.Parent = holder
+	Kit.corner(holder, 999)
+	Kit.stroke(holder, color, 3)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.AnchorPoint = Vector2.new(0.5, 0.5)
+	fill.Position = UDim2.fromScale(0.5, 0.5)
+	fill.Size = UDim2.fromScale(0, 0)
+	fill.BackgroundColor3 = color
+	fill.BackgroundTransparency = 0.35
+	fill.BorderSizePixel = 0
+	fill.ZIndex = holder.ZIndex
+	Kit.corner(fill, 999)
+	fill.Parent = holder
+	holder.Parent = parent
+	return function(fraction: number)
+		local f = if type(fraction) == "number" and fraction == fraction then math.clamp(fraction, 0, 1) else 0
+		fill.Size = UDim2.fromScale(f, f)
+		fill.BackgroundTransparency = if f >= 1 then 0 else 0.35
+	end
+end
+
+-- Hold-to-confirm (Progression v2: opening a branch, selling an Epic+). A fill grows across the button while it's
+-- held; letting go before `seconds` empties it and nothing happens. onDone runs once per completed hold. Reduced
+-- motion: the same hold, the fill just jumps at the end. Returns stop (disconnects everything).
+function Kit.holdButton(button: TextButton, seconds: number, onDone: () -> ()): () -> ()
+	local hold = if type(seconds) == "number" and seconds > 0 then seconds else 1
+	local fill = Instance.new("Frame")
+	fill.Name = "HoldFill"
+	fill.BackgroundColor3 = Palette.White
+	fill.BackgroundTransparency = 0.55
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.ZIndex = button.ZIndex
+	Kit.corner(fill, Theme.Size.Corner)
+	fill.Parent = button
+	local token = 0
+	local connections: { RBXScriptConnection } = {}
+	local tween: Tween? = nil
+	local function reset()
+		token += 1
+		if tween then
+			tween:Cancel()
+			tween = nil
+		end
+		fill.Size = UDim2.fromScale(0, 1)
+	end
+	table.insert(
+		connections,
+		button.InputBegan:Connect(function(input: InputObject)
+			local kind = input.UserInputType
+			local pressed = kind == Enum.UserInputType.MouseButton1
+				or kind == Enum.UserInputType.Touch
+				or input.KeyCode == Enum.KeyCode.ButtonA
+				or input.KeyCode == Enum.KeyCode.Return
+			if not pressed then
+				return
+			end
+			reset()
+			local mine = token
+			if not Kit.reducedMotion() then
+				tween = TweenService:Create(fill, TweenInfo.new(hold, Enum.EasingStyle.Linear), {
+					Size = UDim2.fromScale(1, 1),
+				})
+				tween:Play()
+			end
+			task.delay(hold, function()
+				if token == mine then
+					fill.Size = UDim2.fromScale(1, 1)
+					token += 1
+					task.spawn(onDone)
+					task.delay(0.2, function()
+						if token == mine + 1 then
+							fill.Size = UDim2.fromScale(0, 1)
+						end
+					end)
+				end
+			end)
+		end)
+	)
+	table.insert(
+		connections,
+		button.InputEnded:Connect(function(input: InputObject)
+			local kind = input.UserInputType
+			if
+				kind == Enum.UserInputType.MouseButton1
+				or kind == Enum.UserInputType.Touch
+				or input.KeyCode == Enum.KeyCode.ButtonA
+				or input.KeyCode == Enum.KeyCode.Return
+			then
+				reset()
+			end
+		end)
+	)
+	table.insert(connections, button.MouseLeave:Connect(reset))
+	return function()
+		reset()
+		for _, connection in connections do
+			connection:Disconnect()
+		end
+		fill:Destroy()
 	end
 end
 

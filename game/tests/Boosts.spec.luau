@@ -126,3 +126,40 @@ T.describe("Boosts hold time", function()
 		expect(Boosts.makeSeconds(2, 0 / 0, 0.3)).toBe(2)
 	end)
 end)
+
+T.describe("Boosts branch source (Progression v2)", function()
+	local BRANCH_CAPS = { Cash = 30, Stars = 30, Tips = 30, MakeSpeed = 30, Patience = 50 }
+
+	test("branch: the tree + perks percent, capped by its own caps", function()
+		expect(Boosts.branch({ Cash = 20 }, "Cash", BRANCH_CAPS)).toBe(20)
+		expect(Boosts.branch({ Cash = 45 }, "Cash", BRANCH_CAPS)).toBe(30)
+		expect(Boosts.branch({ Patience = 50 }, "Patience", BRANCH_CAPS)).toBe(50)
+		expect(Boosts.branch({ Cash = 0 / 0 }, "Cash", BRANCH_CAPS)).toBe(0)
+		expect(Boosts.branch(nil, "Cash", BRANCH_CAPS)).toBe(0)
+		expect(Boosts.branch({ Cash = 70 }, "Cash", nil)).toBe(70) -- no cap entry = no cap
+	end)
+
+	test("percent = min(permanent, caps) + min(branch, branchCaps) + timed: neither eats the other's room", function()
+		local effects = { { Kind = "Cash", Percent = 60 } } -- badges past their cap
+		local caps = { Cash = 50 }
+		expect(Boosts.percent(effects, {}, {}, "Cash", nil, caps)).toBe(50)
+		expect(Boosts.percent(effects, {}, {}, "Cash", nil, caps, { Cash = 40 }, BRANCH_CAPS)).toBe(80)
+		local defs = { StarRush = { Name = "Star Rush", Icon = "🌠", Kind = "Stars", Percent = 100, Minutes = 10 } }
+		expect(Boosts.percent({}, { StarRush = 60 }, defs, "Stars", nil, caps, { Stars = 10 }, BRANCH_CAPS)).toBe(110)
+		expect(Boosts.multiplier(effects, {}, {}, "Cash", nil, caps, { Cash = 40 }, BRANCH_CAPS)).toBeCloseTo(1.8)
+	end)
+
+	test("summary adds the branch part when given; branchSummary is the branch alone", function()
+		local effects = { { Kind = "Tips", Percent = 4 } }
+		local caps = { Tips = 50 }
+		expect(Boosts.summary(effects, caps).Tips).toBe(4)
+		expect(Boosts.summary(effects, caps, { Tips = 50 }, BRANCH_CAPS).Tips).toBe(34)
+		expect(Boosts.branchSummary({ Tips = 50, Patience = 20 }, BRANCH_CAPS)).toEqual({
+			Cash = 0,
+			Tips = 30,
+			Stars = 0,
+			MakeSpeed = 0,
+			Patience = 20,
+		})
+	end)
+end)

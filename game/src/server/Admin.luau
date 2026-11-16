@@ -24,9 +24,15 @@
 --                      today: the gifts) · AddPlayTotal (+5 h all time: Doctor ranks) · AddCureStat (+100 to the
 --                      🏥 Healer counter) · MaxBadges (every badge to Mythic, with rewards) · AddBoost (a Data/Boosts id)
 --   the whole server   SkipToNight · SkipToDay (Workspace.SkipPhase, as in DayNight) · ToggleWinter
---                      (Workspace.ForceWinter, as in Events)
--- Everything goes through the systems' own APIs (Economy, Progress, Plots, Book, Story, Daily, Tutorial, Patients),
--- so saving, toasts and snapshots work exactly as they do in play.
+--                      (Workspace.ForceWinter, as in Events) · RefillAgency (Agency.restockNow)
+--   Progression v2     (your own save and plot, through each owner's admin hook; a hook still stubbed answers
+--                      "Coming soon!") Rebirth (Rebirth.adminRebirth: free, no Lv 5) · AddTreePoints
+--                      (Rebirth.adminPoints: +3) · NurseLevels (Nurses.adminLevels: +1 level each, to the cap) ·
+--                      GiveNurse (a Data/Nurses id: Nurses.adminGive, the roster rules apply) · ChargeAbilities
+--                      (Abilities.adminCharge) · SpawnAmbulance (Patients.adminAmbulance, Lv 2+) · SpawnHelicopter
+--                      (Patients.adminHelicopter, Lv 5; no R2 needed)
+-- Everything goes through the systems' own APIs (Economy, Progress, Plots, Book, Story, Daily, Tutorial, Patients,
+-- Nurses, Abilities, Rebirth, Agency), so saving, toasts and snapshots work exactly as they do in play.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -40,6 +46,7 @@ local Rooms = require(Shared.Data.Rooms)
 local Decor = require(Shared.Data.Decor)
 local PatientsData = require(Shared.Data.Patients)
 local BoostData = require(Shared.Data.Boosts)
+local NursesData = require(Shared.Data.Nurses)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
 local Economy = require(script.Parent.Economy)
@@ -53,6 +60,10 @@ local Events = require(script.Parent.Events)
 local Playtime = require(script.Parent.Playtime)
 local Badges = require(script.Parent.Badges)
 local Boosts = require(script.Parent.Boosts)
+local Nurses = require(script.Parent.Nurses)
+local Abilities = require(script.Parent.Abilities)
+local Agency = require(script.Parent.Agency)
+local Rebirth = require(script.Parent.Rebirth)
 
 local Admin = {}
 
@@ -162,6 +173,19 @@ local function skipTo(night: boolean): (boolean, string)
 end
 
 type Run = (player: Player, arg: any) -> (boolean, string)
+
+-- An owner's admin hook: loaded first, and an error is an "Oops!" (logged), never a broken panel.
+local function hook(player: Player, fn: (...any) -> (boolean, string), ...: any): (boolean, string)
+	if not loaded(player) then
+		return false, LOADING
+	end
+	local ok, result, message = pcall(fn, ...)
+	if not ok then
+		warn("[Admin] hook failed:", result)
+		return false, Remotes.OOPS
+	end
+	return result == true, if type(message) == "string" then message else ""
+end
 
 local RUN: { [string]: Run } = {
 	AddCash = function(player, amount)
@@ -323,6 +347,44 @@ local RUN: { [string]: Run } = {
 		end
 		return true, "👋 Winter off!"
 	end,
+
+	-- Progression v2 (build plan §B8): each calls its owner's admin hook
+	Rebirth = function(player)
+		return hook(player, Rebirth.adminRebirth, player)
+	end,
+
+	AddTreePoints = function(player)
+		return hook(player, Rebirth.adminPoints, player)
+	end,
+
+	RefillAgency = function()
+		local ok, result, message = pcall(Agency.restockNow)
+		if not ok then
+			warn("[Admin] hook failed:", result)
+			return false, Remotes.OOPS
+		end
+		return result == true, if type(message) == "string" then message else ""
+	end,
+
+	NurseLevels = function(player)
+		return hook(player, Nurses.adminLevels, player)
+	end,
+
+	GiveNurse = function(player, nurseId)
+		return hook(player, Nurses.adminGive, player, nurseId)
+	end,
+
+	ChargeAbilities = function(player)
+		return hook(player, Abilities.adminCharge, player)
+	end,
+
+	SpawnAmbulance = function(player)
+		return hook(player, Patients.adminAmbulance, player)
+	end,
+
+	SpawnHelicopter = function(player)
+		return hook(player, Patients.adminHelicopter, player)
+	end,
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -341,7 +403,7 @@ local function handle(player: Player, action: any, arg: any): (boolean, string)
 		refuse(player)
 		return false, ""
 	end
-	if not AdminLogic.valid(action, arg, PatientsData, BoostData) then
+	if not AdminLogic.valid(action, arg, PatientsData, BoostData, NursesData) then
 		return false, Remotes.OOPS
 	end
 	local run = RUN[action :: string]

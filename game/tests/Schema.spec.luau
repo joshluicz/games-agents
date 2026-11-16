@@ -1,5 +1,5 @@
 --!strict
--- Save schema v3 (build plan §B3, Task 0; depth-update build plan §B1).
+-- Save schema v4 (build plan §B3, Task 0; depth-update build plan §B1; Progression v2 build plan §B1).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
@@ -7,27 +7,48 @@ local expect, test = T.expect, T.test
 local Schema = require("../src/shared/Logic/Schema")
 
 T.describe("Schema.default", function()
-	test("is Version 3", function()
-		expect(Schema.default().Version).toBe(3)
-		expect(Schema.VERSION).toBe(3)
+	test("is Version 4", function()
+		expect(Schema.default().Version).toBe(4)
+		expect(Schema.VERSION).toBe(4)
 	end)
 
 	test("starts at hospital level 1 with no nurses, an empty journal and Simple off", function()
 		local data = Schema.default()
 		expect(data.Level).toBe(1)
 		expect(data.Nurses).toEqual({})
-		expect(data.Equipped).toEqual({})
+		expect((data :: any).Equipped).toBeNil()
 		expect(data.NurseIndex).toEqual({})
 		expect(data.JournalSets).toEqual({})
 		expect(data.Simple).toBe(false)
+	end)
+
+	test("starts with no rebirths: the §B1 defaults", function()
+		expect(Schema.default().Rebirth).toEqual({
+			Count = 0,
+			Points = 0,
+			Tree = {},
+			Perks = {},
+			Offer = {},
+			Theme = "",
+			Pending = {},
+			Told = false,
+		})
 	end)
 
 	test("owns the Stand", function()
 		expect(Schema.default().Rooms.Stand).toBe(true)
 	end)
 
-	test("starts every upgrade at 0", function()
-		expect(Schema.default().Upgrades).toEqual({ Speed = 0, Tray = 0, Chairs = 0, Tips = 0 })
+	test("starts every upgrade at 0 (Progression v2's three included)", function()
+		expect(Schema.default().Upgrades).toEqual({
+			Speed = 0,
+			Tray = 0,
+			Chairs = 0,
+			Tips = 0,
+			WardComfort = 0,
+			AESpeed = 0,
+			NightClinic = 0,
+		})
 	end)
 
 	test("starts the tutorial at the welcome", function()
@@ -48,7 +69,7 @@ end)
 T.describe("Schema.reconcile", function()
 	test("migrates a v1 shop save", function()
 		local data = Schema.reconcile({ Cash = 50, Served = 7, Upgrades = { Speed = 2, Tray = 1, Tips = 3 } })
-		expect(data.Version).toBe(3)
+		expect(data.Version).toBe(4)
 		expect(data.Cash).toBe(50)
 		expect(data.Cured).toBe(7)
 		expect(data.Upgrades.Speed).toBe(2)
@@ -75,7 +96,7 @@ T.describe("Schema.reconcile", function()
 		expect(data.Cured).toBe(0)
 	end)
 
-	test("keeps a valid v3 save unchanged (every field from both updates)", function()
+	test("keeps a valid v4 save unchanged (every field from every update)", function()
 		local saved = Schema.default()
 		saved.Cash = 321
 		saved.Stars = 12
@@ -99,16 +120,30 @@ T.describe("Schema.reconcile", function()
 		saved.Stats = { Seeded = 1, Cures = 40, ["Made:Remedy"] = 22 }
 		saved.Badges = { Healer = 1 }
 		saved.Level = 2
-		saved.Nurses = { PuffPup = { Level = 2, Copies = 3 } }
-		saved.Equipped = { "PuffPup" }
-		saved.NurseIndex = { PuffPup = "Hired", MintMouse = "Seen" }
+		saved.Upgrades.WardComfort = 1
+		saved.Nurses = {
+			PuffPup = { Level = 2, XP = 17, Copies = 3, Job = "" },
+			MintMouse = { Level = 4, XP = 0, Copies = 1, Job = "Porter" },
+		}
+		saved.NurseIndex = { PuffPup = "Hired", MintMouse = "Hired", BeanBear = "Seen" }
 		saved.JournalSets = { Common = true }
 		saved.Simple = true
+		saved.Stats.RoomsBefore = 4
+		saved.Rebirth = {
+			Count = 2,
+			Points = 1,
+			Tree = { GentleWords = 3, QuickFeet = 2 },
+			Perks = { "BigHands", "SeedMoney" },
+			Offer = { "NightOwl", "BusyDoors", "BeltScout" },
+			Theme = "Jungle",
+			Pending = {},
+			Told = true,
+		}
 		expect(Schema.reconcile(saved)).toEqual(saved)
 		expect(Schema.reconcile(saved, 20500)).toEqual(saved) -- nothing is in the future
 	end)
 
-	test("a live v2 save (play time, boosts, stats, badges, weekly cures) migrates to v3 keeping all of it", function()
+	test("a live v2 save (play time, boosts, stats, badges, weekly cures) migrates to v4 keeping all of it", function()
 		-- What a live server wrote before the depth update: Version 2, every field the playtime, badges and
 		-- leaderboards updates added, and none of the depth update's.
 		local v2 = {
@@ -135,13 +170,12 @@ T.describe("Schema.reconcile", function()
 			Badges = { Healer = 2, NightShift = 2, Potions = 2 },
 		}
 		local data = Schema.reconcile(v2, 20500)
-		expect(data.Version).toBe(3)
+		expect(data.Version).toBe(4)
 		for _, field in
 			{
 				"Cash",
 				"Stars",
 				"Cured",
-				"Upgrades",
 				"Rooms",
 				"Decor",
 				"Book",
@@ -167,14 +201,25 @@ T.describe("Schema.reconcile", function()
 				error(field .. ": " .. tostring(err))
 			end
 		end
-		-- and the depth update's fields arrive at their migration values
+		-- the four old upgrades are kept and the new three start at 0
+		expect(data.Upgrades).toEqual({
+			Speed = 2,
+			Tray = 1,
+			Chairs = 3,
+			Tips = 2,
+			WardComfort = 0,
+			AESpeed = 0,
+			NightClinic = 0,
+		})
+		-- and the depth update's and Progression v2's fields arrive at their migration values
 		expect(data.Level).toBe(2) -- the Ward implies Lv 2
 		expect(data.Nurses).toEqual({})
-		expect(data.Equipped).toEqual({})
+		expect((data :: any).Equipped).toBeNil()
 		expect(data.NurseIndex).toEqual({})
 		expect(data.JournalSets).toEqual({})
 		expect(data.Simple).toBe(false)
-		-- a second pass (the v3 save written back) changes nothing
+		expect(data.Rebirth).toEqual(Schema.default().Rebirth)
+		-- a second pass (the v4 save written back) changes nothing
 		expect(Schema.reconcile(data, 20500)).toEqual(data)
 		expect(Schema.isNewer(v2)).toBe(false)
 	end)
@@ -276,7 +321,7 @@ T.describe("Schema.reconcile", function()
 			Daily = { Goals = { { Id = "Cure5", Progress = 1, Day = 1 }, "junk", { Progress = 3 } } },
 		})
 		expect((data :: any).Hacked).toBeNil()
-		expect(data.Upgrades).toEqual({ Speed = 0, Tray = 0, Chairs = 0, Tips = 0 })
+		expect(data.Upgrades).toEqual(Schema.default().Upgrades)
 		expect(data.Rooms).toEqual({ Stand = true, Ward = true })
 		expect(data.Book).toEqual({ CloudSheep = { Cured = 1, Variants = {} } })
 		expect(data.Daily.Goals).toEqual({ { Id = "Cure5", Progress = 1, Day = 1 } })
@@ -284,6 +329,9 @@ T.describe("Schema.reconcile", function()
 
 	test("spots a save from a newer schema", function()
 		expect(Schema.isNewer({ Version = Schema.VERSION + 1 })).toBe(true)
+		expect(Schema.isNewer({ Version = 5 })).toBe(true)
+		expect(Schema.isNewer({ Version = 4 })).toBe(false)
+		expect(Schema.isNewer({ Version = 3 })).toBe(false)
 		expect(Schema.isNewer({ Version = Schema.VERSION })).toBe(false)
 		expect(Schema.isNewer({ Cash = 5 })).toBe(false)
 		expect(Schema.isNewer("junk")).toBe(false)
@@ -326,13 +374,14 @@ T.describe("Schema.reconcile", function()
 		expect(Schema.reconcile({ Version = 2, Rooms = everything }).Level).toBe(3)
 	end)
 
-	test("a v2 save gets no nurses, an empty journal and Simple off", function()
+	test("a v2 save gets no nurses, an empty journal, Simple off and the Rebirth defaults", function()
 		local data = Schema.reconcile({ Version = 2, Cash = 40, Cured = 9 })
 		expect(data.Nurses).toEqual({})
-		expect(data.Equipped).toEqual({})
+		expect((data :: any).Equipped).toBeNil()
 		expect(data.NurseIndex).toEqual({})
 		expect(data.JournalSets).toEqual({})
 		expect(data.Simple).toBe(false)
+		expect(data.Rebirth).toEqual(Schema.default().Rebirth)
 	end)
 
 	test("keeps a saved level, clamped to 1..5; junk falls back to the rooms", function()
@@ -343,41 +392,254 @@ T.describe("Schema.reconcile", function()
 		end
 	end)
 
-	test("cleans nurse entries: copies at least 1, level 1..min(5, copies)", function()
+	test('a v3 save\'s nurses keep their level (clamped 1..10), get XP 0 and Job ""; junk is repaired', function()
 		local data = Schema.reconcile({
 			Version = 3,
 			Nurses = {
 				PuffPup = { Level = 2, Copies = 3 },
-				MintMouse = { Level = 9, Copies = 7 },
-				BeanBear = { Level = 4, Copies = 2 },
+				MintMouse = { Level = 12, Copies = 7 },
+				BeanBear = { Level = 2.5, Copies = 2 },
 				DewDuck = { Copies = "x" },
 				[5] = { Level = 1, Copies = 1 },
 				HumHamster = "junk",
 			},
+			Equipped = { "PuffPup", "MintMouse", "BeanBear" },
 		})
 		expect(data.Nurses).toEqual({
-			PuffPup = { Level = 2, Copies = 3 },
-			MintMouse = { Level = 5, Copies = 7 },
-			BeanBear = { Level = 2, Copies = 2 },
-			DewDuck = { Level = 1, Copies = 1 },
+			PuffPup = { Level = 2, XP = 0, Copies = 3, Job = "" },
+			MintMouse = { Level = 10, XP = 0, Copies = 7, Job = "" },
+			BeanBear = { Level = 1, XP = 0, Copies = 2, Job = "" },
+			DewDuck = { Level = 1, XP = 0, Copies = 1, Job = "Rest" }, -- the 4th: over the roster of 3
 		})
+		expect((data :: any).Equipped).toBeNil()
 	end)
 
-	test("equipped nurses are owned, unique and at most the level's slots", function()
+	test("v3 -> v4: 16 nurses with 5 equipped -> the first 3 equipped work, the rest rest, nothing deleted", function()
+		local ids = {
+			"PuffPup",
+			"MintMouse",
+			"BeanBear",
+			"DewDuck",
+			"HumHamster",
+			"CuddleCub",
+			"PebblePenguin",
+			"BerryBat",
+			"SunnySnail",
+			"CloudKoala",
+			"JamJelly",
+			"ToffeeFox",
+			"AuroraOtter",
+			"StarlightLamb",
+			"MoonpuffDrake",
+			"GoldieGryphlet",
+		}
+		local nurses = {}
+		for index, id in ids do
+			nurses[id] = { Level = (index % 5) + 1, Copies = (index % 5) + 1 }
+		end
+		local v3 = {
+			Version = 3,
+			Level = 5,
+			Cured = 900,
+			Nurses = nurses,
+			Equipped = { "ToffeeFox", "MintMouse", "GoldieGryphlet", "PuffPup", "JamJelly" },
+			NurseIndex = { PuffPup = "Hired" },
+		}
+		local data = Schema.reconcile(v3, 20500)
+		local working, resting = {}, 0
+		local count = 0
+		for id, entry in data.Nurses do
+			count += 1
+			expect(entry.XP).toBe(0)
+			expect(entry.Copies).toBe(nurses[id].Copies)
+			expect(entry.Level).toBe(nurses[id].Level)
+			if entry.Job == "Rest" then
+				resting += 1
+			else
+				expect(entry.Job).toBe("")
+				table.insert(working, id)
+			end
+		end
+		table.sort(working)
+		expect(count).toBe(16)
+		expect(resting).toBe(13)
+		expect(working).toEqual({ "GoldieGryphlet", "MintMouse", "ToffeeFox" }) -- Equipped's first three
+		for _, id in ids do
+			expect(data.NurseIndex[id]).toBe("Hired")
+		end
+		-- written back as v4 and loaded again: the same three work (a v4 save fills by NurseId, and the resting
+		-- ones stay resting)
+		expect(Schema.reconcile(data, 20500)).toEqual(data)
+	end)
+
+	test("a v3 save with fewer equipped than the roster fills the rest by NurseId", function()
 		local data = Schema.reconcile({
 			Version = 3,
-			Level = 2,
-			Nurses = { PuffPup = { Level = 1, Copies = 1 }, MintMouse = { Level = 1, Copies = 1 } },
-			Equipped = { "PuffPup", "PuffPup", "NotMine", 7, "MintMouse" },
+			Nurses = {
+				PuffPup = { Level = 1, Copies = 1 },
+				MintMouse = { Level = 1, Copies = 1 },
+				BeanBear = { Level = 1, Copies = 1 },
+				DewDuck = { Level = 1, Copies = 1 },
+			},
+			Equipped = { "PuffPup", "NotMine", "PuffPup", 7 },
 		})
-		expect(data.Equipped).toEqual({ "PuffPup", "MintMouse" })
-		local one = Schema.reconcile({
-			Version = 3,
-			Level = 1,
-			Nurses = { PuffPup = { Level = 1, Copies = 1 }, MintMouse = { Level = 1, Copies = 1 } },
-			Equipped = { "MintMouse", "PuffPup" },
+		expect(data.Nurses.PuffPup.Job).toBe("")
+		expect(data.Nurses.BeanBear.Job).toBe("") -- then by NurseId: BeanBear, DewDuck
+		expect(data.Nurses.DewDuck.Job).toBe("")
+		expect(data.Nurses.MintMouse.Job).toBe("Rest")
+	end)
+
+	test("a v4 save over the roster rests the extra ones by NurseId (Equipped is ignored in v4)", function()
+		local data = Schema.reconcile({
+			Version = 4,
+			Nurses = {
+				PuffPup = { Level = 3, XP = 5, Copies = 3, Job = "Maker" },
+				MintMouse = { Level = 1, XP = 0, Copies = 1, Job = "" },
+				BeanBear = { Level = 1, XP = 0, Copies = 1, Job = "Healer" },
+				DewDuck = { Level = 1, XP = 0, Copies = 1, Job = "Rest" },
+				HumHamster = { Level = 1, XP = 0, Copies = 1, Job = "Cheerer" },
+			},
+			Equipped = { "HumHamster" },
 		})
-		expect(one.Equipped).toEqual({ "MintMouse" })
+		expect(data.Nurses.BeanBear.Job).toBe("Healer")
+		expect(data.Nurses.HumHamster.Job).toBe("Cheerer")
+		expect(data.Nurses.MintMouse.Job).toBe("")
+		expect(data.Nurses.PuffPup.Job).toBe("Rest") -- the 4th working one by NurseId
+		expect(data.Nurses.DewDuck.Job).toBe("Rest")
+		expect(data.Nurses.PuffPup.XP).toBe(5) -- resting keeps everything else
+	end)
+
+	test("the roster grows with rebirths (3 + 1 a rebirth, at most 8)", function()
+		local nurses = {}
+		for index = 1, 10 do
+			nurses["N" .. string.char(64 + index)] = { Level = 1, Copies = 1, Job = "" }
+		end
+		local function workingAt(count: number): number
+			local data = Schema.reconcile({ Version = 4, Nurses = nurses, Rebirth = { Count = count } })
+			local n = 0
+			for _, entry in data.Nurses do
+				if entry.Job ~= "Rest" then
+					n += 1
+				end
+			end
+			return n
+		end
+		expect(workingAt(0)).toBe(3)
+		expect(workingAt(1)).toBe(4)
+		expect(workingAt(5)).toBe(8)
+		expect(workingAt(9)).toBe(8)
+	end)
+
+	test("nurse XP is whole and below the next level; 0 at the cap; the cap is 15 from R3", function()
+		local data = Schema.reconcile({
+			Version = 4,
+			Nurses = {
+				PuffPup = { Level = 2, XP = 39, Copies = 1, Job = "" }, -- xpToNext(2) = 40
+				MintMouse = { Level = 2, XP = 40, Copies = 1, Job = "" },
+				BeanBear = { Level = 10, XP = 99, Copies = 1, Job = "" }, -- at the cap
+			},
+		})
+		expect(data.Nurses.PuffPup.XP).toBe(39)
+		expect(data.Nurses.MintMouse.XP).toBe(39)
+		expect(data.Nurses.BeanBear.XP).toBe(0)
+		for _, bad in { -3, 2.5, 0 / 0, math.huge, "5", true } :: { any } do
+			local junk = Schema.reconcile({ Version = 4, Nurses = { PuffPup = { Level = 3, XP = bad, Copies = 1 } } })
+			expect(junk.Nurses.PuffPup.XP).toBe(0)
+		end
+		local r3 = Schema.reconcile({
+			Version = 4,
+			Rebirth = { Count = 3 },
+			Nurses = { PuffPup = { Level = 14, XP = 3, Copies = 9, Job = "" }, MintMouse = { Level = 99, Copies = 1 } },
+		})
+		expect(r3.Nurses.PuffPup).toEqual({ Level = 14, XP = 3, Copies = 9, Job = "" })
+		expect(r3.Nurses.MintMouse.Level).toBe(15)
+		local r2 = Schema.reconcile({ Version = 4, Rebirth = { Count = 2 }, Nurses = { PuffPup = { Level = 14 } } })
+		expect(r2.Nurses.PuffPup.Level).toBe(10)
+	end)
+
+	test('a Job is "", Rest, or 1-20 letters; junk becomes ""', function()
+		local data = Schema.reconcile({
+			Version = 4,
+			Nurses = {
+				PuffPup = { Level = 1, Copies = 1, Job = "Receptionist" },
+				MintMouse = { Level = 1, Copies = 1, Job = "Port er" },
+				BeanBear = { Level = 1, Copies = 1, Job = 7 },
+				DewDuck = { Level = 1, Copies = 1, Job = string.rep("a", 21) },
+				HumHamster = { Level = 1, Copies = 1, Job = "SomeFutureJob" },
+			},
+			Rebirth = { Count = 2 },
+		})
+		expect(data.Nurses.PuffPup.Job).toBe("Receptionist")
+		expect(data.Nurses.MintMouse.Job).toBe("")
+		expect(data.Nurses.BeanBear.Job).toBe("")
+		expect(data.Nurses.DewDuck.Job).toBe("")
+		expect(data.Nurses.HumHamster.Job).toBe("SomeFutureJob") -- an unknown job is kept (servers use the role)
+	end)
+
+	test("Rebirth: numbers whole and clamped, lists unique and capped, Offer never repeats a Perk", function()
+		local data = Schema.reconcile({
+			Version = 4,
+			Rebirth = {
+				Count = 3.7,
+				Points = -4,
+				Tree = { GentleWords = 3, QuickFeet = 0, Old = 99, [4] = 1, Bad = "x" },
+				Perks = { "BigHands", "BigHands", 5, "SeedMoney" },
+				Offer = { "BigHands", "NightOwl", "NightOwl", "BusyDoors", "BeltScout" },
+				Theme = 42,
+				Pending = { "FounderFennec", "FounderFennec", "A", "B", "C", "D" },
+				Told = "yes",
+			},
+		})
+		expect(data.Rebirth).toEqual({
+			Count = 3,
+			Points = 0,
+			Tree = { GentleWords = 3, Old = Schema.MAX_NODE_RANK },
+			Perks = { "BigHands", "SeedMoney" },
+			Offer = { "NightOwl", "BusyDoors", "BeltScout" },
+			Theme = "",
+			Pending = { "FounderFennec", "A", "B", "C" },
+			Told = false,
+		})
+		local huge = Schema.reconcile({ Rebirth = { Count = 1e9, Points = 1e9, Told = true, Theme = "Arctic" } })
+		expect(huge.Rebirth.Count).toBe(Schema.MAX_REBIRTHS)
+		expect(huge.Rebirth.Points).toBe(Schema.MAX_POINTS)
+		expect(huge.Rebirth.Told).toBe(true)
+		expect(huge.Rebirth.Theme).toBe("Arctic")
+		for _, junk in { "junk", 5, true } :: { any } do
+			expect(Schema.reconcile({ Rebirth = junk }).Rebirth).toEqual(Schema.default().Rebirth)
+		end
+	end)
+
+	test("Stats.RoomsBefore follows the counter rules", function()
+		expect(Schema.reconcile({ Stats = { RoomsBefore = 6.9 } }).Stats.RoomsBefore).toBe(6)
+		expect(Schema.reconcile({ Stats = { RoomsBefore = -2 } }).Stats.RoomsBefore).toBe(0)
+	end)
+
+	test("xpToNext, rosterCap and levelCap", function()
+		local curve = {}
+		for level = 1, 9 do
+			curve[level] = Schema.xpToNext(level)
+		end
+		expect(curve).toEqual({ 20, 40, 70, 110, 160, 220, 290, 370, 460 })
+		local toTen = 0
+		for level = 1, 9 do
+			toTen += Schema.xpToNext(level)
+		end
+		expect(toTen).toBe(1740)
+		local toFifteen = toTen
+		for level = 10, 14 do
+			toFifteen += Schema.xpToNext(level)
+		end
+		expect(toFifteen).toBe(5740)
+		expect(Schema.rosterCap(0)).toBe(3)
+		expect(Schema.rosterCap(4)).toBe(7)
+		expect(Schema.rosterCap(5)).toBe(8)
+		expect(Schema.rosterCap(500)).toBe(8)
+		expect(Schema.rosterCap(-1)).toBe(3)
+		expect(Schema.levelCap(0)).toBe(10)
+		expect(Schema.levelCap(2)).toBe(10)
+		expect(Schema.levelCap(3)).toBe(15)
+		expect(Schema.MAX_NURSE_LEVEL).toBe(15)
 	end)
 
 	test("the journal keeps Seen and Hired only, and every owned nurse is Hired", function()

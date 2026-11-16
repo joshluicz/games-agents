@@ -1,35 +1,47 @@
 --!strict
--- Nurses you own: equip slots, nurse workers on your plot, the nurse tray and the Nurse Journal (depth-update design
--- §2, build plan §B4/§B8; memory-20261116-012/-013). Server only. OWNER: T3.
+-- Nurses you own: the roster's workers on your plot, the nurse tray and the Nurse Journal (depth-update design §2,
+-- build plan §B4/§B8; memory-20261116-012/-013; Progression v2 build plan §B8). Server only. OWNER: T1 (Progression v2).
 --
---   Nurses.start()                              wires EquipNurse; spawns the equipped nurses on PlotAssigned (and
---                                               after an equip, a hire, a level-up or any save change), removes
---                                               them on PlotReleased (before Plots clears the plot)
---   Nurses.slots(p): number                     = Levels.slots(p) (slots = hospital level)
---   Nurses.equip(p, nurseId, on): (ok, message) Logic/Nurse.equip, saved in Data.Equipped; NurseNews Equipped.
---                                               Only known NurseIds count against the slots (an unknown one in the
---                                               save drops out of Equipped on the next change); one change per
---                                               EQUIP_COOLDOWN per player (each builds or removes a nurse model)
---   Nurses.grant(p, nurseId, price): (ok, message)
---                                               NurseBelt's hire: charge `price` and add one copy in ONE
---                                               PlayerData.update (Logic/Nurse.hire, NurseIndex "Hired"; a FIRST copy
---                                               also goes on duty when a slot is free, so it walks to your clinic),
---                                               then any journal set due (cash + decor + JournalSets, same update);
---                                               then the NurseNews (Hired, Equipped), Celebrate (NewNurse on a first
---                                               copy, JournalSet) remotes, the reward decor goes out on show
---                                               (Book.placeReward) and the Hired signal fires
+-- FOUNDATION (Progression v2 Task 0): EquipNurse, equip and slots are gone: every nurse you own works (the first
+-- Logic/Nurse.working(rosterCap) of the save; the others rest). The workers still work their v3 Role until T1 lands
+-- jobs; every new API below that says STUB answers a safe default until T1 replaces it.
+--
+--   Nurses.start()                              spawns the working nurses on PlotAssigned (and after a hire, a
+--                                               level-up or any save change), removes them on PlotReleased (before
+--                                               Plots clears the plot). SetJob answers "Coming soon!" (Shared/Remotes'
+--                                               default) until T1 serves it
+--   Nurses.rosterCap(p): number                 Logic/Nurse.rosterCap(the save's Rebirth.Count)
+--   Nurses.working(p): { NurseId }              Logic/Nurse.working(the save's Nurses, rosterCap, known ids)
+--   Nurses.setJob(p, nurseId, job): (ok, message)                      -- STUB (T1)
+--   Nurses.grant(p, nurseId, price, source?): (ok, message)
+--                                               THE one place a nurse joins a save (source "Belt" (default) | "Agency"
+--                                               | "Gift" | "Admin"): Logic/Nurse.canAdd (roster room, the level cap),
+--                                               the charge, Logic/Nurse.hire (new, or +1 level), NurseIndex "Hired",
+--                                               any journal set due and, for a Gift, its Rebirth.Pending removal, all
+--                                               in ONE PlayerData.update; then the NurseNews (Hired), Celebrate
+--                                               (NewNurse on a first copy, JournalSet) remotes, the reward decor goes
+--                                               out on show (Book.placeReward) and the Hired signal fires
+--   Nurses.take(p, nurseId, cash, reason): (ok, message, entry?)       -- STUB (T1): false, "Coming soon!"
+--   Nurses.give(p, nurseId, entry, price): (ok, message)               -- STUB (T1): false, "Coming soon!"
+--   Nurses.setListed(p, nurseId, listingId?) · Nurses.isListed(p, nurseId): boolean   -- STUB (T1): no lock, false
+--   Nurses.onCure(owner, info)                                         -- STUB (T1): no XP yet
+--   Nurses.team(plot): TeamEffects · Nurses.reception(plot) · Nurses.medic(plot)      -- STUB (T1): neutral
+--   Nurses.claimPorter(plot) · Nurses.escort(plot, id, to) · Nurses.releasePorter(plot, id)   -- STUB (T1)
+--   Nurses.adminLevels(p) -- STUB (T1) · Nurses.adminGive(p, nurseId) = grant(p, nurseId, 0, "Admin")
 --   Nurses.markSeen(nurseId, players?)          a nurse rode by: each listed player (every player when nil) without
 --                                               a journal entry for it gets "Seen" and a NurseNews (Seen). NurseBelt
 --                                               passes the players close enough to see the rider
 --   Nurses.trayItems(plot): { ItemId }          the plot's nurse tray (Makers fill it; attribute NurseTray)
 --   Nurses.takeFromTray(plot, itemId): boolean  removes one (Treatment/Patients, for a player's treat or a Healer's)
---   Nurses.cheer(plot): Types.Cheer             the best equipped Cheerer's multipliers ({ 1, 1 } when none); also
+--   Nurses.cheer(plot): Types.Cheer             the best working Cheerer's multipliers ({ 1, 1 } when none); also
 --                                               kept on the plot's CheerPatience and CheerTip attributes
 --   Nurses.healed(plot, nurseId, items)         Treatment tells the Healer it delivered (it plays a happy spin)
---   Nurses.Heal                                 signal (plot, nurseId): a Healer is ready (the tray holds something
---                                               the front patient needs). Treatment delivers it (rated OK, no tip, no
---                                               combo) and calls healed(); no delivery: the Healer tries again soon
+--   Nurses.Heal                                 signal (plot, nurseId, target): a Healer is ready (the tray holds
+--                                               something the front patient needs; target "Front"; Medics will send
+--                                               "Urgent"). Treatment delivers it (rated OK, no tip, no combo) and calls
+--                                               healed(); no delivery: the Healer tries again soon
 --   Nurses.Hired                                signal (p, nurseId, level)
+--   Nurses.LevelUp · Nurses.Removed             signals (p, nurseId, level) · (p, nurseId) (fired by T1's XP / take)
 --   Nurses.Pure                                 the pure helpers below (a scratch Lune harness tests them)
 --
 -- The workers (plot.Model.Nurses.Nurse_<NurseId>, from NurseBuilder; tag CreatureMotion; attributes NurseId, Role,
@@ -57,7 +69,6 @@ local Palette = require(Shared.Palette)
 local Remotes = require(Shared.Remotes)
 local Signal = require(Shared.Signal)
 local Types = require(Shared.Types)
-local BeltLogic = require(Shared.Logic.Belt)
 local NurseLogic = require(Shared.Logic.Nurse)
 local RecipeLogic = require(Shared.Logic.Recipe)
 local DecorData = require(Shared.Data.Decor)
@@ -77,6 +88,8 @@ local Nurses = {}
 
 Nurses.Heal = Signal.new()
 Nurses.Hired = Signal.new()
+Nurses.LevelUp = Signal.new()
+Nurses.Removed = Signal.new()
 
 ------------------------------------------------------------------------------------------------------------------
 -- Tuning (feel only; the rules' numbers are in Config.Nurses)
@@ -94,7 +107,6 @@ local LOOK_SECONDS = 0.5 -- an idle nurse looks for work this often
 local HEAL_WAIT = 2 -- seconds a Healer waits for the delivery before it tries again
 local RETRY_SECONDS = 2
 local MAX_CASH = 1e15 -- as Economy: far below 2^53
-local EQUIP_COOLDOWN = 0.35 -- seconds between one player's equip changes (each one builds or removes a nurse)
 local NEAR_STUDS = 16 -- the tray billboard stops growing on screen closer than this
 
 local rng = Random.new()
@@ -281,7 +293,6 @@ type Work = {
 }
 
 local works: { [Plot]: Work } = {}
-local lastEquip: { [Player]: number } = {}
 local trayLabels: { [Plot]: TextLabel } = {}
 local failures: { [string]: number } = {}
 
@@ -319,8 +330,14 @@ local function itemIcon(itemId: string): string
 	return if type(item) == "table" then item.Icon else "❔"
 end
 
+-- The highest level any nurse can have (Lv 15 from R3): workers only clamp junk with it.
 local function maxLevel(): number
-	return math.max(1, math.floor(Config.Nurses.MaxLevel))
+	return NurseLogic.levelCap(Config.Nurses.LevelCapRebirths, Config)
+end
+
+local function rebirthsOf(data: any): number
+	local rebirth = if type(data) == "table" then data.Rebirth else nil
+	return if type(rebirth) == "table" and type(rebirth.Count) == "number" then rebirth.Count else 0
 end
 
 -- The plot a caller means: the Plots table, or (leniently) its Model.
@@ -685,7 +702,7 @@ local function healerLoop(work: Work, w: Worker)
 		if now >= nextAt and Pure.canHeal(front, attributeList(work.Plot.Model, TRAY_ATTRIBUTE)) then
 			NurseBuilder.setTask(w.Model, "Healing")
 			w.Healed = false
-			Nurses.Heal:Fire(work.Plot, w.NurseId)
+			Nurses.Heal:Fire(work.Plot, w.NurseId, "Front")
 			local waitUntil = os.clock() + HEAL_WAIT
 			while w.Alive and not w.Healed and os.clock() < waitUntil do
 				task.wait(0.1)
@@ -825,8 +842,8 @@ local function addWorker(work: Work, nurseId: string, level: number, index: numb
 	end
 end
 
--- Makes the plot's nurses match the owner's save: the first `slots` known nurses of Data.Equipped, at their levels.
--- Idempotent and cheap (it diffs), so it runs after every save change.
+-- Makes the plot's nurses match the owner's save: the working nurses (Logic/Nurse.working: not resting, known, by
+-- NurseId, at most the roster cap), at their levels. Idempotent and cheap (it diffs), so it runs after every change.
 local function sync(owner: Player)
 	local plot = Plots.getPlot(owner)
 	local work = if plot then works[plot] else nil
@@ -834,7 +851,7 @@ local function sync(owner: Player)
 	if not work or work.Owner ~= owner or not data then
 		return
 	end
-	local wanted = Pure.onDuty(data.Equipped, knownNurse, Levels.slots(owner))
+	local wanted = NurseLogic.working(data.Nurses, NurseLogic.rosterCap(rebirthsOf(data), Config), knownNurse)
 	local keep: { [string]: boolean } = {}
 	for _, nurseId in wanted do
 		keep[nurseId] = true
@@ -1000,48 +1017,23 @@ end
 -- Public API
 ------------------------------------------------------------------------------------------------------------------
 
-function Nurses.slots(player: Player): number
-	return Levels.slots(player)
+function Nurses.rosterCap(player: Player): number
+	local data = if isPlayer(player) then PlayerData.get(player) else nil
+	return NurseLogic.rosterCap(rebirthsOf(data), Config)
 end
 
-function Nurses.equip(player: Player, nurseId: string, on: boolean): (boolean, string)
-	if not isPlayer(player) or not knownNurse(nurseId) or type(on) ~= "boolean" then
-		return false, Remotes.OOPS
-	end
-	local data = PlayerData.get(player)
+function Nurses.working(player: Player): { string }
+	local data = if isPlayer(player) then PlayerData.get(player) else nil
 	if not data then
-		return false, Remotes.OOPS
+		return {}
 	end
-	-- Only known nurses count against the slots: a retired or renamed NurseId (kept in the save, Schema) would
-	-- otherwise hold a slot forever with nothing on the plot. It drops out of Equipped with this change.
-	local current = Pure.onDuty(data.Equipped, knownNurse, math.huge)
-	local ok, message, list = NurseLogic.equip(current, data.Nurses, nurseId, on, Nurses.slots(player))
-	if not ok then
-		return false, message
-	end
-	local toggled = #list ~= #current
-	if not Pure.sameList(list, data.Equipped) then
-		local now = os.clock()
-		local last = lastEquip[player]
-		if toggled and last and now - last < EQUIP_COOLDOWN then
-			return false, "Wait a moment! ⏳" -- each change builds or removes a nurse model: no spam
-		end
-		local saved = PlayerData.update(player, function(d)
-			d.Equipped = list
-		end)
-		if not saved then
-			return false, Remotes.OOPS
-		end
-		if toggled then
-			lastEquip[player] = now
-			fire(Remotes.NurseNews, player, { Kind = "Equipped", NurseId = nurseId, On = on })
-		end
-		-- (PlayerData.Changed already ran sync for the plot's nurses.)
-	end
-	return true, if on then "✅ On duty!" else "💤 Off duty"
+	return NurseLogic.working(data.Nurses, NurseLogic.rosterCap(rebirthsOf(data), Config), knownNurse)
 end
 
-function Nurses.grant(player: Player, nurseId: string, price: number): (boolean, string)
+local SOURCES: { [string]: boolean } = { Belt = true, Agency = true, Gift = true, Admin = true }
+
+function Nurses.grant(player: Player, nurseId: string, price: number, source: string?): (boolean, string)
+	local from = if source == nil then "Belt" else source
 	if
 		not isPlayer(player)
 		or not knownNurse(nurseId)
@@ -1049,6 +1041,7 @@ function Nurses.grant(player: Player, nurseId: string, price: number): (boolean,
 		or price ~= price
 		or price < 0
 		or price == math.huge
+		or not SOURCES[from]
 	then
 		return false, Remotes.OOPS
 	end
@@ -1057,44 +1050,44 @@ function Nurses.grant(player: Player, nurseId: string, price: number): (boolean,
 	if not data then
 		return false, Remotes.OOPS
 	end
-	local canHire, why = BeltLogic.canHire(data.Nurses[nurseId], Config)
-	if not canHire then
+	local canAdd, why = NurseLogic.canAdd(data, nurseId, Config, knownNurse)
+	if not canAdd then
 		return false, why
 	end
 	if data.Cash < cost then
 		return false, "Need 💰" .. Pure.cash(cost)
 	end
 
-	local slots = Nurses.slots(player)
-	local level, isNew, equipped = 1, false, false
+	local level, isNew = 1, false
 	local sets: { string } = {}
-	-- Charge, the copy, the journal mark, a first copy on duty and any set reward: ONE update, no yield inside.
+	local added = false
+	-- The checks again, the charge, the copy, the journal mark, a Gift's Pending removal and any set reward: ONE
+	-- update, no yield inside.
 	local saved = PlayerData.update(player, function(d)
+		if not NurseLogic.canAdd(d, nurseId, Config, knownNurse) or d.Cash < cost then
+			return
+		end
 		d.Cash -= cost
-		local entry, new = NurseLogic.hire(d.Nurses[nurseId], Config)
+		local cap = NurseLogic.levelCap(rebirthsOf(d), Config)
+		local entry, new = NurseLogic.hire(d.Nurses[nurseId], cap, Config)
 		d.Nurses[nurseId] = entry
 		level, isNew = entry.Level, new
 		NurseLogic.mark(d.NurseIndex, nurseId, "Hired")
-		if new then
-			-- Known nurses only: an unknown id in the save never takes the new nurse's slot (see equip).
-			local current = Pure.onDuty(d.Equipped, knownNurse, math.huge)
-			local fits, _, list = NurseLogic.equip(current, d.Nurses, nurseId, true, slots)
-			if fits and #list > #current then
-				d.Equipped = list
-				equipped = true
+		if from == "Gift" then
+			local index = table.find(d.Rebirth.Pending, nurseId)
+			if index then
+				table.remove(d.Rebirth.Pending, index)
 			end
 		end
 		sets = grantSets(d)
+		added = true
 	end)
-	if not saved then
-		return false, Remotes.OOPS -- the save is closing (they're leaving): nothing changed
+	if not saved or not added then
+		return false, Remotes.OOPS -- the save is closing (they're leaving), or it changed: nothing changed
 	end
 
 	local nurse = nurseOf(nurseId)
 	fire(Remotes.NurseNews, player, { Kind = "Hired", NurseId = nurseId, Level = level, New = isNew })
-	if equipped then
-		fire(Remotes.NurseNews, player, { Kind = "Equipped", NurseId = nurseId, On = true })
-	end
 	if isNew then
 		fire(Remotes.Celebrate, player, {
 			Kind = "NewNurse",
@@ -1116,6 +1109,70 @@ function Nurses.grant(player: Player, nurseId: string, price: number): (boolean,
 	return true, "⬆️ " .. nurse.Name .. " Lv " .. level .. "!"
 end
 
+-- STUB (T1): SetJob (Logic/Nurse.setJob, §B3)
+function Nurses.setJob(_player: Player, _nurseId: string, _job: string): (boolean, string)
+	return false, Remotes.SOON
+end
+
+-- STUB (T1): the nurse leaves the save and the cash comes in, in ONE update (§B8)
+function Nurses.take(_player: Player, _nurseId: string, _cash: number, _reason: string): (boolean, string, any)
+	return false, Remotes.SOON, nil
+end
+
+-- STUB (T1): the Market's buyer side and its undo, in ONE update (§B8)
+function Nurses.give(_player: Player, _nurseId: string, _entry: any, _price: number): (boolean, string)
+	return false, Remotes.SOON
+end
+
+-- STUB (T1): the Market's in-memory lock
+function Nurses.setListed(_player: Player, _nurseId: string, _listingId: number?) end
+
+-- STUB (T1)
+function Nurses.isListed(_player: Player, _nurseId: string): boolean
+	return false
+end
+
+-- STUB (T1): XP for every working nurse at the owner's plot (§B8)
+function Nurses.onCure(_owner: Player, _info: any) end
+
+-- STUB (T1): the plot's team bonuses (Logic/Jobs.teamEffects), neutral until T1 lands
+function Nurses.team(_plot: any): Types.TeamEffects
+	return { Cash = 1, Urgent = 1, Recover = 1, Make = {} }
+end
+
+-- STUB (T1): the best Receptionist's arrival factor and whether triage is instant
+function Nurses.reception(_plot: any): { Arrive: number, Triage: boolean }
+	return { Arrive = 1, Triage = false }
+end
+
+-- STUB (T1): how much slower urgent patients' patience drains
+function Nurses.medic(_plot: any): { Patience: number }
+	return { Patience = 1 }
+end
+
+-- STUB (T1): a free Porter
+function Nurses.claimPorter(_plot: any): string?
+	return nil
+end
+
+-- STUB (T1): yields while the porter walks
+function Nurses.escort(_plot: any, _nurseId: string, _to: CFrame): boolean
+	return false
+end
+
+-- STUB (T1)
+function Nurses.releasePorter(_plot: any, _nurseId: string) end
+
+-- STUB (T1): Admin "NurseLevels" (+1 level each, to the cap)
+function Nurses.adminLevels(_player: Player): (boolean, string)
+	return false, Remotes.SOON
+end
+
+-- Admin "GiveNurse": a free grant (the roster rules apply)
+function Nurses.adminGive(player: Player, nurseId: string): (boolean, string)
+	return Nurses.grant(player, nurseId, 0, "Admin")
+end
+
 function Nurses.cheer(plotArg: Plot): Types.Cheer
 	local plot = plotOf(plotArg)
 	local work = if plot then works[plot] else nil
@@ -1135,16 +1192,6 @@ function Nurses.healed(plotArg: Plot, nurseId: string, _items: { string })
 end
 
 function Nurses.start()
-	Remotes.serve("EquipNurse", function(player: Player, nurseId: any, on: any)
-		if type(nurseId) ~= "string" or #nurseId > 40 or type(on) ~= "boolean" then
-			return false, Remotes.OOPS
-		end
-		return Nurses.equip(player, nurseId, on)
-	end)
-	Players.PlayerRemoving:Connect(function(player: Player)
-		lastEquip[player] = nil
-	end)
-
 	for _, plot in Plots.all() do
 		ensureFolder(plot)
 		resetPlot(plot)
@@ -1159,7 +1206,7 @@ function Nurses.start()
 	Plots.PlotReleased:Connect(function(_owner: Player, plot: Plot)
 		deactivate(plot)
 	end)
-	-- Any save change (an equip, a hire, a level-up, a level copy): the plot's nurses follow. sync() diffs.
+	-- Any save change (a hire, a level-up, a level copy, a job): the plot's nurses follow. sync() diffs.
 	PlayerData.Changed:Connect(function(player: Player)
 		sync(player)
 	end)

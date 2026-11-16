@@ -9,6 +9,10 @@
 --       rooms out of season and rooms above the hospital level (Progress.levelAllows). Then Kind "Upgrade": the
 --       cheapest next upgrade level. Then Kind "None", Id "".
 --   Progress.levelAllows(data, room): boolean   the save's hospital level (nil = 1) reaches room.Level (nil = 1)
+--   Progress.canBuyUpgrade(data, upgradeId, upgrades): (ok, message)
+--       Progression v2's gates only (Economy still checks the price and the max level): a known upgrade ("Coming
+--       soon!") · its Level (the hospital level: "Needs 🏥 Lv 2") · its Rebirths ("Needs 🏢 R4"). "" when ok.
+--       nextGoal skips gated upgrades too
 --   Progress.unlockedBetween(rooms, before, after): { RoomId }
 --       rooms whose StarsNeeded was crossed going from `before` to `after` stars (for the "unlocked!" toast)
 --   Progress.parseSlotKey(rooms, slotKey): (RoomId?, n?)
@@ -29,6 +33,7 @@ local Progress = {}
 Progress.CASH_ICON = "💰" -- the same coin bag the HUD wallet, CureFX pops and room previews show
 Progress.STAR_ICON = "⭐"
 Progress.LEVEL_ICON = "🏥"
+Progress.BRANCH_ICON = "🏢"
 Progress.MAX_SLOT_KEY_LENGTH = 48
 
 local function count(value: any): number
@@ -77,6 +82,26 @@ function Progress.levelAllows(data: any, room: any): boolean
 	local level = if type(data) == "table" then count(data.Level) else 0
 	local needed = if type(room) == "table" then count(room.Level) else 0
 	return needed <= math.max(1, level)
+end
+
+function Progress.canBuyUpgrade(data: any, upgradeId: any, upgrades: any): (boolean, string)
+	local upgrade = if type(upgrades) == "table" and type(upgradeId) == "string"
+		then rawget(upgrades, upgradeId)
+		else nil
+	if type(data) ~= "table" or type(upgrade) ~= "table" then
+		return false, "Coming soon!"
+	end
+	local levelNeeded = count(upgrade.Level)
+	if levelNeeded > math.max(1, count(data.Level)) then
+		return false, "Needs " .. Progress.LEVEL_ICON .. " Lv " .. levelNeeded
+	end
+	local rebirthsNeeded = count(upgrade.Rebirths)
+	local rebirth = data.Rebirth
+	local rebirths = if type(rebirth) == "table" then count(rebirth.Count) else 0
+	if rebirthsNeeded > rebirths then
+		return false, "Needs " .. Progress.BRANCH_ICON .. " R" .. rebirthsNeeded
+	end
+	return true, ""
 end
 
 function Progress.canBuyRoom(data: any, room: Room?, roomId: string, isWinter: boolean?): (boolean, string)
@@ -135,7 +160,7 @@ function Progress.nextGoal(data: any, rooms: any, upgrades: any, isWinter: boole
 		local upgrade = rawget(upgrades, upgradeId)
 		local level = math.max(0, math.floor(count(levels[upgradeId])))
 		local price = if type(upgrade.Prices) == "table" then upgrade.Prices[level + 1] else nil
-		if type(price) == "number" and price < bestPrice then
+		if type(price) == "number" and price < bestPrice and (Progress.canBuyUpgrade(data, upgradeId, upgrades)) then
 			bestUpgrade, bestPrice = upgradeId, price
 		end
 	end

@@ -1,8 +1,8 @@
 --!strict
 -- Decor: preset items for the decor slots in your rooms (build plan §B2). Lune-safe (no Roblox types).
 -- Price = nil means earned only, and EarnedBy says how: "Book" (a wing's set), "Story" (a regular), "Referral" or
--- "Playtime" (a Doctor rank from time played, Data/Playtime.Ranks) or "Journal" (a Nurse Journal rarity group,
--- Data/Rarities Journal.Decor).
+-- "Playtime" (a Doctor rank from time played, Data/Playtime.Ranks), "Journal" (a Nurse Journal rarity group,
+-- Data/Rarities Journal.Decor) or "Rebirth" (a Branch Trophy: the rebirth count in Rebirths, Progression v2 R6-R10).
 -- Nothing here is random or paid with Robux.
 --
 -- Look: the DecorBuilder recipe (Task 7). A model at ServerStorage.ClinicKit.Decor.<DecorId> replaces it.
@@ -23,6 +23,7 @@ export type Decor = {
 	Icon: string,
 	Price: number?,
 	EarnedBy: string?,
+	Rebirths: number?, -- EarnedBy "Rebirth": the rebirth count that gives it
 	Look: DecorLook,
 }
 
@@ -200,6 +201,56 @@ local ENTRIES: { [DecorId]: Decor } = {
 		EarnedBy = "Playtime",
 		Look = { Kind = "Statue", Color = "#FFD84D", Accent = "#B9A7E8" },
 	},
+
+	-- Progression v2 (build plan §B5; placeholder names, OPEN #1): the new wings' set rewards...
+	SunflowerArch = {
+		Name = "Sunflower Arch",
+		Icon = "🌻",
+		EarnedBy = "Book",
+		Look = { Kind = "Arch", Color = "#FFD84A", Accent = "#6FBF73" },
+	},
+	CloudSwing = {
+		Name = "Cloud Swing",
+		Icon = "☁️",
+		EarnedBy = "Book",
+		Look = { Kind = "Bench", Color = "#E6F4FF", Accent = "#8FD0FF" },
+	},
+	-- ...and the Branch Trophies, one each at rebirths 6 to 10 (§E18)
+	TrophyCup = {
+		Name = "Trophy Cup",
+		Icon = "🏆",
+		EarnedBy = "Rebirth",
+		Rebirths = 6,
+		Look = { Kind = "Statue", Color = "#FFD84A", Accent = "#FFFFFF" },
+	},
+	TrophyStar = {
+		Name = "Trophy Star",
+		Icon = "⭐",
+		EarnedBy = "Rebirth",
+		Rebirths = 7,
+		Look = { Kind = "Statue", Color = "#FFE27A", Accent = "#FF8FB1" },
+	},
+	TrophyGlobe = {
+		Name = "Trophy Globe",
+		Icon = "🌍",
+		EarnedBy = "Rebirth",
+		Rebirths = 8,
+		Look = { Kind = "Globe", Color = "#8FD0FF", Accent = "#FFD84A", Glow = true },
+	},
+	TrophyRocket = {
+		Name = "Trophy Rocket",
+		Icon = "🚀",
+		EarnedBy = "Rebirth",
+		Rebirths = 9,
+		Look = { Kind = "Statue", Color = "#D9D2FF", Accent = "#FF6A3D" },
+	},
+	TrophyCrown = {
+		Name = "Trophy Crown",
+		Icon = "👑",
+		EarnedBy = "Rebirth",
+		Rebirths = 10,
+		Look = { Kind = "Statue", Color = "#F2B705", Accent = "#B04CFF" },
+	},
 }
 
 local ORDER = {
@@ -230,6 +281,13 @@ local ORDER = {
 	"SeniorBench",
 	"ChiefArch",
 	"LegendStatue",
+	"SunflowerArch",
+	"CloudSwing",
+	"TrophyCup",
+	"TrophyStar",
+	"TrophyGlobe",
+	"TrophyRocket",
+	"TrophyCrown",
 }
 
 local function freeze(t: any): any

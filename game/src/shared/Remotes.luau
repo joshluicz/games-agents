@@ -5,9 +5,13 @@
 -- Server -> client events:  Toast(text) · State(snapshot) · Cured(info) · DayReport(report)
 --   Depth update (depth-update build plan §B3; payload types in Shared/Types):
 --   TreatStart(session: TreatSession)   to the treating player: play these mini-games (Server/Treatment)
---   NurseNews(info: NurseNews)          to one player: a nurse seen for the first time, hired, equipped
+--   NurseNews(info: NurseNews)          to one player: a nurse seen, hired, levelled, given a job, sold, bought...
 --   Shout(info: ShoutInfo)              to everyone: an Epic+ nurse steps on the belt, a big hire, Golden Hour
 --   Celebrate(info: CelebrateInfo)      to one player: a level-up, a new nurse, a journal set (Client/UI/Celebrate)
+--   Progression v2 (docs/plan/2026-11-16-progression-v2-build-plan.md §B3; payload types in Shared/Types):
+--   AgencyNews(view: AgencyView)        to one player: the Nurse Agency as THEY see it (a restock, their buy or sell)
+--   MarketNews(view: MarketView)        to everyone: the Player Market's listings (debounced)
+--   BeltScout(info: BeltScoutInfo)      to 🔭 Belt Scout perk owners: the next belt arrival's rarity
 -- Client -> server functions (each returns ok: boolean, message: string, except GetState):
 --   Purchase(kind, id) · PlaceDecor(slotKey, decorId?) · ClaimGoal(index) · ClaimMailbox() · GetState() -> Snapshot
 --   TutorialAck()   the welcome card was tapped (or shown 4 s). Server/Tutorial: it only ever moves step 1 -> 2
@@ -24,8 +28,18 @@
 --   TreatResult(session: number, ratings: { Rating })   -> ok, message, TreatOutcome?  (Server/Treatment)
 --   SetSimple(on: boolean)                               Simple mode, saved (Server/Treatment)
 --   HireNurse(riderId: number)                           buy the nurse riding the belt (Server/NurseBelt)
---   EquipNurse(nurseId: string, on: boolean)             put a nurse on or off duty (Server/Nurses)
 --   LevelUp()                                            the next hospital level (Server/Levels)
+--   Progression v2 (EquipNurse is gone: every nurse you own works). Each returns (ok, message, payload?):
+--   SetJob(nurseId, job)                                 Server/Nurses
+--   OpenBranch(confirm) · ChoosePerk(perkId) · BuyNode(nodeId) · ResetTree() · SetTheme(themeId)
+--   · ClaimBranchNurse()                                 Server/Rebirth
+--   GetAgency() -> AgencyView · AgencyBuy(slot, nurseId, expect) · SellNurse(nurseId, expect)   Server/Agency
+--   GetMarket() -> MarketView · ListNurse(nurseId, price) · Unlist(listingId) · BuyListing(listingId, price)
+--                                                        Server/Market
+--   RideLift(floor)                                      Server/Lift
+--   Triage(session, dept)                                Server/Treatment
+--   Until its system serves it, each of these answers (false, Remotes.SOON) on the server, so a client never waits
+--   on a RemoteFunction nobody answers (the Foundation stubs; Remotes.serve replaces the default).
 --
 -- Server helpers (call only on the server):
 --   Remotes.serve(name, handler)  wires a RemoteFunction with the rate limit and error safety built in. The handler
@@ -46,7 +60,20 @@ local RunService = game:GetService("RunService")
 local Config = require(script.Parent.Config)
 
 local FOLDER_NAME = "Remotes"
-local EVENTS = { "Toast", "State", "Cured", "DayReport", "TreatStart", "NurseNews", "Shout", "Celebrate" }
+local EVENTS = {
+	"Toast",
+	"State",
+	"Cured",
+	"DayReport",
+	"TreatStart",
+	"NurseNews",
+	"Shout",
+	"Celebrate",
+	-- Progression v2
+	"AgencyNews",
+	"MarketNews",
+	"BeltScout",
+}
 local FUNCTIONS = {
 	"Purchase",
 	"PlaceDecor",
@@ -62,9 +89,31 @@ local FUNCTIONS = {
 	"TreatResult",
 	"SetSimple",
 	"HireNurse",
-	"EquipNurse",
 	"LevelUp",
 }
+-- Progression v2: each answers (false, Remotes.SOON) until its system serves it (see the header).
+local NEW_FUNCTIONS = {
+	"SetJob",
+	"OpenBranch",
+	"ChoosePerk",
+	"BuyNode",
+	"ResetTree",
+	"SetTheme",
+	"ClaimBranchNurse",
+	"GetAgency",
+	"AgencyBuy",
+	"SellNurse",
+	"GetMarket",
+	"ListNurse",
+	"Unlist",
+	"BuyListing",
+	"RideLift",
+	"Triage",
+}
+for _, name in NEW_FUNCTIONS do
+	table.insert(FUNCTIONS, name)
+end
+local SOON_TEXT = "Coming soon!"
 
 local IS_SERVER = RunService:IsServer()
 
@@ -92,6 +141,14 @@ if IS_SERVER then
 			remote.Parent = folder
 		end
 	end
+	for _, name in NEW_FUNCTIONS do
+		local remote = folder:FindFirstChild(name)
+		if remote and remote:IsA("RemoteFunction") then
+			remote.OnServerInvoke = function()
+				return false, SOON_TEXT
+			end
+		end
+	end
 else
 	folder = ReplicatedStorage:WaitForChild(FOLDER_NAME) :: Folder
 end
@@ -106,6 +163,9 @@ local Remotes = {
 	NurseNews = folder:WaitForChild("NurseNews") :: RemoteEvent,
 	Shout = folder:WaitForChild("Shout") :: RemoteEvent,
 	Celebrate = folder:WaitForChild("Celebrate") :: RemoteEvent,
+	AgencyNews = folder:WaitForChild("AgencyNews") :: RemoteEvent,
+	MarketNews = folder:WaitForChild("MarketNews") :: RemoteEvent,
+	BeltScout = folder:WaitForChild("BeltScout") :: RemoteEvent,
 	-- client -> server
 	Purchase = folder:WaitForChild("Purchase") :: RemoteFunction,
 	PlaceDecor = folder:WaitForChild("PlaceDecor") :: RemoteFunction,
@@ -121,14 +181,30 @@ local Remotes = {
 	TreatResult = folder:WaitForChild("TreatResult") :: RemoteFunction,
 	SetSimple = folder:WaitForChild("SetSimple") :: RemoteFunction,
 	HireNurse = folder:WaitForChild("HireNurse") :: RemoteFunction,
-	EquipNurse = folder:WaitForChild("EquipNurse") :: RemoteFunction,
 	LevelUp = folder:WaitForChild("LevelUp") :: RemoteFunction,
+	-- Progression v2
+	SetJob = folder:WaitForChild("SetJob") :: RemoteFunction,
+	OpenBranch = folder:WaitForChild("OpenBranch") :: RemoteFunction,
+	ChoosePerk = folder:WaitForChild("ChoosePerk") :: RemoteFunction,
+	BuyNode = folder:WaitForChild("BuyNode") :: RemoteFunction,
+	ResetTree = folder:WaitForChild("ResetTree") :: RemoteFunction,
+	SetTheme = folder:WaitForChild("SetTheme") :: RemoteFunction,
+	ClaimBranchNurse = folder:WaitForChild("ClaimBranchNurse") :: RemoteFunction,
+	GetAgency = folder:WaitForChild("GetAgency") :: RemoteFunction,
+	AgencyBuy = folder:WaitForChild("AgencyBuy") :: RemoteFunction,
+	SellNurse = folder:WaitForChild("SellNurse") :: RemoteFunction,
+	GetMarket = folder:WaitForChild("GetMarket") :: RemoteFunction,
+	ListNurse = folder:WaitForChild("ListNurse") :: RemoteFunction,
+	Unlist = folder:WaitForChild("Unlist") :: RemoteFunction,
+	BuyListing = folder:WaitForChild("BuyListing") :: RemoteFunction,
+	RideLift = folder:WaitForChild("RideLift") :: RemoteFunction,
+	Triage = folder:WaitForChild("Triage") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.
 Remotes.TOO_FAST = "Too fast! Try again."
 Remotes.OOPS = "Oops! Try again."
-Remotes.SOON = "Coming soon!" -- a feature whose server part hasn't landed yet (the Foundation stubs)
+Remotes.SOON = SOON_TEXT -- a feature whose server part hasn't landed yet (the Foundation stubs)
 
 ------------------------------------------------------------------------------------------------------------------
 -- Server helpers

@@ -1069,8 +1069,9 @@ function Shop.init(ctx: Types.Ctx)
 		local row = LevelsLogic.row(levels, level)
 		nowIcon.Text = row.Icon
 		nowTitle.Text = "Lv " .. level .. " · " .. row.Name
-		nowStats.Text = ("👩‍⚕️ %d   🛏️ %d   🧍 %d   🧪 %d"):format(
-			row.Slots,
+		-- FOUNDATION (Progression v2): slots are gone; T5 shows departments here
+		nowStats.Text = ("🏢 %d   🛏️ %d   🧍 %d   🧪 %d"):format(
+			row.Floors,
 			row.Beds,
 			row.Queue,
 			row.RecipeCap

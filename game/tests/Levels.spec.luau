@@ -1,5 +1,6 @@
 --!strict
--- Hospital levels (depth-update build plan §B5/§B7).
+-- Hospital levels (depth-update build plan §B5/§B7; Progression v2 build plan §B5: slots are gone, departments and
+-- the ward floor at Lv 2).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
@@ -24,24 +25,54 @@ T.describe("Levels", function()
 		expect(Levels.max(LevelsData)).toBe(5)
 		local rows = {}
 		for index, row in LevelsData do
-			rows[index] = { row.Stars, row.Cash, row.Slots, row.Beds, row.Queue, row.RecipeCap }
+			rows[index] = { row.Stars, row.Cash, row.Floors, row.Beds, row.Queue, row.RecipeCap }
+			expect((row :: any).Slots).toBeNil() -- Progression v2: every nurse you own works
 		end
 		expect(rows).toEqual({
-			{ 0, 0, 1, 1, 3, 1 },
-			{ 15, 400, 2, 2, 3, 2 },
-			{ 45, 1500, 3, 2, 3, 3 },
-			{ 100, 5000, 4, 3, 3, 3 },
-			{ 200, 15000, 5, 3, 3, 3 },
+			{ 0, 0, 0, 1, 3, 1 },
+			{ 15, 400, 1, 3, 3, 2 },
+			{ 45, 1500, 2, 3, 3, 3 },
+			{ 100, 5000, 3, 4, 3, 3 },
+			{ 200, 15000, 4, 4, 3, 3 },
 		})
 		expect(LevelsData[1].Name).toBe("First-Aid Stand")
 		expect(LevelsData[5].Name).toBe("Mega Hospital")
 	end)
 
-	test("slots equal the level (Schema caps Equipped by Level)", function()
-		for index, row in LevelsData do
-			expect(row.Slots).toBe(index)
+	test("departments open level by level (Progression v2 §B5), and Schema.MAX_LEVEL is the top", function()
+		local opened = {}
+		for index = 1, Levels.max(LevelsData) do
+			opened[index] = Levels.departments(LevelsData, index)
 		end
+		expect(opened).toEqual({
+			{ "Reception" },
+			{ "Reception", "AE", "Wards" },
+			{ "Reception", "AE", "Wards", "Hydro" },
+			{ "Reception", "AE", "Wards", "Hydro", "Pharmacy" },
+			{ "Reception", "AE", "Wards", "Hydro", "Pharmacy", "Roof" },
+		})
 		expect(Schema.MAX_LEVEL).toBe(Levels.max(LevelsData))
+		-- a copy: changing it never changes Data
+		local copy = Levels.departments(LevelsData, 1)
+		table.insert(copy, "Junk")
+		expect(#Levels.departments(LevelsData, 1)).toBe(1)
+	end)
+
+	test("the unlock chips of Progression v2 (the ambulance bay and the lift at Lv 2)", function()
+		expect(LevelsData[2].Unlocks).toEqual({
+			"🚑 A&E ambulances",
+			"🛏️ Wards upstairs",
+			"🛗 Lift",
+			"🧪 2-item recipes",
+		})
+		expect(LevelsData[3].Unlocks).toEqual({
+			"🛁 Hydro hot tub",
+			"🔀 Pick the floor",
+			"✚ Big sign",
+			"🌻 Garden",
+		})
+		expect(LevelsData[4].Unlocks).toEqual({ "💊 Pharmacy", "🛏️ 4 beds", "🏢 3 floors" })
+		expect(LevelsData[5].Unlocks).toEqual({ "🚁 Helipad", "🗼 Tower", "✨ Neon sign", "🏢 New branches" })
 	end)
 
 	test("unlock chips are short", function()
@@ -81,9 +112,12 @@ T.describe("Levels", function()
 		expect((Levels.canLevelUp(nil, LevelsData))).toBe(false)
 	end)
 
-	test("slots, beds, queue and recipe cap by level", function()
-		expect(Levels.slots(LevelsData, 3)).toBe(3)
-		expect(Levels.beds(LevelsData, 4)).toBe(3)
+	test("floors, beds, queue and recipe cap by level", function()
+		expect((Levels :: any).slots).toBeNil()
+		expect(Levels.floors(LevelsData, 1)).toBe(0)
+		expect(Levels.floors(LevelsData, 5)).toBe(4)
+		expect(Levels.floors(LevelsData, 99)).toBe(4)
+		expect(Levels.beds(LevelsData, 4)).toBe(4)
 		expect(Levels.queue(LevelsData, 5)).toBe(3) -- the line is 3 at every level (Config.MaxQueue)
 		expect(Levels.recipeCap(LevelsData, 1)).toBe(1)
 		expect(Levels.recipeCap(LevelsData, 2)).toBe(2)

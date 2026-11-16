@@ -207,3 +207,26 @@ T.describe("Progress.parseSlotKey", function()
 		expect((Progress.parseSlotKey(Rooms, "Stand:" .. string.rep("9", 400)))).toBeNil()
 	end)
 end)
+
+T.describe("Progress.canBuyUpgrade (Progression v2 gates)", function()
+	test("the hospital level, then the rebirths; the old four are never gated", function()
+		local data = save(0, 99999)
+		expect({ Progress.canBuyUpgrade(data, "Speed", Upgrades) }).toEqual({ true, "" })
+		expect({ Progress.canBuyUpgrade(data, "WardComfort", Upgrades) }).toEqual({ false, "Needs 🏥 Lv 2" })
+		expect({ Progress.canBuyUpgrade(data, "NightClinic", Upgrades) }).toEqual({ false, "Needs 🏢 R4" })
+		data.Level = 2
+		expect({ Progress.canBuyUpgrade(data, "AESpeed", Upgrades) }).toEqual({ true, "" })
+		data.Rebirth.Count = 4
+		expect({ Progress.canBuyUpgrade(data, "NightClinic", Upgrades) }).toEqual({ true, "" })
+		expect((Progress.canBuyUpgrade(data, "Order", Upgrades))).toBe(false)
+		expect((Progress.canBuyUpgrade(nil, "Speed", Upgrades))).toBe(false)
+	end)
+
+	test("nextGoal never aims at a gated upgrade", function()
+		local data = save(999, 0, ALL_ROOMS)
+		data.Upgrades = { Speed = 5, Tray = 3, Chairs = 3, Tips = 5, WardComfort = 0, AESpeed = 0, NightClinic = 0 }
+		expect(Progress.nextGoal(data, Rooms, Upgrades)).toEqual({ Kind = "None", Id = "" })
+		data.Level = 2
+		expect(Progress.nextGoal(data, Rooms, Upgrades)).toEqual({ Kind = "Upgrade", Id = "WardComfort" })
+	end)
+end)

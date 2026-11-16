@@ -11,6 +11,10 @@
 --   Plots.fromInstance(inst): Plot?          the plot an Instance (a station, a prompt part) belongs to
 --   Plots.decorSlot(plot, slotKey): BasePart?
 --   Plots.observeRooms(fn): Connection       fn(plot, roomId, roomModel) for every room now AND every room later
+--   Plots.syncRooms(p)                       Progression v2 (§B8; STUB (T2)): makes the plot's room models match the
+--                                            save after a rebirth or a perk card: removes the rooms it no longer
+--                                            owns (their placed decor went back to the inventory in the save), adds
+--                                            the ones it owns but lacks (BathReady), and re-places the decor
 --
 -- Lifecycle: a joiner gets a free plot once their data loads (middle plots first). Their owned rooms and placed
 -- decor are rebuilt, RoomAdded fires for each new room, then PlotAssigned. On leave, PlotReleased fires FIRST
@@ -447,6 +451,9 @@ function Plots.observeRooms(fn: (Plot, string, Model) -> ()): Signal.Connection
 	end
 	return Plots.RoomAdded:Connect(fn)
 end
+
+-- STUB (T2): the room models follow the save (see the header)
+function Plots.syncRooms(_owner: Player) end
 
 function Plots.start()
 	for index, model in PlotBuilder.buildTown() do

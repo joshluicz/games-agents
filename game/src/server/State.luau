@@ -11,8 +11,11 @@
 -- Time played, boosts and badges: Playtime, Stats and Badges are the saved fields; Boosts is Server/Boosts.list (timed
 -- boosts running, permanent percents) and MakeSeconds the hold time at each station with every boost (the client's
 -- ring follows it, Guide). The live play seconds are the player attributes PlayToday/PlayTotal (Server/Playtime).
--- Depth update (build plan §B2): Level, Nurses, Equipped, NurseIndex, JournalSets and Simple are copies of the save
--- fields of the same names. Slots aren't sent: the client reads them from Data/Levels.
+-- Depth update (build plan §B2): Level, Nurses, NurseIndex, JournalSets and Simple are copies of the save fields of the
+-- same names. Progression v2 (§B2): Equipped is gone, and Rebirth is a copy of the save's Rebirth. Nothing else is
+-- added: the client works out the roster cap, the level cap, the effective jobs, team bonuses, the next rebirth's
+-- cost and the tree's effects with Logic/* and Config. The Agency and the Market aren't in the Snapshot (GetAgency,
+-- GetMarket, AgencyNews, MarketNews).
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -60,7 +63,9 @@ end
 
 local function boostList(player: Player): Types.BoostList
 	local ok, list = pcall(Boosts.list, player)
-	return if ok and type(list) == "table" then list else { Timed = {}, Permanent = {} }
+	return if ok and type(list) == "table"
+		then list
+		else { Timed = {}, Permanent = {}, Branch = {}, Rebirth = { Cash = 1, Stars = 1 } }
 end
 
 local function makeSeconds(player: Player): { [string]: number }
@@ -103,10 +108,10 @@ function State.snapshot(player: Player): Types.Snapshot
 		Badges = deepCopy(data.Badges),
 		Level = data.Level,
 		Nurses = deepCopy(data.Nurses),
-		Equipped = deepCopy(data.Equipped),
 		NurseIndex = deepCopy(data.NurseIndex),
 		JournalSets = deepCopy(data.JournalSets),
 		Simple = data.Simple,
+		Rebirth = deepCopy(data.Rebirth),
 	}
 end
 

@@ -209,12 +209,43 @@ T.describe("Belt", function()
 		expect(Belt.alpha(100, 101, 0)).toBe(1)
 	end)
 
-	test("canHire stops at the max level", function()
+	test("canHire stops at the max level (the hirer's cap when given)", function()
 		expect((Belt.canHire(nil, CFG))).toBe(true)
 		expect((Belt.canHire({ Level = 4, Copies = 4 }, CFG))).toBe(true)
 		local ok, message = Belt.canHire({ Level = 5, Copies = 9 }, CFG)
 		expect(ok).toBe(false)
 		expect(message).toBe("Max level!")
+		-- Progression v2: the cap is Logic/Nurse.levelCap (10, 15 from R3)
+		expect((Belt.canHire({ Level = 9 }, CFG, 10))).toBe(true)
+		expect((Belt.canHire({ Level = 10 }, CFG, 10))).toBe(false)
+		expect((Belt.canHire({ Level = 10 }, CFG, 15))).toBe(true)
+	end)
+
+	test("gate: the hospital level first, then Mythic/Secret need the first rebirth (Progression v2)", function()
+		local cfg = { Belt = { MinLevel = CFG.Belt.MinLevel, MinRebirths = { Mythic = 1, Secret = 1 } } }
+		expect(Belt.gate(cfg, "Common", 1, 0)).toBeNil()
+		expect(Belt.gate(cfg, "Epic", 2, 0)).toBe("🏥 Lv 3")
+		expect(Belt.gate(cfg, "Epic", 3, 0)).toBeNil()
+		expect(Belt.gate(cfg, "Mythic", 1, 0)).toBe("🏥 Lv 3")
+		expect(Belt.gate(cfg, "Mythic", 5, 0)).toBe("🏢 R1")
+		expect(Belt.gate(cfg, "Secret", 5, 1)).toBeNil()
+		expect(Belt.gate(cfg, "Legendary", 5, 0)).toBeNil()
+		expect(Belt.minRebirths(cfg, "Secret")).toBe(1)
+		expect(Belt.minRebirths(cfg, "Rare")).toBe(0)
+	end)
+
+	test("the shipped Config gates Mythic and Secret at R1", function()
+		expect(Config.Belt.MinRebirths).toEqual({ Mythic = 1, Secret = 1 })
+		expect(Belt.gate(Config, "Mythic", 5, 0)).toBe("🏢 R1")
+	end)
+
+	test("pick never picks a rebirth-only nurse (FounderFennec never rides)", function()
+		for _, r in { 0, 0.3, 0.6, 0.99 } do
+			local id = Belt.pick(Nurses, "Legendary", r)
+			expect(id == "AuroraOtter" or id == "StarlightLamb").toBe(true)
+		end
+		local only = { Order = { "Only" }, Only = { Rarity = "Common", Source = "Rebirth" } }
+		expect(Belt.pick(only, "Common", 0.5)).toBeNil()
 	end)
 end)
 

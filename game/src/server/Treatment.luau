@@ -12,6 +12,8 @@
 --   Treatment.drop(session)            closes it without settling (the patient went away): no tip, no combo change,
 --                                      and a late TreatResult for it is refused. Patients settles the patient itself
 --   Treatment.onHeal(fn)               Patients' Healer delivery: fn(plot, nurseId) -> { ItemId } given from the tray
+--   Treatment.waitTriage(p, session, options, right): DeptId   Progression v2 (§B8; STUB (T7): answers `right` at
+--                                      once, so a patient always goes the right way until T7 lands the Triage remote)
 --
 -- A session, start to end:
 --   1. Patients (the Counter's TreatPrompt) matches the front patient's missing recipe items against the helper's
@@ -349,6 +351,11 @@ local function onHeal(plot: any, nurseId: any)
 			report("Nurses.healed", err)
 		end
 	end
+end
+
+-- STUB (T7): the Triage remote and its wait (yields up to Config.Triage.Seconds once T7 lands it)
+function Treatment.waitTriage(_player: Player, _session: number, _options: { string }, right: string): string
+	return right
 end
 
 function Treatment.start()

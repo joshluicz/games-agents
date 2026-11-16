@@ -6,7 +6,7 @@
 -- Recipe (depth update §1): the items a patient with this ailment needs, 1-3, in order. Item 1 is always the
 -- treating station's own item (so the badge colour still matches). Each item is one short mini-game at the Counter.
 -- By wing: Starter 1 item · Bath 2 · Winter 2 · Night 2 (Night patients come to every clinic, so their recipes use
--- First-Aid Stand items only). The hospital level cuts recipes (Data/Levels RecipeCap: Lv 1 -> 1 item, Lv 2 -> 2,
+-- First-Aid Stand items only) · Progression v2: Sunny 2 (from R1) · Sky 3 (from R2, helicopter only). The hospital level cuts recipes (Data/Levels RecipeCap: Lv 1 -> 1 item, Lv 2 -> 2,
 -- Lv 3 -> 3), so a new player only ever sees one item. Regulars have their own (Data/Regulars). Keep each entry on
 -- one line: tests/Data.spec reads the recipes from this file's text (Lune can't load Color3).
 
@@ -43,9 +43,27 @@ local ENTRIES: { [AilmentId]: Ailment } = {
 	-- Cocoa Corner (Cocoa)
 	Chills = ailment("Chills", "🥶", "Cocoa", { "Cocoa", "Potion" }),
 	FrozenNose = ailment("Frozen nose", "❄️", "Cocoa", { "Cocoa", "Plaster" }),
+	-- Progression v2 (build plan §B5; kid-safe, placeholder names): the Sunny wing (R1) and the Sky wing (R2)
+	Pollen = ailment("Pollen", "🌼", "Remedy", { "Potion", "Bubbles" }),
+	Prickles = ailment("Prickles", "🌵", "Plaster", { "Plaster", "Cocoa" }),
+	Airsick = ailment("Airsick", "💫", "Remedy", { "Potion", "Cocoa", "Plaster" }),
 }
 
-local ORDER = { "Hiccups", "Sneezes", "Cough", "Bump", "Scrape", "LostGlow", "Sticky", "Muddy", "Chills", "FrozenNose" }
+local ORDER = {
+	"Hiccups",
+	"Sneezes",
+	"Cough",
+	"Bump",
+	"Scrape",
+	"LostGlow",
+	"Sticky",
+	"Muddy",
+	"Chills",
+	"FrozenNose",
+	"Pollen",
+	"Prickles",
+	"Airsick",
+}
 
 local function freeze(t: any): any
 	for _, value in t do

@@ -7,13 +7,16 @@
 -- admin, validates the action and its argument (Logic/Admin) and answers (ok, message), shown as a toast. Nothing
 -- here is trusted, and nothing on screen changes until the server's next Snapshot.
 --
--- Two pages in one panel:
+-- Four pages in one panel:
 --   the actions    your own save (💰 ⭐ rooms, decor, the Book, stories, goals and mail, play time, badges and
---                  boosts, the tutorial, a patient),
---                  then the whole server's night, day and winter (the server allows those only when you're alone in
---                  it, or in Studio; otherwise its reply says why)
+--                  boosts, the tutorial, a patient), then the whole server's night, day and winter (the server allows
+--                  those only when you're alone in it, or in Studio; otherwise its reply says why)
+--   🏢 branches    Progression v2 (build plan §B8): 🏢 Rebirth now, 🌳 +3 points, ⬆️ Nurse levels, ✨ Charge
+--                  abilities, 🚑 Ambulance, 🚁 Helicopter, and the whole server's 🏢 Restock Agency. A system that hasn't
+--                  landed yet answers "Coming soon!"
 --   the patients   "🤧 Spawn patient…": tap a creature and it's next in your own line
--- Phones: both pages scroll and every button is at least 56 px tall. Motion is Kit's and Hud's, so it honours reduced
+--   the nurses     "🎁 Give nurse…": tap a nurse and it's yours, free (the roster rules still apply)
+-- Phones: every page scrolls and every button is at least 56 px tall. Motion is Kit's and Hud's, so it honours reduced
 -- motion and the ✨ calm switch.
 
 local GuiService = game:GetService("GuiService")
@@ -33,10 +36,10 @@ local NAME = "Admin" -- the modal, and the "Open" bus name
 local ATTRIBUTE = "IsAdmin" -- set by Server/Admin; only steers the UI
 local ACCENT = Theme.Colors.Purple
 local ROW = Theme.Size.ButtonHeight
-local PATIENT_ROW = 68
+local CARD_ROW = 68
 local GAP = 8
 
--- One button: an Admin remote call (Action, Arg), or Opens the patient page.
+-- One button: an Admin remote call (Action, Arg), or Opens another page.
 type Act = { Text: string, Kind: string, Action: string?, Arg: (number | string)?, Opens: string? }
 type Section = { Title: string, Rows: { { Act } } }
 
@@ -63,6 +66,10 @@ local SECTIONS: { Section } = {
 			{
 				{ Text = "🎯 Reset goals + 📬", Kind = "Good", Action = "ResetDaily" },
 				{ Text = "🤧 Spawn patient…", Kind = "Cyan", Opens = "Patients" },
+			},
+			{
+				{ Text = "🏢 Branch tools…", Kind = "Purple", Opens = "Branch" },
+				{ Text = "🎁 Give nurse…", Kind = "Cyan", Opens = "Nurses" },
 			},
 		},
 	},
@@ -102,6 +109,35 @@ local SECTIONS: { Section } = {
 			},
 			{
 				{ Text = "❄️ Winter on/off", Kind = "Cyan", Action = "ToggleWinter" },
+			},
+		},
+	},
+}
+
+-- Progression v2 (build plan §B8 "Admin"): the 🏢 page.
+local BRANCH_SECTIONS: { Section } = {
+	{
+		Title = "🏢 Branches · your save",
+		Rows = {
+			{
+				{ Text = "🏢 Rebirth now", Kind = "Purple", Action = "Rebirth" },
+				{ Text = "🌳 +3 points", Kind = "Good", Action = "AddTreePoints" },
+			},
+			{
+				{ Text = "⬆️ Nurse levels", Kind = "Primary", Action = "NurseLevels" },
+				{ Text = "✨ Charge abilities", Kind = "Pink", Action = "ChargeAbilities" },
+			},
+			{
+				{ Text = "🚑 Ambulance", Kind = "Danger", Action = "SpawnAmbulance" },
+				{ Text = "🚁 Helicopter", Kind = "Cyan", Action = "SpawnHelicopter" },
+			},
+		},
+	},
+	{
+		Title = "🌍 Whole server · alone only",
+		Rows = {
+			{
+				{ Text = "🏢 Restock Agency", Kind = "Secondary", Action = "RefillAgency" },
 			},
 		},
 	},
@@ -150,8 +186,13 @@ function AdminPanel.init(ctx: Types.Ctx)
 		MaxSize = Vector2.new(560, 600),
 	})
 
-	local actions = page(modal.Body, "Actions")
-	local patients = page(modal.Body, "Patients")
+	local pages: { [string]: ScrollingFrame } = {
+		Actions = page(modal.Body, "Actions"),
+		Branch = page(modal.Body, "Branch"),
+		Patients = page(modal.Body, "Patients"),
+		Nurses = page(modal.Body, "Nurses"),
+	}
+	local firsts: { [string]: GuiObject } = {} -- each page's first button (gamepad focus)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Asking the server (one request at a time; the reply is the toast)
@@ -183,16 +224,15 @@ function AdminPanel.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- Pages
 	--------------------------------------------------------------------------------------------------------------
-	local firstAction: GuiObject? = nil
-	local back: TextButton
-
 	local function show(name: string)
-		local onPatients = name == "Patients"
-		actions.Visible = not onPatients
-		patients.Visible = onPatients
-		local shown = if onPatients then patients else actions
-		shown.CanvasPosition = Vector2.zero
-		local focus: GuiObject? = if onPatients then back else firstAction
+		for pageName, frame in pages do
+			frame.Visible = pageName == name
+		end
+		local shown = pages[name]
+		if shown then
+			shown.CanvasPosition = Vector2.zero
+		end
+		local focus: GuiObject? = firsts[name]
 		modal.Focus = focus
 		-- A gamepad's selection moves with the page (it was on the button that switched pages).
 		local selected = GuiService.SelectedObject
@@ -201,93 +241,89 @@ function AdminPanel.init(ctx: Types.Ctx)
 		end
 	end
 
-	--------------------------------------------------------------------------------------------------------------
-	-- The actions page
-	--------------------------------------------------------------------------------------------------------------
-	local order = 0
-	local function nextOrder(): number
-		order += 1
-		return order
+	local orders: { [string]: number } = {}
+	local function nextOrder(name: string): number
+		orders[name] = (orders[name] or 0) + 1
+		return orders[name]
 	end
 
-	for _, section in SECTIONS do
-		local title = Kit.label({
-			Name = "Section",
-			Text = section.Title,
+	local function backButton(name: string)
+		local back = Kit.button({
+			Name = "Back",
+			Kind = "Quiet",
+			Text = "⬅️ Back",
 			TextScaled = true,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Size = UDim2.new(1, 0, 0, 28),
-			LayoutOrder = nextOrder(),
-			Parent = actions,
+			LayoutOrder = nextOrder(name),
+			Size = UDim2.new(1, 0, 0, ROW),
+			Parent = pages[name],
 		})
-		textLimit(title, 22)
+		textLimit(back, Theme.TextSize.Body, 14)
+		back.Activated:Connect(function()
+			show("Actions")
+		end)
+		firsts[name] = back
+	end
 
-		for _, acts in section.Rows do
-			local row = Instance.new("Frame")
-			row.Name = "Row"
-			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, ROW)
-			row.LayoutOrder = nextOrder()
-			local list = Kit.list(row, Enum.FillDirection.Horizontal, GAP)
-			list.HorizontalAlignment = Enum.HorizontalAlignment.Left
-			row.Parent = actions
+	local function buildSections(name: string, sections: { Section })
+		local parent = pages[name]
+		for _, section in sections do
+			local title = Kit.label({
+				Name = "Section",
+				Text = section.Title,
+				TextScaled = true,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Size = UDim2.new(1, 0, 0, 28),
+				LayoutOrder = nextOrder(name),
+				Parent = parent,
+			})
+			textLimit(title, 22)
 
-			local count = #acts
-			for index, act in acts do
-				local button = Kit.button({
-					Name = act.Action or act.Opens or "Button",
-					Kind = act.Kind,
-					Text = act.Text,
-					TextScaled = true,
-					LayoutOrder = index,
-					Size = UDim2.new(1 / count, -GAP * (count - 1) / count, 0, ROW),
-					Parent = row,
-				})
-				textLimit(button, Theme.TextSize.Body, 14)
-				if not firstAction then
-					firstAction = button
-				end
-				local action, opens = act.Action, act.Opens
-				button.Activated:Connect(function()
-					if opens then
-						show(opens)
-					elseif action then
-						ask(button, action, act.Arg)
+			for _, acts in section.Rows do
+				local row = Instance.new("Frame")
+				row.Name = "Row"
+				row.BackgroundTransparency = 1
+				row.Size = UDim2.new(1, 0, 0, ROW)
+				row.LayoutOrder = nextOrder(name)
+				local list = Kit.list(row, Enum.FillDirection.Horizontal, GAP)
+				list.HorizontalAlignment = Enum.HorizontalAlignment.Left
+				row.Parent = parent
+
+				local count = #acts
+				for index, act in acts do
+					local button = Kit.button({
+						Name = act.Action or act.Opens or "Button",
+						Kind = act.Kind,
+						Text = act.Text,
+						TextScaled = true,
+						LayoutOrder = index,
+						Size = UDim2.new(1 / count, -GAP * (count - 1) / count, 0, ROW),
+						Parent = row,
+					})
+					textLimit(button, Theme.TextSize.Body, 14)
+					if not firsts[name] then
+						firsts[name] = button
 					end
-				end)
+					local action, opens = act.Action, act.Opens
+					button.Activated:Connect(function()
+						if opens then
+							show(opens)
+						elseif action then
+							ask(button, action, act.Arg)
+						end
+					end)
+				end
 			end
 		end
 	end
 
-	--------------------------------------------------------------------------------------------------------------
-	-- The patients page: tap a creature and it's next in your own line
-	--------------------------------------------------------------------------------------------------------------
-	back = Kit.button({
-		Name = "Back",
-		Kind = "Quiet",
-		Text = "⬅️ Back",
-		TextScaled = true,
-		LayoutOrder = 0,
-		Size = UDim2.new(1, 0, 0, ROW),
-		Parent = patients,
-	})
-	textLimit(back, Theme.TextSize.Body, 14)
-	back.Activated:Connect(function()
-		show("Actions")
-	end)
-
-	for index, patientId in data.Patients.Order do
-		local patient = data.Patients[patientId]
-		local ailment = data.Ailments[patient.Ailment]
-		local station = if ailment then data.Stations[ailment.Station] else nil
-		local wing = data.Wings[patient.Wing]
-
+	-- A big card with a portrait, a name and an icon line on the right (the patient and nurse pickers).
+	local function card(name: string, id: string, look: any, title: string, right: string, onTap: (GuiObject) -> ())
 		local button = Kit.button({
-			Name = patientId,
+			Name = id,
 			Kind = "Card",
-			LayoutOrder = index,
-			Size = UDim2.new(1, 0, 0, PATIENT_ROW),
-			Parent = patients,
+			LayoutOrder = nextOrder(name),
+			Size = UDim2.new(1, 0, 0, CARD_ROW),
+			Parent = pages[name],
 		})
 
 		local face = Instance.new("Frame")
@@ -301,7 +337,7 @@ function AdminPanel.init(ctx: Types.Ctx)
 		Kit.corner(face, 12)
 		Kit.stroke(face, Theme.Colors.Outline, 2.5)
 		Palette.candyGradient(face)
-		local portrait = Hud.portrait(patient.Look)
+		local portrait = Hud.portrait(look)
 		portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 		portrait.Position = UDim2.fromScale(0.5, 0.5)
 		portrait.Size = UDim2.fromScale(0.95, 0.95)
@@ -309,8 +345,8 @@ function AdminPanel.init(ctx: Types.Ctx)
 		face.Parent = button
 
 		local nameLabel = Kit.label({
-			Name = "PatientName",
-			Text = (if patient.Night then "🌙 " else "") .. patient.Name,
+			Name = "CardName",
+			Text = title,
 			TextScaled = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			AnchorPoint = Vector2.new(0, 0.5),
@@ -321,14 +357,9 @@ function AdminPanel.init(ctx: Types.Ctx)
 		})
 		textLimit(nameLabel, 22)
 
-		-- What it has, what cures it, and its wing: "🤧→🧪 🌳"
-		local needs = Kit.label({
-			Name = "Needs",
-			Text = (if ailment then ailment.Icon else "")
-				.. "→"
-				.. (if station then station.Icon else "")
-				.. " "
-				.. (if wing then wing.Icon else ""),
+		local info = Kit.label({
+			Name = "Info",
+			Text = right,
 			TextScaled = true,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -337,10 +368,58 @@ function AdminPanel.init(ctx: Types.Ctx)
 			ZIndex = 2,
 			Parent = button,
 		})
-		textLimit(needs, 24)
+		textLimit(info, 24)
 
 		button.Activated:Connect(function()
-			ask(button, "SpawnPatient", patientId)
+			onTap(button)
+		end)
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The actions page and the 🏢 page
+	--------------------------------------------------------------------------------------------------------------
+	buildSections("Actions", SECTIONS)
+	backButton("Branch")
+	buildSections("Branch", BRANCH_SECTIONS)
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The patients page: tap a creature and it's next in your own line
+	--------------------------------------------------------------------------------------------------------------
+	backButton("Patients")
+	for _, patientId in data.Patients.Order do
+		local patient = data.Patients[patientId]
+		local ailment = data.Ailments[patient.Ailment]
+		local station = if ailment then data.Stations[ailment.Station] else nil
+		local wing = data.Wings[patient.Wing]
+		-- What it has, what cures it, and its wing: "🤧→🧪 🌳"
+		local needs = (if ailment then ailment.Icon else "")
+			.. "→"
+			.. (if station then station.Icon else "")
+			.. " "
+			.. (if wing then wing.Icon else "")
+		card(
+			"Patients",
+			patientId,
+			patient.Look,
+			(if patient.Night then "🌙 " else "") .. patient.Name,
+			needs,
+			function(button)
+				ask(button, "SpawnPatient", patientId)
+			end
+		)
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The nurses page (Progression v2): tap a nurse and it's yours, free (the roster rules still apply)
+	--------------------------------------------------------------------------------------------------------------
+	backButton("Nurses")
+	for _, nurseId in data.Nurses.Order do
+		local nurse = data.Nurses[nurseId]
+		local rarity = rawget(data.Rarities, nurse.Rarity)
+		local job = rawget(data.Jobs, nurse.Role)
+		local right = (if rarity then rarity.Icon else "") .. " " .. (if job then job.Icon else "")
+		card("Nurses", nurseId, nurse.Look, nurse.Icon .. " " .. nurse.Name, right, function(button)
+			ask(button, "GiveNurse", nurseId)
 		end)
 	end
 

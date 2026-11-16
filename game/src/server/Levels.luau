@@ -12,8 +12,10 @@
 --                                        Economy.Purchased(p, "Level", "<level>"); the building grows; the
 --                                        Celebrate remote ({ Kind = "LevelUp", Title = the level's name, Icon,
 --                                        Level }); LevelChanged
---   Levels.slots(p) · Levels.queueCap(p) · Levels.recipeCap(p) · Levels.beds(p) · Levels.spawnSeconds(p)
---                                        numbers from Data/Levels (spawnSeconds: between new patients)
+--   Levels.queueCap(p) · Levels.recipeCap(p) · Levels.beds(p) · Levels.spawnSeconds(p) · Levels.floors(p)
+--                                        numbers from Data/Levels (spawnSeconds: between new patients; floors:
+--                                        walkable floors above the ground). Progression v2: slots are gone
+--   Levels.departments(p): { DeptId }    the departments open at the player's level (Logic/Levels.departments)
 --   Levels.LevelChanged                  signal (p, level, previous): once per change of a player's level (a
 --                                        level-up, or the save changed some other way), never for the level a
 --                                        player joins at
@@ -21,7 +23,7 @@
 --
 -- Studio test switch: workspace:SetAttribute("PreviewLevel", n) shows every plot's Building at level n (1-5), so
 -- each shell can be looked at without earning it. Only the building changes (its extra beds work): nothing is
--- saved, and slots, the line and recipes still follow the real level. Set it to nil to go back. A live server
+-- saved, and the line and recipes still follow the real level. Set it to nil to go back. A live server
 -- ignores it.
 
 local Players = game:GetService("Players")
@@ -69,8 +71,13 @@ function Levels.level(player: Player): number
 	return if data then LevelsLogic.clamp(LevelsData, data.Level) else 1
 end
 
-function Levels.slots(player: Player): number
-	return LevelsLogic.slots(LevelsData, Levels.level(player))
+-- FOUNDATION (Progression v2 Task 0): T6 adds the theme and the floors' building; these two answer from Data now.
+function Levels.floors(player: Player): number
+	return LevelsLogic.floors(LevelsData, Levels.level(player))
+end
+
+function Levels.departments(player: Player): { string }
+	return LevelsLogic.departments(LevelsData, Levels.level(player))
 end
 
 function Levels.queueCap(player: Player): number
