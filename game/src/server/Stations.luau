@@ -315,49 +315,23 @@ end
 -- Start
 ------------------------------------------------------------------------------------------------------------------
 
--- 🗑️ Throw away: a second Counter prompt (its own key, so it shows beside Treat) that empties your hands, so a
--- wrong or unneeded item can never leave a player stuck. Free, no confirm: treatments cost nothing to make.
-local BIN_TEXT = "🗑️ Hands empty!"
-local function wireBin(plot: Plot)
-	local counter = plot.Counter
-	if not counter or counter:FindFirstChild("BinAttachment") then
-		return
+-- Discard(itemId): the ✖ on a HUD hand throws that item away, so an unneeded item never leaves a player stuck.
+-- Free, no confirm: treatments cost nothing to make.
+local function discard(player: Player, itemId: any): (boolean, string)
+	if type(itemId) ~= "string" or rawget(ItemData :: any, itemId) == nil then
+		return false, Remotes.OOPS
 	end
-	local holder = Instance.new("Attachment")
-	holder.Name = "BinAttachment"
-	holder.Position = Vector3.new(0, counter.Size.Y / 2 + 1.2, 0)
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "BinPrompt"
-	prompt.ActionText = "Throw away"
-	prompt.ObjectText = "🗑️"
-	prompt.HoldDuration = 0.3
-	prompt.MaxActivationDistance = ACTIVATION_DISTANCE
-	prompt.RequiresLineOfSight = false
-	prompt.KeyboardKeyCode = Enum.KeyCode.Q
-	prompt.GamepadKeyCode = Enum.KeyCode.ButtonY
-	prompt.UIOffset = Vector2.new(0, 72) -- sits just under the Treat prompt
-	prompt.Parent = holder
-	prompt.Triggered:Connect(function(player: Player)
-		if #Carry.items(player) == 0 then
-			toast(player, BIN_TEXT)
-			return
-		end
-		if not isNear(player, counter) then
-			return
-		end
-		Carry.clear(player)
-		toast(player, "🗑️ Tray emptied!")
-	end)
-	holder.Parent = counter
+	if not Carry.take(player, itemId) then
+		return false, "🙌 Not in your hands!"
+	end
+	return true, "🗑️ " .. iconOf(itemId)
 end
 
 function Stations.start()
 	Plots.observeRooms(function(plot: Plot, _roomId: string, roomModel: Model)
 		wireRoom(plot, roomModel)
 	end)
-	for _, plot in Plots.all() do
-		wireBin(plot)
-	end
+	Remotes.serve("Discard", discard)
 
 	-- PlotReleased runs before the plot is cleared; the Stand stays, so switch its prompts off.
 	Plots.PlotReleased:Connect(function(_player: Player, plot: Plot)

@@ -219,6 +219,7 @@ local function attachGui(player: Player, character: Model)
 	gui.LightInfluence = 0 -- as bright at night as by day
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.MaxDistance = MAX_DISTANCE
+	gui.PlayerToHideFrom = player -- your own tray shows on your HUD, not over your head
 	gui.Enabled = false
 	gui.Parent = adornee
 	guis[player] = gui

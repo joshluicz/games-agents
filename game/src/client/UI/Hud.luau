@@ -1453,29 +1453,72 @@ function Hud.init(ctx: Types.Ctx)
 	Kit.list(hands, Enum.FillDirection.Horizontal, 6)
 	targets.Hands = hands
 
-	-- Each hand: a candy tile in the colour of the station that made what's in it. Only what you hold shows: empty
-	-- hands draw nothing (first-session declutter, design §A5).
+	-- Each hand: a big white disc with what you hold, ringed in the colour of the station that made it, and a red ✖
+	-- (top right) that throws it away (the Discard remote), so an unneeded item never leaves you stuck. Only what you
+	-- hold shows: empty hands draw nothing (first-session declutter, design §A5).
+	local HAND = 84
+	hands.Size = UDim2.fromOffset(0, HAND)
 	local slots: { Frame } = {}
 	local lastItems: { string } = {}
 	local function slot(index: number): Frame
 		local frame = Instance.new("Frame")
 		frame.Name = "Hand" .. index
 		frame.LayoutOrder = index
-		frame.Size = UDim2.fromOffset(50, 50)
+		frame.Size = UDim2.fromOffset(HAND, HAND)
 		frame.BorderSizePixel = 0
-		Kit.corner(frame, 14)
+		Kit.corner(frame, HAND)
 		Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke).Name = "Outline"
-		Palette.candyGradient(frame)
-		gloss(frame, 7)
+		local plate = Instance.new("Frame") -- the white middle
+		plate.Name = "Plate"
+		plate.AnchorPoint = Vector2.new(0.5, 0.5)
+		plate.Position = UDim2.fromScale(0.5, 0.5)
+		plate.Size = UDim2.fromScale(0.78, 0.78)
+		plate.BackgroundColor3 = Theme.Colors.Paper
+		plate.BorderSizePixel = 0
+		Kit.corner(plate, HAND)
+		Kit.stroke(plate, Theme.Colors.Outline, 2)
+		plate.Parent = frame
 		Kit.label({
 			Name = "Icon",
 			Text = "",
 			TextScaled = true,
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromScale(0.76, 0.76),
+			Size = UDim2.fromScale(0.62, 0.62),
+			ZIndex = 2,
 			Parent = frame,
 		})
+		local throw = Instance.new("TextButton")
+		throw.Name = "Discard"
+		throw.AnchorPoint = Vector2.new(0.5, 0.5)
+		throw.Position = UDim2.fromScale(0.86, 0.14)
+		throw.Size = UDim2.fromOffset(40, 40)
+		throw.BackgroundColor3 = Theme.Colors.Danger
+		throw.AutoButtonColor = false
+		throw.BorderSizePixel = 0
+		throw.Font = Theme.DisplayFont
+		throw.Text = "✖"
+		throw.TextSize = 22
+		throw.TextColor3 = Theme.Colors.OnColor
+		throw.ZIndex = 3
+		Kit.corner(throw, 40)
+		Kit.stroke(throw, Theme.Colors.Outline, Theme.Size.Stroke)
+		Kit.outline(throw, 2)
+		throw.Parent = frame
+		local busy = false
+		throw.Activated:Connect(function()
+			local itemId = lastItems[index]
+			if busy or not itemId then
+				return
+			end
+			busy = true
+			Kit.Clicked:Fire(throw)
+			Hud.pop(frame, 0.8)
+			task.spawn(function()
+				Hud.ask(ctx.Remotes.Discard, itemId)
+				busy = false
+			end)
+		end)
 		frame.Parent = hands
 		return frame
 	end
@@ -1494,26 +1537,19 @@ function Hud.init(ctx: Types.Ctx)
 			local itemId = items[index]
 			local item = itemId and rawget(data.Items, itemId)
 			local icon = frame:FindFirstChild("Icon") :: TextLabel
-			local stroke = frame:FindFirstChild("Outline") :: UIStroke
-			local shine = frame:FindFirstChild("Gloss") :: Frame
+			local throw = frame:FindFirstChild("Discard") :: TextButton
 			if item then
 				local station = data.Stations[item.Station]
 				icon.Text = item.Icon
-				paint(frame, if station then station.Color else Theme.Colors.Secondary)
-				frame.BackgroundTransparency = 0
-				stroke.Thickness = Theme.Size.Stroke
-				stroke.Transparency = 0
-				shine.Visible = true
+				frame.BackgroundColor3 = if station then station.Color else Theme.Colors.Secondary
+				throw.Visible = true
 				if lastItems[index] ~= itemId then
 					Hud.pop(frame, 1.35)
 				end
 			else
 				icon.Text = ""
 				frame.BackgroundColor3 = Theme.Colors.Paper
-				frame.BackgroundTransparency = 0.5
-				stroke.Thickness = 2.5
-				stroke.Transparency = 0.45
-				shine.Visible = false
+				throw.Visible = false
 			end
 		end
 		lastItems = items

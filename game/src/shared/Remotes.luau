@@ -6,6 +6,7 @@
 -- Client -> server functions (each returns ok: boolean, message: string, except GetState):
 --   Purchase(kind, id) · PlaceDecor(slotKey, decorId?) · ClaimGoal(index) · ClaimMailbox() · GetState() -> Snapshot
 --   TutorialAck()   the welcome card was tapped (or shown 4 s). Server/Tutorial: it only ever moves step 1 -> 2
+--   Discard(itemId)     throw one held item away (the ✖ on the HUD hand); Server/Stations, rate-limited
 --   Admin(action, arg?)   the 🛠️ Admin panel. Server/Admin checks the caller is an admin on every call (a
 --                   non-admin gets false and nothing happens) and validates action and arg (Logic/Admin)
 --
@@ -26,7 +27,8 @@ local Config = require(script.Parent.Config)
 
 local FOLDER_NAME = "Remotes"
 local EVENTS = { "Toast", "State", "Cured", "DayReport" }
-local FUNCTIONS = { "Purchase", "PlaceDecor", "ClaimGoal", "ClaimMailbox", "GetState", "TutorialAck", "Admin" }
+local FUNCTIONS =
+	{ "Purchase", "PlaceDecor", "ClaimGoal", "ClaimMailbox", "GetState", "TutorialAck", "Admin", "Discard" }
 
 local IS_SERVER = RunService:IsServer()
 
@@ -72,6 +74,7 @@ local Remotes = {
 	GetState = folder:WaitForChild("GetState") :: RemoteFunction,
 	TutorialAck = folder:WaitForChild("TutorialAck") :: RemoteFunction,
 	Admin = folder:WaitForChild("Admin") :: RemoteFunction,
+	Discard = folder:WaitForChild("Discard") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.
