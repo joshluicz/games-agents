@@ -23,5 +23,7 @@ Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md
 ## Recent sessions
 - **2026-11-16 (cloud session, setup).** Repo initialised. The decision to start (`memory-20261116-001`) and the
   concept/audience/goal picks (`-002`) recorded. Researched and wrote the setup, costs and market scan, the plan, and
-  the team split. First playable code under `game/` (see `game/README.md`). The code is linted but **not yet run in
-  Studio**: a cloud session can't open Studio, so Joshua's first playtest is its first real run.
+  the team split. First playable code under `game/`: customers, station, serving, 3 upgrades, saving, day/night, a 2x Cash
+  pass hook, and a placeholder shop (`game/README.md`). It's StyLua-formatted and selene-clean (Luau std, because the Roblox std
+  couldn't download here), but **it hasn't run in Studio yet**. A cloud session can't open Studio, so Joshua's first
+  playtest is its first real run. Expect small fixes.
