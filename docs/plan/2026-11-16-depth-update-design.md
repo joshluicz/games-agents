@@ -118,6 +118,27 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
 - **Budget:** 60 fps on a mid phone with 6 full plots. Parts per plot ≤ 400; at most 1 Highlight in the world;
   lights without shadows.
 
+## 6. Hospital v2: floors, elevators, departments (`memory-20261116-014`, after §3 lands)
+§3 grows a building shell; v2 makes the floors **playable**.
+
+| Floor (unlocked by level) | Department | What's new to do |
+|---|---|---|
+| Ground (Lv1) | Reception + First-Aid stand | today's loop; the Counter becomes Reception (triage starts here) |
+| Ground (Lv2) | **A&E** | an **ambulance** pulls up with an urgent patient (siren, flashing light, stretcher). It skips the line, needs a 2–3 item recipe, waits less, pays ×3 + Stars. Kid-safe: bumps, wobbly tummies, nothing gory |
+| Floor 1 (Lv2) | **Wards** | beds move upstairs: after treatment you **escort** (walk) the patient by elevator to a free bed, or a nurse does it; more beds per level |
+| Floor 2 (Lv3) | **Hydro & Bath** wing | Bath recipes; a bubbly hot tub mini-game |
+| Floor 3 (Lv4) | **Winter wing** / Pharmacy | a Pharmacy station that crafts 2-item medicines (Potion + Cocoa → Warm Tonic) |
+| Roof (Lv5) | **Garden + Helipad** | **air-ambulance** VIP patients now and then (rare creatures for the Book) |
+
+- **Elevator:** a glass lift with a big button per floor (a ProximityPrompt plus a floor picker UI), about 2 s per ride,
+  with a little ding. Stairs too. Patients and nurses use it as well, which is fun to watch.
+- **Triage:** at Reception each patient's badge shows its **department** icon. You send them (tap a department) or a
+  nurse does; the wrong department is never a fail ("Oops, not this floor!").
+- **More depth:** departments have their own upgrades (A&E Speed, Ward Comfort), and nurses can be assigned per
+  department.
+- Placement stays inside the 70×70 plot, built upward. It must keep the plot contracts and run within the perf
+  budget (floors are simple slabs + glass; lights without shadows).
+
 ## Kids' rules (red line 3)
 The belt is cash only; you see what you buy; the odds are shown and there's a pity guarantee. There are no fail states, no timers against the
 player and no pressure to spend. Every motion honours Reduced Motion and the calm toggle, and Simple mode exists.
