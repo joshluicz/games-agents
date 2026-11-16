@@ -158,28 +158,39 @@ Config.Treat = {
 	Distance = 20, -- studs from the Counter: a TreatResult from farther away is rated all OK
 }
 
--- The Nurse Belt: one shared conveyor in the town plaza (memory-20261116-012/-013, Logic/Belt, Server/NurseBelt).
--- Cash only. Every odd, event odds included, is printed on the belt's sign.
+-- The Nurse Belt: one shared conveyor along the town's main street (memory-20261116-012/-013/-017, Logic/Belt,
+-- Server/NurseBelt). Cash only. Every odd, event odds included, is printed on the belt's sign and in the 🎲 popup.
+-- Where (Joshua, 2026-11-16: "conveyor belt should be on the main road"): on the street's row-1 half, 11 studs off
+-- its centre line (clear of the spawn pad, the plaza benches and the curb), from just inside the east welcome arch
+-- (x = +120 from Town.Origin) to just inside the west one (x = -120), past every plot's gate. Riders move west, toward
+-- the Hall of Fame end (it stays clear: x < -137). The conveyor is low enough to step over anywhere.
+-- How often (memory-20261116-017, his brother: rarer than the belt games, so a rare nurse feels earned): one nurse
+-- about every 40 s, base odds 75 / 20 / 4.5 / 0.5, a Rare+ guaranteed within 15 arrivals; Mythic only in Night Rush
+-- and Secret only in Golden Hour. Epic and up ride for everyone but need hospital Lv 3 to hire (MinLevel); their
+-- first-rebirth gate for Mythic and Secret waits for rebirths (design §7).
 Config.Belt = {
-	Offset = Vector3.new(24, 0, 0), -- the belt's start from Town.Origin; riders move toward +X
-	Length = 44, -- studs
-	ArriveSeconds = 6, -- a nurse steps on this often
-	RideSeconds = 30, -- start to end; nobody hires it: it hops off the end
-	ReplaceSeconds = 1.5, -- a hired Common or Rare is replaced this soon
-	Odds = { Common = 70, Rare = 24, Epic = 5, Legendary = 1 }, -- percent
+	Offset = Vector3.new(120, 0, -11), -- the belt's start (the nurse house end) from Town.Origin
+	Heading = 180, -- degrees about Y from world +X that riders move: 180 = toward -X (west)
+	Length = 240, -- studs, start to end
+	SignOffset = Vector3.new(-14, 0, -15.8), -- the odds sign from Town.Origin: the plaza's row-1 edge, facing the spawn
+	ArriveSeconds = 40, -- a nurse steps on this often
+	RideSeconds = 100, -- start to end (2.4 studs a second); with one every 40 s, two or three ride at once
+	ReplaceSeconds = 8, -- a hire that leaves no other nurse on the belt (Common or Rare) brings the next this soon
+	Odds = { Common = 75, Rare = 20, Epic = 4.5, Legendary = 0.5 }, -- percent
+	MinLevel = { Epic = 3, Legendary = 3, Mythic = 3, Secret = 3 }, -- the hospital level that may hire them
 	NightRushBoost = 2, -- during the in-game night, Rare, Epic and Legendary odds x this (Common takes the rest)
 	NightRushMythic = 0.5, -- percent: Mythic, only during Night Rush
 	GoldenSecret = 1, -- percent: Secret, only during Golden Hour
 	GoldenEverySeconds = 1200, -- Golden Hour starts every 20 minutes of server uptime...
 	GoldenSeconds = 120, -- ...and lasts 2 minutes
-	PityArrivals = 8, -- after this many arrivals in a row without a Rare+, the next is Rare+ (server-wide)
+	PityArrivals = 15, -- after this many arrivals in a row without a Rare+, the next is Rare+ (server-wide)
 	HireCooldown = 3, -- seconds per player
 	HireDistance = 40, -- studs from the rider (a tap on its billboard reaches this far)
 	SeenDistance = 100, -- studs: a player this close to a rider has seen it (the Journal's silhouette fills in)
 	ServerStepSeconds = 1, -- the server moves riders this often; clients glide them every frame
-	MaxRiders = 8, -- a safety cap on riders at once
+	MaxRiders = 5, -- a safety cap on riders at once (the cadence alone keeps two or three on)
 	Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
-	PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 }, -- x by hospital level, so newcomers can always afford Commons (open: §E5)
+	PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 }, -- x by hospital level, so newcomers can always afford Commons (§E5)
 }
 
 -- Nurses on your plot (Logic/Nurse, Server/Nurses). Speed and strength scale with rarity x level (1-5).

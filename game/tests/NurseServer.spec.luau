@@ -34,21 +34,10 @@ local function pureBlock(name: string, env: { [string]: any }): any
 	return chunk()
 end
 
-local CFG = {
-	Belt = {
-		Odds = { Common = 70, Rare = 24, Epic = 5, Legendary = 1 },
-		NightRushBoost = 2,
-		NightRushMythic = 0.5,
-		GoldenSecret = 1,
-		GoldenEverySeconds = 1200,
-		GoldenSeconds = 120,
-		PityArrivals = 8,
-		ReplaceSeconds = 1.5,
-		Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
-		PriceScale = { 1, 1.25, 1.5, 1.75, 2 },
-	},
-	Nurses = { MaxLevel = 5 },
-}
+-- The real Config's belt numbers (tests/config.luau loads Shared/Config with a Vector3 stub), so these rules run on
+-- what ships.
+local Config = require("./config")
+local CFG = { Belt = Config.Belt, Nurses = { MaxLevel = Config.Nurses.MaxLevel } }
 
 T.describe("compile", function()
 	for _, name in { "Nurses.luau", "NurseBelt.luau", "NurseBuilder.luau" } do
@@ -214,11 +203,27 @@ T.describe("NurseBelt.Pure", function()
 		expect(BP.status(true, true, 2)).toBe("👑 Golden Night Rush!")
 	end)
 
-	test("afterHire: a hired Common or Rare is replaced in ReplaceSeconds", function()
-		expect(BP.afterHire(106, 100, "Common", CFG)).toBe(101.5)
-		expect(BP.afterHire(106, 100, "Rare", CFG)).toBe(101.5)
-		expect(BP.afterHire(106, 100, "Epic", CFG)).toBe(106)
-		expect(BP.afterHire(101, 100, "Common", CFG)).toBe(101) -- never later than it was due
+	test("afterHire: a Common or Rare hire that empties the belt brings the next in ReplaceSeconds", function()
+		local soon = 100 + CFG.Belt.ReplaceSeconds
+		expect(BP.afterHire(140, 100, "Common", CFG, 0)).toBe(soon)
+		expect(BP.afterHire(140, 100, "Rare", CFG, 0)).toBe(soon)
+		expect(BP.afterHire(140, 100, "Epic", CFG, 0)).toBe(140) -- an Epic+ is never replaced early
+		expect(BP.afterHire(101, 100, "Common", CFG, 0)).toBe(101) -- never later than it was due
+	end)
+
+	test("afterHire: while other nurses still ride, the belt keeps its 40 s cadence", function()
+		expect(BP.afterHire(140, 100, "Common", CFG, 1)).toBe(140)
+		expect(BP.afterHire(140, 100, "Rare", CFG, 2)).toBe(140)
+	end)
+
+	test("gateLine: the sign says who may hire Epic and up", function()
+		expect(BP.gateLine(3)).toBe("🏥 Epic+ hire from Lv 3")
+		expect(BP.gateLine(1)).toBe("")
+		local words = 0
+		for _ in string.gmatch(BP.gateLine(3), "%S+") do
+			words += 1
+		end
+		expect(words <= 6).toBe(true)
 	end)
 
 	test("hiredShout: Legendary and up", function()
@@ -257,19 +262,21 @@ T.describe("NurseBelt.Pure", function()
 		expect(BP.forced(nil, false)).toBeNil()
 	end)
 
-	test("8 forced Commons, then the pity gives a Rare+", function()
+	test("15 forced Commons, then the pity gives a Rare+", function()
 		local dry = 0
 		local rolled = {}
-		for _ = 1, 9 do
+		local pityAt = CFG.Belt.PityArrivals + 1
+		expect(pityAt).toBe(16)
+		for _ = 1, pityAt do
 			local pity = BeltLogic.pityDue(dry, CFG)
 			local rarity = BP.forced("Common", pity) or BeltLogic.roll(BeltLogic.odds(CFG, false, false), 0, pity)
 			table.insert(rolled, rarity)
 			dry = BeltLogic.afterArrival(dry, rarity)
 		end
-		for i = 1, 8 do
+		for i = 1, pityAt - 1 do
 			expect(rolled[i]).toBe("Common")
 		end
-		expect(BeltLogic.isRarePlus(rolled[9])).toBe(true)
+		expect(BeltLogic.isRarePlus(rolled[pityAt])).toBe(true)
 	end)
 
 	test("event: which odds rolled it", function()

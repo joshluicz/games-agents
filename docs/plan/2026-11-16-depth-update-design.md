@@ -45,7 +45,9 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
 - **One shared belt per server** (like the trending belt games): everyone sees the same nurses ride by and anyone
   can hire one. Each nurse shows its **rarity frame, role, level-1 stats and price** as it passes. Tap **Hire** (or
   walk up and press the prompt) to buy it, and it walks to your clinic.
-- **They come at set times:**
+- **They come at set times** *(the first numbers; §7 and `memory-20261116-017` made the belt rarer: about one nurse
+  every 40 s, odds 75 / 20 / 4.5 / 0.5, a Rare+ within 15 arrivals, Epic+ to hire from hospital Lv 3; shipped
+  2026-11-16, `Config.Belt`)*:
   - **Every 6 s** a nurse steps onto the belt. Each takes about 30 s to ride the whole belt; one nobody hires falls
     off the end.
   - **Rarity odds** for each new nurse are printed on the belt sign: Common 70% · Rare 24% · Epic 5% · Legendary 1%.

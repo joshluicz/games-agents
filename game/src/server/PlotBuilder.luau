@@ -2178,9 +2178,10 @@ local function buildTownScenery(count: number): Model
 		end
 	end
 
-	-- Plaza: round candy planters with little trees at the corners, benches facing the spawn.
+	-- Plaza: round candy planters with little trees beside the spawn, benches facing it. The planters sit 5 studs
+	-- either side of the centre line, so the Nurse Belt (Config.Belt: 11 studs off it, 3.4 each side) runs past them.
 	for i, corner in { Vector2.new(1, 1), Vector2.new(1, -1), Vector2.new(-1, 1), Vector2.new(-1, -1) } do
-		local at = ground * CFrame.new(corner.X * 10.5, 0.4, corner.Y * 10.5)
+		local at = ground * CFrame.new(corner.X * 10.5, 0.4, corner.Y * 5)
 		cylinder(town, "Planter", 1.2, 4, at * CFrame.new(0, 0.6, 0), PLANTERS[i])
 		soft(cylinder(town, "PlanterGrass", 0.1, 3.4, at * CFrame.new(0, 1.22, 0), COLORS.Lawn))
 		tree(town, at * CFrame.new(0, 1.2, 0), 0.55, i % 2 == 0)

@@ -21,7 +21,10 @@
 --     own it, a NEW! sticker until it's in your Journal as hired, and a big Hire button with YOUR price
 --     (Logic/Belt.price at your hospital level). Every other rider shows a small chip (its icon and your price),
 --     sized in studs (it shrinks with distance, never above CHIP_SIZE px) and not on top, so the world hides it;
---     tap one to open its card. Hired riders show ✅; yours at max level show ⭐ MAX.
+--     tap one to open its card. Hired riders show ✅; yours at max level show ⭐ MAX. An Epic+ rider when your
+--     hospital is under Config.Belt.MinLevel (Lv 3) shows "🏥 Lv 3" instead of a price and Hire (it rides for
+--     everyone on the one shared belt; it's never a locked tease: no lock, no price, no "hurry"), and the server
+--     refuses that hire too (NurseBelt).
 --   · Hire: the button asks HireNurse (Hud.ask). Too far or short of cash, it explains instead of asking (the
 --     server still checks everything). Its HirePrompt (keyboard E, gamepad) gets the Custom style, so the card is
 --     the prompt's look: the key shows on the card's button while the prompt is up. Its ObjectText is your price.
@@ -29,11 +32,13 @@
 --     model already has its own (NurseBuilder's RarityGlow / RarityFX). Reduced motion switches every sparkle on a
 --     rider off here (NurseBuilder's too, client-only) and stops the card's halo pulse.
 -- The odds popup ("🎲 Odds", a Hud.modal Popup over any panel): every rarity's odds by day, in Night Rush and in
--- Golden Hour (now's column marked), your price for each, and the pity count (BeltPity). A 🎲 chip floats over the
+-- Golden Hour (now's column marked), your price for each ("🏥 Lv 3" for a rarity your hospital can't hire yet), a
+-- line saying Epic and up need hospital Lv 3, and the pity count (BeltPity). A 🎲 chip floats over the
 -- belt's Sign to open it (it reads 🌙 / 👑 during the events, never a clock); UI/NursePanel opens it too
 -- (ctx.fire("Open", "NurseOdds")).
 -- Banners (UI/Toasts shows them): Golden Hour (once per window, for a few seconds, with the real Secret odds), Night
--- Rush (8 s when the night starts), an Epic+ arrival and a Legendary+ hire from "Shout". None while the first-session
+-- Rush (8 s when the night starts), an Epic+ arrival (only for players whose hospital may hire it) and a Legendary+
+-- hire from "Shout". None while the first-session
 -- tutorial runs (or before the first snapshot); a Golden Hour still running when it ends shows then.
 -- Cash only, odds on show, nothing pressures a kid (red line 3): no "hurry" words, no flashing prices, and no
 -- countdowns at all: not to the next Golden Hour, not to the end of one or of a Night Rush.
@@ -154,13 +159,27 @@ function Pure.statText(role: string, rarity: string, level: number, cfg: any): s
 end
 
 -- What a rider's Hire button does for this viewer, first match wins: "Hired" (someone took it) · "Max" (yours is at
--- the top level) · "Far" (no character, or past HireDistance less a stud of slack) · "Poor" (short of cash) · "Ready".
-function Pure.hireState(hired: boolean, entry: any, cfg: any, cash: any, price: number, distance: number?): string
+-- the top level) · "Level" (your hospital is under its rarity's Config.Belt.MinLevel: Epic and up need Lv 3) ·
+-- "Far" (no character, or past HireDistance less a stud of slack) · "Poor" (short of cash) · "Ready".
+-- `rarity` and `level` are optional (no gate without them).
+function Pure.hireState(
+	hired: boolean,
+	entry: any,
+	cfg: any,
+	cash: any,
+	price: number,
+	distance: number?,
+	rarity: string?,
+	level: number?
+): string
 	if hired then
 		return "Hired"
 	end
 	if not BeltLogic.canHire(entry, cfg) then
 		return "Max"
+	end
+	if rarity ~= nil and not BeltLogic.levelOk(cfg, rarity, level or 1) then
+		return "Level"
 	end
 	local belt = if type(cfg) == "table" and type(cfg.Belt) == "table" then cfg.Belt else {}
 	local reach = if finite(belt.HireDistance) then belt.HireDistance else 40
@@ -226,7 +245,14 @@ function Pure.quiet(step: any): boolean
 	return not TutorialLogic.isDone(step)
 end
 
-export type OddsRow = { Rarity: string, Day: number, Night: number, Golden: number, Price: number }
+export type OddsRow = {
+	Rarity: string,
+	Day: number,
+	Night: number,
+	Golden: number,
+	Price: number,
+	MinLevel: number, -- the hospital level that may hire it (1 = anyone)
+}
 
 -- The odds popup: one row per rarity, lowest first. Golden is Golden Hour at the current time of day (so at night
 -- it carries the Night Rush boost too), exactly what the belt would roll.
@@ -242,9 +268,17 @@ function Pure.oddsRows(cfg: any, rarities: { string }, night: boolean, level: nu
 			Night = rush[rarity] or 0,
 			Golden = golden[rarity] or 0,
 			Price = BeltLogic.price(cfg, rarity, level),
+			MinLevel = BeltLogic.minLevel(cfg, rarity),
 		})
 	end
 	return rows
+end
+-- The price cell (and a chip): your price, or "🏥 Lv n" while your hospital can't hire that rarity yet.
+function Pure.priceText(price: number, minLevel: number, level: number): string
+	if level < minLevel then
+		return "🏥 Lv " .. minLevel
+	end
+	return "💰" .. Pure.short(price)
 end
 -- PURE-END
 
@@ -564,6 +598,19 @@ function BeltView.init(ctx: Types.Ctx)
 			Parent = scroll,
 		})
 		textLimit(legend, 20)
+		local gate = BeltLogic.minLevel(cfg, "Epic")
+		if gate > 1 then
+			local gateNote = Kit.label({
+				Name = "Gate",
+				Text = "🏥 Epic and up: hospital Lv " .. gate .. "+",
+				TextScaled = true,
+				TextColor3 = Theme.Colors.InkSoft,
+				Size = UDim2.new(1, 0, 0, 26),
+				LayoutOrder = 21,
+				Parent = scroll,
+			})
+			textLimit(gateNote, 20)
+		end
 		return modal
 	end
 
@@ -581,7 +628,7 @@ function BeltView.init(ctx: Types.Ctx)
 				cells.Day.Text = Pure.percent(row.Day)
 				cells.Night.Text = Pure.percent(row.Night)
 				cells.Golden.Text = Pure.percent(row.Golden)
-				cells.Price.Text = "💰" .. Pure.short(row.Price)
+				cells.Price.Text = Pure.priceText(row.Price, row.MinLevel, myLevel())
 				for _, column in { "Day", "Night", "Golden" } do
 					local label = (cells :: any)[column] :: TextLabel
 					local holder = label.Parent :: Frame
@@ -1019,7 +1066,9 @@ function BeltView.init(ctx: Types.Ctx)
 		local state = ctx.State
 		local entry = myEntry(rider.NurseId)
 		local price = BeltLogic.price(cfg, rider.Rarity, myLevel())
-		local hireState = Pure.hireState(rider.Hired, entry, cfg, state.Cash, price, rider.Distance)
+		local level = myLevel()
+		local hireState =
+			Pure.hireState(rider.Hired, entry, cfg, state.Cash, price, rider.Distance, rider.Rarity, level)
 		local full = rider.Id == focusId
 		local mark = journalMark(rider.NurseId)
 		local keyText = if rider.PromptShown and rider.Prompt then keyLabel(rider.Prompt :: ProximityPrompt) else nil
@@ -1027,7 +1076,7 @@ function BeltView.init(ctx: Types.Ctx)
 		rider.Price = price
 
 		local prompt = rider.Prompt
-		local priceText = "💰" .. Pure.short(price)
+		local priceText = Pure.priceText(price, BeltLogic.minLevel(cfg, rider.Rarity), level)
 		if prompt and prompt.ObjectText ~= priceText then
 			prompt.ObjectText = priceText
 		end
@@ -1084,10 +1133,10 @@ function BeltView.init(ctx: Types.Ctx)
 
 		local stat = rider.Stat
 		if stat then
-			local level = if type(entry) == "table" and type(entry.Level) == "number" then entry.Level else 0
+			local owned = if type(entry) == "table" and type(entry.Level) == "number" then entry.Level else 0
 			local text = (Pure.ROLE_ICONS[rider.Role] or "") .. " " .. Pure.statText(rider.Role, rider.Rarity, 1, cfg)
-			if level > 0 and hireState ~= "Max" then
-				text ..= "  ⬆️Lv" .. (level + 1)
+			if owned > 0 and hireState ~= "Max" then
+				text ..= "  ⬆️Lv" .. (owned + 1)
 			end
 			stat.Text = text
 		end
@@ -1107,7 +1156,10 @@ function BeltView.init(ctx: Types.Ctx)
 				pill.BackgroundColor3 = Theme.Colors.Purple
 			end
 			if not done then
-				button.Text = if rider.Busy then "⏳" else "Hire " .. priceText
+				button.Text = if rider.Busy
+					then "⏳"
+					elseif hireState == "Level" then priceText
+					else "Hire " .. priceText
 				local ready = hireState == "Ready"
 				local kitColor = button:GetAttribute("KitColor")
 				button.BackgroundColor3 = if ready and typeof(kitColor) == "Color3"
@@ -1137,6 +1189,11 @@ function BeltView.init(ctx: Types.Ctx)
 		local state = rider.HireState
 		if state == "Far" then
 			ctx.toast("Get closer! 👣") -- the server's own words (NurseBelt) for the same case
+			Hud.shake(button)
+			return
+		elseif state == "Level" then
+			-- The server's own words (NurseBelt) for the same case: grow the hospital first (Shop's 🏥 tab).
+			ctx.toast("🏥 Lv " .. BeltLogic.minLevel(cfg, rider.Rarity) .. " hospital first!")
 			Hud.shake(button)
 			return
 		elseif state == "Poor" then
@@ -1638,7 +1695,13 @@ function BeltView.init(ctx: Types.Ctx)
 			end
 		elseif info.Kind == "Arrival" then
 			local rarity = if type(info.Rarity) == "string" then rawget(data.Rarities, info.Rarity) else nil
-			if rarity and BeltLogic.shouts(info.Rarity) and allowed() then
+			-- No "look what arrived" banner for a nurse your hospital can't hire yet: it still rides, with its 🏥 label.
+			if
+				rarity
+				and BeltLogic.shouts(info.Rarity)
+				and allowed()
+				and BeltLogic.levelOk(cfg, info.Rarity, myLevel())
+			then
 				ctx.fire("Banner", {
 					Id = "BeltArrival",
 					Icon = rarity.Icon,

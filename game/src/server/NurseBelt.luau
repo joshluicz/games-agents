@@ -1,27 +1,39 @@
 --!strict
--- The Nurse Belt: one shared conveyor in town, just east of the plaza, where nurses ride by and anyone can hire the
--- one they see, for in-game cash (depth-update design §2, build plan §B4/§B8; memory-20261116-012/-013). Server only.
--- OWNER: T3. Cash only; no Robux anywhere on the belt (red line 3). Every odd, the event odds too, is on its sign.
+-- The Nurse Belt: one shared conveyor along the town's main street, where nurses ride by and anyone can hire the
+-- one they see, for in-game cash (depth-update design §2 and §7, build plan §B4/§B8; memory-20261116-012/-013/-017).
+-- Server only. OWNER: T3. Cash only; no Robux anywhere on the belt (red line 3). Every odd, the event odds too, is on
+-- its sign.
+--
+-- Where (Joshua, 2026-11-16: "conveyor belt should be on the main road"): Config.Belt.Offset puts its start (the
+-- nurse house) just inside the east welcome arch, on the street's row-1 half; it runs Config.Belt.Length studs west
+-- (Config.Belt.Heading 180) to the cloud just inside the west arch, past every plot's gate, so a rider is in hire reach
+-- (HireDistance) of every gate as it passes. The Hall of Fame garden (past the west arch) and both arches stay clear.
+-- The conveyor's top is BELT_TOP (0.9 studs) above the street and its rails and rollers don't collide, so anyone can
+-- step over it anywhere: crossing the street between the two rows stays easy. The odds Sign stands apart from the
+-- belt, at Config.Belt.SignOffset (the plaza's row-1 edge), facing the spawn and the street's centre.
 --
 --   NurseBelt.start()
---       builds Workspace.NurseBelt at Config.Town.Origin + Config.Belt.Offset (on the street's centre line; riders
---       move toward +X for Config.Belt.Length studs): BeltStart and BeltEnd (invisible anchored markers on the
---       conveyor's top: a rider stands at BeltStart.Position:Lerp(BeltEnd.Position, alpha)), Conveyor (its top face
---       carries the SurfaceGui ConveyorGui > Clip > Stripes for the client to scroll; attributes StripeStuds and
---       StudsPerSecond), Sign (SurfaceGui OddsGui: every odd now, day and night, the Golden Hour odds, the pity
---       count) and Riders (Folder). A Model at ServerStorage.ClinicKit.NurseBelt with the same child names replaces
---       the placeholder (its pivot = the belt's start on the street, its +X along the belt; no scripts).
+--       builds Workspace.NurseBelt from Config.Town.Origin + Config.Belt.Offset (riders move along Heading for
+--       Config.Belt.Length studs): BeltStart and BeltEnd (invisible anchored markers on the conveyor's top: a rider
+--       stands at BeltStart.Position:Lerp(BeltEnd.Position, alpha)), Conveyor (its top face carries the SurfaceGui
+--       ConveyorGui > Clip > Stripes for the client to scroll; attributes StripeStuds and StudsPerSecond), Sign
+--       (SurfaceGui OddsGui: every odd now, day and night, the Golden Hour odds, the Lv 3 gate, the pity count) and
+--       Riders (Folder). A Model at ServerStorage.ClinicKit.NurseBelt with the same child names replaces the
+--       placeholder (its pivot = the belt's start on the street, its +X along the belt; no scripts; its Sign stays
+--       where the kit put it).
 --       Then it runs the belt: a rider every Config.Belt.ArriveSeconds (Logic/Belt.roll with the Night Rush and
 --       Golden Hour odds and the server-wide pity), Workspace attributes NightRush (= IsNight), GoldenHour,
 --       GoldenStartsAt, GoldenEndsAt (GetServerTimeNow times of the current or next window) and BeltPity (arrivals
---       left before a guaranteed Rare+), the Shout remote, and HireNurse.
+--       left before a guaranteed Rare+), the Shout remote, and HireNurse. Riders face the street's centre line.
 --   NurseBelt.hire(p, riderId): (ok, message)
 --       the rider exists and isn't hired or leaving · Config.Belt.HireCooldown per player · the player is within
 --       HireDistance of the rider's formula position (Logic/Belt.alpha, never the part) · Logic/Belt.canHire ·
+--       Logic/Belt.levelOk (Epic and up need hospital Lv 3: "🏥 Lv 3 hospital first!") ·
 --       price = Logic/Belt.price(rarity, Levels.level(p)) -> Nurses.grant (the charge and the copy in one update).
---       The rider spins, hops off and walks toward the hirer's clinic, then poofs. A hired Common or Rare pulls the
---       next arrival to ReplaceSeconds from now. Nothing yields between the checks and the grant, so a rider is never
---       hired twice.
+--       The rider spins, hops off and walks toward the hirer's clinic, then poofs. A hired Common or Rare that leaves
+--       no other nurse riding brings the next arrival to ReplaceSeconds from now (Pure.afterHire), so the belt is
+--       never left empty, yet hiring can't speed the belt up while others still ride. Nothing yields between the
+--       checks and the grant, so a rider is never hired twice.
 --   NurseBelt.odds(): { [Rarity]: number }   the odds right now (percent)
 --   NurseBelt.goldenHour(): boolean
 --   NurseBelt.Pure                           the pure helpers below (a scratch Lune harness tests them)
@@ -39,7 +51,7 @@
 -- "Seen" for that player (Nurses.markSeen).
 -- Night Rush follows Workspace.IsNight (the game's clock) and Golden Hour follows server uptime, never real-world
 -- dates. Studio-only test switches (a live server ignores them): Workspace attribute BeltForce = "<Rarity>" makes
--- every arrival that rarity (except when the pity is due, so 8 forced Commons are followed by a Rare+), and
+-- every arrival that rarity (except when the pity is due, so 15 forced Commons are followed by a Rare+), and
 -- ForceGolden = true starts a Golden Hour now.
 
 local CollectionService = game:GetService("CollectionService")
@@ -71,17 +83,21 @@ local NurseBelt = {}
 local MODEL_NAME = "NurseBelt"
 local MOTION_TAG = "CreatureMotion"
 local TICK = 0.25 -- the belt's clock: arrivals, Golden Hour and the server step are checked this often
-local PREFILL = 4 -- riders already on the belt when the server opens, so it never starts empty
+-- Riders already on the belt when the server opens (as if it had been running), so it never starts empty: as many as
+-- the cadence keeps on it (100 s rides, one every 40 s: 2, plus the one that steps on at once).
+local PREFILL = math.max(0, math.floor((Config.Belt.RideSeconds - 1) / Config.Belt.ArriveSeconds))
 -- Studs: a player this close to a rider has seen it (the Journal's silhouette fills in). Config.Belt.SeenDistance once
 -- the Foundation adds it.
 local SEEN_DISTANCE: number = tonumber((Config.Belt :: any).SeenDistance) or 100
 local PROMPT_DISTANCE = 14
 local BELT_WIDTH = 5
-local BELT_TOP = 1.8 -- the conveyor's top, above the street
+local BELT_TOP = 0.9 -- the conveyor's top, above the street: low enough to step over anywhere
 local STRIPE_STUDS = 4
+local STRIPE_PIXELS_PER_STUD = 4 -- the conveyor's stripes (a 240-stud belt stays under 1,000 px wide)
 local FALLBACK_GROUND_TOP = 0.5 -- PlotBuilder's street top above Config.Town.Origin.Y (if ClinicTown is missing)
 local SIGN_PIXELS_PER_STUD = 30
-local SIGN_SIZE = Vector2.new(12, 10) -- studs (wide, tall)
+local SIGN_SIZE = Vector2.new(12, 11) -- studs (wide, tall)
+local SIGN_BOTTOM = 4.5 -- the board's bottom edge: riders passing in front never hide its rows
 
 local WHITE = Palette.White
 local CANDY = Palette.Candy
@@ -91,6 +107,7 @@ local MSG = {
 	Taken = "Already hired! 💛",
 	Wait = "Wait a moment! ⏳",
 	Closer = "Get closer! 👣",
+	Level = "🏥 Lv %d hospital first!",
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -131,10 +148,11 @@ function Pure.status(nightRush: boolean, golden: boolean, boost: number): string
 	return "☀️ Day odds"
 end
 
--- A hired Common or Rare is replaced quickly: the next arrival comes ReplaceSeconds from now (never later than it
--- was already due).
-function Pure.afterHire(nextArrival: number, now: number, rarity: string, cfg: any): number
-	if rarity == "Common" or rarity == "Rare" then
+-- After a hire: a hired Common or Rare that leaves no other nurse riding (`others` = riders still open) is replaced
+-- quickly: the next arrival comes ReplaceSeconds from now (never later than it was already due). While others still
+-- ride, the belt keeps its cadence, so hiring never makes rare nurses come faster.
+function Pure.afterHire(nextArrival: number, now: number, rarity: string, cfg: any, others: number): number
+	if (rarity == "Common" or rarity == "Rare") and others <= 0 then
 		return math.min(nextArrival, now + cfg.Belt.ReplaceSeconds)
 	end
 	return nextArrival
@@ -166,6 +184,14 @@ function Pure.forced(value: any, pityDue: boolean): string?
 		return nil
 	end
 	return value
+end
+
+-- The sign's gate line (6 words or fewer): who may hire Epic and up. Level 1 means anyone: no line.
+function Pure.gateLine(level: number): string
+	if level <= 1 then
+		return ""
+	end
+	return string.format("🏥 Epic+ hire from Lv %d", level)
 end
 
 -- The event whose odds rolled an arrival.
@@ -202,6 +228,7 @@ type SignView = {
 	DayHead: TextLabel,
 	NightHead: TextLabel,
 	Golden: TextLabel,
+	Gate: TextLabel,
 	Pity: TextLabel,
 }
 
@@ -213,7 +240,7 @@ type Belt = {
 	GroundY: number,
 	Dir: Vector3, -- along the belt
 	Side: Vector3, -- across it
-	Facing: CFrame, -- a rider's rotation: looking back up the belt, toward the plaza
+	Facing: CFrame, -- a rider's rotation: looking across the street, toward its centre line
 	Sign: SignView?,
 }
 
@@ -320,7 +347,7 @@ local function addStripes(conveyor: BasePart)
 	gui.Name = "ConveyorGui"
 	gui.Face = Enum.NormalId.Top
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = 8
+	gui.PixelsPerStud = STRIPE_PIXELS_PER_STUD
 	gui.LightInfluence = 0.6
 	gui.MaxDistance = 160
 	local clip = Instance.new("Frame")
@@ -342,7 +369,7 @@ local function addStripes(conveyor: BasePart)
 		stripe.BackgroundColor3 = WHITE
 		stripe.BackgroundTransparency = 0.55
 		stripe.AnchorPoint = Vector2.new(0.5, 0)
-		stripe.Size = UDim2.new(0, 6, 0.8, 0)
+		stripe.Size = UDim2.new(0, math.max(2, math.floor(0.75 * STRIPE_PIXELS_PER_STUD + 0.5)), 0.8, 0)
 		stripe.Position = UDim2.fromScale((i + 0.5) / (count + 1), 0.1)
 		local corner = Instance.new("UICorner")
 		corner.CornerRadius = UDim.new(0.5, 0)
@@ -360,7 +387,8 @@ local function placeholderBelt(frame: CFrame): Model
 	model.Name = MODEL_NAME
 	local bedHeight = BELT_TOP - 0.2
 
-	-- The bed: white with a pink candy stripe, a soft plum conveyor on top, yellow rails, pink rollers at the ends.
+	-- The bed: white with a pink candy stripe, a soft plum conveyor on top, yellow rails, pink rollers at the ends. Only
+	-- the bed and the conveyor collide, and the top is BELT_TOP (0.9) above the street: a step anyone walks over.
 	part(
 		model,
 		"BeltBed",
@@ -384,18 +412,20 @@ local function placeholderBelt(frame: CFrame): Model
 	)
 	addStripes(conveyor)
 	for _, side in { -1, 1 } do
-		cylinder(
+		local rail = cylinder(
 			model,
 			"Rail",
 			length + 2,
-			0.5,
-			frame * CFrame.new(length / 2, BELT_TOP + 0.3, side * (BELT_WIDTH / 2 + 0.35)),
+			0.4,
+			frame * CFrame.new(length / 2, BELT_TOP + 0.2, side * (BELT_WIDTH / 2 + 0.35)),
 			CANDY.Yellow
 		)
+		rail.CanCollide = false -- walk-through: the rails never stop anyone crossing
+		rail.CanQuery = false
 	end
 	local alongZ = CFrame.Angles(0, math.pi / 2, 0)
 	for _, x in { -1.4, length + 1.4 } do
-		cylinder(
+		local roller = cylinder(
 			model,
 			"Roller",
 			BELT_WIDTH + 1.7,
@@ -403,10 +433,12 @@ local function placeholderBelt(frame: CFrame): Model
 			frame * CFrame.new(x, (bedHeight + 0.3) / 2, 0) * alongZ,
 			CANDY.Pink
 		)
+		roller.CanCollide = false
 	end
 
-	-- The nurse house at the start: riders step out of its door onto the belt. The sign is its plaza-side wall.
-	local houseX, houseDepth, houseHeight = -4.4, SIGN_SIZE.X + 0.6, SIGN_SIZE.Y + 1.2
+	-- The nurse house at the start: riders step out of its door onto the belt. (The odds sign stands on its own at
+	-- the plaza: buildSignStand.)
+	local houseX, houseDepth, houseHeight = -4.4, BELT_WIDTH + 3, 9
 	part(
 		model,
 		"NurseHouse",
@@ -431,15 +463,6 @@ local function placeholderBelt(frame: CFrame): Model
 		Palette.Ink
 	)
 	door.CanCollide = false
-	local signAt = frame * CFrame.new(houseX - 2.55, 0.9 + SIGN_SIZE.Y / 2, 0)
-	local sign = part(
-		model,
-		"Sign",
-		Vector3.new(SIGN_SIZE.X, SIGN_SIZE.Y, 0.3),
-		CFrame.lookAt(signAt.Position, signAt.Position - frame.XVector), -- its Front face looks at the plaza
-		CANDY.Pink
-	)
-	sign.CanCollide = false
 
 	-- The cloud cushion at the far end: unhired nurses hop off into it and poof home.
 	local endX = length + 4.6
@@ -461,6 +484,29 @@ local function placeholderBelt(frame: CFrame): Model
 	folder.Parent = model
 	model.WorldPivot = frame
 	return model
+end
+
+-- The odds sign on two candy posts, its board raised (SIGN_BOTTOM) so nurses riding past never hide a row. `at` is
+-- the ground under its middle, its LookVector the way its Front (the odds) faces.
+local function buildSignStand(model: Model, at: CFrame)
+	local w, h = SIGN_SIZE.X, SIGN_SIZE.Y
+	local sign = part(model, "Sign", Vector3.new(w, h, 0.3), at * CFrame.new(0, SIGN_BOTTOM + h / 2, 0), CANDY.Pink)
+	sign.CanCollide = false
+	local trim = part(
+		model,
+		"SignTrim",
+		Vector3.new(w + 0.8, h + 0.8, 0.25),
+		at * CFrame.new(0, SIGN_BOTTOM + h / 2, 0.28),
+		WHITE
+	)
+	trim.CanCollide = false
+	local postHeight = SIGN_BOTTOM + h + 0.4
+	for _, side in { -1, 1 } do
+		local x = side * (w / 2 - 0.8)
+		part(model, "SignPost", Vector3.new(0.7, postHeight, 0.7), at * CFrame.new(x, postHeight / 2, 0.6), WHITE)
+		ball(model, "SignPostCap", 1.1, at * CFrame.new(x, postHeight + 0.4, 0.6), CANDY.Yellow)
+	end
+	return sign
 end
 
 -- The brother's belt, if it has what the game needs (BeltStart, BeltEnd and a Sign part).
@@ -615,11 +661,12 @@ local function buildSign(sign: BasePart): SignView
 		DayHead = dayHead,
 		NightHead = nightHead,
 		Golden = status, -- set below
+		Gate = status, -- set below
 		Pity = status, -- set below
 	}
 	for _, rarity in Rarities.Order do
 		local info = rarityInfo(rarity)
-		local line = row(0.08)
+		local line = row(0.072)
 		local a, b, c = columns(line)
 		local name =
 			textLabel(line, "Name", (if info then info.Icon .. " " .. info.Name else rarity), a, rarityColor(rarity))
@@ -635,6 +682,7 @@ local function buildSign(sign: BasePart): SignView
 		view.Night[rarity] = night
 	end
 	view.Golden = textLabel(row(0.07), "Golden", "", UDim2.fromScale(1, 1), CANDY.Yellow)
+	view.Gate = textLabel(row(0.065), "Gate", "", UDim2.fromScale(1, 1))
 	view.Pity = textLabel(row(0.075), "Pity", "", UDim2.fromScale(1, 1))
 	gui.Parent = sign
 	return view
@@ -669,6 +717,7 @@ local function refreshSign()
 	setCell(view.DayHead, "☀️", not night)
 	setCell(view.NightHead, "🌙", night)
 	view.Golden.Text = "👑 Golden Hour: Secret " .. Pure.percent(Config.Belt.GoldenSecret)
+	view.Gate.Text = Pure.gateLine(BeltLogic.minLevel(Config, "Epic"))
 	view.Pity.Text = "🎁 Rare+ in " .. tostring(BeltLogic.pityLeft(dry, Config))
 end
 
@@ -1000,6 +1049,10 @@ function NurseBelt.hire(player: Player, riderId: number): (boolean, string)
 	if not canHire then
 		return false, why
 	end
+	-- Epic and up ride for everyone but need hospital Lv 3 to hire (memory-20261116-017); the card already says so.
+	if not BeltLogic.levelOk(Config, rider.Rarity, Levels.level(player)) then
+		return false, string.format(MSG.Level, BeltLogic.minLevel(Config, rider.Rarity))
+	end
 	local price = BeltLogic.price(Config, rider.Rarity, Levels.level(player))
 
 	rider.Claimed = true
@@ -1014,7 +1067,13 @@ function NurseBelt.hire(player: Player, riderId: number): (boolean, string)
 	rider.Hired = true
 	lastHire[player] = now
 	rider.Model:SetAttribute("Hired", true)
-	nextArrival = Pure.afterHire(nextArrival, now, rider.Rarity, Config)
+	local others = 0
+	for _, other in riders do
+		if not other.Leaving and not other.Hired and not other.Claimed then
+			others += 1
+		end
+	end
+	nextArrival = Pure.afterHire(nextArrival, now, rider.Rarity, Config, others)
 	if Pure.hiredShout(rider.Rarity) then
 		Remotes.Shout:FireAllClients({
 			Kind = "Hired",
@@ -1052,19 +1111,37 @@ function NurseBelt.start()
 		return NurseBelt.hire(player, riderId)
 	end)
 
-	local origin = Config.Town.Origin + Config.Belt.Offset
-	local frame = CFrame.new(origin.X, streetTop(), origin.Z)
+	-- The belt's frame: its start on the street, its +X turned by Heading (180: riders move west).
+	local town = Config.Town.Origin
+	local origin = town + Config.Belt.Offset
+	local ground = streetTop()
+	local heading = math.rad(tonumber((Config.Belt :: any).Heading) or 0)
+	local frame = CFrame.new(origin.X, ground, origin.Z) * CFrame.Angles(0, heading, 0)
 	local old = Workspace:FindFirstChild(MODEL_NAME)
 	if old then
 		warn("[NurseBelt] Replacing an existing Workspace." .. MODEL_NAME)
 		old:Destroy()
 	end
 	local model = kitBelt(frame) or placeholderBelt(frame)
+	if not model:FindFirstChild("Sign") then
+		-- The placeholder's odds sign: at the plaza's edge, facing the street's centre line (and the spawn).
+		local offset = (Config.Belt :: any).SignOffset
+		local at = if typeof(offset) == "Vector3" then town + offset else origin
+		local foot = Vector3.new(at.X, ground, at.Z)
+		local toward = Vector3.new(0, 0, town.Z - at.Z)
+		local face = if toward.Magnitude > 0.5 then toward.Unit else -frame.XVector
+		buildSignStand(model, CFrame.lookAt(foot, foot + face))
+	end
 	local start = model:FindFirstChild("BeltStart") :: BasePart
 	local finish = model:FindFirstChild("BeltEnd") :: BasePart
 	local along = finish.Position - start.Position
 	local dir = Vector3.new(along.X, 0, along.Z)
 	dir = if dir.Magnitude > 0.1 then dir.Unit else Vector3.xAxis
+	-- Riders face the street's centre line (where the plaza, the spawn and the other row of gates are); a belt on the
+	-- centre line itself faces back up the belt.
+	local toCentre = Vector3.new(town.X - start.Position.X, 0, town.Z - start.Position.Z)
+	local across = toCentre - dir * toCentre:Dot(dir)
+	local facing = if across.Magnitude > 1 then across.Unit else -dir
 	local b: Belt = {
 		Model = model,
 		Start = start,
@@ -1073,7 +1150,7 @@ function NurseBelt.start()
 		GroundY = frame.Y,
 		Dir = dir,
 		Side = dir:Cross(Vector3.yAxis).Unit,
-		Facing = CFrame.lookAt(Vector3.zero, -dir).Rotation,
+		Facing = CFrame.lookAt(Vector3.zero, facing).Rotation,
 		Sign = nil,
 	}
 	local sign = model:FindFirstChild("Sign")

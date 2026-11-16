@@ -21,6 +21,13 @@
 --                                                uptime seconds (windows start at 1x, 2x, 3x... GoldenEverySeconds)
 --   Belt.alpha(startAt, now, rideSeconds): number   how far along the belt a rider is, 0..1
 --   Belt.canHire(entry?, cfg): (ok, message)     not when that nurse is already at Config.Nurses.MaxLevel
+--   Belt.minLevel(cfg, rarity): number           the hospital level that may hire it (cfg.Belt.MinLevel; 1 = anyone)
+--   Belt.levelOk(cfg, rarity, level): boolean    level >= minLevel. Epic and up still ride for everyone (it's one
+--                                                shared belt, and the odds are the belt's); a lower level only can't
+--                                                hire them yet, and sees "🏥 Lv 3" instead of a price
+--   Belt.path(cfg): (sx, sz, ex, ez)             the belt's start and end, in studs from Config.Town.Origin (X, Z):
+--                                                cfg.Belt.Offset, then Length studs along Heading (degrees from +X)
+--   Belt.distanceToPath(cfg, x, z): number       studs (flat) from a point (from Town.Origin) to the belt's line
 
 export type Rarity = string
 
@@ -166,6 +173,37 @@ function Belt.alpha(startAt: number, now: number, rideSeconds: number): number
 		return 1
 	end
 	return math.clamp((num(now, 0) - num(startAt, 0)) / ride, 0, 1)
+end
+
+function Belt.minLevel(cfg: any, rarity: any): number
+	local gates = belt(cfg).MinLevel
+	local value = if type(gates) == "table" and type(rarity) == "string" then gates[rarity] else nil
+	return math.max(1, math.floor(num(value, 1)))
+end
+
+function Belt.levelOk(cfg: any, rarity: any, level: any): boolean
+	return math.floor(num(level, 1)) >= Belt.minLevel(cfg, rarity)
+end
+
+function Belt.path(cfg: any): (number, number, number, number)
+	local b = belt(cfg)
+	local offset = b.Offset
+	local sx = if offset ~= nil then num((offset :: any).X, 0) else 0
+	local sz = if offset ~= nil then num((offset :: any).Z, 0) else 0
+	local length = math.max(0, num(b.Length, 0))
+	local heading = math.rad(num(b.Heading, 0))
+	local ex = sx + math.cos(heading) * length
+	local ez = sz - math.sin(heading) * length -- Roblox: a turn about +Y takes +X toward -Z
+	return sx, sz, ex, ez
+end
+
+function Belt.distanceToPath(cfg: any, x: number, z: number): number
+	local sx, sz, ex, ez = Belt.path(cfg)
+	local dx, dz = ex - sx, ez - sz
+	local lengthSq = dx * dx + dz * dz
+	local t = if lengthSq > 0 then math.clamp(((x - sx) * dx + (z - sz) * dz) / lengthSq, 0, 1) else 0
+	local px, pz = sx + dx * t - x, sz + dz * t - z
+	return math.sqrt(px * px + pz * pz)
 end
 
 function Belt.canHire(entry: any, cfg: any): (boolean, string)

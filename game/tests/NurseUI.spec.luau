@@ -46,21 +46,11 @@ local PanelPure = pureBlock("src/client/UI/NursePanel.luau", {
 	BeltPure = BeltPure,
 })
 
--- Config's numbers (Config itself uses Vector3, so they're copied, as tests/Belt.spec does).
+-- Config's numbers: the belt is the real Config's (tests/config.luau), so the odds the popup shows are tested on what
+-- ships; the nurse numbers are copied.
+local Config = require("./config")
 local CFG = {
-	Belt = {
-		Odds = { Common = 70, Rare = 24, Epic = 5, Legendary = 1 },
-		NightRushBoost = 2,
-		NightRushMythic = 0.5,
-		GoldenSecret = 1,
-		GoldenEverySeconds = 1200,
-		GoldenSeconds = 120,
-		PityArrivals = 8,
-		HireDistance = 40,
-		RideSeconds = 30,
-		Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
-		PriceScale = { 1, 1.25, 1.5, 1.75, 2 },
-	},
+	Belt = Config.Belt,
 	Nurses = {
 		MaxLevel = 5,
 		MinSeconds = 3,
@@ -90,14 +80,20 @@ T.describe("BeltView (pure)", function()
 		eq(BeltPure.percent("70"), "–")
 		eq(BeltPure.percent(0.001), "<0.01%")
 	end)
-	test("percent prints every row of the plan's odds table", function()
+	test("percent prints every row of the shipped odds table (memory-017)", function()
+		local day = BeltLogic.odds(CFG, false, false)
+		eq(BeltPure.percent(day.Common), "75%")
+		eq(BeltPure.percent(day.Rare), "20%")
+		eq(BeltPure.percent(day.Epic), "4.5%")
+		eq(BeltPure.percent(day.Legendary), "0.5%")
+		eq(BeltPure.percent(day.Mythic), "–")
 		local night = BeltLogic.odds(CFG, true, false)
-		eq(BeltPure.percent(night.Common), "39.5%")
-		eq(BeltPure.percent(night.Rare), "48%")
+		eq(BeltPure.percent(night.Common), "49.5%")
+		eq(BeltPure.percent(night.Rare), "40%")
 		eq(BeltPure.percent(night.Mythic), "0.5%")
 		eq(BeltPure.percent(night.Secret), "–")
 		local both = BeltLogic.odds(CFG, true, true)
-		eq(BeltPure.percent(both.Common), "38.5%")
+		eq(BeltPure.percent(both.Common), "48.5%")
 		eq(BeltPure.percent(both.Secret), "1%")
 	end)
 	test("clock: rounds up, never negative, hours", function()
@@ -137,7 +133,14 @@ T.describe("BeltView (pure)", function()
 			assert(PanelPure.ROLE_NAMES[nurse.Role], "no name for " .. nurse.Role)
 		end
 	end)
-	test("hireState: hired, max, far, poor, ready (in that order)", function()
+	test("hireState: hired, max, level, far, poor, ready (in that order)", function()
+		-- Epic and up need hospital Lv 3 (Config.Belt.MinLevel): "Level" before distance and cash
+		eq(BeltPure.hireState(false, nil, CFG, 1e9, 100, 1, "Epic", 2), "Level")
+		eq(BeltPure.hireState(false, nil, CFG, 1e9, 100, 99, "Legendary", 1), "Level")
+		eq(BeltPure.hireState(false, nil, CFG, 1e9, 100, 1, "Epic", 3), "Ready")
+		eq(BeltPure.hireState(false, nil, CFG, 1e9, 100, 1, "Rare", 1), "Ready")
+		eq(BeltPure.hireState(true, nil, CFG, 1e9, 100, 1, "Epic", 1), "Hired")
+		eq(BeltPure.hireState(false, { Level = 5, Copies = 7 }, CFG, 1e9, 100, 1, "Epic", 1), "Max")
 		eq(BeltPure.hireState(true, nil, CFG, 1e9, 100, 1), "Hired")
 		eq(BeltPure.hireState(false, { Level = 5, Copies = 7 }, CFG, 1e9, 100, 1), "Max")
 		eq(BeltPure.hireState(false, nil, CFG, 1e9, 100, nil), "Far")
@@ -205,13 +208,26 @@ T.describe("BeltView (pure)", function()
 		eq(math.abs(sums.Day - 100) < 1e-9, true)
 		eq(math.abs(sums.Night - 100) < 1e-9, true)
 		eq(math.abs(sums.Golden - 100) < 1e-9, true)
-		eq(rows[1].Price, 150) -- Common 100 x 1.5 at Lv 3
-		eq(rows[6].Price, 75000)
+		eq(rows[1].Price, 120) -- Common 100 x 1.2 at Lv 3
+		eq(rows[6].Price, 60000)
+		-- the popup shows exactly the belt's odds (memory-017): 75 / 20 / 4.5 / 0.5 by day
+		eq({ rows[1].Day, rows[2].Day, rows[3].Day, rows[4].Day }, { 75, 20, 4.5, 0.5 })
+		eq({ rows[1].Night, rows[2].Night, rows[3].Night, rows[4].Night }, { 49.5, 40, 9, 1 })
 		eq(rows[5].Day, 0) -- Mythic: Night Rush only
 		eq(rows[5].Night, 0.5)
-		eq(rows[6].Golden, 1) -- Secret in Golden Hour
+		eq(rows[6].Day, 0) -- Secret: Golden Hour only
+		eq(rows[6].Golden, 1)
+		for index, row in rows do
+			eq(row.Day, BeltLogic.odds(Config, false, false)[Rarities.Order[index]])
+			eq(row.MinLevel, if index >= 3 then 3 else 1)
+		end
 		local nightRows = BeltPure.oddsRows(CFG, Rarities.Order, true, 1)
-		eq(nightRows[1].Golden, 38.5) -- Golden Hour at night carries the Night Rush boost
+		eq(nightRows[1].Golden, 48.5) -- Golden Hour at night carries the Night Rush boost
+	end)
+	test("priceText: your price, or the hospital level a rarity needs", function()
+		eq(BeltPure.priceText(1800, 3, 3), "💰1,800")
+		eq(BeltPure.priceText(1800, 3, 2), "🏥 Lv 3")
+		eq(BeltPure.priceText(100, 1, 1), "💰100")
 	end)
 end)
 

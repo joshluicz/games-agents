@@ -436,8 +436,10 @@ everything else (no scripts, Rated Minimal, original, **no red cross on white**)
 **The Nurse Belt** (the conveyor in town where nurses ride past): a Model named **NurseBelt** in **ServerStorage →
 ClinicKit**. It needs three Parts named exactly `BeltStart`, `BeltEnd` and `Sign`. Riders ride from BeltStart to
 BeltEnd. If you want, add a SurfaceGui named `OddsGui` on the Sign's front (the game writes the odds on it), a Folder
-named `Riders` and a Part named `Conveyor` (the moving-looking top). The game puts its pivot on the street east of
-the plaza, with its **+X** pointing along the belt.
+named `Riders` and a Part named `Conveyor` (the moving-looking top). The belt runs along the main street (Joshua:
+"conveyor belt should be on the main road"): the game puts its pivot at the street's **east end**, just inside the
+welcome arch, turned so its **+X** points **west** along the street (240 studs to the west arch). Keep it low (the
+game's is under 1 stud) so players can step over it, and put your `Sign` where players at the plaza can read it.
 
 **A nurse's look**: a Model (or one MeshPart) named after the nurse, like **PuffPup**, in a Folder **ServerStorage →
 Nurses**, its face toward **-Z**. It replaces that nurse's placeholder look. No Humanoid and no scripts; the game adds

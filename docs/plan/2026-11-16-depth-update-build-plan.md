@@ -200,8 +200,10 @@ today's attributes (`PatientId`, `Kind`, `Regular`, `Ailment`, `Station`, `Item`
   ≤ 25 parts (DecorBuilder warns past it), so a fully decorated Lv 5 plot is about 500 (perf budget note).
 
 **The belt (T3).** `Workspace.NurseBelt` (Model), built by `NurseBelt.start()` (not by PlotBuilder):
-- Placed at `Config.Town.Origin + Config.Belt.Offset` (east of the plaza, on the street's centre line, riders
-  move toward +X for `Config.Belt.Length` studs). Children: `BeltStart`, `BeltEnd` (invisible anchored marker Parts:
+- Placed at `Config.Town.Origin + Config.Belt.Offset`, turned by `Config.Belt.Heading`, running `Config.Belt.Length`
+  studs (2026-11-16, Joshua: "conveyor belt should be on the main road": the street's row-1 half, x +120 to -120,
+  riders moving west; the odds `Sign` stands at the plaza, `Config.Belt.SignOffset`; game/README.md "The Nurse Belt
+  on the main road"). Children: `BeltStart`, `BeltEnd` (invisible anchored marker Parts:
   riders go from `BeltStart.Position` to `BeltEnd.Position`), `Conveyor` (the moving-looking surface; a Texture
   scroll or a Beam on the client is fine, never a server per-frame write), `Sign` (a Part with SurfaceGui `OddsGui`:
   every current odd, the event odds, the pity count), `Riders` (Folder).
@@ -310,11 +312,14 @@ Config.MiniGame = {
 }
 Config.Treat = { ItemPatience = 0.25, Distance = 20 }
 Config.Belt = {
-  Offset = Vector3.new(24, 0, 0), Length = 44, ArriveSeconds = 6, RideSeconds = 30, ReplaceSeconds = 1.5,
-  Odds = { Common = 70, Rare = 24, Epic = 5, Legendary = 1 }, -- percent
+  -- re-tuned 2026-11-16 (memory-20261116-017) and moved onto the main street:
+  Offset = Vector3.new(120, 0, -11), Heading = 180, Length = 240, SignOffset = Vector3.new(-14, 0, -15.8),
+  ArriveSeconds = 40, RideSeconds = 100, ReplaceSeconds = 8, -- (replace only when a hire empties the belt)
+  Odds = { Common = 75, Rare = 20, Epic = 4.5, Legendary = 0.5 }, -- percent
+  MinLevel = { Epic = 3, Legendary = 3, Mythic = 3, Secret = 3 },
   NightRushBoost = 2, NightRushMythic = 0.5, GoldenSecret = 1,
-  GoldenEverySeconds = 1200, GoldenSeconds = 120, PityArrivals = 8,
-  HireCooldown = 3, HireDistance = 40, SeenDistance = 100, ServerStepSeconds = 1, MaxRiders = 8,
+  GoldenEverySeconds = 1200, GoldenSeconds = 120, PityArrivals = 15,
+  HireCooldown = 3, HireDistance = 40, SeenDistance = 100, ServerStepSeconds = 1, MaxRiders = 5,
   Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
   PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 },                  -- by the viewer's (and the hirer's) hospital level (§E5)
 }
@@ -541,7 +546,8 @@ Patients → Treatment → Nurses → Levels → (PlayerData, Plots, Economy, Pl
 
 ---
 ## D. Playtest checklist
-- [ ] 0. Boot: `[Main] Clinic is open.`, no red errors; the belt stands east of the plaza, its sign shows the day odds.
+- [ ] 0. Boot: `[Main] Clinic is open.`, no red errors; the belt runs along the main street, its sign at the plaza
+  shows the day odds.
 - [ ] 1. An old save (no `Level`): loads at its implied level (Garden owner → Lv 3), empty journal; `Version` 3 on save.
 - [ ] 2. Fresh save (`FreshSave`): the tutorial runs unchanged; patients have 1-item recipes; Treat opens a
   mini-game; OK still cures; the HUD reveals 👩‍⚕️ with the rest at the end.
@@ -553,11 +559,12 @@ Patients → Treatment → Nurses → Levels → (PlayerData, Plots, Economy, Pl
   in 3 s, without cash; `EquipNurse` for an unowned nurse or past the slots; `LevelUp` without ⭐ → all `false` +
   message. A `TreatResult` sent too early (or from far away) is `true` but rated all OK with no tip and the combo
   reset (§B7 `MiniGame.accept`: no fail states).
-- [ ] 7. The belt: a nurse every ~6 s, each takes ~30 s; prices scale with your level; Hire by tap and by prompt;
-  a second player sees the same riders; the hired one hops off; a Common/Rare is replaced quickly.
+- [ ] 7. The belt: a nurse about every 40 s, each takes ~100 s; prices scale with your level; Hire by tap and by
+  prompt; a second player sees the same riders; the hired one hops off; a Common/Rare hire that empties the belt is
+  replaced within 8 s; below Lv 3 an Epic+ shows "🏥 Lv 3".
 - [ ] 8. Night (`SkipPhase`): the sign shows Night Rush odds; Mythic possible. Golden Hour (shorten
   `GoldenEverySeconds` in Studio): a short banner with the Secret chance (no countdown, §E6), Secret on the sign.
-- [ ] 9. Pity: force 8 Commons in a row (Studio) → the 9th is Rare+.
+- [ ] 9. Pity: force 15 Commons in a row (Studio) → the 16th is Rare+.
 - [ ] 10. Journal: silhouettes until seen; NEW! on first seen and first hire; completion %; completing Commons gives
   💰300 + Plaster Rug once.
 - [ ] 11. Nurses at work: equip a Maker (items appear in the tray, treating uses them), a Healer (treats the front

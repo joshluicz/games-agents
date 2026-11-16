@@ -95,7 +95,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Treatment.luau` *(depth)* | Treat sessions at the Counter: `TreatStart`/`TreatResult` (one open session per player; any other id is refused and changes nothing; the server's ratings come from `MiniGame.accept`, all OK when the report is too early or the helper is over `Config.Treat.Distance` from the Counter), the timeout (all OK), tips (cash only, capped per cure, × the plot's Cheerer) and the player attribute `Combo`, Simple mode (`SetSimple`), Healer deliveries. Patients drives it through `Treatment.open/busy/drop/onHeal`; it never requires Patients |
 | `server/Levels.luau` *(depth)* | Hospital levels: `LevelUp` (⭐ is a gate, 💰 is spent, in one update), the plot's `Building` and `Level` attribute (they follow `Data.Level`; a build that fails isn't retried until the level changes), slots/queue/recipe cap/beds/spawn seconds by level, `LevelChanged (p, level, previous)` only on a change (never at join), the `Celebrate` LevelUp. Studio switch `PreviewLevel` |
 | `server/Nurses.luau` *(depth)* | Owned nurses: `EquipNurse` (only known NurseIds take a slot; one change per 0.35 s per player), `grant` (charge + copy + journal mark + a first copy on duty + set rewards in one update), nurse workers on the plot (Maker → the `NurseTray`, Healer → `Heal`, Cheerer → `CheerPatience`/`CheerTip`; only while the owner is in the server), the 🧺 `NurseTrayGui` on each Counter, the Journal (`markSeen(nurseId, players?)`: the players near a rider). Resets the plot's tray and cheer attributes at boot and on release |
-| `server/NurseBelt.luau` *(depth)* | The shared Nurse Belt in town (`Workspace.NurseBelt`): an arrival every 6 s, odds, Night Rush, Golden Hour (on server uptime), pity, `HireNurse` (cooldown, distance by the belt formula, max level, the price by level), the odds sign, `Shout`s, Seen within `Config.Belt.SeenDistance`. Its `Conveyor` has `ConveyorGui > Clip > Stripes` and the attributes `StripeStuds`/`StudsPerSecond` (BeltView scrolls them). Studio switches `BeltForce`, `ForceGolden` |
+| `server/NurseBelt.luau` *(depth)* | The shared Nurse Belt along the main street (`Workspace.NurseBelt`, [below](#the-nurse-belt-on-the-main-road)): an arrival about every 40 s, odds, Night Rush, Golden Hour (on server uptime), pity, `HireNurse` (cooldown, distance by the belt formula, max level, the price by level), the odds sign, `Shout`s, Seen within `Config.Belt.SeenDistance`. Its `Conveyor` has `ConveyorGui > Clip > Stripes` and the attributes `StripeStuds`/`StudsPerSecond` (BeltView scrolls them). Studio switches `BeltForce`, `ForceGolden` |
 | `server/NurseBuilder.luau` *(depth)* | A nurse Model from its Look (via `CreatureBuilder.buildLook`) with a cap in its rarity colour (a white cross) and sparkles for Epic+, or `ServerStorage.Nurses.<NurseId>`; `setTask(model, task, icon?)` (a small task bubble), `hop(model, from, to, height, seconds, spin?)`, `popIn(model)`, `setGlow(model, on)` |
 
 ### Client
@@ -133,6 +133,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `tests/run.luau` | Runs every `tests/*.spec.luau`, prints PASS/FAIL and exits 1 on any failure |
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
+| `tests/config.luau` | The real `Shared/Config` for specs (a stub stands in for `Vector3`), so the belt's odds, placement and the line length are checked on what ships, not on copies |
 | `tests/*.spec.luau` | `Schema` (incl. a v2 save with play time, stats and badges migrating to v3), `Data` (incl. creature sizes, `Bits` and `AilmentActing`), `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin`, `Leaderboard`, `CreatureSize`, `Playtime`, `Boosts`, `Badges`, *(depth)* `Recipe`, `MiniGame`, `Belt`, `Levels`, `Nurse`. Plus the pure blocks of Roblox modules, loaded straight from the source between their markers so they test the shipped code: `ServerPure` (Patients, Treatment, Stations), `TreatmentSessions` (the real Server/Treatment under mocked services: one session per player, junk and stale ids, early reports, the tip cap, the timeout, drop, a helper leaving, Healer routing), `NurseServer` (Nurses, NurseBelt), `NurseUI` (BeltView, NursePanel), `MiniGamesPure` (UI/MiniGames), `Juice` (UI/Kit, UI/Celebrate), `Motion` (Feel/CreatureMotion, the badge's recipe row) |
 
 ## Boot order
@@ -431,6 +432,32 @@ the outer boards stand just outside the arch's posts. The street's end and the l
 - Junk: `game.ReplicatedStorage.Remotes.GetBoards:InvokeServer()` spammed from the command bar returns `nil` past 10
   calls a second and never costs a DataStore request.
 
+## The Nurse Belt on the main road
+Joshua, 2026-11-16: "conveyor belt should be on the main road"; his brother: nurses should come less often than in the
+belt games, so rarity feels earned (`memory-20261116-017`). `Config.Belt` holds every number; `server/NurseBelt.luau`
+builds and runs it; `client/UI/BeltView.luau` draws it for each player.
+- **Where:** one straight belt on the street's row-1 half, 11 studs off the centre line (z = 289 with
+  `Config.Town.Origin` at (0, 0, 300)), from the nurse house just inside the east welcome arch (x = +120) to the cloud
+  just inside the west one (x = -120); riders move west. It passes all six gates: a rider is within `HireDistance`
+  (40) of the row-1 gates (7 studs off) and the row-2 gates (29 studs off) as it goes by. It stays clear of the spawn
+  pad, the plaza benches and planters (moved to 5 studs either side of the centre line), both arches and the Hall of
+  Fame garden (x < -137).
+- **Crossing:** the conveyor's top is 0.9 studs above the street and its rails and rollers don't collide: step over
+  it anywhere.
+- **The odds sign** stands on two posts at the plaza's row-1 edge (x = -14), just behind the belt, its board raised
+  so riders never hide it, facing the spawn and the street's centre. Every odd is on it (☀️ day, 🌙 Night Rush, 👑
+  Golden Hour), plus "🏥 Epic+ hire from Lv 3" and the pity count. A 🎲 chip over it (and the 👩‍⚕️ panel's 🎲 chips)
+  opens the same odds in a popup. Riders face the street's centre.
+- **How often:** a nurse steps on about every 40 s and rides ~100 s (2.4 studs/s), so two or three are usually on.
+  Base odds Common 75 · Rare 20 · Epic 4.5 · Legendary 0.5; Night Rush doubles Rare+ and adds Mythic 0.5%; Golden
+  Hour adds Secret 1%. A Rare+ is guaranteed after 15 arrivals in a row without one. A Common or Rare hire that leaves
+  no other nurse on the belt brings the next within 8 s; otherwise hiring never speeds the belt up. At most 5 ride.
+- **Who can hire what:** Epic and up ride for everyone (one shared belt, and the sign's odds are the belt's), but only
+  a hospital at Lv 3+ may hire them (`Config.Belt.MinLevel`); below it the rider's card says "🏥 Lv 3" instead of a
+  price, the server refuses the hire with "🏥 Lv 3 hospital first!", and its arrival banner isn't shown to that
+  player. No lock icon, no "hurry". The first-rebirth gate for Mythic and Secret (design §7) waits until rebirths exist.
+- **Prices** are unchanged (💰100 / 400 / 1,500 / 6,000 / 20,000 / 50,000, ×1.0 to ×1.4 by your hospital level).
+
 ## Rules the code keeps
 - **The server owns all data and money.** Every RemoteFunction is wired with `Remotes.serve` (10 calls/s per player
   per remote, plus pcall) and checks types, ids, ownership and permission. The client only asks.
@@ -469,7 +496,7 @@ Full note (how to measure, the before/after table): `docs/plan/2026-11-16-perf-b
 | `ClinicKit.Decor.<DecorId>` | The placeholder decor (4×4 footprint, pivot at the bottom centre) |
 | `Creatures.<PatientId>` | The placeholder creature. It still acts its ailment: props go on sockets guessed from its bounding box, and the whole body leans and bobs (no separate arms or tail to wave) |
 | `ClinicKit.Building<level>` *(depth)* (2-5) | The placeholder hospital building for that level. Pivot = the centre of the plot's Ground top, facing the street; it must hold `Bed_<n>` Parts for the level's Beds − 1, and must not cover the Counter, the line, the gate, the side walkways (\|x\| 11.9 to 14) or the room slots |
-| `ClinicKit.NurseBelt` *(depth)* | The placeholder belt. It needs Parts `BeltStart`, `BeltEnd` and `Sign` (optional: `OddsGui` on the Sign, a `Riders` folder, a `Conveyor` part); pivot on the street at `Config.Town.Origin + Config.Belt.Offset`, +X along the belt |
+| `ClinicKit.NurseBelt` *(depth)* | The placeholder belt. It needs Parts `BeltStart`, `BeltEnd` and `Sign` (optional: `OddsGui` on the Sign, a `Riders` folder, a `Conveyor` part); pivot on the street at `Config.Town.Origin + Config.Belt.Offset` (the east end), turned by `Config.Belt.Heading` (180), so its +X runs along the belt toward the west end. A kit belt keeps its own `Sign`; without one the game builds the odds sign at the plaza |
 | `Nurses.<NurseId>` *(depth)* | The placeholder nurse (a Model or MeshPart, face toward -Z; no cap is added) |
 
 Anything missing or misnamed makes PlotBuilder fall back to its placeholder and print a `[PlotBuilder] ...` warning in
@@ -633,8 +660,8 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   rejoin.
 
 ### Depth update checklist (build plan §D)
-- [ ] D0. Boot: `[Main] Clinic is open.`, no red errors; the belt stands east of the plaza, its sign shows the day
-  odds, the conveyor stripes scroll.
+- [ ] D0. Boot: `[Main] Clinic is open.`, no red errors; the belt runs along the main street (row-1 side) from the
+  east arch to the west arch, its sign at the plaza shows the day odds, the conveyor stripes scroll.
 - [ ] D1. An old save (no `Level`): loads at its implied level (a Garden owner is Lv 3), empty journal; `Version` 3
   on save.
 - [ ] D2. Fresh save (`FreshSave`): the tutorial runs unchanged; patients have 1-item recipes; Treat opens a
@@ -647,18 +674,21 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
 - [ ] D5. Simple mode (⚙️): every game is one tap, rated Good, no tips.
 - [ ] D6. Junk (the commands above): all `false` + a message, nothing changes. An early `TreatResult` is `true`,
   all OK, no tip.
-- [ ] D7. The belt: a nurse every ~6 s, each takes ~30 s; prices scale with your level; Hire by tap and by prompt;
-  a second player sees the same riders; the hired one hops off; a Common/Rare is replaced quickly.
+- [ ] D7. The belt: a nurse about every 40 s, each takes ~100 s end to end (two or three ride at once); prices scale
+  with your level; Hire by tap and by prompt; a second player sees the same riders; the hired one hops off; a
+  Common/Rare hire that leaves the belt empty is replaced within 8 s. Below hospital Lv 3 an Epic+ shows "🏥 Lv 3"
+  and can't be hired (no arrival banner for it); from Lv 3 it can.
 - [ ] D8. Night (`SkipPhase`): the sign shows Night Rush odds; Mythic possible. Golden Hour (`ForceGolden`): a banner
   with the Secret chance and no countdown, Secret on the sign.
-- [ ] D9. Pity: `BeltForce = "Common"` → the 9th arrival is Rare+.
+- [ ] D9. Pity: `BeltForce = "Common"` → the 16th arrival is Rare+ (15 in a row without one).
 - [ ] D10. Journal: silhouettes until seen (within 100 studs); NEW! on first seen and first hire; completion %;
   completing Commons gives 💰300 + Plaster Rug once.
 - [ ] D11. Nurses at work: equip a Maker (items appear in the 🧺 tray, treating uses them), a Healer (treats the
   front patient with OK), a Cheerer (longer patience). Slots = level. Leave and rejoin: equipped nurses come back.
   With 💤 calm, Epic+ nurse sparkles stop.
 - [ ] D12. Level up in the Shop's Hospital tab: celebration, the building grows (`PreviewLevel` to look at each),
-  slots/beds/queue follow the table; the Garden needs Lv 3 (no "Buy in 🛒" toast or 🛒 dot for it before).
+  slots/beds follow the table, the line stays at 3 and patients come faster; the Garden needs Lv 3 (no "Buy in 🛒"
+  toast or 🛒 dot for it before).
 - [ ] D13. Juice: count-ups, flying coins, toasts slide, rarity frames shimmer, sounds; calm mode quiets all of it.
 - [ ] D14. Perf: 6 full plots + belt on a mid phone ≈ 60 fps; Network receive stays low while creatures hop; fill
   in the measured columns of the perf note.
