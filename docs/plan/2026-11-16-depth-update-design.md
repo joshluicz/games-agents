@@ -192,6 +192,28 @@ feels cheap):
   - **A new branch theme:** a cosmetic hospital skin (Candy, Arctic, Space, Jungle…).
 - **Never Robux,** and no pressure to rebirth (red line 3).
 
+## 8. Nurse Agency, Player Market, roster caps (`memory-20261116-018`)
+Each source has its own job, so the belt stays the exciting one:
+- **Belt** (§2/§7): random, a race, the only source of Legendary+ (events and rebirth gates).
+- **Nurse Agency:** a server shop that **restocks every 5 min** (server-wide countdown).
+  - Stock is 4 nurses, mostly Common/Rare, sometimes Epic, never Legendary+.
+  - Each player can buy each listing once per restock, so there's no racing.
+  - Prices are about ×1.5 the belt's.
+  - **Sell-back:** the Agency buys any nurse for about 30% of its base price.
+- **Player Market** (same server only):
+  - List a nurse at a price inside a band set per rarity and level; anyone in the server buys it instantly.
+  - The seller gets cash minus a 10% fee (a cash sink).
+  - No item-for-item swaps and no haggling (scam-proof for kids). A listing ends when the seller leaves (the nurse
+    returns).
+  - Transfers are atomic on one server (both saves on that server, one update each, the listing locked), so there's
+    no duplication. Cross-server markets are out of scope (dupe risk).
+  - Never Robux.
+- **Caps:**
+  - The roster holds 30 nurses at first, +5 per hospital level, +10 per rebirth, up to 100 (never sold for Robux).
+  - Equipped slots stay 1–5 by level, plus one Branch Tree node.
+  - A full roster blocks hiring with "Roster full: sell, list or release one" (and its buttons).
+  - The Journal keeps every nurse ever owned, so selling never removes an entry.
+
 ## Kids' rules (red line 3)
 The belt is cash only; you see what you buy; the odds are shown and there's a pity guarantee. There are no fail states, no timers against the
 player and no pressure to spend. Every motion honours Reduced Motion and the calm toggle, and Simple mode exists.
