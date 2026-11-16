@@ -429,6 +429,29 @@ The street is on the **-Z** side. Put the gate, the Sign, PatientSpawn and Patie
 
 ---
 
+## Part H (later): the Nurse Belt, nurses and bigger hospitals
+You don't have to do these either: the game builds its own. Make one only if you want your own look. Same rules as
+everything else (no scripts, Rated Minimal, original, **no red cross on white**).
+
+**The Nurse Belt** (the conveyor in town where nurses ride past): a Model named **NurseBelt** in **ServerStorage →
+ClinicKit**. It needs three Parts named exactly `BeltStart`, `BeltEnd` and `Sign`. Riders ride from BeltStart to
+BeltEnd. If you want, add a SurfaceGui named `OddsGui` on the Sign's front (the game writes the odds on it), a Folder
+named `Riders` and a Part named `Conveyor` (the moving-looking top). The game puts its pivot on the street east of
+the plaza, with its **+X** pointing along the belt.
+
+**A nurse's look**: a Model (or one MeshPart) named after the nurse, like **PuffPup**, in a Folder **ServerStorage →
+Nurses**, its face toward **-Z**. It replaces that nurse's placeholder look. No Humanoid and no scripts; the game adds
+no cap to it, so give it its own (a cap in its rarity's colour looks great). The nurse names are in
+`game/src/shared/Data/Nurses.luau`, and they're placeholders you two can rename.
+
+**A bigger hospital**: a Model named **Building2** to **Building5** in **ServerStorage → ClinicKit**. It replaces the
+whole placeholder building for that hospital level. Its pivot is the centre of the top of the plot's Ground, facing
+the street. It needs `Bed_<n>` Parts for the extra beds (Lv 2-3: `Bed_1`; Lv 4-5: `Bed_1` and `Bed_2`). Keep it
+behind the Stand: it must not cover the Counter, the line in front of it, the gate, the walkways beside the Stand
+(about 12 to 14 studs out from the middle on each side) or the room slots. Keep the whole plot to about 400 parts.
+
+---
+
 ## The old Shop
 Joshua deleted the old **Shop** model on 2026-11-16 (version 15 and earlier still have it, in **File → Version History**).
 The clinic town is the whole game now.
@@ -466,6 +489,7 @@ The clinic town is the whole game now.
 | Decorations (in ClinicKit → Decor) | `PottedFern` · `CozyRug` · `BubbleLamp` · `BalloonBunch` · `ToyShelf` · `FishBowl` · `FlowerArch` · `HeartRug` · `RubberDuckFountain` · `SnowGlobeLamp` · `MoonLantern` · `SproutMascot` · `LuckyKettle` · `CometLantern` · `FriendBench` |
 | Night glow tag | `ClinicNightLight` |
 | Plot (later) | `Ground` · `Counter` · `QueueStart` · `PatientSpawn` · `PatientExit` · `Sign` → `SignGui` → `OwnerName`, `HeartCount` · `Slots` → `RoomSlot_Stand`, `RoomSlot_A`, `RoomSlot_B`, `RoomSlot_C`, `RoomSlot_D` |
+| Belt and hospitals (later) | `ClinicKit` → `NurseBelt` (`BeltStart`, `BeltEnd`, `Sign`; optional `OddsGui`, `Riders`, `Conveyor`) · `ClinicKit` → `Building2` … `Building5` (`Bed_1`, `Bed_2`) · `Nurses` → `<NurseId>` |
 
 ---
 

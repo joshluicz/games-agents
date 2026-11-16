@@ -798,6 +798,10 @@ local function fromKit(decorId: string): Model?
 		if descendant:IsA("LuaSourceContainer") then
 			warn("[DecorBuilder] Removed a script from ClinicKit.Decor." .. decorId .. " (decor is visual only)")
 			descendant:Destroy()
+		elseif descendant:IsA("Highlight") then
+			descendant:Destroy() -- the perf budget: at most one Highlight in the world
+		elseif descendant:IsA("Light") then
+			descendant.Shadows = false -- the perf budget: no shadow-casting lights
 		end
 	end
 	if not model:FindFirstChildWhichIsA("BasePart", true) then

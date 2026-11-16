@@ -5,8 +5,10 @@
 --       cash. The message is short (6 words or fewer) and says what's missing: "Already yours!", "❄️ Winter only!",
 --       "Needs 🏥 Lv 3", "Need ⭐10", "Need 💰150". "" when ok.
 --   Progress.nextGoal(data, rooms, upgrades, isWinter?): { Kind, Id }
---       Kind "Room": the unowned room with the fewest StarsNeeded (rooms.Order breaks ties), skipping free rooms and
---       rooms out of season. Then Kind "Upgrade": the cheapest next upgrade level. Then Kind "None", Id "".
+--       Kind "Room": the unowned room with the fewest StarsNeeded (rooms.Order breaks ties), skipping free rooms,
+--       rooms out of season and rooms above the hospital level (Progress.levelAllows). Then Kind "Upgrade": the
+--       cheapest next upgrade level. Then Kind "None", Id "".
+--   Progress.levelAllows(data, room): boolean   the save's hospital level (nil = 1) reaches room.Level (nil = 1)
 --   Progress.unlockedBetween(rooms, before, after): { RoomId }
 --       rooms whose StarsNeeded was crossed going from `before` to `after` stars (for the "unlocked!" toast)
 --   Progress.parseSlotKey(rooms, slotKey): (RoomId?, n?)
@@ -71,6 +73,12 @@ local function ordered(map: any): { string }
 	return ids
 end
 
+function Progress.levelAllows(data: any, room: any): boolean
+	local level = if type(data) == "table" then count(data.Level) else 0
+	local needed = if type(room) == "table" then count(room.Level) else 0
+	return needed <= math.max(1, level)
+end
+
 function Progress.canBuyRoom(data: any, room: Room?, roomId: string, isWinter: boolean?): (boolean, string)
 	if type(data) ~= "table" or type(room) ~= "table" or type(roomId) ~= "string" then
 		return false, "Coming soon!"
@@ -106,7 +114,13 @@ function Progress.nextGoal(data: any, rooms: any, upgrades: any, isWinter: boole
 	for _, roomId in ordered(rooms) do
 		local room = rawget(rooms, roomId)
 		local stars = count(room.StarsNeeded)
-		if count(room.Price) > 0 and not owns(data, roomId) and inSeason(room, isWinter) and stars < bestStars then
+		if
+			count(room.Price) > 0
+			and not owns(data, roomId)
+			and inSeason(room, isWinter)
+			and Progress.levelAllows(data, room)
+			and stars < bestStars
+		then
 			bestRoom, bestStars = roomId, stars
 		end
 	end

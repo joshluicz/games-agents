@@ -70,9 +70,14 @@ function Progress.nextGoal(player: Player): Types.NextGoal
 	return { Kind = goal.Kind, Id = goal.Id, Icon = iconFor(goal) }
 end
 
+-- On sale to this player right now: not owned, not free, in season, and their hospital level allows it (the Garden
+-- needs Lv 3), so "Buy in 🛒" is never said about a room the Shop would refuse.
 local function forSale(data: Types.Data, roomId: string, winter: boolean): boolean
 	local room = Rooms[roomId]
-	return not data.Rooms[roomId] and room.Price > 0 and (room.Season == nil or (room.Season == "Winter" and winter))
+	return not data.Rooms[roomId]
+		and room.Price > 0
+		and (room.Season == nil or (room.Season == "Winter" and winter))
+		and ProgressLogic.levelAllows(data, room)
 end
 
 local function markReady(player: Player, roomId: string)

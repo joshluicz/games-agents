@@ -127,6 +127,7 @@ Config.Belt = {
 	PityArrivals = 8, -- after this many arrivals in a row without a Rare+, the next is Rare+ (server-wide)
 	HireCooldown = 3, -- seconds per player
 	HireDistance = 40, -- studs from the rider (a tap on its billboard reaches this far)
+	SeenDistance = 100, -- studs: a player this close to a rider has seen it (the Journal's silhouette fills in)
 	ServerStepSeconds = 1, -- the server moves riders this often; clients glide them every frame
 	MaxRiders = 8, -- a safety cap on riders at once
 	Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },

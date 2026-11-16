@@ -19,6 +19,8 @@
 --   8 📖 Collect every creature in your Book!        the 👇 on the 📖 button; tapping it hides the card (the
 --                                                    server finishes the tutorial a few seconds later)
 -- Nothing is timed against the player: the two timers only move the tutorial on by itself.
+-- The card and the 👇 follow the HUD's layout every frame only while they're needed (the card shows, or steps 7-8);
+-- once the tutorial is done that loop is gone for good (depth update perf pass).
 --
 -- The first-ever join (step 1, once per session): when your character reaches your clinic, a CAMERA_SWEEP_SECONDS
 -- camera sweep over the clinic under a title card "🏥 Welcome to Cure a Creature!", then the normal camera and the
@@ -457,11 +459,15 @@ function Tutorial.init(ctx: Types.Ctx)
 		return step
 	end
 
+	-- Starts or stops the per-frame layout follow (set below, once the card and pointer exist).
+	local syncLayout: () -> () = function() end
+
 	local function render()
 		local step = cardStep()
 		if not step then
 			card.Visible = false
 			shownStep, shownText = 0, ""
+			syncLayout()
 			return
 		end
 		local entry = LINES[step]
@@ -488,10 +494,12 @@ function Tutorial.init(ctx: Types.Ctx)
 		end
 		shownStep, shownText = step, text
 		card.Visible = true
+		syncLayout()
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Following the layout every frame: the card above the HUD's bottom cluster, the pointer on its target
+	-- Following the layout every frame while the tutorial shows something: the card above the HUD's bottom
+	-- cluster, the pointer on its target (syncLayout starts and stops it)
 	--------------------------------------------------------------------------------------------------------------
 	local function clusterTop(): number?
 		local top: number? = nil
@@ -524,7 +532,8 @@ function Tutorial.init(ctx: Types.Ctx)
 		return nil
 	end
 
-	RunService.RenderStepped:Connect(function()
+	local function followLayout()
+		debug.profilebegin("Tutorial layout")
 		local target = if Logic.active(ctx.State.Tutorial) then uiTarget() else nil
 		if card.Visible then
 			local top = clusterTop()
@@ -549,7 +558,27 @@ function Tutorial.init(ctx: Types.Ctx)
 			ringOuter.Visible = false
 			finger.Visible = false
 		end
-	end)
+		debug.profileend()
+	end
+
+	-- It runs every frame only while there's something to follow: the card on screen, or steps 7-8 (the 👇 can point
+	-- into an open panel). Everyone past the tutorial (nearly every session) never runs it.
+	local layoutConnection: RBXScriptConnection? = nil
+	syncLayout = function()
+		local step = ctx.State.Tutorial
+		local wanted = Logic.active(step) and (card.Visible or step == Logic.SHOP or step == Logic.BOOK)
+		local current = layoutConnection
+		if wanted and not current then
+			layoutConnection = RunService.RenderStepped:Connect(followLayout)
+			followLayout()
+		elseif not wanted and current then
+			layoutConnection = nil
+			current:Disconnect()
+			ringOuter.Visible = false
+			finger.Visible = false
+		end
+	end
+	syncLayout()
 
 	--------------------------------------------------------------------------------------------------------------
 	-- The world pointer: the Guide's pin and arc (steps 2 and 5 here; 3, 4 and 6 are its usual arrows)

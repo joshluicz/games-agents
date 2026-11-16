@@ -111,9 +111,20 @@ T.describe("Progress.nextGoal", function()
 
 	test("skips a seasonal room out of season", function()
 		local data = save(50, 0, { "BathRoom", "Ward" })
+		data.Level = 3 -- the Garden needs the Hospital (Lv 3)
 		local rooms = roomsWithSnowHut()
 		expect(Progress.nextGoal(data, rooms, Upgrades)).toEqual({ Kind = "Room", Id = "Garden" })
 		expect(Progress.nextGoal(data, rooms, Upgrades, true)).toEqual({ Kind = "Room", Id = "SnowHut" })
+	end)
+
+	test("skips a room above the hospital level (the Garden needs Lv 3)", function()
+		local data = save(99, 0, { "BathRoom", "Ward", "WinterWing" })
+		expect(Progress.nextGoal(data, Rooms, Upgrades).Kind).toBe("Upgrade")
+		data.Level = 3
+		expect(Progress.nextGoal(data, Rooms, Upgrades)).toEqual({ Kind = "Room", Id = "Garden" })
+		expect(Progress.levelAllows(save(0, 0), Rooms.Garden)).toBe(false)
+		expect(Progress.levelAllows(save(0, 0), Rooms.BathRoom)).toBe(true)
+		expect(Progress.levelAllows(nil, Rooms.BathRoom)).toBe(true)
 	end)
 
 	test("with every room owned, aims at the cheapest upgrade", function()

@@ -1,12 +1,18 @@
 --!strict
 -- Shop (build plan Task 6): spend cash on ⚡ Upgrades, 🏠 Rooms and 🌸 Decor, and place decor in your rooms.
---   init(ctx)   opens on ctx.fire("Open", "Shop", tab?) with tab "Upgrades" | "Rooms" | "Decor"
+-- Depth update (T5): the 🏥 Hospital tab, your hospital level and the next one (what it costs, what it unlocks,
+-- Level up), and rooms that need a higher level ("🏥 Lv 3", which leads to the Hospital tab).
+--   init(ctx)   opens on ctx.fire("Open", "Shop", tab?) with tab "Upgrades" | "Rooms" | "Decor" | "Hospital"
 --   Shop.upgradeButton(upgradeId): TextButton?   that upgrade row's buy button (UI/Tutorial points at it)
---   Shop.tabButton(tabId): TextButton?           a tab ("Upgrades" | "Rooms" | "Decor")
+--   Shop.tabButton(tabId): TextButton?           a tab ("Upgrades" | "Rooms" | "Decor" | "Hospital")
+--   Shop.levelUpButton(): TextButton?            the Hospital tab's Level up button (for pointers)
 -- Every price, lock and level shown here is read from the Snapshot and Shared/Data, for display only. Buying calls
--- Purchase(kind, id) and placing calls PlaceDecor(slotKey, decorId?); the server checks everything and answers
--- (ok, message), which is shown as a toast. Nothing changes on screen until the server's next Snapshot.
--- Bus: fires "Purchased" (kind, id) and "DecorPlaced" (slotKey, decorId?) after the server says yes.
+-- Purchase(kind, id), placing calls PlaceDecor(slotKey, decorId?) and levelling up calls LevelUp(); the server
+-- checks everything and answers (ok, message), which is shown as a toast (a level-up's yes is the server's Celebrate
+-- screen instead, and the Shop closes so the building can be seen growing). Nothing changes on screen until the
+-- server's next Snapshot.
+-- Bus: fires "Purchased" (kind, id) and "DecorPlaced" (slotKey, decorId?) after the server says yes (a level-up is
+-- kind "Level", id "<new level>").
 -- Look (candy pop, memory-20261116-007): a pink header; each row is a white card with a thick outline and a bright
 -- icon tile. What you can buy is a lime button with a shine; what you can't is grey with a 🔒. Nothing here is
 -- Robux: every price is in-game 💰.
@@ -19,6 +25,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local Prices = require(Shared:WaitForChild("Logic"):WaitForChild("Prices"))
+local LevelsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Levels"))
+local ProgressLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Progress"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
@@ -30,7 +38,11 @@ local TABS = {
 	{ Id = "Upgrades", Icon = "⚡", Caption = "Upgrades", Color = Theme.Colors.Primary },
 	{ Id = "Rooms", Icon = "🏠", Caption = "Rooms", Color = Theme.Colors.Secondary },
 	{ Id = "Decor", Icon = "🌸", Caption = "Decor", Color = Theme.Colors.Pink },
+	{ Id = "Hospital", Icon = "🏥", Caption = "Hospital", Color = Theme.Colors.Purple }, -- depth update
 }
+local HOSPITAL = Theme.Colors.Purple
+local LEVEL_BUTTON_WIDTH = 200
+local LADDER_TILE = 40
 -- Each row's icon tile takes the next candy colour, so a page reads as a bright stack.
 local TILE_COLORS = {
 	Theme.Colors.Pink,
@@ -365,6 +377,7 @@ end
 
 local upgradeButtons: { [string]: TextButton } = {}
 local tabs: { [string]: TextButton } = {}
+local levelButton: TextButton? = nil
 
 function Shop.upgradeButton(upgradeId: string): TextButton?
 	return upgradeButtons[upgradeId]
@@ -372,6 +385,76 @@ end
 
 function Shop.tabButton(tabId: string): TextButton?
 	return tabs[tabId]
+end
+
+function Shop.levelUpButton(): TextButton?
+	return levelButton
+end
+
+-- A white card with the shop's thick outline.
+local function card(parent: Instance, name: string, order: number, color: Color3): Frame
+	local frame = Instance.new("Frame")
+	frame.Name = name
+	frame.LayoutOrder = order
+	frame.Size = UDim2.fromScale(1, 0)
+	frame.AutomaticSize = Enum.AutomaticSize.Y
+	frame.BackgroundColor3 = color
+	frame.BorderSizePixel = 0
+	Kit.corner(frame, 16)
+	Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
+	frame.Parent = parent
+	return frame
+end
+
+-- A candy icon tile (like the rows' tiles).
+local function iconTile(parent: Instance, name: string, size: number, color: Color3, icon: string): (Frame, TextLabel)
+	local tile = Instance.new("Frame")
+	tile.Name = name
+	tile.Size = UDim2.fromOffset(size, size)
+	tile.BackgroundColor3 = Kit.lighten(color, 0.08)
+	tile.BorderSizePixel = 0
+	Kit.corner(tile, math.floor(size * 0.22))
+	Kit.stroke(tile, Theme.Colors.Outline, Theme.Size.Stroke)
+	Palette.candyGradient(tile)
+	Kit.gloss(tile, 4)
+	tile.Parent = parent
+	local label = Kit.label({
+		Name = "Icon",
+		Text = icon,
+		TextScaled = true,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.78, 0.78),
+		Parent = tile,
+	})
+	return tile, label
+end
+
+-- An unlock chip: an emoji and a couple of words on a pale pill.
+local function chip(parent: Instance, order: number, text: string)
+	local pill = Instance.new("Frame")
+	pill.Name = "Chip" .. order
+	pill.LayoutOrder = order
+	pill.Size = UDim2.fromOffset(0, 36)
+	pill.AutomaticSize = Enum.AutomaticSize.X
+	pill.BackgroundColor3 = Kit.lighten(HOSPITAL, 0.86)
+	pill.BorderSizePixel = 0
+	Kit.corner(pill, 18)
+	Kit.stroke(pill, Theme.Colors.Outline, 2)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 12)
+	pad.PaddingRight = UDim.new(0, 12)
+	pad.Parent = pill
+	Kit.label({
+		Name = "Text",
+		Text = text,
+		TextSize = Theme.TextSize.Small,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, 36),
+		Parent = pill,
+	})
+	pill.Parent = parent
 end
 
 function Shop.init(ctx: Types.Ctx)
@@ -441,7 +524,7 @@ function Shop.init(ctx: Types.Ctx)
 		tabColors[tab.Id] = tab.Color
 		pages[tab.Id] = page(pagesArea, tab.Id)
 	end
-	Hud.fitTabs(tabColumn, { tabButtons.Upgrades, tabButtons.Rooms, tabButtons.Decor }, 8)
+	Hud.fitTabs(tabColumn, { tabButtons.Upgrades, tabButtons.Rooms, tabButtons.Decor, tabButtons.Hospital }, 8)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Asking the server
@@ -449,7 +532,8 @@ function Shop.init(ctx: Types.Ctx)
 	local busy = false
 	local refresh: (state: Types.Snapshot) -> ()
 
-	local function request(button: TextButton, remote: RemoteFunction, ...: any): boolean
+	-- quiet = no toast and no chime on a yes (a level-up: the server's Celebrate screen says it).
+	local function send(button: TextButton, quiet: boolean, remote: RemoteFunction, ...: any): boolean
 		if busy then
 			return false
 		end
@@ -461,15 +545,21 @@ function Shop.init(ctx: Types.Ctx)
 		-- Put the button back as it was; refresh restyles the rows from the newest Snapshot.
 		setLook(button, before)
 		if ok then
-			ctx.toast(if message ~= "" then message else "🎉 Yay!")
+			if not quiet then
+				ctx.toast(if message ~= "" then message else "🎉 Yay!")
+				Hud.sound("Chime")
+			end
 			Hud.fly(button, "✨", nil, 6)
-			Hud.sound("Chime")
 		else
 			ctx.toast(if message ~= "" then message else "Oops! Try again.")
 			Hud.shake(button)
 		end
 		refresh(ctx.State)
 		return ok
+	end
+
+	local function request(button: TextButton, remote: RemoteFunction, ...: any): boolean
+		return send(button, false, remote, ...)
 	end
 
 	local function needMore(button: TextButton, price: number)
@@ -542,6 +632,14 @@ function Shop.init(ctx: Types.Ctx)
 					Hud.shake(row.Buy)
 					return
 				end
+				local needLevel = room.Level or 1
+				if needLevel > (state.Level or 1) then
+					-- A room for a bigger hospital: show the way there.
+					ctx.toast("Needs 🏥 Lv " .. needLevel .. "!")
+					Hud.shake(row.Buy)
+					selectTab("Hospital")
+					return
+				end
 				if (state.Cash or 0) < room.Price then
 					needMore(row.Buy, room.Price)
 					return
@@ -588,6 +686,12 @@ function Shop.init(ctx: Types.Ctx)
 				row.Note.Text = "❄️ Winter only"
 				setRowState(row, "Locked")
 				style(row.Buy, "Locked", "❄️ Soon")
+			elseif (room.Level or 1) > (state.Level or 1) then
+				-- Same order as the server (Logic/Progress.canBuyRoom): the level before the ⭐ gate. Grey and
+				-- locked, but tappable: it opens the Hospital tab.
+				row.Note.Text = "🔒 🏥 Lv " .. room.Level
+				setRowState(row, "Locked")
+				style(row.Buy, "Poor", "🏥 Lv " .. room.Level)
 			elseif stars < room.StarsNeeded then
 				row.Note.Text = "⭐ " .. stars .. " / " .. room.StarsNeeded
 				setRowState(row, "Locked")
@@ -834,6 +938,237 @@ function Shop.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
+	-- Hospital (depth update): your level, the ladder to the Mega Hospital, and the next level's cost and unlocks
+	--------------------------------------------------------------------------------------------------------------
+	local levels = data.Levels
+	local maxLevel = LevelsLogic.max(levels)
+
+	-- The "now" card: a candy card with the level's icon, its name, the five-step ladder and what it gives you.
+	local nowCard = card(pages.Hospital, "Now", 1, Kit.lighten(HOSPITAL, 0.08))
+	nowCard.AutomaticSize = Enum.AutomaticSize.None
+	nowCard.Size = UDim2.new(1, 0, 0, 150)
+	Palette.candyGradient(nowCard)
+	local nowTile, nowIcon = iconTile(nowCard, "Tile", 80, Theme.Colors.Paper, "")
+	nowTile.Position = UDim2.fromOffset(12, 12)
+	local nowTitle = Kit.label({
+		Name = "Title",
+		Text = "",
+		TextScaled = true,
+		Outlined = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(104, 12),
+		Size = UDim2.new(1, -116, 0, 36),
+		Parent = nowCard,
+	})
+	textLimit(nowTitle, Theme.TextSize.Title)
+	local ladder = Instance.new("Frame")
+	ladder.Name = "Ladder"
+	ladder.BackgroundTransparency = 1
+	ladder.Position = UDim2.fromOffset(104, 54)
+	ladder.Size = UDim2.new(1, -116, 0, LADDER_TILE)
+	ladder.Parent = nowCard
+	local ladderList = Kit.list(ladder, Enum.FillDirection.Horizontal, 6)
+	ladderList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	local steps: { { Tile: Frame, Icon: TextLabel } } = {}
+	for level = 1, maxLevel do
+		local tile, icon = iconTile(ladder, "Step" .. level, LADDER_TILE, Theme.Colors.Paper, levels[level].Icon)
+		tile.LayoutOrder = level
+		steps[level] = { Tile = tile, Icon = icon }
+	end
+	local nowStats = Kit.label({
+		Name = "Stats",
+		Text = "",
+		TextScaled = true,
+		Outlined = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(12, 104),
+		Size = UDim2.new(1, -24, 0, 34),
+		Parent = nowCard,
+	})
+	textLimit(nowStats, Theme.TextSize.Body)
+
+	-- The "next" card: the next level, its unlock chips, what it needs, and Level up.
+	local nextCard = card(pages.Hospital, "Next", 2, Theme.Colors.Paper)
+	Kit.pad(nextCard, 12)
+	local nextList = Kit.list(nextCard, Enum.FillDirection.Vertical, 10)
+	nextList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	nextList.VerticalAlignment = Enum.VerticalAlignment.Top
+
+	local nextHead = Instance.new("Frame")
+	nextHead.Name = "Head"
+	nextHead.LayoutOrder = 1
+	nextHead.BackgroundTransparency = 1
+	nextHead.Size = UDim2.new(1, 0, 0, 60)
+	nextHead.Parent = nextCard
+	local nextTile, nextIcon = iconTile(nextHead, "Tile", 60, HOSPITAL, "")
+	local nextTitle = Kit.label({
+		Name = "Title",
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(72, 0),
+		Size = UDim2.new(1, -72, 1, 0),
+		Parent = nextHead,
+	})
+	textLimit(nextTitle, Theme.TextSize.Title)
+
+	local chips = Instance.new("Frame")
+	chips.Name = "Chips"
+	chips.LayoutOrder = 2
+	chips.BackgroundTransparency = 1
+	chips.Size = UDim2.fromScale(1, 0)
+	chips.AutomaticSize = Enum.AutomaticSize.Y
+	chips.Parent = nextCard
+	local chipList = Kit.list(chips, Enum.FillDirection.Horizontal, 8)
+	chipList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	chipList.VerticalAlignment = Enum.VerticalAlignment.Top
+	chipList.Wraps = true
+
+	local foot = Instance.new("Frame")
+	foot.Name = "Foot"
+	foot.LayoutOrder = 3
+	foot.BackgroundTransparency = 1
+	foot.Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight)
+	foot.Parent = nextCard
+	local cost = Kit.label({
+		Name = "Cost",
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Size = UDim2.new(1, -(LEVEL_BUTTON_WIDTH + 12), 1, 0),
+		Parent = foot,
+	})
+	textLimit(cost, Theme.TextSize.Body)
+	local levelUp = Kit.button({
+		Name = "LevelUp",
+		Kind = "Good",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.fromScale(1, 0.5),
+		Size = UDim2.fromOffset(LEVEL_BUTTON_WIDTH, Theme.Size.ButtonHeight),
+		TextSize = Theme.TextSize.Body,
+		TextScaled = true,
+		Parent = foot,
+	})
+	local levelLimit = Instance.new("UITextSizeConstraint")
+	levelLimit.MaxTextSize = Theme.TextSize.Body
+	levelLimit.MinTextSize = Theme.TextSize.Small
+	levelLimit.Parent = levelUp
+	Kit.shine(levelUp)
+	lockBadge(levelUp)
+	levelButton = levelUp
+
+	local shownChipsFor = -1 -- the level whose chips are on the card
+
+	local function starsText(n: number): string
+		return "⭐ " .. Hud.format(n)
+	end
+
+	local function refreshHospital(state: Types.Snapshot)
+		local level = LevelsLogic.clamp(levels, state.Level)
+		local row = LevelsLogic.row(levels, level)
+		nowIcon.Text = row.Icon
+		nowTitle.Text = "Lv " .. level .. " · " .. row.Name
+		nowStats.Text = ("👩‍⚕️ %d   🛏️ %d   🧍 %d   🧪 %d"):format(
+			row.Slots,
+			row.Beds,
+			row.Queue,
+			row.RecipeCap
+		)
+		for index, step in steps do
+			local done = index <= level
+			step.Tile.BackgroundColor3 = if index == level
+				then Theme.Colors.Cash
+				elseif done then Kit.lighten(Theme.Colors.Good, 0.08)
+				else Theme.Colors.Disabled
+			step.Icon.TextTransparency = if done then 0 else 0.55
+		end
+
+		local nextRow = LevelsLogic.nextRow(levels, level)
+		local nextLevel = level + 1
+		if shownChipsFor ~= nextLevel then
+			shownChipsFor = nextLevel
+			for _, child in chips:GetChildren() do
+				if child:IsA("Frame") then
+					child:Destroy()
+				end
+			end
+			if nextRow then
+				for index, text in nextRow.Unlocks do
+					chip(chips, index, text)
+				end
+			end
+		end
+		chips.Visible = nextRow ~= nil
+		foot.Visible = nextRow ~= nil
+		if not nextRow then
+			nextIcon.Text = "🏆"
+			nextTitle.Text = "Max level!"
+			nextTile.BackgroundColor3 = Kit.lighten(Theme.Colors.Cash, 0.08)
+			return
+		end
+		nextIcon.Text = nextRow.Icon
+		nextTitle.Text = "⬆️ Lv " .. nextLevel .. " · " .. nextRow.Name
+		nextTile.BackgroundColor3 = Kit.lighten(HOSPITAL, 0.08)
+
+		local have = state.Stars or 0
+		local starText = if have >= nextRow.Stars
+			then starsText(nextRow.Stars) .. " ✅"
+			else starsText(have) .. " / " .. Hud.format(nextRow.Stars)
+		cost.Text = starText .. "   💰 " .. Hud.format(nextRow.Cash)
+		if state.PlotIndex == nil then
+			style(levelUp, "Locked", "🏠")
+		elseif have < nextRow.Stars then
+			style(levelUp, "Locked", starsText(nextRow.Stars)) -- ⭐ is a gate: keep curing
+		elseif (state.Cash or 0) < nextRow.Cash then
+			style(levelUp, "Poor", "💰 " .. Hud.format(nextRow.Cash))
+		else
+			style(levelUp, "Buy", "⬆️ Level up!")
+		end
+	end
+
+	levelUp.Activated:Connect(function()
+		local state = ctx.State
+		local level = LevelsLogic.clamp(levels, state.Level)
+		local nextRow = LevelsLogic.nextRow(levels, level)
+		if not nextRow or busy then
+			return
+		end
+		if state.PlotIndex == nil then
+			ctx.toast("🏠 You need a clinic first!")
+			Hud.shake(levelUp)
+			return
+		end
+		if (state.Cash or 0) < nextRow.Cash then
+			needMore(levelUp, nextRow.Cash)
+			return
+		end
+		if send(levelUp, true, ctx.Remotes.LevelUp) then
+			ctx.fire("Purchased", "Level", tostring(level + 1))
+			Hud.pop(nowCard, 1.05)
+			Kit.bump(nowTile)
+			modal.close() -- the Celebrate screen, then the building growing behind it
+		end
+	end)
+
+	-- The tab's dot: a room you can buy right now (its level too), or the next level is ready.
+	local function roomReady(state: Types.Snapshot): boolean
+		if state.PlotIndex == nil then
+			return false
+		end
+		for _, roomId in data.Rooms.Order do
+			local room = data.Rooms[roomId]
+			if room.Price > 0 and ProgressLogic.canBuyRoom(state, room, roomId, state.IsWinter == true) then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function levelReady(state: Types.Snapshot): boolean
+		return state.PlotIndex ~= nil and (LevelsLogic.canLevelUp(state, levels))
+	end
+
+	--------------------------------------------------------------------------------------------------------------
 	-- Keeping it current
 	--------------------------------------------------------------------------------------------------------------
 	refresh = function(state: Types.Snapshot)
@@ -843,9 +1178,11 @@ function Shop.init(ctx: Types.Ctx)
 		refreshUpgrades(state)
 		refreshRooms(state)
 		refreshDecor(state)
+		refreshHospital(state)
 		local news = Hud.shopNews(data, state)
-		Kit.setDot(tabButtons.Rooms, news.Rooms)
+		Kit.setDot(tabButtons.Rooms, roomReady(state))
 		Kit.setDot(tabButtons.Decor, news.Decor)
+		Kit.setDot(tabButtons.Hospital, levelReady(state))
 		if placing and placeView.Visible then
 			renderPlace(state)
 		end

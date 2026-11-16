@@ -11,6 +11,11 @@
 --   Counter's TreatPrompt (Patients)         friends, or anyone while the plot's OpenHelpers is on.
 -- Friend status comes from LocalPlayer:IsFriendsWith, cached per owner. Until it's known (or if it can't be
 -- checked) the prompt shows. Nothing here is a security check: the server's Plots.canWork has the last word.
+--
+-- Finding the prompts costs nothing while the town is busy (depth update perf pass): the sign and station prompts
+-- arrive by their CollectionService tags (also when they stream in or a room is bought), and the Treat prompt by
+-- TREAT_TAG when Patients tags it, or else by watching just each plot's Counter. Nothing listens to every part
+-- added to Workspace.Clinics (each creature, nurse and building floor used to wake it).
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +28,8 @@ local PromptFilter = {}
 local SIGN_TAG = "ClinicSignPrompt" -- Visits.SIGN_PROMPT_TAG (server modules can't be required here)
 local STATION_TAG = "StationPrompt" -- Stations.PROMPT_TAG
 local TREAT_NAME = "TreatPrompt" -- Patients' prompt on the Counter
+local TREAT_TAG = "TreatPrompt" -- the same prompt's tag, once Patients adds it (until then: the Counter watch)
+local COUNTER_NAME = "Counter"
 local MAKE_NAME = "MakePrompt" -- Stations.PROMPT_NAME
 local REACH_ATTRIBUTE = "FilterReach" -- set on this client only
 
@@ -61,7 +68,12 @@ function PromptFilter.init(ctx: Types.Ctx)
 		if CollectionService:HasTag(prompt, SIGN_TAG) then
 			return "Sign"
 		end
-		if CollectionService:HasTag(prompt, STATION_TAG) or prompt.Name == TREAT_NAME or prompt.Name == MAKE_NAME then
+		if
+			CollectionService:HasTag(prompt, STATION_TAG)
+			or CollectionService:HasTag(prompt, TREAT_TAG)
+			or prompt.Name == TREAT_NAME
+			or prompt.Name == MAKE_NAME
+		then
 			return "Work"
 		end
 		return nil
@@ -115,8 +127,8 @@ function PromptFilter.init(ctx: Types.Ctx)
 		end
 	end
 
-	-- Gone from its plot (destroyed with a room, or streamed out): forget it. If it comes back, DescendantAdded
-	-- tracks it again from scratch.
+	-- Gone from its plot (destroyed with a room, or streamed out): forget it. If it comes back, its tag signal (or
+	-- the Counter watch) tracks it again from scratch.
 	local function forget(prompt: ProximityPrompt)
 		tracked[prompt] = nil
 		local connection = untrack[prompt]
@@ -197,11 +209,58 @@ function PromptFilter.init(ctx: Types.Ctx)
 		apply(instance, entry)
 	end
 
+	-- Tagged prompts: the sign's, every station's, and the Counter's once Patients tags it. Streaming and new rooms
+	-- bring theirs in through the same signals. (Deferred: a prompt can arrive a moment before its plot does.)
+	for _, tag in { SIGN_TAG, STATION_TAG, TREAT_TAG } do
+		CollectionService:GetInstanceAddedSignal(tag):Connect(function(instance: Instance)
+			task.defer(track, instance)
+		end)
+		for _, tagged in CollectionService:GetTagged(tag) do
+			track(tagged)
+		end
+	end
+
+	-- The Counter's Treat prompt without a tag: watch only the Counters, never the whole town.
+	local watchedCounters: { [Instance]: { RBXScriptConnection } } = {}
+	local function watchCounter(counter: Instance)
+		if counter.Name ~= COUNTER_NAME or watchedCounters[counter] then
+			return
+		end
+		local connections: { RBXScriptConnection } = {}
+		watchedCounters[counter] = connections
+		table.insert(connections, counter.DescendantAdded:Connect(track))
+		table.insert(
+			connections,
+			counter.AncestryChanged:Connect(function()
+				if not counter:IsDescendantOf(Workspace) then
+					watchedCounters[counter] = nil -- streamed out or rebuilt: a new one is watched when it comes
+					for _, connection in connections do
+						connection:Disconnect()
+					end
+				end
+			end)
+		)
+		for _, descendant in counter:GetDescendants() do
+			track(descendant)
+		end
+	end
+	local counterPlots: { [Instance]: boolean } = {}
+	local function watchPlotModel(plot: Instance)
+		if counterPlots[plot] then
+			return
+		end
+		counterPlots[plot] = true
+		plot.ChildAdded:Connect(watchCounter) -- a Counter that streams in later
+		local counter = plot:FindFirstChild(COUNTER_NAME)
+		if counter then
+			watchCounter(counter)
+		end
+	end
 	task.spawn(function()
 		local clinics = Workspace:WaitForChild("Clinics")
-		clinics.DescendantAdded:Connect(track) -- new rooms, streaming, the Counter's prompt
-		for _, descendant in clinics:GetDescendants() do
-			track(descendant)
+		clinics.ChildAdded:Connect(watchPlotModel)
+		for _, plot in clinics:GetChildren() do
+			watchPlotModel(plot)
 		end
 	end)
 end

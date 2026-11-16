@@ -246,6 +246,7 @@ export type CelebrateInfo = {
 	Level: number?,
 	Cash: number?,
 	Decor: DecorId?,
+	Room: RoomId?, -- Kind "Room": which room (Feel/CureFX fires it; UI/Celebrate shows its name)
 }
 
 -- The client bus "Banner" spec (BeltView fires it, Toasts shows it)

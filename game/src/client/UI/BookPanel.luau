@@ -9,8 +9,13 @@
 -- Look (candy pop, memory-20261116-007): a purple header and one candy colour per wing (its tab, bar and cards).
 -- A page you've filled is a white card with a thick outline and the creature on its wing's colour; one you haven't
 -- is a flat grey silhouette, so the filled ones pop. A finished set's reward sits on turning rays.
+-- Juice (depth update, design §4): opening the Book or a tab, the page slides in and its cards pop in one after
+-- another; the progress bars fill up and the counts roll (Kit.countUp) while it's open; the NEW! stickers breathe
+-- and each new page's card bursts with confetti when you open the Book on it; a set finished this session throws
+-- confetti from its reward badge the first time you see it. Calm (Kit.reducedMotion()): all of it simply appears.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
@@ -61,6 +66,7 @@ type Page = {
 	Badge: Frame?, -- the circle it sits on
 	Rays: Frame?, -- made the first time the set is complete
 	Complete: boolean,
+	JustCompleted: boolean, -- finished this session, not yet celebrated on screen
 	Cards: { [string]: Card },
 	Ids: { string },
 }
@@ -188,6 +194,7 @@ local function newCard(parent: Instance, order: number, color: Color3): Card
 	})
 	Kit.corner(ribbon, 13)
 	Kit.stroke(ribbon, Theme.Colors.Outline, 2.5)
+	Kit.breathing(ribbon, 0.1) -- only moves while it shows
 	frame.Parent = parent
 	return {
 		Frame = frame,
@@ -306,17 +313,58 @@ function BookPanel.init(ctx: Types.Ctx)
 	local pageOrder: { string } = {}
 	local current = ""
 
-	local function selectPage(id: string)
-		if not pages[id] then
+	-- The page slides in from the side and its cards pop in one after another (calm: they're just there).
+	local MAX_STAGGERED = 12
+	local function enterPage(p: Page)
+		if Kit.reducedMotion() then
+			p.Frame.Position = UDim2.new()
 			return
 		end
+		p.Frame.Position = UDim2.fromOffset(28, 0)
+		TweenService:Create(p.Frame, Theme.Tween.Slide, { Position = UDim2.new() }):Play()
+		local fill = p.Fill
+		if fill then -- the bar fills up from empty
+			local ratio = fill:GetAttribute("Goal")
+			local goal = UDim2.fromScale(if type(ratio) == "number" then ratio else fill.Size.X.Scale, 1)
+			fill.Size = UDim2.fromScale(0, 1)
+			TweenService:Create(fill, Theme.Tween.Fill, { Size = goal }):Play()
+		end
+		for order, id in p.Ids do
+			if order > MAX_STAGGERED then
+				break
+			end
+			local card = p.Cards[id]
+			if card then
+				-- Tiny until its turn (the tween's delay), then it springs up (the grid never reflows).
+				local info =
+					TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, 0.035 * order)
+				Kit.punch(card.Frame, 0.05, info)
+			end
+		end
+	end
+
+	local celebrateSet: (p: Page) -> () = function() end
+	local function selectPage(id: string, animate: boolean?)
+		local page = pages[id]
+		if not page then
+			return
+		end
+		local changed = current ~= id
 		current = id
 		for pageId, p in pages do
 			local selected = pageId == id
 			p.Frame.Visible = selected
 			paintTab(p.Tab, selected, p.Color)
 		end
-		modal.Focus = pages[id].Tab
+		modal.Focus = page.Tab
+		if animate and (changed or not modal.isOpen()) then
+			enterPage(page)
+		end
+		if animate and page.JustCompleted then
+			task.delay(0.45, function()
+				celebrateSet(page)
+			end)
+		end
 	end
 
 	local function makeTab(id: string, icon: string, order: number): TextButton
@@ -333,7 +381,9 @@ function BookPanel.init(ctx: Types.Ctx)
 			caption.Font = Theme.DisplayFont -- the count is a number: chunky
 		end
 		tab.Activated:Connect(function()
-			selectPage(id)
+			if current ~= id then
+				selectPage(id, true)
+			end
 		end)
 		return tab
 	end
@@ -482,6 +532,7 @@ function BookPanel.init(ctx: Types.Ctx)
 			Badge = top.Badge,
 			Rays = nil,
 			Complete = false,
+			JustCompleted = false,
 			Cards = cards,
 			Ids = ids,
 		}
@@ -509,6 +560,7 @@ function BookPanel.init(ctx: Types.Ctx)
 			Badge = nil,
 			Rays = nil,
 			Complete = false,
+			JustCompleted = false,
 			Cards = cards,
 			Ids = ids,
 		}
@@ -524,6 +576,8 @@ function BookPanel.init(ctx: Types.Ctx)
 	-- New pages since you last looked (from the Cured remote: exact, and only the helper's own stamps)
 	--------------------------------------------------------------------------------------------------------------
 	local fresh: { [string]: boolean } = {}
+	local initial = ctx.State
+	local armed = false -- set after the first server snapshot (see render)
 	local function freshCount(): number
 		local n = 0
 		for _ in fresh do
@@ -547,12 +601,23 @@ function BookPanel.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- Drawing from the Snapshot
 	--------------------------------------------------------------------------------------------------------------
+	-- The count rolls and the bar fills while the Book is open; closed, they're just set.
 	local function setProgress(p: Page, done: number, total: number)
+		local live = modal.isOpen() and not Kit.reducedMotion()
 		if p.Progress then
-			p.Progress.Text = done .. "/" .. total
+			Kit.countUp(p.Progress, done, function(n: number): string
+				return math.floor(n + 0.5) .. "/" .. total
+			end, if live then nil else 0)
 		end
 		if p.Fill then
-			p.Fill.Size = UDim2.fromScale(if total > 0 then done / total else 0, 1)
+			local ratio = if total > 0 then done / total else 0
+			p.Fill:SetAttribute("Goal", ratio) -- enterPage fills up to it
+			local goal = UDim2.fromScale(ratio, 1)
+			if live and p.Fill.Size ~= goal then
+				TweenService:Create(p.Fill, Theme.Tween.Fill, { Size = goal }):Play()
+			else
+				p.Fill.Size = goal
+			end
 		end
 		local caption = p.Tab:FindFirstChild("Caption")
 		if caption and caption:IsA("TextLabel") then
@@ -613,6 +678,14 @@ function BookPanel.init(ctx: Types.Ctx)
 			end
 			if complete and not p.Complete then
 				Kit.bump(badge)
+				if armed then
+					p.JustCompleted = true -- celebrated when its page is next on screen
+					if modal.isOpen() and current == wingId then
+						task.delay(0.3, function()
+							celebrateSet(p)
+						end)
+					end
+				end
 			end
 			p.Complete = complete
 		end
@@ -666,10 +739,30 @@ function BookPanel.init(ctx: Types.Ctx)
 		end
 		renderFriends(state)
 		if title then
-			title.Text = "📖 Book  " .. met .. "/" .. total
+			Kit.countUp(title, met, function(n: number): string
+				return "📖 Book  " .. math.floor(n + 0.5) .. "/" .. total
+			end, if modal.isOpen() then nil else 0)
+		end
+		-- The first server snapshot is the save loading in: sets already done then aren't "just" done.
+		if state ~= initial then
+			armed = true
 		end
 	end
 	ctx.onState(render)
+
+	-- A finished set: confetti from its reward badge and a fanfare, once.
+	celebrateSet = function(p: Page)
+		if not p.JustCompleted or not modal.isOpen() or pages[current] ~= p then
+			return
+		end
+		p.JustCompleted = false
+		local holder = p.Badge and p.Badge.Parent
+		if holder and holder:IsA("GuiObject") then
+			Kit.punch(holder, 1.4, Theme.Tween.Bump)
+			Kit.confetti(holder, 18, UDim2.fromScale(0.5, 0.5))
+		end
+		Hud.sound("Fanfare", 0.7)
+	end
 
 	ctx.on("Open", function(name: any)
 		if name ~= "Book" then
@@ -684,16 +777,25 @@ function BookPanel.init(ctx: Types.Ctx)
 				end
 			end
 		end
-		selectPage(target)
 		render(ctx.State)
+		selectPage(target, true)
 		modal.open()
+		-- Each new page on screen: a pop and a confetti puff once the cards are in, and a sparkle.
+		local any = false
 		for id in fresh do
 			for _, p in pages do
 				local card = p.Cards[id]
-				if card then
-					Hud.pop(card.Frame, 1.12)
+				if card and p.Frame.Visible then
+					any = true
+					task.delay(0.45, function()
+						Hud.pop(card.Frame, 1.2)
+						Kit.confetti(card.Frame, 12, UDim2.fromScale(0.5, 0.35))
+					end)
 				end
 			end
+		end
+		if any then
+			task.delay(0.45, Hud.sound, "Sparkle")
 		end
 	end)
 

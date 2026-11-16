@@ -168,8 +168,8 @@ type ShoutInfo =
 type CelebrateInfo = {
   Kind: "LevelUp" | "NewNurse" | "JournalSet" | "Room",
   Title: string, Icon: string,                -- ≤ 3 words; an emoji
-  Rarity: Rarity?, NurseId: string?, Level: number?, Cash: number?, Decor: string?,
-}
+  Rarity: Rarity?, NurseId: string?, Level: number?, Cash: number?, Decor: string?, Room: string?,
+}                                             -- Room: Kind "Room" only (Feel/CureFX fires it for a new room)
 ```
 
 ### B4. Instances and attributes
@@ -310,7 +310,7 @@ Config.Belt = {
   Odds = { Common = 70, Rare = 24, Epic = 5, Legendary = 1 }, -- percent
   NightRushBoost = 2, NightRushMythic = 0.5, GoldenSecret = 1,
   GoldenEverySeconds = 1200, GoldenSeconds = 120, PityArrivals = 8,
-  HireCooldown = 3, HireDistance = 40, ServerStepSeconds = 1, MaxRiders = 8,
+  HireCooldown = 3, HireDistance = 40, SeenDistance = 100, ServerStepSeconds = 1, MaxRiders = 8,
   Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
   PriceScale = { 1, 1.25, 1.5, 1.75, 2 },                  -- by the viewer's (and the hirer's) hospital level
 }
@@ -373,7 +373,8 @@ signatures and safe defaults.
 - `Treatment.start()`: wires `TreatResult` and `SetSimple`; connects `Nurses.Heal`.
 - `Treatment.combo(p): number` (the `Combo` attribute, 0 when unknown).
 - `Treatment.simple(p): boolean` (`Data.Simple`).
-- Internals between Patients and Treatment are T1's choice. The treat flow (design §1): the Counter's `TreatPrompt`
+- Internals between Patients and Treatment are T1's choice (as built: `Treatment.open(p, spec): number?`,
+  `Treatment.busy(p)`, `Treatment.drop(session)`, `Treatment.onHeal(fn)`; Treatment never requires Patients). The treat flow (design §1): the Counter's `TreatPrompt`
   → front patient waiting → items the helper carries that the recipe still needs (`Recipe.match` on the helper's
   Carry first, then the plot's `NurseTray` via `Nurses.takeFromTray`) → none: the head-shake and a hint toast with
   the next missing station icon → else take them (they're spent now), `State = "Treating"`, fire `TreatStart` →
@@ -391,7 +392,9 @@ signatures and safe defaults.
 - `Nurses.grant(p, nurseId, price): (boolean, string)`: charges `price` and grants one copy in ONE update (Level,
   Copies, `NurseIndex = "Hired"`), then grants any journal set due (cash + decor + `JournalSets`, same update), then
   fires `NurseNews` Hired, `Celebrate` (NewNurse on a first copy; JournalSet) and `Hired`.
-- `Nurses.markSeen(nurseId)`: every loaded player without an entry gets `"Seen"` and a `NurseNews` Seen.
+- `Nurses.markSeen(nurseId, players?)`: each listed player (every loaded player when nil) without an entry gets
+  `"Seen"` and a `NurseNews` Seen. NurseBelt passes the players within `Config.Belt.SeenDistance` of the rider
+  (integration: a nurse is seen when it rides past within view).
 - `Nurses.trayItems(plot): { ItemId }` · `Nurses.takeFromTray(plot, itemId): boolean`.
 - `Nurses.cheer(plot): { Patience: number, Tip: number }` (also mirrored on the plot attributes).
 - `Nurses.healed(plot, nurseId, items)`: T1 calls it after a Healer delivery (T3 plays the healer's hop).
@@ -537,8 +540,10 @@ Patients → Treatment → Nurses → Levels → (PlayerData, Plots, Economy, Pl
   pays a small tip and the combo counter climbs; ×1.2 at 3; a Good resets it.
 - [ ] 4. Lv 2: a Bath patient needs 🛁🧪; with a tray of 1 you give 🛁 (one game), the badge ticks, then 🧪.
 - [ ] 5. Simple mode (⚙️): every game is one tap, rated Good, no tips.
-- [ ] 6. Junk: `TreatResult` with another session, early, wrong types; `HireNurse(-1)`, from far away, twice in 3 s,
-  without cash; `EquipNurse` for an unowned nurse or past the slots; `LevelUp` without ⭐ → all `false` + message.
+- [ ] 6. Junk: `TreatResult` with another session, a stale one or wrong types; `HireNurse(-1)`, from far away, twice
+  in 3 s, without cash; `EquipNurse` for an unowned nurse or past the slots; `LevelUp` without ⭐ → all `false` +
+  message. A `TreatResult` sent too early (or from far away) is `true` but rated all OK with no tip and the combo
+  reset (§B7 `MiniGame.accept`: no fail states).
 - [ ] 7. The belt: a nurse every ~6 s, each takes ~30 s; prices scale with your level; Hire by tap and by prompt;
   a second player sees the same riders; the hired one hops off; a Common/Rare is replaced quickly.
 - [ ] 8. Night (`SkipPhase`): the sign shows Night Rush odds; Mythic possible. Golden Hour (shorten

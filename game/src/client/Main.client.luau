@@ -29,8 +29,10 @@
 --                                              the Hud's 👩‍⚕️ dot)
 --   "Shout" (info)                             belt news for everyone (UI.BeltView turns it into a Banner)
 --   "Banner" (spec)                            a big top banner, optional countdown (UI.BeltView -> UI.Toasts)
---   "Celebrate" (info)                         rays + confetti + a big title (UI.Celebrate)
+--   "Celebrate" (info)                         rays + confetti + a big title (UI.Celebrate); also fired by Feel/CureFX
+--                                              for a new room: Kind "Room" with an extra Room = <RoomId>
 --   "Open" ("Nurses") · "Open" ("Shop", "Hospital")   the Nurses panel; the Shop's Hospital tab
+--   "Open" ("NurseOdds")                       the belt's odds popup (UI/BeltView; UI/NursePanel's 🎲 chips open it too)
 -- Client-only LocalPlayer attributes (set on this client, never by the server, never replicated): ReduceEffects
 -- (the ✨/💤 calm-effects switch in the Hud's ⚙️ panel; Kit.reducedMotion() honours it) and MusicMuted (🎵/🔇).
 -- The first snapshot: until the server's arrives, ctx.State is a default one with Tutorial = 0 ("not known yet"),

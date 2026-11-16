@@ -25,7 +25,12 @@
 -- The look is candy pop (memory-20261116-007): every chip is its own bright colour with a glossy top, a thick dark
 -- outline and big outlined display-font numbers. 💰 Cash yellow · ⭐ star-to-orange with a candy bar · the clock
 -- orange by day and purple by night · Today's Visitor pink (lime once cured) · 🛒 pink · 📖 purple · 📬 blue ·
--- 🎯 lime. The numbers bump when they change; every motion honours Hud.calm().
+-- 🎯 lime · 👩‍⚕️ cyan. Every motion honours Hud.calm().
+-- Juice (depth update, design §4): 💰 and ⭐ roll up to their new value (Kit.countUp, ticking), never jump, with a
+-- floating "+n"; when coins or stars are flying to the pill (Hud.fly) the roll waits for the first one to land. The
+-- mini-game combo (the player attribute Combo, T1) rides the 💰 pill as a 🔥 sticker that grows hotter at each tip
+-- step (Config.MiniGame.Combo) and pops away when it resets; it never shows during the tutorial. Panels slide up
+-- as they pop in and close with a soft sound.
 --
 -- Shared helpers (the other UI modules require this module for them; none of them needs Hud.init to have run):
 --   Hud.modal(ctx, spec): Modal        a panel or popup shell: dim, paper card with a dark drop shadow, a coloured
@@ -36,8 +41,13 @@
 --   Hud.portrait(look, dark?): Frame   a cute 2D creature face drawn from a Data `Look` (dark = "not met yet")
 --   Hud.lookOf(id): Look?              the Look of a PatientId or RegularId
 --   Hud.decorSlots(data, state)        every "<RoomId>:<n>" decor slot in your rooms, and what's in it
---   Hud.shopNews(data, state)          { Rooms, Decor }: what the 🛒 dot is about
---   Hud.fly(from, icon, target?, n?)   icons burst from a GuiObject and fly into "Cash" or "Stars" (or float up)
+--   Hud.shopNews(data, state)          { Rooms, Decor, Hospital }: what the 🛒 dot is about (a room you can buy now,
+--                                      level gate included; decor to place; a hospital level-up you can afford)
+--   Hud.fly(from, icon, target?, n?)   icons burst from `from` and arc into a HUD piece (Hud.target name: "Cash",
+--                                      "Stars", "Nurses", ...), each landing with a bump and a coin tinkle; with no
+--                                      target (or a hidden one) they float up and fade. `from` is a GuiObject, a
+--                                      world Vector3 (a cured patient: flying coins) or nil (the screen's middle).
+--                                      n defaults to 6, at most 10. Calm: nothing flies (the numbers still update)
 --   Hud.pop(gui) · Hud.shake(gui)      a happy bounce · a "nope" wiggle
 --   Hud.fitTabs(column, tabs, gap)     square tabs sized to the column (56 to 76 px)
 --   Hud.fitHeight(content, area)       scales a block down to fit a short screen
@@ -59,6 +69,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
@@ -69,6 +80,8 @@ local Palette = require(Shared:WaitForChild("Palette"))
 local PatientsData = require(Shared:WaitForChild("Data"):WaitForChild("Patients")) :: any
 local RegularsData = require(Shared:WaitForChild("Data"):WaitForChild("Regulars")) :: any
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
+local LevelsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Levels"))
+local ProgressLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Progress"))
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -109,6 +122,7 @@ export type Modal = {
 ------------------------------------------------------------------------------------------------------------------
 
 local SHADOW_OFFSET = 8
+local SLIDE_FROM = 36 -- px below its place a panel starts as it pops in
 local DIM_BLEED = 400 -- the dim reaches past the safe area so the whole screen darkens (decoration may bleed)
 local FLOAT_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local POP_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -176,26 +190,13 @@ local function scaleNamed(gui: GuiObject, name: string): UIScale
 	return scale
 end
 
-local popTweens: { [GuiObject]: Tween } = {}
+-- Kit.punch reuses the UIScale that's already there (Kit buttons have one: two on one object fight) and tells
+-- Kit's breathing and dot hops to wait until the bounce is over.
 function Hud.pop(gui: GuiObject?, size: number?)
 	if not gui or Hud.calm() then
 		return
 	end
-	-- Reuse a UIScale that's already there (Kit buttons have one): two on one object fight.
-	local scale = gui:FindFirstChildOfClass("UIScale") or scaleNamed(gui, "PopScale")
-	local running = popTweens[gui]
-	if running then
-		running:Cancel()
-	end
-	scale.Scale = size or 1.18
-	local tween = TweenService:Create(scale, POP_INFO, { Scale = 1 })
-	popTweens[gui] = tween
-	tween.Completed:Once(function()
-		if popTweens[gui] == tween then
-			popTweens[gui] = nil
-		end
-	end)
-	tween:Play()
+	Kit.punch(gui, size or 1.18, POP_INFO)
 end
 
 function Hud.shake(gui: GuiObject?)
@@ -427,6 +428,7 @@ function Hud.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		end)
 		syncCloseBinding()
 		focusTop()
+		Hud.sound("Close")
 		ctx.fire("ModalClosed", spec.Name)
 		if spec.OnClose then
 			task.spawn(spec.OnClose)
@@ -449,6 +451,13 @@ function Hud.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		gui.Enabled = true
 		fadeDim(Theme.Transparency.Dim)
 		Kit.popIn(root)
+		-- ... and slides up into place as it pops (calm: just there).
+		if Hud.calm() then
+			root.Position = UDim2.fromScale(0.5, 0.5)
+		else
+			root.Position = UDim2.new(0.5, 0, 0.5, SLIDE_FROM)
+			TweenService:Create(root, Theme.Tween.Slide, { Position = UDim2.fromScale(0.5, 0.5) }):Play()
+		end
 		syncCloseBinding()
 		if spec.AutoFocus ~= false then
 			focusTop()
@@ -770,67 +779,185 @@ local function centreOf(gui: GuiObject, layer: ScreenGui): Vector2
 	return gui.AbsolutePosition + gui.AbsoluteSize / 2 - layer.AbsolutePosition
 end
 
-function Hud.fly(from: GuiObject?, icon: string, target: string?, count: number?)
+-- A little outlined line that floats up off a HUD piece and fades ("×1.2 💰"). Nothing in calm mode.
+local function floatText(anchor: GuiObject, text: string, color: Color3)
+	if Hud.calm() then
+		return
+	end
+	local layer = fxLayer()
+	local at = centreOf(anchor, layer)
+	local label = Kit.label({
+		Name = "Float",
+		Text = text,
+		Outlined = true,
+		TextSize = Theme.TextSize.Body,
+		TextColor3 = color,
+		TextWrapped = false,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(at.X, at.Y),
+		Size = UDim2.fromOffset(160, 34),
+		ZIndex = 10,
+		Parent = layer,
+	})
+	local stroke = Kit.outline(label, Theme.Size.Stroke)
+	local rise = TweenService:Create(label, FLOAT_INFO, {
+		Position = UDim2.fromOffset(at.X, at.Y - 44),
+		TextTransparency = 1,
+	})
+	TweenService:Create(stroke, FLOAT_INFO, { Transparency = 1 }):Play()
+	rise.Completed:Once(function()
+		label:Destroy()
+	end)
+	rise:Play()
+end
+
+-- Each flying icon bursts out from where it starts, then arcs into its target on a curve (Kit.Juice.arc) that
+-- follows the target if the HUD moves under it. One RenderStepped connection draws them all and lets go when the
+-- last one lands.
+type Flyer = {
+	Label: TextLabel,
+	Start: Vector2,
+	Spread: Vector2,
+	Bend: number, -- px the arc bows out sideways (either side)
+	Target: string?,
+	Born: number, -- os.clock() it launches (staggered)
+	Spin: number,
+	Batch: { Landed: boolean },
+}
+local BURST_SECONDS = 0.22
+local FLY_SIZE = 36
+local LAND_SIZE = 22
+local flyers: { Flyer } = {}
+local flyConnection: RBXScriptConnection? = nil
+local arrivals: { [string]: number } = {} -- target -> os.clock() its first flying icon lands (counters wait)
+
+local function goalPoint(name: string?, layer: ScreenGui): (GuiObject?, Vector2?)
+	local gui = if name then targets[name] else nil
+	if gui and Kit.isShown(gui) then
+		return gui, centreOf(gui, layer)
+	end
+	return nil, nil
+end
+
+-- A world position on this screen, in the fx layer's pixels (nil when it's behind the camera).
+local function screenPoint(position: Vector3, layer: ScreenGui): Vector2?
+	local camera = Workspace.CurrentCamera
+	if not camera then
+		return nil
+	end
+	local point, _ = camera:WorldToScreenPoint(position)
+	if point.Z <= 0 then
+		return nil
+	end
+	return Vector2.new(point.X, point.Y) - layer.AbsolutePosition
+end
+
+local function stepFlyers()
+	local layer = fxLayer()
+	local now = os.clock()
+	local trip = Theme.Juice.FlySeconds
+	for index = #flyers, 1, -1 do
+		local flyer = flyers[index]
+		local label = flyer.Label
+		local age = now - flyer.Born
+		if age < 0 then
+			label.Visible = false
+		elseif age < BURST_SECONDS then
+			local t = Kit.Juice.ease(age / BURST_SECONDS)
+			local at = flyer.Start:Lerp(flyer.Spread, t)
+			label.Visible = true
+			label.Position = UDim2.fromOffset(at.X, at.Y)
+			local px = FLY_SIZE * (0.4 + 0.6 * t)
+			label.Size = UDim2.fromOffset(px, px)
+		else
+			local t = math.min((age - BURST_SECONDS) / trip, 1)
+			local goalGui, goal = goalPoint(flyer.Target, layer)
+			if goal then
+				local eased = t * t -- speeds up into the wallet
+				local mid = (flyer.Spread + goal) / 2
+				local along = goal - flyer.Spread
+				local side = if along.Magnitude > 0 then Vector2.new(-along.Y, along.X).Unit else Vector2.zero
+				local control = mid + side * flyer.Bend - Vector2.new(0, 40)
+				local x = Kit.Juice.arc(flyer.Spread.X, control.X, goal.X, eased)
+				local y = Kit.Juice.arc(flyer.Spread.Y, control.Y, goal.Y, eased)
+				label.Position = UDim2.fromOffset(x, y)
+				local px = FLY_SIZE + (LAND_SIZE - FLY_SIZE) * eased
+				label.Size = UDim2.fromOffset(px, px)
+				label.Rotation = flyer.Spin * t
+			else
+				-- No target (or it's hidden): drift up and fade.
+				label.Position = UDim2.fromOffset(flyer.Spread.X, flyer.Spread.Y - 60 * Kit.Juice.ease(t))
+				label.TextTransparency = t
+			end
+			if t >= 1 then
+				label:Destroy()
+				table.remove(flyers, index)
+				if goalGui then
+					Hud.pop(goalGui, 1.12)
+					Hud.sound(if flyer.Target == "Cash" then "Coin" else "Pop", if flyer.Batch.Landed then 0.6 else 1)
+					flyer.Batch.Landed = true
+				end
+			end
+		end
+	end
+	if #flyers == 0 and flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
+	end
+end
+
+function Hud.fly(from: any, icon: string, target: string?, count: number?)
 	local layer = fxLayer()
 	local goalGui = if target then targets[target] else nil
 	if Hud.calm() then
 		Hud.pop(goalGui)
 		return
 	end
-	local start = if from then centreOf(from, layer) else layer.AbsoluteSize / 2
-	local goal = if goalGui then centreOf(goalGui, layer) else nil
+	local start: Vector2 = layer.AbsoluteSize / 2
+	if typeof(from) == "Instance" and from:IsA("GuiObject") then
+		start = centreOf(from, layer)
+	elseif typeof(from) == "Vector3" then
+		start = screenPoint(from, layer) or Vector2.new(layer.AbsoluteSize.X / 2, layer.AbsoluteSize.Y * 0.7)
+	elseif typeof(from) == "Vector2" then
+		start = from
+	end
 	local n = math.clamp(math.floor(count or 6), 1, 10)
-	local landed = false
+	local now = os.clock()
+	local batch = { Landed = false }
+	local stagger = 0.05
 	for i = 1, n do
 		local label = Instance.new("TextLabel")
 		label.Name = "Fly"
 		label.AnchorPoint = Vector2.new(0.5, 0.5)
 		label.Position = UDim2.fromOffset(start.X, start.Y)
-		label.Size = UDim2.fromOffset(34, 34)
+		label.Size = UDim2.fromOffset(FLY_SIZE * 0.4, FLY_SIZE * 0.4)
 		label.BackgroundTransparency = 1
 		label.Text = icon
 		label.TextScaled = true
 		label.Font = Theme.Font
 		label.ZIndex = 10
+		label.Visible = false
 		label.Parent = layer
 
 		local angle = (i / n) * math.pi * 2 + math.random() * 0.6
-		local spread = start + Vector2.new(math.cos(angle), math.sin(angle)) * (36 + math.random() * 34)
-		TweenService:Create(
-			label,
-			TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Position = UDim2.fromOffset(spread.X, spread.Y) }
-		):Play()
-
-		task.delay(0.24 + i * 0.05, function()
-			if not label.Parent then
-				return
-			end
-			local tween: Tween
-			if goal then
-				tween = TweenService:Create(
-					label,
-					TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-					{ Position = UDim2.fromOffset(goal.X, goal.Y), Size = UDim2.fromOffset(20, 20) }
-				)
-			else
-				tween = TweenService:Create(label, FLOAT_INFO, {
-					Position = UDim2.fromOffset(spread.X, spread.Y - 60),
-					TextTransparency = 1,
-				})
-			end
-			tween.Completed:Once(function()
-				label:Destroy()
-				if goal then
-					Hud.pop(goalGui, 1.12)
-					if not landed then
-						landed = true
-						Hud.sound("Pop")
-					end
-				end
-			end)
-			tween:Play()
-		end)
+		local spread = start + Vector2.new(math.cos(angle), math.sin(angle)) * (34 + math.random() * 36)
+		table.insert(flyers, {
+			Label = label,
+			Start = start,
+			Spread = spread,
+			Bend = (math.random() * 2 - 1) * 90,
+			Target = if goalGui then target else nil,
+			Born = now + (i - 1) * stagger,
+			Spin = (math.random() * 2 - 1) * 180,
+			Batch = batch,
+		})
+	end
+	if goalGui and target then
+		-- The counter on the target waits for the first icon to land.
+		arrivals[target] = math.max(arrivals[target] or 0, now + BURST_SECONDS + Theme.Juice.FlySeconds)
+	end
+	if not flyConnection then
+		flyConnection = RunService.RenderStepped:Connect(stepFlyers)
 	end
 end
 
@@ -944,7 +1071,8 @@ local function splitCarry(raw: any): { string }
 	return items
 end
 
--- The ⭐ bar runs from the last star unlock you passed to the next one (a room you don't own, or a regular).
+-- The ⭐ bar runs from the last star unlock you passed to the next one (a room you don't own and your hospital level
+-- allows, the next hospital level's ⭐ gate, or a regular).
 local function starTrack(data: any, state: Types.Snapshot): (number, number?, string, string)
 	local stars = state.Stars or 0
 	local rooms = state.Rooms or {}
@@ -962,7 +1090,19 @@ local function starTrack(data: any, state: Types.Snapshot): (number, number?, st
 	for _, roomId in data.Rooms.Order do
 		local room = data.Rooms[roomId]
 		local inSeason = room.Season == nil or state.IsWinter == true
-		consider(room.StarsNeeded, room.Icon, room.Name, rooms[roomId] ~= true and inSeason)
+		consider(
+			room.StarsNeeded,
+			room.Icon,
+			room.Name,
+			rooms[roomId] ~= true and inSeason and ProgressLogic.levelAllows(state, room)
+		)
+	end
+	local levels = data.Levels
+	if type(levels) == "table" then
+		local nextLevel = LevelsLogic.nextRow(levels, state.Level)
+		if nextLevel then
+			consider(nextLevel.Stars, nextLevel.Icon, nextLevel.Name, true)
+		end
 	end
 	for _, regularId in data.Regulars.Order do
 		local regular = data.Regulars[regularId]
@@ -992,24 +1132,21 @@ end
 
 -- What the 🛒 dot points at: a room you could buy right now (stars and cash both enough), or decor you own
 -- that isn't placed while a slot is free (a fresh Book or story reward, say).
-function Hud.shopNews(data: any, state: Types.Snapshot): { Rooms: boolean, Decor: boolean }
-	local news = { Rooms = false, Decor = false }
+function Hud.shopNews(data: any, state: Types.Snapshot): { Rooms: boolean, Decor: boolean, Hospital: boolean }
+	local news = { Rooms = false, Decor = false, Hospital = false }
 	if state.PlotIndex == nil then
 		return news
 	end
 	for _, roomId in data.Rooms.Order do
 		local room = data.Rooms[roomId]
-		local owned = state.Rooms and state.Rooms[roomId] == true
-		local inSeason = room.Season == nil or state.IsWinter == true
-		if
-			not owned
-			and inSeason
-			and room.Price > 0
-			and (state.Stars or 0) >= room.StarsNeeded
-			and (state.Cash or 0) >= room.Price
-		then
+		-- The server's own rule (season, the hospital level a room needs, ⭐ and 💰), so the dot never lights for a
+		-- room the Shop would refuse (the Garden below Lv 3).
+		if room.Price > 0 and ProgressLogic.canBuyRoom(state, room, roomId, state.IsWinter == true) then
 			news.Rooms = true
 		end
+	end
+	if type(data.Levels) == "table" then
+		news.Hospital = (LevelsLogic.canLevelUp(state, data.Levels))
 	end
 	local placedIds: { [string]: boolean } = {}
 	local freeSlot = false
@@ -1135,18 +1272,17 @@ local function goalReady(data: any, state: Types.Snapshot): boolean
 	return false
 end
 
--- A number label that counts to its new value, bumps, and shows a floating "+n" (or "-n").
+-- A number label that rolls to its new value (Kit.countUp: ticks, springs), and shows a floating "+n" (or "-n").
+-- When icons are flying into it (Hud.fly to `target`), the roll waits for the first one to land, so the number
+-- moves as the coins arrive. Changes while it waits add up into one roll and one "+n".
 type Counter = { set: (value: number, animate: boolean) -> () }
-local function counter(holder: GuiObject, label: TextLabel, prefix: string): Counter
-	local value = Instance.new("NumberValue")
-	value.Name = "Shown"
-	value.Parent = holder
-	local tween: Tween? = nil
-	local target = 0
-	value.Changed:Connect(function(v: number)
-		label.Text = prefix .. Hud.format(math.floor(v + 0.5))
-	end)
-	label.Text = prefix .. "0"
+local MAX_ARRIVAL_WAIT = 1.2
+local function counter(holder: GuiObject, label: TextLabel, target: string): Counter
+	label.Text = "0"
+	label:SetAttribute("CountValue", 0)
+	local shown = 0 -- the newest value we were given
+	local pending = 0 -- change not yet shown as a "+n"
+	local waiting = false
 
 	local function floater(delta: number)
 		local layer = fxLayer()
@@ -1177,31 +1313,38 @@ local function counter(holder: GuiObject, label: TextLabel, prefix: string): Cou
 		rise:Play()
 	end
 
+	local function roll()
+		waiting = false
+		local delta = pending
+		pending = 0
+		Kit.countUp(label, shown, Hud.format)
+		if delta ~= 0 then
+			floater(delta)
+		end
+	end
+
 	return {
 		set = function(newValue: number, animate: boolean)
-			if newValue == target then
+			if newValue == shown then
 				return
 			end
-			local delta = newValue - target
-			target = newValue
-			if tween then
-				tween:Cancel()
-				tween = nil
-			end
+			pending += newValue - shown
+			shown = newValue
 			if not animate or Hud.calm() then
-				value.Value = newValue
-				label.Text = prefix .. Hud.format(newValue)
+				pending = 0
+				Kit.countUp(label, newValue, Hud.format, 0)
 				return
 			end
-			local created = TweenService:Create(
-				value,
-				TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-				{ Value = newValue }
-			)
-			tween = created
-			created:Play()
-			floater(delta)
-			Kit.bump(label)
+			if waiting then
+				return -- the roll already scheduled picks this up
+			end
+			local wait = math.clamp((arrivals[target] or 0) - os.clock(), 0, MAX_ARRIVAL_WAIT)
+			if wait > 0.02 then
+				waiting = true
+				task.delay(wait, roll)
+			else
+				roll()
+			end
 		end,
 	}
 end
@@ -1240,7 +1383,32 @@ function Hud.init(ctx: Types.Ctx)
 	iconLabel(cashPill, "💰", UDim2.new(0, 8, 0.5, 0), 36)
 	local cashText = bigNumber(cashPill, "Amount", UDim2.new(0, 50, 0.5, 1), UDim2.new(1, -64, 0, 36), 34)
 	targets.Cash = cashPill
-	local cash = counter(cashPill, cashText, "")
+	local cash = counter(cashPill, cashText, "Cash")
+
+	-- The mini-game combo: a tilted 🔥 sticker on the cash pill's corner (Perfects in a row multiply tips). Orange,
+	-- then pink, purple and gold at each Config.MiniGame.Combo step. Display only: the server owns the combo.
+	local COMBO_COLORS = { Theme.Colors.Primary, Theme.Colors.Pink, Theme.Colors.Purple, Theme.Colors.Cash }
+	local comboSticker = Kit.label({
+		Name = "Combo",
+		Text = "",
+		Outlined = true,
+		TextScaled = true,
+		TextWrapped = false,
+		BackgroundColor3 = candy(Theme.Colors.Primary),
+		BackgroundTransparency = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(1, -8, 0, 2),
+		Size = UDim2.fromOffset(58, 30),
+		Rotation = 8,
+		Visible = false,
+		ZIndex = 3,
+		Parent = cashPill,
+	})
+	Kit.corner(comboSticker, 15)
+	Kit.stroke(comboSticker, Theme.Colors.Outline, 2.5)
+	local comboPad = Kit.pad(comboSticker, 3)
+	comboPad.PaddingLeft = UDim.new(0, 6)
+	comboPad.PaddingRight = UDim.new(0, 6)
 
 	-- Tappable (shows what's next), so it gets the full 56 px tap height. Star yellow melting into orange.
 	local starsPill = pill({
@@ -1254,7 +1422,7 @@ function Hud.init(ctx: Types.Ctx)
 	iconLabel(starsPill, "⭐", UDim2.new(0, 8, 0.5, 0), 34)
 	local starsText = bigNumber(starsPill, "Amount", UDim2.new(0, 46, 0.5, 1), UDim2.fromOffset(50, 34), 32)
 	targets.Stars = starsPill
-	local stars = counter(starsPill, starsText, "")
+	local stars = counter(starsPill, starsText, "Stars")
 
 	-- The candy bar: a dark outlined slot with a glossy star-yellow fill.
 	local track = Instance.new("Frame")
@@ -1708,6 +1876,47 @@ function Hud.init(ctx: Types.Ctx)
 		Kit.setDot(buttons.Nurses, type(count) == "number" and count > 0)
 	end)
 
+	-- The 🔥 combo sticker follows the player attribute Combo (T1, session-only). Hidden during the tutorial.
+	local comboSteps = (ctx.Config.MiniGame and ctx.Config.MiniGame.Combo) or {}
+	local comboShown = 0
+	local function renderCombo()
+		local raw = player:GetAttribute("Combo")
+		local combo = if type(raw) == "number" and raw == raw then math.max(0, math.floor(raw)) else 0
+		if TutorialLogic.active(ctx.State.Tutorial) then
+			combo = 0
+		end
+		local before = comboShown
+		comboShown = combo
+		if combo <= 0 then
+			if comboSticker.Visible then
+				if Hud.calm() then
+					comboSticker.Visible = false
+				else
+					Kit.popOut(comboSticker)
+				end
+			end
+			return
+		end
+		local tier, multiplier = Kit.Juice.comboStep(combo, comboSteps)
+		comboSticker.Text = "🔥" .. combo
+		paint(comboSticker, COMBO_COLORS[math.clamp(tier + 1, 1, #COMBO_COLORS)])
+		if not comboSticker.Visible or before == 0 then
+			Kit.popIn(comboSticker)
+		elseif combo > before then
+			Hud.pop(comboSticker, 1.35)
+		end
+		if Kit.Juice.crossed(before, combo, comboSteps) then
+			floatText(comboSticker, "×" .. tostring(multiplier) .. " 💰", Theme.Colors.Cash)
+		end
+	end
+	player:GetAttributeChangedSignal("Combo"):Connect(renderCombo)
+	ctx.onState(function()
+		if comboShown > 0 and TutorialLogic.active(ctx.State.Tutorial) then
+			renderCombo()
+		end
+	end)
+	renderCombo()
+
 	-- No clinic for a while after loading (all six taken): say so, but don't flash it during the normal assign.
 	local plotToken = 0
 	local function watchPlot(state: Types.Snapshot)
@@ -1797,7 +2006,7 @@ function Hud.init(ctx: Types.Ctx)
 		nextIcon.Text = icon
 		nextTip = if nextAt then icon .. " " .. name .. " at ⭐" .. nextAt else "👑 Everything unlocked!"
 		if animate and not Hud.calm() then
-			TweenService:Create(fill, Theme.Tween.Release, { Size = UDim2.fromScale(ratio, 1) }):Play()
+			TweenService:Create(fill, Theme.Tween.Fill, { Size = UDim2.fromScale(ratio, 1) }):Play()
 		else
 			fill.Size = UDim2.fromScale(ratio, 1)
 		end
@@ -1811,7 +2020,7 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		Kit.setDot(buttons.Goals, goalsReady)
 		local news = Hud.shopNews(data, state)
-		shopTab = if news.Rooms then "Rooms" elseif news.Decor then "Decor" else nil
+		shopTab = if news.Rooms then "Rooms" elseif news.Decor then "Decor" elseif news.Hospital then "Hospital" else nil
 		Kit.setDot(buttons.Shop, shopTab ~= nil)
 		if animate and mailReady and not mailWasReady then
 			Hud.shake(buttons.Mailbox)

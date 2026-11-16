@@ -3,24 +3,38 @@
 -- (build plan §B5 "Patients", Task 1). Server only. API: Patients.start().
 --
 -- A visit, step by step:
---   1. Arrive. Each owned plot gets a patient every Config.SpawnEverySeconds while fewer than Config.MaxQueue
---      are there. Who comes, in order: a regular whose story beat is due (Story.dueRegular, with a speech
---      bubble from Story.bubble), Today's Visitor (Daily.visitorFor, a ⭐ on the badge), otherwise a patient
---      whose ailment's station is on the plot. Night patients only come at night (and are likelier then), Winter
---      patients need the Winter Wing, and new Book pages are likelier. Variants: Sparkly at Config.SparklyChance,
---      Frosty at Config.FrostyChance while Workspace.IsWinter (never on regulars). Regulars and the visitor
---      wait longer (GuestPatienceMultiplier). Night-wing regulars count as night patients (glow, ctx.Night).
+--   1. Arrive. Each owned plot gets a patient every Config.SpawnEverySeconds while fewer than the owner's
+--      hospital level allows are in line (Levels.queueCap). Who comes, in order: a regular whose story beat is due
+--      (Story.dueRegular, with a speech bubble from Story.bubble), Today's Visitor (Daily.visitorFor, a ⭐ on the
+--      badge), otherwise a patient whose ailment's station is on the plot. Night patients only come at night (and
+--      are likelier then), Winter patients need the Winter Wing, and new Book pages are likelier. Variants: Sparkly
+--      at Config.SparklyChance, Frosty at Config.FrostyChance while Workspace.IsWinter (never on regulars).
+--      Regulars and the visitor wait longer (GuestPatienceMultiplier). Night-wing regulars count as night patients
+--      (glow, ctx.Night).
+--      Recipes (depth update §1): each patient needs its ailment's Recipe (a regular: its own), cut to the owner's
+--      level (Levels.recipeCap via Logic/Recipe.effective; always 1 item while the owner is in the tutorial). Only
+--      patients whose recipe the plot's stations can make come (Recipe.makeable).
 --   2. Wait in line in front of the Counter. Patience (Prices.patience with the owner's Comfy Chairs level)
---      drains while a patient stands in line: full speed at the front, slower behind. When it runs out the
---      patient leaves with a sad puff (a regular: Story.left, so they come back later). No penalty, ever.
---   3. Treat. The `TreatPrompt` on the Counter treats the front patient: Plots.canWork, then Carry.take(the
---      item its ailment needs). A wrong (or no) item gets a head-shake and a toast with the right station icon.
---   4. Recover. The patient hops to a free Bed_<n> on the plot (nearest the Counter first). With every bed
---      taken it rests in place at the front of the line, so the line waits: more beds = a faster clinic.
---      After Config.RecoverSeconds: Cure.resolve(ctx), a happy spin, and it hops out of the gate.
+--      drains while a patient stands in line: full speed at the front, slower behind, and slower still with a
+--      Cheerer on duty (the plot's CheerPatience divides the drain). When it runs out the patient leaves with a sad
+--      puff (a regular: Story.left, so they come back later). No penalty, ever.
+--   3. Treat. The `TreatPrompt` on the Counter treats the front patient: Plots.canWork, then the recipe items it
+--      still needs that the helper carries (Recipe.match on Carry first, then the plot's nurse tray via
+--      Nurses.takeFromTray). None: a head-shake and a toast with the next missing item's station icon. Otherwise
+--      they're taken (spent now), the patient is "Treating" (patience paused, nobody else can treat it) and
+--      Server/Treatment runs the mini-games (TreatStart -> TreatResult or its timeout). When it settles, the items
+--      count as given, each adds Config.Treat.ItemPatience of its patience back and the badge ticks them off. The
+--      recipe complete: on to 4. Not yet: back to waiting for the rest (a tray of 1 gives one item per trip).
+--      Healer nurses (Nurses.Heal via Treatment.onHeal) give the front patient what the nurse tray holds for it
+--      the same way, rated OK, with no tip and no combo.
+--   4. Recover. The patient hops to a free Bed_<n> on the plot (under Rooms or the level's Building, nearest the
+--      Counter first). With every bed taken it rests in place at the front of the line, so the line waits: more
+--      beds = a faster clinic. After Config.RecoverSeconds: Cure.resolve(ctx), a happy spin, and it hops out.
 --   5. Cleanup. Plots.PlotReleased (the owner left) removes every patient on that plot right away, before
---      Plots clears the plot. A patient already treated (its item spent) is cured on the spot first, so a helper
---      never loses their work. Nothing on the plot errors, and the plot is clean for the next owner.
+--      Plots clears the plot. A patient already treated (its items spent) is cured on the spot first, so a helper
+--      never loses their work; one mid-mini-game is cured too if those items finish its recipe, otherwise the
+--      helper gets their carried items back (Treatment.drop closes the session). Nothing on the plot errors, and
+--      the plot is clean for the next owner.
 --
 -- The first-session tutorial (Server/Tutorial, by the OWNER's step). Nothing here changes for an owner who's done.
 --   · Who comes (Tutorial.spawnPlan): nobody during the welcome; then one easy first patient (a Starter patient
@@ -29,23 +43,31 @@
 --   · One at a time in line through step 6 (Tutorial.queueCap). A spawn that's held back doesn't use up the timer,
 --     so the first patient comes the moment step 2 starts.
 --   · Patience never runs out in steps 1-6 (Tutorial.calm): the ring stays full.
---   · Hooks: Tutorial.onFrontArrived when a patient reaches the front of the line, Tutorial.onTreated on a treat.
+--   · Hooks: Tutorial.onFrontArrived when a patient reaches the front of the line, Tutorial.onTreated when its
+--     recipe is complete (after the mini-game).
+--   · Recipes stay 1 item for the owner's whole tutorial, whatever their level.
 --
 -- Movement: no Humanoids, no physics. A creature is one anchored Root with its parts welded on
--- (CreatureBuilder). Hops are tweens: TweenService:GetValue easing, stepped on one Heartbeat connection that
--- writes Root.CFrame (one replicated CFrame per moving creature; nothing while they stand still). Each patient
--- has one thread for its whole visit; the prompt and the patience tick only change its State.
+-- (CreatureBuilder). The server never moves a creature every frame (build plan §B4, the creature motion contract):
+-- each hop, shake, droop and grow/shrink sets attributes once (CreatureBuilder.hop/shake/tilt/scale) and every
+-- client draws the in-between (Feel/CreatureMotion). The server writes the end pose once as each one lands
+-- (Root.CFrame = the hop's end; Model:ScaleTo the end scale), so late joiners and its own checks see the right
+-- place. Each patient has one thread for its whole visit; the prompt and the patience tick only change its State.
 --
 -- For the client (read-only, the server sets them):
 --   patient Model (in Plot.Patients): attributes PatientId, Kind ("Patient"|"Regular"|"Visitor"), Regular
---     (RegularId or nil), Ailment, Station, Item, Variant (nil = none), Night, QueueIndex (1 = front, 0 = out),
---     State ("Arriving"|"Waiting"|"Treated"|"Recovering"|"Cured"|"Sad")
---   plot Model: attributes FrontItem and FrontStation, the ItemId / StationId the front patient needs while it
---     waits to be treated ("" otherwise). The Guide arrow can follow these.
+--     (RegularId or nil), Ailment, Variant (nil = none), Night, QueueIndex (1 = front, 0 = out),
+--     State ("Arriving"|"Waiting"|"Treating"|"Treated"|"Recovering"|"Cured"|"Sad"),
+--     Recipe (the effective recipe, comma-joined ItemIds), RecipeDone ("1" given / "0" not, one per item),
+--     Item and Station (the FIRST item still missing and its station; they keep their last value once complete).
+--     The badge shows the recipe (CreatureBuilder.setRecipe after every change).
+--   plot Model: attributes FrontItem and FrontStation, the ItemId / StationId the front patient needs first while
+--     it waits to be treated ("" otherwise; the Guide arrow follows these), FrontNeeds (every item that patient
+--     still needs, comma-joined) and QueueNeeds (every missing item of everyone in line, front first, duplicates
+--     kept; items in a mini-game right now don't count). Nurse Makers read these.
 --   Counter.TreatAttachment.TreatPrompt: enabled only while a front patient waits; ObjectText = its ailment icon.
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
@@ -55,6 +77,7 @@ local Remotes = require(Shared.Remotes)
 local Types = require(Shared.Types)
 local Palette = require(Shared.Palette)
 local Prices = require(Shared.Logic.Prices)
+local Recipe = require(Shared.Logic.Recipe)
 local AilmentsData = require(Shared.Data.Ailments)
 local ItemsData = require(Shared.Data.Items)
 local PatientsData = require(Shared.Data.Patients)
@@ -65,9 +88,12 @@ local Carry = require(script.Parent.Carry)
 local CreatureBuilder = require(script.Parent.CreatureBuilder)
 local Cure = require(script.Parent.Cure)
 local Daily = require(script.Parent.Daily)
+local Levels = require(script.Parent.Levels)
+local Nurses = require(script.Parent.Nurses)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
 local Story = require(script.Parent.Story)
+local Treatment = require(script.Parent.Treatment)
 local Tutorial = require(script.Parent.Tutorial)
 
 type Plot = Types.Plot
@@ -97,13 +123,14 @@ local TUTORIAL_WING = "Starter"
 local PROMPT_DISTANCE = 10
 local DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
 local TREAT_COOLDOWN = 0.3 -- per player
+local MAX_CHEER_PATIENCE = 3 -- a sanity cap on the plot's CheerPatience (Cheerers give at most ~1.5)
+local ITEM_PATIENCE = Config.Treat.ItemPatience -- each recipe item given refills this share of the patience
 
 -- Feel
 local HOP_LENGTH = 3.6
 local HOP_SECONDS = 0.3
 local HOP_HEIGHT = 0.9
 local LEAN = 0.14 -- radians forward at the top of a hop
-local SHAKE_SECONDS = 0.55
 local RING_STEPS = 48 -- the ring moves in 7.5 degree steps, so it replicates a few times a second at most
 
 -- The patience ring, candy pop (memory-20261116-007): bright green, then yellow, then red; pink while healing.
@@ -120,16 +147,6 @@ local ICON_SAD = "😔"
 ------------------------------------------------------------------------------------------------------------------
 -- Types
 ------------------------------------------------------------------------------------------------------------------
-
-type Anim = {
-	From: CFrame,
-	To: CFrame,
-	Height: number,
-	Start: number,
-	Seconds: number,
-	Spin: number,
-	Lean: number,
-}
 
 type ScaleAnim = {
 	From: number,
@@ -166,6 +183,8 @@ type PlotState = {
 	Spawned: number,
 	LastPatient: string?,
 	FrontItem: string,
+	FrontNeeds: string,
+	QueueNeeds: string,
 	Loop: thread?,
 	SecondSpawned: boolean, -- the tutorial's 🩹 patient came this session
 }
@@ -178,8 +197,15 @@ type Patient = {
 	Variant: string?,
 	Night: boolean,
 	AilmentIcon: string,
-	Station: string,
-	Item: string,
+	Station: string, -- the first missing item's station
+	Item: string, -- the first missing item
+	Recipe: { string }, -- the effective recipe (cut by the owner's level)
+	Done: { boolean }, -- one per recipe item: given
+	TipPaid: number, -- mini-game tip cash paid on this patient so far (capped per cure)
+	Session: number?, -- an open Treatment session on it ("Treating")
+	SessionHelper: Player?,
+	SessionIndices: { number }?, -- the recipe slots that session gives
+	SessionCarried: { string }?, -- what it took from the helper's own tray (given back if the session is dropped)
 	Model: Model,
 	Root: BasePart,
 	Badge: Badge,
@@ -200,16 +226,13 @@ type Patient = {
 	Bed: BasePart?,
 	InBed: boolean,
 	Pivot: CFrame, -- where the creature rests between hops (its bottom centre)
-	Anim: Anim?,
-	ScaleAnim: ScaleAnim?,
-	ShakeAt: number?,
+	ScaleAnim: ScaleAnim?, -- the grow/shrink the clients are drawing (so the next one starts where it is)
 	Tilt: number,
 	Thread: thread?,
 }
 
 local active: { [Plot]: PlotState } = {}
 local prompts: { [Plot]: ProximityPrompt } = {}
-local animating: { [Patient]: boolean } = {}
 local lastTreat: { [Player]: number } = {}
 local rng = Random.new()
 
@@ -253,6 +276,35 @@ local function giveBack(player: Player, itemId: string)
 	end
 end
 
+local function trayItems(plot: Plot): { string }
+	local ok, items = pcall(Nurses.trayItems, plot)
+	if not ok then
+		report("Nurses.trayItems", items)
+		return {}
+	end
+	return if type(items) == "table" then items else {}
+end
+
+local function takeFromTray(plot: Plot, itemId: string): boolean
+	local ok, taken = pcall(Nurses.takeFromTray, plot, itemId)
+	if not ok then
+		report("Nurses.takeFromTray", taken)
+		return false
+	end
+	return taken == true
+end
+
+-- Asks Server/Levels for one of the owner's numbers (queueCap, recipeCap); `fallback` on a bug.
+local function levelAsk(name: string, owner: Player, fallback: number): number
+	local fn = (Levels :: any)[name]
+	local ok, value = pcall(fn, owner)
+	if not ok then
+		report("Levels." .. name, value)
+		return fallback
+	end
+	return if type(value) == "number" and value == value and value >= 1 then math.floor(value) else fallback
+end
+
 -- Calls a Server/Tutorial hook; a tutorial bug never breaks a patient.
 local function tutorialHook(name: string, ...: any)
 	local fn = (Tutorial :: any)[name]
@@ -287,6 +339,73 @@ local function sleep(p: Patient, seconds: number): boolean
 	task.wait(seconds)
 	return alive(p)
 end
+
+------------------------------------------------------------------------------------------------------------------
+-- Pure helpers for recipes at the Counter (no Roblox services; a scratch Lune harness loads this block on its own,
+-- with Logic/Recipe as `Recipe`)
+------------------------------------------------------------------------------------------------------------------
+
+-- PURE-BEGIN
+local Pure = {}
+
+-- What one treat gives: the recipe slots the helper's own items fill, then the ones the nurse tray fills (each in
+-- recipe order; each item used once). Carry first, so a kid's own making always counts.
+function Pure.plan(
+	recipe: { string },
+	done: { boolean },
+	carried: { string },
+	tray: { string }
+): ({ number }, { number })
+	local fromCarry = Recipe.match(recipe, done, carried)
+	local fromTray = Recipe.match(recipe, Recipe.apply(done, fromCarry), tray)
+	return fromCarry, fromTray
+end
+
+-- The first recipe slot still missing, or nil when the recipe is complete.
+function Pure.firstMissing(recipe: { string }, done: { boolean }): number?
+	for index in recipe do
+		if not done[index] then
+			return index
+		end
+	end
+	return nil
+end
+
+-- A patient's recipe: the data's list (an ailment's, or a regular's own) cut to `cap`; `fallback` (the ailment's
+-- station item) when the data has none. Never empty.
+function Pure.recipeFor(full: any, fallback: string, cap: number): { string }
+	local list: { string } = {}
+	if type(full) == "table" then
+		for _, itemId in full do
+			if type(itemId) == "string" then
+				table.insert(list, itemId)
+			end
+		end
+	end
+	if #list == 0 or list[1] ~= fallback then
+		list = { fallback } -- item 1 is always the ailment's own station item (Data/Ailments asserts it)
+	end
+	return Recipe.effective(list, cap)
+end
+
+-- What a patient still needs, not counting the slots in a mini-game right now (`inFlight`).
+function Pure.needs(recipe: { string }, done: { boolean }, inFlight: { number }?): { string }
+	return Recipe.missing(recipe, if inFlight then Recipe.apply(done, inFlight) else done)
+end
+
+-- Patience after `count` recipe items were given: each refills `share` of the most it can hold.
+function Pure.refill(patience: number, max: number, share: number, count: number): number
+	return math.clamp(patience + max * math.max(share, 0) * math.max(count, 0), 0, max)
+end
+
+-- The plot's CheerPatience attribute as a safe divisor for the patience drain (1 = no Cheerer; junk -> 1).
+function Pure.cheer(value: any, max: number): number
+	if type(value) ~= "number" or value ~= value or value < 1 then
+		return 1
+	end
+	return math.min(value, max)
+end
+-- PURE-END
 
 ------------------------------------------------------------------------------------------------------------------
 -- Where things are
@@ -445,72 +564,20 @@ local function stationsOnPlot(plot: Plot): { [string]: boolean }
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The animator: one Heartbeat steps every moving creature
+-- The animator: attributes the clients draw (Feel/CreatureMotion); the server only writes where each one ends
 ------------------------------------------------------------------------------------------------------------------
 
-local function render(p: Patient, now: number): boolean
-	local busy = false
-	local cf = p.Pivot
-	local anim = p.Anim
-	if anim then
-		local t = (now - anim.Start) / anim.Seconds
-		if t >= 1 then
-			p.Pivot = anim.To
-			p.Anim = nil
-			cf = anim.To
-		else
-			busy = true
-			local eased = TweenService:GetValue(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-			local arc = 4 * t * (1 - t) -- 0 -> 1 -> 0: the bob of the hop
-			cf = anim.From:Lerp(anim.To, eased)
-				* CFrame.new(0, anim.Height * arc, 0)
-				* CFrame.Angles(-anim.Lean * arc, anim.Spin * eased, 0)
-		end
+-- The creature's scale right now, as the clients draw it (so a new grow/shrink starts from where the last one is).
+local function currentScale(p: Patient): number
+	local anim = p.ScaleAnim
+	if not anim then
+		return p.Model:GetScale()
 	end
-	local shakeAt = p.ShakeAt
-	if shakeAt then
-		local t = (now - shakeAt) / SHAKE_SECONDS
-		if t >= 1 then
-			p.ShakeAt = nil
-		else
-			busy = true
-			cf *= CFrame.Angles(0, math.sin(t * math.pi * 6) * 0.42 * (1 - t), 0) -- a "no, not that" head-shake
-		end
+	local t = (os.clock() - anim.Start) / anim.Seconds
+	if t >= 1 then
+		return anim.To
 	end
-	if p.Tilt ~= 0 then
-		cf *= CFrame.Angles(p.Tilt, 0, 0)
-	end
-	local scale = p.ScaleAnim
-	if scale then
-		local t = (now - scale.Start) / scale.Seconds
-		local value = scale.To
-		if t >= 1 then
-			p.ScaleAnim = nil
-		else
-			busy = true
-			value = scale.From + (scale.To - scale.From) * TweenService:GetValue(t, scale.Style, scale.Direction)
-		end
-		p.Model:ScaleTo(math.max(value, 0.02))
-	end
-	p.Root.CFrame = cf
-	return busy
-end
-
-local function step()
-	local now = os.clock()
-	for p in animating do
-		if p.State == "Gone" then
-			animating[p] = nil
-		else
-			local ok, busy = pcall(render, p, now)
-			if not ok then
-				report("render", busy)
-				animating[p] = nil
-			elseif not busy then
-				animating[p] = nil
-			end
-		end
-	end
+	return anim.From + (anim.To - anim.From) * TweenService:GetValue(math.max(t, 0), anim.Style, anim.Direction)
 end
 
 -- One hop to `to` (a resting pivot). Yields until it lands; false if the patient is gone by then.
@@ -518,29 +585,18 @@ local function hop(p: Patient, to: CFrame, height: number, seconds: number, spin
 	if not alive(p) then
 		return false
 	end
-	local anim: Anim = {
-		From = p.Pivot,
-		To = to,
-		Height = height,
-		Start = os.clock(),
-		Seconds = math.max(seconds, 0.15),
-		Spin = spin or 0,
-		Lean = if spin then 0 else LEAN,
-	}
-	p.Anim = anim
-	animating[p] = true
-	task.wait(anim.Seconds)
+	local duration = math.max(seconds, 0.15)
+	CreatureBuilder.hop(p.Model, p.Pivot, to, duration, height, spin or 0, if spin then 0 else LEAN)
+	task.wait(duration)
 	if not alive(p) then
 		return false
 	end
-	if p.Anim == anim then
-		p.Anim = nil
-	end
 	p.Pivot = to
-	animating[p] = true -- draw the landing pose (and any overlay still playing)
+	p.Root.CFrame = to -- the end pose, once: late joiners and the server's own checks see it here
 	return true
 end
 
+-- Grows or shrinks to `target` over `seconds` (the clients draw it); the end scale is set here once it's over.
 local function scaleTo(
 	p: Patient,
 	target: number,
@@ -548,15 +604,30 @@ local function scaleTo(
 	style: Enum.EasingStyle,
 	direction: Enum.EasingDirection
 )
-	p.ScaleAnim = {
-		From = p.Model:GetScale(),
-		To = target,
+	local anim: ScaleAnim = {
+		From = math.max(currentScale(p), 0.02),
+		To = math.max(target, 0.02),
 		Start = os.clock(),
-		Seconds = seconds,
+		Seconds = math.max(seconds, 0.05),
 		Style = style,
 		Direction = direction,
 	}
-	animating[p] = true
+	p.ScaleAnim = anim
+	CreatureBuilder.scale(p.Model, anim.From, anim.To, anim.Seconds, style.Name, direction.Name)
+	task.delay(anim.Seconds, function()
+		if p.ScaleAnim == anim then
+			p.ScaleAnim = nil
+			if p.State ~= "Gone" then
+				p.Model:ScaleTo(anim.To)
+			end
+		end
+	end)
+end
+
+-- A droop over everything else (the clients draw it); 0 = upright.
+local function setTilt(p: Patient, radians: number)
+	p.Tilt = radians
+	CreatureBuilder.tilt(p.Model, radians)
 end
 
 -- Hops along a path of points, a few studs per hop, turning to face where it's going.
@@ -623,16 +694,52 @@ local function showRing(p: Patient, fraction: number, color: Color3)
 	CreatureBuilder.setRing(p.Badge, stepIndex / RING_STEPS, color)
 end
 
--- The prompt, its icon and the FrontItem attribute follow the patient at the front of the line.
+-- The recipe on the model (Recipe, RecipeDone, Item and Station = the first missing item) and on the badge.
+local function showRecipe(p: Patient)
+	local first = Pure.firstMissing(p.Recipe, p.Done)
+	if first then
+		local itemId = p.Recipe[first]
+		local item = rawget(ItemsData :: any, itemId)
+		p.Item = itemId
+		p.Station = if item then item.Station else p.Station
+		p.Model:SetAttribute("Item", p.Item)
+		p.Model:SetAttribute("Station", p.Station)
+	end
+	p.Model:SetAttribute("Recipe", Recipe.join(p.Recipe))
+	p.Model:SetAttribute("RecipeDone", Recipe.encode(p.Done))
+	local ok, err = pcall(CreatureBuilder.setRecipe, p.Badge, p.Recipe, p.Done)
+	if not ok then
+		report("CreatureBuilder.setRecipe", err)
+	end
+end
+
+-- The front patient, when it's standing at the Counter waiting to be treated (not mid-mini-game).
+local function waitingFront(state: PlotState): Patient?
+	local front = state.Queue[1]
+	if front and front.State == "Queue" and front.Arrived and not front.Session then
+		return front
+	end
+	return nil
+end
+
+local function setPlotAttribute(state: PlotState, name: string, value: string)
+	if state.Plot.Model:GetAttribute(name) ~= value then
+		state.Plot.Model:SetAttribute(name, value)
+	end
+end
+
+-- The prompt, its icon and the plot's FrontItem / FrontStation / FrontNeeds / QueueNeeds attributes follow the
+-- line. Cheap (a handful of patients), so the clinic tick calls it every TICK too.
 local function refreshFront(state: PlotState)
 	if active[state.Plot] ~= state then
 		return
 	end
-	local front = state.Queue[1]
-	local waiting = front ~= nil and front.State == "Queue" and front.Arrived
-	local item, station, icon = "", "", ""
-	if front and waiting then
+	local front = waitingFront(state)
+	local waiting = front ~= nil
+	local item, station, icon, needs = "", "", "", ""
+	if front then
 		item, station, icon = front.Item, front.Station, front.AilmentIcon
+		needs = Recipe.join(Pure.needs(front.Recipe, front.Done, nil))
 	end
 	local prompt = state.Prompt
 	if prompt.Enabled ~= waiting then
@@ -643,8 +750,25 @@ local function refreshFront(state: PlotState)
 	end
 	if state.FrontItem ~= item then
 		state.FrontItem = item
-		state.Plot.Model:SetAttribute("FrontItem", item)
-		state.Plot.Model:SetAttribute("FrontStation", station)
+		setPlotAttribute(state, "FrontItem", item)
+		setPlotAttribute(state, "FrontStation", station)
+	end
+	if state.FrontNeeds ~= needs then
+		state.FrontNeeds = needs
+		setPlotAttribute(state, "FrontNeeds", needs)
+	end
+	local queued: { string } = {}
+	for _, p in state.Queue do
+		if p.State == "Queue" then
+			for _, itemId in Pure.needs(p.Recipe, p.Done, p.SessionIndices) do
+				table.insert(queued, itemId)
+			end
+		end
+	end
+	local queueNeeds = Recipe.join(queued)
+	if state.QueueNeeds ~= queueNeeds then
+		state.QueueNeeds = queueNeeds
+		setPlotAttribute(state, "QueueNeeds", queueNeeds)
 	end
 end
 
@@ -670,18 +794,25 @@ local function removeFromQueue(state: PlotState, p: Patient)
 	end
 end
 
+-- The free bed nearest the Counter: Bed_<n> parts in the rooms, and the extra beds of the hospital level's
+-- Building (Server/Levels builds it; its Beds count includes the Stand's own bed).
 local function freeBed(state: PlotState): BasePart?
-	local rooms = state.Plot.Model:FindFirstChild("Rooms")
-	if not rooms then
-		return nil
-	end
 	local counter = state.Plot.Counter.Position
 	local best: BasePart?, bestDistance = nil, math.huge
-	for _, descendant in rooms:GetDescendants() do
-		if descendant:IsA("BasePart") and string.match(descendant.Name, "^Bed_%d+$") and not state.Beds[descendant] then
-			local distance = (descendant.Position - counter).Magnitude
-			if distance < bestDistance then
-				best, bestDistance = descendant, distance
+	for _, holderName in { "Rooms", "Building" } do
+		local holder = state.Plot.Model:FindFirstChild(holderName)
+		if holder then
+			for _, descendant in holder:GetDescendants() do
+				if
+					descendant:IsA("BasePart")
+					and string.match(descendant.Name, "^Bed_%d+$")
+					and not state.Beds[descendant]
+				then
+					local distance = (descendant.Position - counter).Magnitude
+					if distance < bestDistance then
+						best, bestDistance = descendant, distance
+					end
+				end
 			end
 		end
 	end
@@ -695,15 +826,38 @@ local function releaseBed(state: PlotState, p: Patient)
 	end
 end
 
+-- Closes a patient's open mini-game session without settling it (the patient is going away). The helper's own
+-- items come back to their tray when `giveItemsBack` (the nurse tray's are spent: they're free and nurse-made).
+local function dropSession(p: Patient, giveItemsBack: boolean)
+	local id = p.Session
+	if not id then
+		return
+	end
+	local helper, carried = p.SessionHelper, p.SessionCarried
+	p.Session = nil
+	p.SessionHelper = nil
+	p.SessionIndices = nil
+	p.SessionCarried = nil
+	local ok, err = pcall(Treatment.drop, id)
+	if not ok then
+		report("Treatment.drop", err)
+	end
+	if giveItemsBack and helper and carried then
+		for _, itemId in carried do
+			giveBack(helper, itemId)
+		end
+	end
+end
+
 local function removePatient(p: Patient)
 	if p.State == "Gone" then
 		return
 	end
+	dropSession(p, true)
 	local state = p.Plot
 	removeFromQueue(state, p)
 	releaseBed(state, p)
 	p.State = "Gone"
-	animating[p] = nil
 	state.All[p] = nil
 	local thread = p.Thread
 	p.Thread = nil
@@ -782,11 +936,11 @@ local function sadLeave(p: Patient)
 	setState(p, "Sad")
 	p.Badge.Icon.Text = ICON_SAD
 	p.Badge.Need.Visible = false
+	pcall(CreatureBuilder.setRecipe, p.Badge, {}, {}) -- the recipe chips go with the Need chip
 	p.Badge.Bubble.Enabled = false
 	showRing(p, 0, RING_LOW)
 	CreatureBuilder.setMood(p.Model, "Sad")
-	p.Tilt = -0.22
-	animating[p] = true
+	setTilt(p, -0.22)
 	if not sleep(p, 0.8) then
 		return
 	end
@@ -897,7 +1051,7 @@ local function waitInLine(p: Patient): boolean
 				end
 			end
 			local now = os.clock()
-			if now >= p.NextIdle then
+			if now >= p.NextIdle and not p.Session then -- stands still for its mini-game
 				local low = p.Patience / p.PatienceMax < 0.3 -- impatient: bouncier
 				p.NextIdle = now + (if low then rng:NextNumber(0.8, 1.4) else rng:NextNumber(2.5, 4.5))
 				if not hop(p, p.Pivot, if low then 0.35 else 0.5, 0.3) then
@@ -956,13 +1110,56 @@ local function patienceFor(owner: Player, guest: boolean): number
 	return base * (if guest then GUEST_PATIENCE else 1)
 end
 
-local function spawnPatient(state: PlotState, patientId: string, regular: string?, visitor: boolean, variant: string?)
+-- The effective recipe a patient (or a regular) would need at this clinic: its ailment's Recipe, or the regular's
+-- own, cut to `cap` items. nil when its ailment is unknown.
+local function recipeOf(patientId: string, regular: string?, cap: number): { string }?
+	local entry = rawget(PatientsData :: any, patientId)
+	local regularEntry = if regular then rawget(RegularsData :: any, regular) else nil
+	local ailmentId = if regularEntry then regularEntry.Ailment elseif entry then entry.Ailment else nil
+	local ailment = if type(ailmentId) == "string" then rawget(AilmentsData :: any, ailmentId) else nil
+	local station = if ailment then rawget(StationsData :: any, ailment.Station) else nil
+	if not (ailment and station and rawget(ItemsData :: any, station.Item)) then
+		return nil
+	end
+	local full = if regularEntry then regularEntry.Recipe else ailment.Recipe
+	return Pure.recipeFor(full, station.Item, cap)
+end
+
+-- What the owner's clinic can make: { [ItemId]: true } for every station on the plot.
+local function itemsMadeOn(stations: { [string]: boolean }): { [string]: boolean }
+	local items: { [string]: boolean } = {}
+	for stationId in stations do
+		local station = rawget(StationsData :: any, stationId)
+		if station then
+			items[station.Item] = true
+		end
+	end
+	return items
+end
+
+-- How many items recipes have at this owner's clinic: their hospital level's cap, and 1 all through the tutorial.
+local function recipeCapFor(owner: Player): number
+	if tutorialAsk("active", false, owner) then
+		return 1
+	end
+	return levelAsk("recipeCap", owner, 1)
+end
+
+local function spawnPatient(
+	state: PlotState,
+	patientId: string,
+	regular: string?,
+	visitor: boolean,
+	variant: string?,
+	cap: number
+)
 	local entry = PatientsData[patientId]
 	local regularEntry = if regular then RegularsData[regular] else nil
 	local ailmentId = if regularEntry then regularEntry.Ailment elseif entry then entry.Ailment else nil
 	local ailment = if ailmentId then AilmentsData[ailmentId] else nil
 	local station = if ailment then StationsData[ailment.Station] else nil
-	if not (ailment and station and ItemsData[station.Item]) then
+	local recipe = recipeOf(patientId, regular, cap)
+	if not (ailment and station and ItemsData[station.Item] and recipe) then
 		return
 	end
 
@@ -994,6 +1191,13 @@ local function spawnPatient(state: PlotState, patientId: string, regular: string
 		AilmentIcon = ailment.Icon,
 		Station = ailment.Station,
 		Item = station.Item,
+		Recipe = recipe,
+		Done = Recipe.newDone(recipe),
+		TipPaid = 0,
+		Session = nil,
+		SessionHelper = nil,
+		SessionIndices = nil,
+		SessionCarried = nil,
 		Model = model,
 		Root = root,
 		Badge = badge,
@@ -1013,9 +1217,7 @@ local function spawnPatient(state: PlotState, patientId: string, regular: string
 		Bed = nil,
 		InBed = false,
 		Pivot = start,
-		Anim = nil,
 		ScaleAnim = nil,
-		ShakeAt = nil,
 		Tilt = 0,
 		Thread = nil,
 	}
@@ -1040,8 +1242,7 @@ local function spawnPatient(state: PlotState, patientId: string, regular: string
 	model:SetAttribute("Kind", if regular then "Regular" elseif visitor then "Visitor" else "Patient")
 	model:SetAttribute("Regular", regular) -- Story looks for its regular on the plot by this (or PatientId)
 	model:SetAttribute("Ailment", ailmentId)
-	model:SetAttribute("Station", ailment.Station)
-	model:SetAttribute("Item", station.Item)
+	showRecipe(p) -- Recipe, RecipeDone, Item, Station and the badge
 	model:SetAttribute("Variant", variant)
 	model:SetAttribute("Night", night)
 	model:SetAttribute("State", "Arriving")
@@ -1101,28 +1302,35 @@ local function trySpawn(state: PlotState, plan: string)
 		return
 	end
 	local stations = stationsOnPlot(state.Plot)
+	local makes = itemsMadeOn(stations)
 	local isNight = Workspace:GetAttribute("IsNight") == true
 
-	-- 0. The tutorial's own two patients (no variant: nothing to explain yet).
+	-- 0. The tutorial's own two patients (no variant: nothing to explain yet). One item, always.
 	if plan == "First" or plan == "Second" then
 		local patientId = tutorialPatient(plan, stations, data)
 		if plan == "Second" then
 			state.SecondSpawned = true -- (a clinic without the 🩹 station skips it: the usual pool, below)
 		end
 		if patientId then
-			spawnPatient(state, patientId, nil, false, nil)
+			spawnPatient(state, patientId, nil, false, nil, 1)
 			return
 		end
 	end
 	local guests = plan == "Normal" -- regulars and Today's Visitor wait until the tutorial is done
+	local cap = recipeCapFor(owner)
 
 	local function treatable(ailmentId: string): boolean
 		local ailment = AilmentsData[ailmentId]
 		return ailment ~= nil and stations[ailment.Station] == true
 	end
+	-- Every item of the recipe it would need here can be made at this clinic.
+	local function makeable(patientId: string, regular: string?): boolean
+		local recipe = recipeOf(patientId, regular, cap)
+		return recipe ~= nil and Recipe.makeable(recipe, makes)
+	end
 	local function eligible(patientId: string): boolean
 		local entry = PatientsData[patientId]
-		if not entry or not treatable(entry.Ailment) then
+		if not entry or not treatable(entry.Ailment) or not makeable(patientId, nil) then
 			return false
 		end
 		if entry.Night and not isNight then
@@ -1140,10 +1348,10 @@ local function trySpawn(state: PlotState, plan: string)
 			report("Story.dueRegular", regular)
 		elseif type(regular) == "string" then
 			local entry = RegularsData[regular]
-			if not (entry and treatable(entry.Ailment)) then
+			if not (entry and treatable(entry.Ailment) and makeable(entry.Patient, regular)) then
 				report("regular " .. regular, "named by Story but can't be treated here")
 			elseif not hasGuest(state, regular, false) then -- (Story never names one who's already here)
-				spawnPatient(state, entry.Patient, regular, false, nil)
+				spawnPatient(state, entry.Patient, regular, false, nil, cap)
 				return
 			end
 		end
@@ -1157,7 +1365,7 @@ local function trySpawn(state: PlotState, plan: string)
 			if not ok then
 				report("Daily.visitorFor", visitor)
 			elseif type(visitor) == "string" and eligible(visitor) then
-				spawnPatient(state, visitor, nil, true, rollVariant())
+				spawnPatient(state, visitor, nil, true, rollVariant(), cap)
 				return
 			end
 		end
@@ -1193,7 +1401,7 @@ local function trySpawn(state: PlotState, plan: string)
 			break
 		end
 	end
-	spawnPatient(state, chosen, nil, false, rollVariant())
+	spawnPatient(state, chosen, nil, false, rollVariant(), cap)
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -1221,9 +1429,11 @@ local function tickPatience(state: PlotState, dt: number)
 		return -- the tutorial's steps 1-6: nobody runs out of patience, so the ring stays full
 	end
 	local outOfPatience: { Patient } = {}
+	-- A Cheerer on duty (Server/Nurses keeps the plot's CheerPatience) makes everyone's patience last longer.
+	local cheer = Pure.cheer(state.Plot.Model:GetAttribute("CheerPatience"), MAX_CHEER_PATIENCE)
 	for index, p in state.Queue do
-		if p.State == "Queue" and p.Arrived and not p.Claimed then
-			local rate = if index == 1 then 1 else QUEUE_PATIENCE_RATE
+		if p.State == "Queue" and p.Arrived and not p.Claimed and not p.Session then -- paused mid-mini-game
+			local rate = (if index == 1 then 1 else QUEUE_PATIENCE_RATE) / cheer
 			p.Patience = math.max(p.Patience - dt * rate, 0)
 			local fraction = p.Patience / p.PatienceMax
 			showRing(p, fraction, ringColor(fraction))
@@ -1240,7 +1450,8 @@ end
 local function tick(state: PlotState, now: number, dt: number)
 	tickPatience(state, dt)
 	local cap = tutorialAsk("queueCap", nil, state.Owner)
-	local maxQueue = if type(cap) == "number" then math.min(cap, Config.MaxQueue) else Config.MaxQueue
+	local levelCap = levelAsk("queueCap", state.Owner, Config.MaxQueue) -- the hospital level's line
+	local maxQueue = if type(cap) == "number" then math.min(cap, levelCap) else levelCap
 	if now >= state.NextSpawn and #state.Queue < maxQueue then
 		local plan = tutorialAsk("spawnPlan", "Normal", state.Owner, next(state.All) == nil, state.SecondSpawned)
 		-- A spawn the tutorial holds back keeps its turn, so the patient comes the moment the tutorial is ready.
@@ -1308,6 +1519,52 @@ local function beginTreatment(state: PlotState, p: Patient, helper: Player)
 	tutorialHook("onTreated", state.Owner)
 end
 
+-- Recipe items were given (a mini-game settled, or a Healer delivered): tick them off and refill some patience,
+-- then off to bed when the recipe is complete, or back in line for the rest. Never yields. True = complete.
+local function giveItems(state: PlotState, p: Patient, indices: { number }, helper: Player): boolean
+	p.Done = Recipe.apply(p.Done, indices)
+	p.Patience = Pure.refill(p.Patience, p.PatienceMax, ITEM_PATIENCE, #indices)
+	showRecipe(p)
+	if Recipe.complete(p.Recipe, p.Done) then
+		beginTreatment(state, p, helper)
+		return true
+	end
+	local fraction = p.Patience / p.PatienceMax
+	showRing(p, fraction, ringColor(fraction))
+	p.NextIdle = 0 -- a happy little hop straight away (its own thread does it)
+	setState(p, if p.Arrived then "Waiting" else "Arriving")
+	refreshFront(state)
+	return false
+end
+
+-- Treatment settled the session on `p` (the player's report, the timeout, or the helper leaving).
+local function settleTreat(p: Patient, sessionId: number, tip: number): boolean
+	if p.Session ~= sessionId then
+		return false -- dropped already (the patient went away)
+	end
+	local helper = p.SessionHelper
+	local indices = p.SessionIndices or {}
+	p.Session = nil
+	p.SessionHelper = nil
+	p.SessionIndices = nil
+	p.SessionCarried = nil
+	if not alive(p) or p.State ~= "Queue" then
+		return false
+	end
+	p.TipPaid += math.max(0, tip)
+	local state = p.Plot
+	return giveItems(state, p, indices, helper or state.Owner)
+end
+
+-- Nothing in hand (or in the nurse tray) fits: a head-shake, and the station that makes the next missing item.
+local function refuse(p: Patient, player: Player, emptyHanded: boolean)
+	CreatureBuilder.shake(p.Model) -- drawn on the clients
+	local station = rawget(StationsData :: any, p.Station)
+	local stationIcon = if station then station.Icon else "❔"
+	local hint = if emptyHanded then "Make " .. stationIcon .. " first!" else "Oops! This one needs " .. stationIcon
+	Remotes.toast(player, hint)
+end
+
 local function onTreat(plot: Plot, player: Player)
 	local state = active[plot]
 	if not state or not state.Active then
@@ -1326,28 +1583,131 @@ local function onTreat(plot: Plot, player: Player)
 		return
 	end
 	local p = state.Queue[1]
-	if not p or p.State ~= "Queue" or not p.Arrived or p.Claimed then
+	if not p or p.State ~= "Queue" or not p.Arrived or p.Claimed or p.Session then
+		return
+	end
+	if Treatment.busy(player) then
+		return -- one mini-game at a time
+	end
+
+	-- What fits: the helper's own items first, then the nurse tray's.
+	local carried = carrying(player)
+	local fromCarry, fromTray = Pure.plan(p.Recipe, p.Done, carried, trayItems(plot))
+	if #fromCarry == 0 and #fromTray == 0 then
+		refuse(p, player, #carried == 0)
 		return
 	end
 
+	-- Take them: they're spent now (the mini-game can't fail).
 	p.Claimed = true
-	local taken = takeItem(player, p.Item)
+	local given: { number } = {}
+	local taken: { string } = {}
+	for _, index in fromCarry do
+		local itemId = p.Recipe[index]
+		if takeItem(player, itemId) then
+			table.insert(given, index)
+			table.insert(taken, itemId)
+		end
+	end
+	for _, index in fromTray do
+		if takeFromTray(plot, p.Recipe[index]) then
+			table.insert(given, index)
+		end
+	end
 	p.Claimed = false
-	if not taken then
-		p.ShakeAt = os.clock()
-		animating[p] = true
-		local stationIcon = StationsData[p.Station].Icon
-		local hint = if #carrying(player) == 0
-			then "Make " .. stationIcon .. " first!"
-			else "Oops! This one needs " .. stationIcon
-		Remotes.toast(player, hint)
+	table.sort(given)
+	local function keepYourItems()
+		for _, itemId in taken do
+			giveBack(player, itemId)
+		end
+	end
+	if #given == 0 or not (alive(p) and p.State == "Queue" and state.Queue[1] == p and not p.Session) then
+		keepYourItems() -- the patient moved on while we checked
 		return
 	end
-	if not (alive(p) and p.State == "Queue" and state.Queue[1] == p) then
-		giveBack(player, p.Item) -- the patient moved on while we checked: keep your item
+
+	local items: { string } = {}
+	for _, index in given do
+		table.insert(items, p.Recipe[index])
+	end
+	local sessionId: number? = nil
+	local spec: Treatment.Spec = {
+		Plot = plot,
+		PatientId = p.PatientId,
+		Items = items,
+		Position = p.Root.Position + Vector3.new(0, 3 * p.BaseScale, 0),
+		Counter = plot.Counter.Position,
+		TipSoFar = p.TipPaid,
+		Settle = function(_ratings: { Types.Rating }, tip: number): boolean
+			local id = sessionId
+			return id ~= nil and settleTreat(p, id, tip)
+		end,
+	}
+	local ok, opened = pcall(Treatment.open, player, spec)
+	if not ok or type(opened) ~= "number" then
+		if not ok then
+			report("Treatment.open", opened)
+		end
+		keepYourItems()
 		return
 	end
-	beginTreatment(state, p, player)
+	sessionId = opened
+	p.Session = opened
+	p.SessionHelper = player
+	p.SessionIndices = given
+	p.SessionCarried = taken
+	setState(p, "Treating")
+	refreshFront(state)
+end
+
+-- A Healer nurse is ready (Nurses.Heal via Treatment.onHeal): the front patient gets what the nurse tray holds for
+-- it, rated OK, with no tip and no combo change (players still beat nurses with Perfects). The owner is the
+-- helper, so the cure is theirs. Returns the items given (Treatment then tells Nurses.healed).
+local function healFront(plotArg: any, _nurseId: string): { string }
+	local plot: Plot? = if typeof(plotArg) == "Instance" then Plots.fromInstance(plotArg) else plotArg
+	if not plot then
+		return {}
+	end
+	local state = active[plot]
+	if not state or not state.Active or state.Owner.Parent ~= Players then
+		return {}
+	end
+	local p = waitingFront(state)
+	if not p or p.Claimed then
+		return {}
+	end
+	local given: { number } = {}
+	local items: { string } = {}
+	for _, index in Recipe.match(p.Recipe, p.Done, trayItems(plot)) do
+		local itemId = p.Recipe[index]
+		if takeFromTray(plot, itemId) then
+			table.insert(given, index)
+			table.insert(items, itemId)
+		end
+	end
+	if #given > 0 then
+		giveItems(state, p, given, state.Owner)
+	end
+	return items
+end
+
+-- The clinic is closing mid-mini-game: if the items in it finish the recipe, the patient counts as treated (so
+-- settleEarly cures it now); otherwise the helper gets their own items back. Either way the session closes.
+local function closeSessionEarly(p: Patient)
+	local indices = p.SessionIndices
+	if not p.Session or not indices then
+		return
+	end
+	local done = Recipe.apply(p.Done, indices)
+	if p.State == "Queue" and Recipe.complete(p.Recipe, done) then
+		p.Done = done
+		p.Helper = p.SessionHelper
+		p.PatienceLeft = math.clamp(p.Patience / p.PatienceMax, 0, 1)
+		p.State = "Treated"
+		dropSession(p, false)
+	else
+		dropSession(p, true)
+	end
 end
 
 local function ensurePrompt(plot: Plot): ProximityPrompt
@@ -1371,6 +1731,7 @@ local function ensurePrompt(plot: Plot): ProximityPrompt
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
 	prompt.Enabled = false
+	prompt:AddTag("TreatPrompt") -- UI/PromptFilter finds it by this tag (it never scans the whole town)
 	prompt.Parent = holder
 	prompt.Triggered:Connect(function(player: Player)
 		onTreat(plot, player)
@@ -1417,12 +1778,16 @@ local function activate(owner: Player, plot: Plot)
 		Spawned = 0,
 		LastPatient = nil,
 		FrontItem = "",
+		FrontNeeds = "",
+		QueueNeeds = "",
 		Loop = nil,
 		SecondSpawned = false,
 	}
 	active[plot] = state
 	plot.Model:SetAttribute("FrontItem", "")
 	plot.Model:SetAttribute("FrontStation", "")
+	plot.Model:SetAttribute("FrontNeeds", "")
+	plot.Model:SetAttribute("QueueNeeds", "")
 	refreshFront(state)
 	local loop = coroutine.create(plotLoop)
 	state.Loop = loop
@@ -1445,6 +1810,10 @@ deactivate = function(plot: Plot)
 		table.insert(everyone, p)
 	end
 	for _, p in everyone do
+		local closed, closeErr = pcall(closeSessionEarly, p)
+		if not closed then
+			report("close a mini-game early", closeErr)
+		end
 		local ok, err = pcall(settleEarly, p)
 		if not ok then
 			report("settle a cure early", err)
@@ -1457,13 +1826,15 @@ deactivate = function(plot: Plot)
 	state.Prompt.ObjectText = ""
 	plot.Model:SetAttribute("FrontItem", "")
 	plot.Model:SetAttribute("FrontStation", "")
+	plot.Model:SetAttribute("FrontNeeds", "")
+	plot.Model:SetAttribute("QueueNeeds", "")
 end
 
 function Patients.start()
 	for _, plot in Plots.all() do
 		ensurePrompt(plot)
 	end
-	RunService.Heartbeat:Connect(step)
+	Treatment.onHeal(healFront)
 	Plots.PlotAssigned:Connect(function(owner: Player, plot: Plot)
 		activate(owner, plot)
 	end)

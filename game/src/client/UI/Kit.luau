@@ -8,11 +8,13 @@
 --                                                  coloured header band with an outlined title, Accent = Color3
 --                                                  (the band's colour, default Secondary)
 --   Kit.label(props?): TextLabel                   extra: Outlined = true -> display font, white text, dark stroke
---   Kit.button(props?): TextButton                 glossy candy button with an outline and press bounce; extra:
---                                                  Kind = "Primary" | "Secondary" | "Good" | "Danger" | "Pink" |
---                                                  "Purple" | "Cyan" | "Cash" | "Quiet" | "Card"; min 56 px tall
+--   Kit.button(props?): TextButton                 glossy candy button with an outline, a press bounce and (with a
+--                                                  mouse) a hover grow; extra: Kind = "Primary" | "Secondary" |
+--                                                  "Good" | "Danger" | "Pink" | "Purple" | "Cyan" | "Cash" |
+--                                                  "Quiet" | "Card"; min 56 px tall
 --   Kit.iconButton(props?): TextButton             big emoji square; extras: Icon, Caption, Kind; has a "Dot"
---   Kit.setDot(button, visible) · Kit.setEnabled(button, enabled)
+--   Kit.setDot(button, visible)                    the red "something new" dot: pops in, then hops now and then
+--   Kit.setEnabled(button, enabled)
 --   Kit.corner(parent, radius?) · Kit.pad(parent, px?) · Kit.stroke(parent, colour?, px?)
 --   Kit.outline(text, px?): UIStroke              outlined text (a dark stroke around the letters)
 --   Kit.list(parent, direction?, gap?) · Kit.popIn(gui) · Kit.popOut(gui, onDone?)
@@ -22,22 +24,41 @@
 --   Kit.rays(parent, colour?): Frame               a slowly turning sunburst behind a reward (ZIndex 0, behind
 --                                                  the parent's other children). Still with reduced motion.
 --   Kit.bump(gui)                                  a quick springy grow-and-settle (a number changed, a reward)
+--   Kit.punch(gui, from?, info?)                   the same with your own start scale and TweenInfo (Hud.pop)
 --   Kit.gloss(gui, inset?): Frame                  the white top highlight Kit buttons have, for your own chips
--- Depth update (build plan §B9; the Foundation's first versions, T6 makes them juicy and keeps the signatures):
+--   Kit.isShown(gui): boolean                      it and every GuiObject above it are visible, its gui enabled
+-- Depth update (build plan §B9; T6, design §4 "make it pop"):
 --   Kit.countUp(label, to, format?, seconds?)      rolls a number label from its last value up (or down) to `to`;
---                                                  the attribute CountValue remembers it. Instant with reduced motion
---   Kit.celebrate(parent, colour?): () -> ()       rays (and, from T6, confetti) behind a reward; returns stop
---   Kit.rarityFrame(gui, rarity): () -> ()         the rarity's frame: a UIStroke "RarityFrame" in its colour
---                                                  (Data/Rarities; T6 adds the shimmer); returns stop
+--                                                  the attribute CountValue remembers it. A big jump rolls a little
+--                                                  longer (Kit.Juice.countSeconds); a roll already heading to `to`
+--                                                  carries on. Instant with reduced motion or while not on screen.
+--                                                  Each new number it shows fires Kit.Ticked (Sounds ticks)
+--   Kit.celebrate(parent, colour?): () -> ()       rays + candy confetti behind a reward; returns stop. Calm: still
+--                                                  rays, no confetti
+--   Kit.confetti(parent, count?, origin?)          one burst of candy confetti inside `parent` (origin: a UDim2 in
+--                                                  the parent; nil = it rains from the top). Nothing with reduced
+--                                                  motion
+--   Kit.rarityFrame(gui, rarity): () -> ()         the rarity's frame: a UIStroke "RarityFrame" with a shimmer in
+--                                                  its colours (Common grey, Rare blue, Epic purple, Legendary
+--                                                  rainbow, Mythic cosmic, Secret gold); returns stop. Still (but
+--                                                  coloured) with reduced motion
+--   Kit.rarityColor(rarity): Color3                the rarity's colour (Data/Rarities; unknown = Common grey)
+--   Kit.breathing(gui, amount?): () -> ()          idle "breathing" on a call to action: a slow gentle grow and
+--                                                  shrink, paused while it's pressed or bounced; returns stop
+--   Kit.Juice                                      the pure helpers behind all this (no Roblox APIs; see below)
 -- ZIndex 0 is the decoration layer inside a Kit button or panel (Gloss, Shine, Header, Rays): it draws over the
 -- parent's own fill but under every other child, so give your own children ZIndex 1 or more (the default).
 --   Kit.Clicked: Signal (button)                   fires on every Kit button press (Sounds plays a click)
+--   Kit.Ticked: Signal (label, progress)           a count-up showed a new number (progress 0..1; Sounds ticks)
 --   Kit.reducedMotion(): boolean                   honour it in your own tweens too
+-- Every looping effect here (rays, breathing, dot hops, shimmer, count-ups, confetti) runs on ONE shared loop that
+-- skips anything not on screen and sleeps (4 checks a second) while nothing is moving.
 
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Palette = require(Shared:WaitForChild("Palette"))
@@ -50,6 +71,110 @@ type Props = { [string]: any }
 local Kit = {}
 
 Kit.Clicked = Signal.new()
+Kit.Ticked = Signal.new()
+
+------------------------------------------------------------------------------------------------------------------
+-- Kit.Juice: pure helpers (numbers and strings only, no Roblox APIs). A scratch Lune harness loads the block
+-- between the BEGIN/END markers on its own, so keep it self-contained.
+------------------------------------------------------------------------------------------------------------------
+-- BEGIN JUICE
+local Juice = {}
+
+-- How long a count-up rolls: `seconds` when given (never negative), else `base` (default 0.6) stretched a little
+-- for big jumps (+1 → ~0.4 s, +100 → 0.6 s, +1,000,000 → ~1.1 s), between 0.3 and 1.4 s. 0 when nothing moves.
+function Juice.countSeconds(from: number, to: number, seconds: number?, base: number?): number
+	if seconds ~= nil then
+		return math.max(seconds, 0)
+	end
+	local delta = math.abs(to - from)
+	if delta == 0 or delta ~= delta then
+		return 0
+	end
+	return math.clamp((base or 0.6) * (0.6 + 0.2 * math.log10(delta + 1)), 0.3, 1.4)
+end
+
+-- Ease-out quart, clamped to 0..1: fast at first, settling gently on the number.
+function Juice.ease(t: number): number
+	local x = math.clamp(t, 0, 1)
+	return 1 - (1 - x) ^ 4
+end
+
+-- How many coins fly for an amount of cash: 0 for nothing, 3 for a little, one more each time it roughly triples
+-- (18 → 5, 100 → 7, 1,000 → 9), at most 10.
+function Juice.coins(amount: number): number
+	if amount ~= amount or amount < 1 then
+		return 0
+	end
+	return math.clamp(3 + math.floor(2 * math.log10(amount)), 3, 10)
+end
+
+-- A countdown as "m:ss" (never negative; minutes grow past 59).
+function Juice.clock(seconds: number): string
+	local left = if seconds ~= seconds then 0 else math.max(0, math.floor(seconds))
+	return string.format("%d:%02d", left // 60, left % 60)
+end
+
+export type ComboStep = { At: number, Multiplier: number }
+
+-- The combo's tier: the index of the highest step whose At it has reached (0 = none) and its tip multiplier.
+-- `steps` is Config.MiniGame.Combo (sorted by At).
+function Juice.comboStep(combo: number, steps: { ComboStep }): (number, number)
+	local tier, multiplier = 0, 1
+	for index, step in steps do
+		if combo >= step.At then
+			tier, multiplier = index, step.Multiplier
+		end
+	end
+	return tier, multiplier
+end
+
+-- True when the combo went up into a new tier (before < At <= after for some step).
+function Juice.crossed(before: number, after: number, steps: { ComboStep }): boolean
+	if after <= before then
+		return false
+	end
+	for _, step in steps do
+		if before < step.At and after >= step.At then
+			return true
+		end
+	end
+	return false
+end
+
+-- A quadratic Bezier on one axis: from a through control b to c, t in 0..1 (flying coins arc on it).
+function Juice.arc(a: number, b: number, c: number, t: number): number
+	local x = math.clamp(t, 0, 1)
+	local u = 1 - x
+	return u * u * a + 2 * u * x * b + x * x * c
+end
+
+-- A breath: 0 at rest, 1 at the top, back to 0 every `period` seconds (a cosine, so it starts and ends still).
+function Juice.breath(elapsed: number, period: number): number
+	if period <= 0 then
+		return 0
+	end
+	return 0.5 - 0.5 * math.cos(elapsed / period * 2 * math.pi)
+end
+
+-- A hop that repeats every `every` seconds and lasts `length`: 0 while resting, a sine bump 0 → 1 → 0 during it.
+function Juice.hop(elapsed: number, every: number, length: number): number
+	if every <= 0 or length <= 0 or elapsed < 0 then
+		return 0
+	end
+	local phase = elapsed % every
+	if phase >= length then
+		return 0
+	end
+	return math.sin(phase / length * math.pi)
+end
+
+-- How long a toast stays: `base` seconds, a little longer for long messages, at most `max`.
+function Juice.toastSeconds(text: string, base: number, perChar: number, max: number): number
+	return math.min(max, base + math.max(0, #text - 30) * perChar)
+end
+-- END JUICE
+
+Kit.Juice = Juice
 
 local KIND_COLORS: { [string]: Color3 } = {
 	Primary = Theme.Colors.Primary,
@@ -150,10 +275,39 @@ function Kit.list(parent: Instance, direction: Enum.FillDirection?, gap: number?
 	return list
 end
 
+-- True when gui is actually on screen: it and every GuiObject above it are Visible, and its ScreenGui (or
+-- BillboardGui / SurfaceGui) is enabled. The shared loop uses it to skip what's hidden.
+local function isShown(gui: GuiObject): boolean
+	local node: Instance? = gui
+	while node do
+		if node:IsA("GuiObject") then
+			if not node.Visible then
+				return false
+			end
+		elseif node:IsA("LayerCollector") then
+			return node.Enabled
+		end
+		node = node.Parent
+	end
+	return false
+end
+Kit.isShown = isShown
+
+------------------------------------------------------------------------------------------------------------------
+-- Scales: one UIScale per object (two on one object fight), and who's moving it right now
+------------------------------------------------------------------------------------------------------------------
+
+-- The UIScale Kit animates on `gui`: its KitScale, else a UIScale it already has (not a Hud.fitHeight FitScale),
+-- else a new KitScale.
 local function scaleOf(gui: GuiObject): UIScale
 	local existing = gui:FindFirstChild("KitScale")
 	if existing and existing:IsA("UIScale") then
 		return existing
+	end
+	for _, child in gui:GetChildren() do
+		if child:IsA("UIScale") and child.Name ~= "FitScale" then
+			return child
+		end
 	end
 	local scale = Instance.new("UIScale")
 	scale.Name = "KitScale"
@@ -161,21 +315,168 @@ local function scaleOf(gui: GuiObject): UIScale
 	return scale
 end
 
--- A quick squash on press and a springy release (game-feel: small tier, no shake).
+-- A tween (press, hover, bump, pop) owns a scale until it ends, so breathing and dot hops never fight it.
+local busyUntil: { [UIScale]: number } = setmetatable({}, { __mode = "k" }) :: any
+local hovered: { [UIScale]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local scaleTweens: { [UIScale]: Tween } = setmetatable({}, { __mode = "k" }) :: any
+
+local function isBusy(scale: UIScale, now: number): boolean
+	return hovered[scale] == true or (busyUntil[scale] or 0) > now
+end
+
+-- Tweens a scale to `target`, cancelling any Kit tween already on it, and marks it busy until it ends.
+local function tweenScale(scale: UIScale, info: TweenInfo, target: number)
+	local running = scaleTweens[scale]
+	if running then
+		running:Cancel()
+	end
+	local tween = TweenService:Create(scale, info, { Scale = target })
+	scaleTweens[scale] = tween
+	busyUntil[scale] = os.clock() + info.Time + info.DelayTime + 0.02
+	tween.Completed:Once(function()
+		if scaleTweens[scale] == tween then
+			scaleTweens[scale] = nil
+		end
+	end)
+	tween:Play()
+end
+
+-- A quick springy grow-and-settle from `from` (default 1.18) back to 1. Nothing with reduced motion.
+function Kit.punch(gui: GuiObject?, from: number?, info: TweenInfo?)
+	if not gui or Kit.reducedMotion() then
+		return
+	end
+	local scale = scaleOf(gui)
+	scale.Scale = from or 1.18
+	tweenScale(scale, info or Theme.Tween.Bump, 1)
+end
+
+-- A quick springy grow-and-settle: a number changed, a reward landed.
+function Kit.bump(gui: GuiObject)
+	Kit.punch(gui, 1.18, Theme.Tween.Bump)
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The shared loop: every looping effect is a job. Hidden jobs are skipped; calm jobs rest once.
+------------------------------------------------------------------------------------------------------------------
+
+-- A step returns "done" when the job is finished, "idle" when nothing moved this frame (a resting dot: the loop
+-- may wait a little longer), or nil while it animates.
+type StepResult = ("done" | "idle")?
+type Job = {
+	Gui: GuiObject,
+	Step: (now: number, dt: number) -> StepResult,
+	Rest: (() -> ())?, -- reduced motion: put it at rest (called once each time calm starts)
+	Resting: boolean,
+	Stopped: boolean,
+	Orphaned: number?, -- when it lost its parent (removed after ORPHAN_SECONDS without one)
+}
+
+local ORPHAN_SECONDS = 5
+local jobs: { Job } = {}
+local looping = false
+
+local function runLoop()
+	if looping then
+		return
+	end
+	looping = true
+	task.spawn(function()
+		local last = os.clock()
+		while #jobs > 0 do
+			local now = os.clock()
+			local dt = math.min(now - last, 0.1)
+			last = now
+			local calm = Kit.reducedMotion()
+			local moving = false
+			local resting = false
+			for index = #jobs, 1, -1 do
+				local job = jobs[index]
+				local gui = job.Gui
+				if job.Stopped then
+					table.remove(jobs, index)
+				elseif gui.Parent == nil then
+					job.Orphaned = job.Orphaned or now
+					if now - (job.Orphaned :: number) > ORPHAN_SECONDS then
+						table.remove(jobs, index)
+					end
+				else
+					job.Orphaned = nil
+					if isShown(gui) then
+						if calm then
+							if not job.Resting then
+								job.Resting = true
+								if job.Rest then
+									job.Rest()
+								end
+							end
+						else
+							job.Resting = false
+							local ok, result = pcall(job.Step, now, dt)
+							if not ok then
+								warn("[Kit] effect failed:", result)
+								job.Stopped = true
+							elseif result == "done" then
+								job.Stopped = true
+							elseif result == "idle" then
+								resting = true
+							else
+								moving = true
+							end
+						end
+					end
+				end
+			end
+			if moving then
+				task.wait()
+			elseif resting then
+				task.wait(0.1) -- only resting effects on screen (dots between hops)
+			else
+				task.wait(0.25) -- nothing moving on screen: check again in a moment
+			end
+		end
+		looping = false
+	end)
+end
+
+local function addJob(gui: GuiObject, step: (now: number, dt: number) -> StepResult, rest: (() -> ())?): Job
+	local job: Job = { Gui = gui, Step = step, Rest = rest, Resting = false, Stopped = false, Orphaned = nil }
+	table.insert(jobs, job)
+	gui.Destroying:Once(function()
+		job.Stopped = true
+	end)
+	runLoop()
+	return job
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Buttons
+------------------------------------------------------------------------------------------------------------------
+
+local function mouseFirst(): boolean
+	local ok, preferred = pcall(function()
+		return UserInputService.PreferredInput
+	end)
+	return ok and preferred == Enum.PreferredInput.KeyboardAndMouse
+end
+
+-- A quick squash on press and a springy release (game-feel: small tier, no shake); with a mouse, a little grow
+-- while it hovers.
 local function addBounce(button: GuiButton)
 	local scale = scaleOf(button)
-	local tween: Tween? = nil
 	local function to(target: number, info: TweenInfo)
-		if tween then
-			tween:Cancel()
-		end
 		if Kit.reducedMotion() then
+			local running = scaleTweens[scale]
+			if running then
+				running:Cancel()
+			end
 			scale.Scale = 1
 			return
 		end
-		local created = TweenService:Create(scale, info, { Scale = target })
-		tween = created
-		created:Play()
+		tweenScale(scale, info, target)
+	end
+	local function rest(): number
+		return if hovered[scale] then Theme.HoverScale else 1
 	end
 	button.InputBegan:Connect(function(input)
 		local kind = input.UserInputType
@@ -186,10 +487,37 @@ local function addBounce(button: GuiButton)
 	button.InputEnded:Connect(function(input)
 		local kind = input.UserInputType
 		if kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch then
-			to(1, Theme.Tween.Release)
+			to(rest(), Theme.Tween.Release)
+		end
+	end)
+	-- A button hidden while hovered (its panel closed) may never get MouseLeave: let go of the hover then.
+	local function watchHover()
+		task.spawn(function()
+			while hovered[scale] do
+				task.wait(0.25)
+				local state = button.GuiState
+				if
+					hovered[scale]
+					and (not isShown(button) or (state ~= Enum.GuiState.Hover and state ~= Enum.GuiState.Press))
+				then
+					hovered[scale] = nil
+					to(1, Theme.Tween.Release)
+				end
+			end
+		end)
+	end
+	button.MouseEnter:Connect(function()
+		if button.Interactable and mouseFirst() and not Kit.reducedMotion() then
+			local already = hovered[scale] == true
+			hovered[scale] = true
+			to(Theme.HoverScale, Theme.Tween.Hover)
+			if not already then
+				watchHover()
+			end
 		end
 	end)
 	button.MouseLeave:Connect(function()
+		hovered[scale] = nil
 		to(1, Theme.Tween.Release)
 	end)
 	button.Activated:Connect(function()
@@ -390,10 +718,49 @@ function Kit.iconButton(props: Props?): TextButton
 	return finish(button, props)
 end
 
+-- The red dot pops in when it appears, then hops (a little jump and wiggle) every Theme.Juice.DotHopEvery seconds
+-- while it shows. One hop job per dot, made the first time it shows.
+local dotJobs: { [GuiObject]: Job } = setmetatable({}, { __mode = "k" }) :: any
+local DOT_HOP_SECONDS = 0.42
+
+local function startDotHops(dot: GuiObject)
+	local existing = dotJobs[dot]
+	if existing and not existing.Stopped then
+		return
+	end
+	local scale = scaleOf(dot)
+	local started = os.clock()
+	local resting = true -- only write while it hops (or once to land it back at rest)
+	dotJobs[dot] = addJob(dot, function(now): StepResult
+		if isBusy(scale, now) then
+			return nil
+		end
+		local hop = Juice.hop(now - started, Theme.Juice.DotHopEvery, DOT_HOP_SECONDS)
+		if hop <= 0 and resting then
+			return "idle"
+		end
+		resting = hop <= 0
+		scale.Scale = 1 + 0.28 * hop
+		dot.Rotation = 14 * hop * math.sin((now - started) * 30)
+		return nil
+	end, function()
+		if not isBusy(scale, os.clock()) then
+			scale.Scale = 1
+		end
+		dot.Rotation = 0
+	end)
+end
+
 function Kit.setDot(button: GuiObject, visible: boolean)
 	local dot = button:FindFirstChild("Dot")
-	if dot and dot:IsA("GuiObject") then
-		dot.Visible = visible
+	if not (dot and dot:IsA("GuiObject")) then
+		return
+	end
+	local appeared = visible and not dot.Visible
+	dot.Visible = visible
+	if appeared then
+		Kit.punch(dot, 0.2, Theme.Tween.PopIn)
+		startDotHops(dot)
 	end
 end
 
@@ -411,11 +778,15 @@ function Kit.popIn(gui: GuiObject)
 	local scale = scaleOf(gui)
 	gui.Visible = true
 	if Kit.reducedMotion() then
+		local running = scaleTweens[scale]
+		if running then
+			running:Cancel()
+		end
 		scale.Scale = 1
 		return
 	end
-	scale.Scale = 0.85
-	TweenService:Create(scale, Theme.Tween.PopIn, { Scale = 1 }):Play()
+	scale.Scale = Theme.PopFrom
+	tweenScale(scale, Theme.Tween.PopIn, 1)
 end
 
 function Kit.popOut(gui: GuiObject, onDone: (() -> ())?)
@@ -431,40 +802,15 @@ function Kit.popOut(gui: GuiObject, onDone: (() -> ())?)
 		done()
 		return
 	end
-	local tween = TweenService:Create(scale, Theme.Tween.PopOut, { Scale = 0.85 })
-	tween.Completed:Once(function(state)
-		if state == Enum.PlaybackState.Completed then
-			done()
-		end
-	end)
-	tween:Play()
-end
-
--- True when gui is actually on screen: it and every GuiObject above it are Visible, and its ScreenGui is enabled.
--- The shine and rays loops use it to sleep while their panel is closed.
-local function isShown(gui: GuiObject): boolean
-	local node: Instance? = gui
-	while node do
-		if node:IsA("GuiObject") then
-			if not node.Visible then
-				return false
+	tweenScale(scale, Theme.Tween.PopOut, 0.85)
+	local tween = scaleTweens[scale]
+	if tween then
+		tween.Completed:Once(function(state)
+			if state == Enum.PlaybackState.Completed then
+				done()
 			end
-		elseif node:IsA("LayerCollector") then
-			return node.Enabled
-		end
-		node = node.Parent
+		end)
 	end
-	return false
-end
-
--- A quick springy grow-and-settle: a number changed, a reward landed.
-function Kit.bump(gui: GuiObject)
-	if Kit.reducedMotion() then
-		return
-	end
-	local scale = scaleOf(gui)
-	scale.Scale = 1.18
-	TweenService:Create(scale, Theme.Tween.Bump, { Scale = 1 }):Play()
 end
 
 -- A white shine that sweeps across a call-to-action button every Theme.ShineEvery seconds. Returns stop.
@@ -548,79 +894,359 @@ function Kit.rays(parent: GuiObject, color: Color3?): Frame
 		ray.Parent = rays
 	end
 	rays.Parent = parent
-	task.spawn(function()
-		while rays.Parent do
-			if not isShown(rays) or Kit.reducedMotion() then
-				task.wait(0.5) -- closed panel or calm mode: check again in a moment
-			else
-				local dt = task.wait()
-				rays.Rotation = (rays.Rotation + dt * 360 / Theme.RaysSpin) % 360
-			end
-		end
-	end)
+	addJob(rays, function(_, dt): StepResult
+		rays.Rotation = (rays.Rotation + dt * 360 / Theme.RaysSpin) % 360
+		return nil
+	end, nil)
 	return rays
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- Depth update (build plan §B9). First versions from the Foundation; T6 owns them.
+-- Depth update juice (build plan §B9; design §4)
 ------------------------------------------------------------------------------------------------------------------
 
 local function plainNumber(n: number): string
 	return tostring(math.floor(n + 0.5))
 end
 
--- Rolls a number label to `to` over `seconds` (default 0.6). The label's attribute CountValue remembers the last
--- number, so the next call rolls from there. `format` turns the number into text (default: a whole number).
+type Count = {
+	From: number,
+	To: number,
+	Start: number,
+	Seconds: number,
+	Show: (number) -> string,
+	Current: number,
+	Job: Job,
+}
+local counts: { [TextLabel]: Count } = setmetatable({}, { __mode = "k" }) :: any
+
+-- Rolls a number label to `to`. The label's attribute CountValue remembers the last number, so the next call rolls
+-- from there (or from wherever a roll still running has got to). `format` turns the number into text (default: a
+-- whole number); `seconds` sets the roll's length (0 = instant). The label springs when it starts and lands.
 function Kit.countUp(label: TextLabel, to: number, format: ((number) -> string)?, seconds: number?)
 	local show = format or plainNumber
-	local from = label:GetAttribute("CountValue")
+	local running = counts[label]
+	if running and not running.Job.Stopped and running.To == to then
+		running.Show = show -- already rolling there: carry on
+		return
+	end
+	local saved = label:GetAttribute("CountValue")
+	local from: number? = if running and not running.Job.Stopped
+		then running.Current
+		elseif type(saved) == "number" then saved
+		else nil
 	label:SetAttribute("CountValue", to)
-	local token = (tonumber(label:GetAttribute("CountToken")) or 0) + 1
-	label:SetAttribute("CountToken", token)
-	if type(from) ~= "number" or from == to or Kit.reducedMotion() then
+	if running then
+		running.Job.Stopped = true
+		counts[label] = nil
+	end
+	local duration = if from then Juice.countSeconds(from, to, seconds, Theme.Juice.CountSeconds) else 0
+	if from == nil or duration <= 0 or Kit.reducedMotion() or not isShown(label) then
 		label.Text = show(to)
 		return
 	end
-	local duration = math.max(seconds or 0.6, 0.05)
-	task.spawn(function()
-		local started = os.clock()
-		while label.Parent and label:GetAttribute("CountToken") == token do
-			local t = math.min((os.clock() - started) / duration, 1)
-			local eased = TweenService:GetValue(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-			label.Text = show(from + (to - from) * eased)
-			if t >= 1 then
-				break
-			end
-			task.wait()
+	local start = from :: number
+	local count: Count
+	local shown = label.Text
+	local job = addJob(label, function(now): StepResult
+		local t = math.min((now - count.Start) / count.Seconds, 1)
+		count.Current = start + (to - start) * Juice.ease(t)
+		local text = count.Show(if t >= 1 then to else count.Current)
+		if text ~= shown then
+			shown = text
+			label.Text = text
+			Kit.Ticked:Fire(label, t)
 		end
+		if t >= 1 then
+			counts[label] = nil
+			Kit.punch(label, 1.1, Theme.Tween.Release)
+			return "done"
+		end
+		return nil
+	end, function()
+		-- Calm mid-roll: land on the number now.
+		counts[label] = nil
+		label.Text = show(to)
+		count.Job.Stopped = true
+	end)
+	count = {
+		From = start,
+		To = to,
+		Start = os.clock(),
+		Seconds = duration,
+		Show = show,
+		Current = start,
+		Job = job,
+	}
+	counts[label] = count
+	Kit.punch(label, 1.14, Theme.Tween.Bump)
+end
+
+-- One burst of candy confetti inside `parent`. With an origin (a UDim2 in the parent) the pieces pop up and out
+-- from there; without one they rain from the parent's top edge. Pieces fall for Theme.Juice.ConfettiSeconds and
+-- fade at the end. Nothing with reduced motion. Never takes taps.
+type Piece = { Frame: Frame, X: number, Y: number, VX: number, VY: number, Spin: number, Sway: number }
+function Kit.confetti(parent: GuiObject, count: number?, origin: UDim2?)
+	if Kit.reducedMotion() then
+		return
+	end
+	local n = math.clamp(math.floor(count or Theme.Juice.ConfettiPieces), 1, 60)
+	local size = parent.AbsoluteSize
+	local scale = math.clamp(math.max(size.X, size.Y) / 400, 0.5, 2) -- px speeds suit the parent's size
+	local pieces: { Piece } = {}
+	local holder = Instance.new("Frame")
+	holder.Name = "Confetti"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.ZIndex = 8
+	holder.Parent = parent
+	local ox = if origin then origin.X.Scale * size.X + origin.X.Offset else 0
+	local oy = if origin then origin.Y.Scale * size.Y + origin.Y.Offset else 0
+	for i = 1, n do
+		local piece = Instance.new("Frame")
+		piece.Name = "Piece"
+		piece.AnchorPoint = Vector2.new(0.5, 0.5)
+		piece.BorderSizePixel = 0
+		piece.BackgroundColor3 = Theme.Confetti[(i - 1) % #Theme.Confetti + 1]
+		local wide = math.random() < 0.5
+		piece.Size = UDim2.fromOffset(if wide then 14 else 9, if wide then 8 else 14)
+		piece.Rotation = math.random(0, 359)
+		piece.ZIndex = 8
+		if math.random() < 0.35 then
+			Kit.corner(piece, 6) -- a few round ones
+		end
+		piece.Parent = holder
+		local x, y, vx, vy = 0, 0, 0, 0
+		if origin then
+			local angle = -math.pi / 2 + (math.random() - 0.5) * 2.2
+			local speed = (260 + math.random() * 260) * scale
+			x, y = ox, oy
+			vx, vy = math.cos(angle) * speed, math.sin(angle) * speed
+		else
+			x, y = math.random() * size.X, -10 - math.random() * 60
+			vx, vy = (math.random() - 0.5) * 80 * scale, (40 + math.random() * 90) * scale
+		end
+		piece.Position = UDim2.fromOffset(x, y)
+		table.insert(pieces, {
+			Frame = piece,
+			X = x,
+			Y = y,
+			VX = vx,
+			VY = vy,
+			Spin = (math.random() - 0.5) * 720,
+			Sway = math.random() * math.pi * 2,
+		})
+	end
+	local life = Theme.Juice.ConfettiSeconds
+	local started = os.clock()
+	local gravity = 520 * scale
+	addJob(holder, function(now, dt): StepResult
+		local age = now - started
+		if age >= life then
+			holder:Destroy()
+			return "done"
+		end
+		local fade = math.clamp((age - life * 0.7) / (life * 0.3), 0, 1)
+		for _, p in pieces do
+			p.VY += gravity * dt
+			p.VX *= 1 - math.min(dt * 1.6, 0.5) -- air drag, so they flutter down
+			p.VY = math.min(p.VY, 260 * scale)
+			p.X += (p.VX + math.sin(age * 5 + p.Sway) * 40 * scale) * dt
+			p.Y += p.VY * dt
+			p.Frame.Position = UDim2.fromOffset(p.X, p.Y)
+			p.Frame.Rotation += p.Spin * dt
+			p.Frame.BackgroundTransparency = fade
+		end
+		return nil
+	end, function()
+		holder:Destroy()
 	end)
 end
 
--- A reward's backdrop: Kit.rays behind `parent` (T6 adds confetti). Returns stop.
+-- A reward's backdrop: Kit.rays behind `parent` plus a confetti burst from its middle (and a second, smaller one
+-- a moment later). Returns stop. Calm: the rays hold still and there's no confetti.
 function Kit.celebrate(parent: GuiObject, color: Color3?): () -> ()
 	local rays = Kit.rays(parent, color)
+	local stopped = false
+	Kit.confetti(parent, Theme.Juice.ConfettiPieces, UDim2.fromScale(0.5, 0.5))
+	task.delay(0.55, function()
+		if not stopped and parent.Parent then
+			Kit.confetti(parent, math.floor(Theme.Juice.ConfettiPieces / 2), UDim2.fromScale(0.5, 0.45))
+		end
+	end)
 	return function()
+		stopped = true
 		rays:Destroy()
+		for _, child in parent:GetChildren() do
+			if child.Name == "Confetti" then
+				child:Destroy()
+			end
+		end
 	end
 end
 
--- The rarity's frame on a card or chip: a UIStroke named RarityFrame in the rarity's colour (Data/Rarities). An
--- unknown rarity gets the Common grey. Returns stop (removes it).
+-- The rarity's colour (Data/Rarities hex). An unknown rarity is the Common grey.
+function Kit.rarityColor(rarity: string): Color3
+	local info = rawget(Rarities, rarity) or rawget(Rarities, "Common")
+	if info and type(info.Color) == "string" then
+		local ok, color = pcall(Color3.fromHex, info.Color)
+		if ok then
+			return color
+		end
+	end
+	return Theme.Colors.Quiet
+end
+
+-- How each frame shimmers: its colours (a ColorSequence over the stroke), whether the gradient turns round the
+-- frame ("Spin") or a bright band sweeps across it ("Sweep"), the speed, and whether the outline pulses.
+type Shimmer = { Colors: ColorSequence, Motion: "Spin" | "Sweep", Speed: number, Pulse: boolean, Width: number }
+
+local function band(base: Color3, light: Color3): ColorSequence
+	return ColorSequence.new({
+		ColorSequenceKeypoint.new(0, base),
+		ColorSequenceKeypoint.new(0.4, base),
+		ColorSequenceKeypoint.new(0.5, light),
+		ColorSequenceKeypoint.new(0.6, base),
+		ColorSequenceKeypoint.new(1, base),
+	})
+end
+
+local function shimmerFor(rarity: string): Shimmer
+	local info = rawget(Rarities, rarity) or rawget(Rarities, "Common")
+	local frame = if info then info.Frame else "Grey"
+	local color = Kit.rarityColor(rarity)
+	local seconds = Theme.Juice.ShimmerSeconds
+	local width = Theme.Size.Stroke + 1
+	if frame == "Rainbow" then
+		return {
+			Colors = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 70, 90)),
+				ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 160, 30)),
+				ColorSequenceKeypoint.new(0.33, Color3.fromRGB(255, 230, 40)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(80, 220, 60)),
+				ColorSequenceKeypoint.new(0.67, Color3.fromRGB(40, 170, 255)),
+				ColorSequenceKeypoint.new(0.83, Color3.fromRGB(160, 80, 255)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 70, 90)),
+			}),
+			Motion = "Spin",
+			Speed = 360 / seconds,
+			Pulse = false,
+			Width = width + 1,
+		}
+	elseif frame == "Cosmic" then
+		return {
+			Colors = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, color),
+				ColorSequenceKeypoint.new(0.3, Color3.fromRGB(120, 60, 230)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(30, 20, 90)),
+				ColorSequenceKeypoint.new(0.7, Color3.fromRGB(0, 214, 232)),
+				ColorSequenceKeypoint.new(1, color),
+			}),
+			Motion = "Spin",
+			Speed = 360 / (seconds * 1.3),
+			Pulse = true,
+			Width = width + 1,
+		}
+	elseif frame == "Gold" then
+		return {
+			Colors = band(color, Color3.new(1, 1, 1)),
+			Motion = "Sweep",
+			Speed = 1.6 / seconds,
+			Pulse = true,
+			Width = width + 1,
+		}
+	elseif frame == "Purple" then
+		return {
+			Colors = band(color, Kit.lighten(Theme.Colors.Pink, 0.35)),
+			Motion = "Sweep",
+			Speed = 1.2 / seconds,
+			Pulse = true,
+			Width = width,
+		}
+	end
+	-- Grey (Common) and Blue (Rare): a soft white band sweeping slowly across.
+	return {
+		Colors = band(color, Kit.lighten(color, 0.75)),
+		Motion = "Sweep",
+		Speed = (if frame == "Blue" then 1 else 0.7) / seconds,
+		Pulse = false,
+		Width = width,
+	}
+end
+
+-- The rarity's frame on a card or chip: a UIStroke named RarityFrame (white, so its UIGradient "Shimmer" carries
+-- the colours), shimmering on the shared loop while it's on screen. Returns stop (removes it).
 function Kit.rarityFrame(gui: GuiObject, rarity: string): () -> ()
 	local existing = gui:FindFirstChild("RarityFrame")
 	if existing then
 		existing:Destroy()
 	end
-	local info = rawget(Rarities, rarity) or rawget(Rarities, "Common")
-	local color = if info then Color3.fromHex(info.Color) else Theme.Colors.Quiet
+	local look = shimmerFor(rarity)
 	local stroke = Instance.new("UIStroke")
 	stroke.Name = "RarityFrame"
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	stroke.Color = color
-	stroke.Thickness = Theme.Size.Stroke + 1
+	stroke.LineJoinMode = Enum.LineJoinMode.Round
+	stroke.Color = Color3.new(1, 1, 1)
+	stroke.Thickness = look.Width
+	stroke:SetAttribute("Rarity", rarity)
+	local gradient = Instance.new("UIGradient")
+	gradient.Name = "Shimmer"
+	gradient.Color = look.Colors
+	gradient.Rotation = 35
+	gradient.Offset = Vector2.zero
+	gradient.Parent = stroke
 	stroke.Parent = gui
+
+	local started = os.clock()
+	local job = addJob(gui, function(now, dt): StepResult
+		if not stroke.Parent then
+			return "done"
+		end
+		if look.Motion == "Spin" then
+			gradient.Rotation = (gradient.Rotation + dt * look.Speed) % 360
+		else
+			-- The bright band crosses from one side to the other, then rests off the edge a moment.
+			local phase = ((now - started) * look.Speed) % 1.6
+			gradient.Offset = Vector2.new(math.clamp(phase, 0, 1.6) * 2 - 1.6, 0)
+		end
+		if look.Pulse then
+			stroke.Thickness = look.Width + 0.8 * Juice.breath(now - started, 1.2)
+		end
+		return nil
+	end, function()
+		gradient.Rotation = 35
+		gradient.Offset = Vector2.zero
+		stroke.Thickness = look.Width
+	end)
 	return function()
+		job.Stopped = true
 		stroke:Destroy()
+	end
+end
+
+-- Idle breathing on a call to action: a slow, gentle grow and shrink (`amount`, default Theme.Juice.BreathScale),
+-- paused while a press, hover or bump owns its scale, and restarting from rest after. Returns stop.
+function Kit.breathing(gui: GuiObject, amount: number?): () -> ()
+	local scale = scaleOf(gui)
+	local amp = amount or Theme.Juice.BreathScale
+	local since = os.clock()
+	local job = addJob(gui, function(now): StepResult
+		if isBusy(scale, now) then
+			since = now
+			return nil
+		end
+		scale.Scale = 1 + amp * Juice.breath(now - since, Theme.Juice.BreathSeconds)
+		return nil
+	end, function()
+		if not isBusy(scale, os.clock()) then
+			scale.Scale = 1
+		end
+	end)
+	return function()
+		job.Stopped = true
+		if not isBusy(scale, os.clock()) then
+			scale.Scale = 1
+		end
 	end
 end
 

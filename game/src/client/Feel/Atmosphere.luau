@@ -6,6 +6,11 @@
 --              gently, here on each client, so nothing moves on the server or replicates per frame
 --   Day/night  a soft little tune when night falls and when morning comes
 --
+-- Nothing here runs when there's nothing to do (depth update perf pass): the snow and firefly boxes follow you
+-- WEATHER_STEP times a second, and only while it snows or it's night (their flakes live in the world, so the box
+-- needn't follow every frame). Decor sway checks which decor is near every SCAN_SECONDS, only while there is decor;
+-- its RenderStepped runs only while decor within SWAY_DISTANCE is swaying, and never in calm mode.
+--
 -- Comfort settings are player attributes set on THIS client only (they never replicate; the server never sets them):
 --   ReduceEffects: boolean   true = calm effects. Starts from the device's Reduced Motion setting. Every Feel module
 --                            reads it; UI modules may honour it too. The ✨/💤 switch in the HUD's ⚙️ settings panel
@@ -45,6 +50,8 @@ local FIREFLIES = {
 	Area = Vector3.new(70, 7, 70), -- around your character, from the ground up
 }
 local SWAY_DISTANCE = 140 -- decor further than this from the camera rests still
+local SCAN_SECONDS = 0.5 -- how often to look for decor near the camera
+local WEATHER_STEP = 0.2 -- how often the snow and firefly boxes catch up with you
 
 local player = Players.LocalPlayer
 local ctx: Types.Ctx
@@ -170,16 +177,6 @@ end
 local snowPart: Part, snow: ParticleEmitter
 local fireflyPart: Part, fireflies: ParticleEmitter
 
-local function refreshWeather()
-	local quiet = calm()
-	local winter = Workspace:GetAttribute("IsWinter") == true
-	local night = Workspace:GetAttribute("IsNight") == true
-	snow.Rate = if quiet then SNOW.CalmRate else SNOW.Rate
-	snow.Enabled = winter
-	fireflies.Rate = if quiet then FIREFLIES.CalmRate else FIREFLIES.Rate
-	fireflies.Enabled = night
-end
-
 local function followCamera()
 	local camera = Workspace.CurrentCamera
 	if not camera then
@@ -200,6 +197,33 @@ local function followCamera()
 	end
 end
 
+-- Runs only while it snows or fireflies are out; ends by itself when both stop.
+local following = false
+local function followLoop()
+	following = true
+	while snow.Enabled or fireflies.Enabled do
+		local ok, err = pcall(followCamera)
+		if not ok then
+			warn("[Atmosphere] " .. tostring(err))
+		end
+		task.wait(WEATHER_STEP)
+	end
+	following = false
+end
+
+local function refreshWeather()
+	local quiet = calm()
+	local winter = Workspace:GetAttribute("IsWinter") == true
+	local night = Workspace:GetAttribute("IsNight") == true
+	snow.Rate = if quiet then SNOW.CalmRate else SNOW.Rate
+	snow.Enabled = winter
+	fireflies.Rate = if quiet then FIREFLIES.CalmRate else FIREFLIES.Rate
+	fireflies.Enabled = night
+	if (winter or night) and not following then
+		task.spawn(followLoop)
+	end
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- Decor sway
 ------------------------------------------------------------------------------------------------------------------
@@ -217,6 +241,9 @@ type Swayer = {
 }
 
 local swayers: { [Model]: Swayer } = {}
+local near: { [Model]: Swayer } = {} -- the ones close enough to sway right now
+local swayConnection: RBXScriptConnection? = nil
+local scanning = false
 
 local function numberAttribute(group: Instance, name: string): number
 	local value = group:GetAttribute(name)
@@ -252,27 +279,77 @@ local function rest(swayer: Swayer)
 	end
 end
 
-local function sway(now: number)
-	local camera = Workspace.CurrentCamera
-	local eye = if camera then camera.CFrame.Position else Vector3.zero
-	local still = calm()
-	for group, swayer in swayers do
+-- Every frame, but only for the decor near you (and only while that list isn't empty).
+local function swayFrame()
+	debug.profilebegin("Atmosphere sway")
+	local now = os.clock()
+	for group, swayer in near do
 		if not group.Parent or not swayer.Outer.Parent then
+			near[group] = nil
 			swayers[group] = nil
 			continue
 		end
-		local base = swayer.Outer:GetPivot() * swayer.Rest
-		if still or (base.Position - eye).Magnitude > SWAY_DISTANCE then
-			rest(swayer)
-			continue
-		end
 		swayer.Resting = false
+		local base = swayer.Outer:GetPivot() * swayer.Rest
 		local t = now * swayer.Speed * math.pi * 2 + swayer.Phase
 		group:PivotTo(
 			base
 				* CFrame.new(0, swayer.Height * math.sin(t), 0)
 				* CFrame.Angles(0, swayer.Spin * math.sin(t * 0.5), swayer.Sway * math.sin(t))
 		)
+	end
+	debug.profileend()
+end
+
+local function syncSway()
+	local wanted = next(near) ~= nil and not calm()
+	local current = swayConnection
+	if wanted and not current then
+		swayConnection = RunService.RenderStepped:Connect(swayFrame)
+	elseif not wanted and current then
+		swayConnection = nil
+		current:Disconnect()
+	end
+end
+
+-- Which decor is near the camera; the rest (and everything in calm mode) settles at its rest pose.
+local function scan()
+	local camera = Workspace.CurrentCamera
+	local eye = if camera then camera.CFrame.Position else Vector3.zero
+	local still = calm()
+	for group, swayer in swayers do
+		if not group.Parent or not swayer.Outer.Parent then
+			swayers[group] = nil
+			near[group] = nil
+		elseif still or ((swayer.Outer:GetPivot() * swayer.Rest).Position - eye).Magnitude > SWAY_DISTANCE then
+			near[group] = nil
+			rest(swayer)
+		else
+			near[group] = swayer
+		end
+	end
+	syncSway()
+end
+
+-- Runs while there's decor to sway and calm mode is off; ends by itself otherwise (wakeSway starts it again).
+local function scanLoop()
+	scanning = true
+	while next(swayers) ~= nil do
+		local ok, err = pcall(scan)
+		if not ok then
+			warn("[Atmosphere] " .. tostring(err))
+		end
+		if calm() then
+			break -- everything rests; switching calm off wakes this again
+		end
+		task.wait(SCAN_SECONDS)
+	end
+	scanning = false
+end
+
+local function wakeSway()
+	if not scanning then
+		task.spawn(scanLoop)
 	end
 end
 
@@ -282,13 +359,19 @@ local function watchDecor()
 	end
 	CollectionService:GetInstanceAddedSignal(BOB_TAG):Connect(function(instance)
 		-- Streaming can deliver the group a moment before its parts and parent are in place.
-		task.defer(addSwayer, instance)
+		task.defer(function()
+			addSwayer(instance)
+			wakeSway()
+		end)
 	end)
 	CollectionService:GetInstanceRemovedSignal(BOB_TAG):Connect(function(instance)
 		if instance:IsA("Model") then
 			swayers[instance] = nil
+			near[instance] = nil
+			syncSway()
 		end
 	end)
+	wakeSway()
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -320,7 +403,11 @@ function Atmosphere.init(context: Types.Ctx)
 	fireflyPart, fireflies = makeFireflies()
 	refreshWeather()
 	Workspace:GetAttributeChangedSignal("IsWinter"):Connect(refreshWeather)
-	player:GetAttributeChangedSignal("ReduceEffects"):Connect(refreshWeather)
+	player:GetAttributeChangedSignal("ReduceEffects"):Connect(function()
+		refreshWeather()
+		scan() -- calm on: everything rests now; calm off: the near decor sways again
+		wakeSway()
+	end)
 
 	local wasNight = Workspace:GetAttribute("IsNight") == true
 	Workspace:GetAttributeChangedSignal("IsNight"):Connect(function()
@@ -333,10 +420,6 @@ function Atmosphere.init(context: Types.Ctx)
 	end)
 
 	watchDecor()
-	RunService.RenderStepped:Connect(function()
-		followCamera()
-		sway(os.clock())
-	end)
 end
 
 return Atmosphere
