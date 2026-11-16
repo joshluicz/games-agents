@@ -19,10 +19,11 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 ## Next actions
 **Live and PUBLIC (16+) since 2026-11-16 (Joshua):** the tutorial build + player-sized patients, admin panel, Throw away
 (`af773f8`). 60-day window for 250 engaged 16+ plays has started. Marketing push **with the depth update** (Update 1).
-- [ ] **Claude:** merge and playtest the parallel work: depth update (worktree `.worktrees/depth`: mini-games +
-      recipes, nurse belt + Nurse Journal + Mythic/Secret events, hospital levels, juice, perf), creatures v2
-      (`.worktrees/creatures`), leaderboards (`.worktrees/boards`), the Creator Store model shortlist
-      (`docs/research/2026-11-16-creator-store-models.*`). Then Joshua publishes.
+- [ ] **Joshua:** publish the depth update (Update 1, merge `f101c69`, playtested in Studio 2026-11-16). After
+      publishing, check one live server: the belt along the main road, a hire, a treat, the 🏆 Hall of Fame.
+- [ ] **Claude, next:** Progression v2 (design §7–§8, `-017`, `-019`): nurse jobs and abilities, rebirths ("open a new
+      branch", perk cards, ability tree), the Nurse Agency (5-min restock) and the same-server Player Market, roster
+      3 (+1 per rebirth; the depth build still shows equip slots by level), and Hospital v2 (floors, elevator, A&E).
 - [ ] **Joshua:** Performance Stats (FPS, ping) on PC + phone from the live game, for the lag.
 - [ ] **Brother:** play as a new player and with 🛠️ Admin; notes into `logs/playtests/`.
 - [ ] **Joshua:** Creator Hub: maturity questionnaire done? New icon + thumbnails (`docs/launch/images/`).
@@ -37,6 +38,25 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-16 (evening, Joshua's PC, Claude + parallel agents). Update 1 merged and playtested.**
+  - **Merged:**
+    - creatures v2;
+    - leaderboards (admins excluded; now a 🏆 Hall of Fame garden off the street's west end, `0c7b803`);
+    - playtime gifts, boosts and tiered badges (`-015`, `-016`);
+    - the hands disc with a red ✖ Discard;
+    - the gift progress bar;
+    - MaxQueue 3;
+    - plot polish (`3381eae`, `ad9638d`): queue pavement with numbered spots, the raised sign, the helpers switch
+      moved into ⚙️ Settings (`SetHelpers`), a smaller heart prompt.
+  - **The depth workflow** (12 agents, 15 review fixes) was merged as `claude/depth-merge` → `f101c69`:
+    - mini-games and recipes, nurses, the Nurse Journal, hospital levels 1–5, juice, perf;
+    - Schema v3 keeps v2 play time and badges;
+    - the Nurse Belt runs along the main road, one nurse per ~40 s, odds 75/20/4.5/0.5, pity 15, Epic+ hire from
+      Lv 3 (`-017`);
+    - Joshua delegated the §E5–E7 calls (`-020`).
+  - **Studio** (FreshSave): clean boot; belt, a hire, the Lv 3 gate, the odds sign, seven tabs, levels to 5 (the
+    lane and sign stay clear), a nurse-tray cure. 539 specs pass.
+  - **Note:** MCP screen captures don't draw AlwaysOnTop billboards; to see one, turn AlwaysOnTop off.
 - **2026-11-16 (later, Joshua's PC, Claude + many parallel agents).** Launch prep and first publish: name "Cure a
   Creature" (`-009`), ownership agreed (`-010`), the page (`docs/launch/page.md`) with AI-made images (Higgsfield, from
   real captures). The first publish was the empty Baseplate; fixed by publishing the real build. Tutorial + declutter
