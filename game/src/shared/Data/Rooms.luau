@@ -21,6 +21,8 @@ export type Room = {
 	-- Winter Wing stays in the game all year (design §5.8, memory-20261116-005); only its Frosty variants, snow
 	-- and the winter event come and go with Workspace.IsWinter. Kept for a future seasonal room.
 	Season: string?,
+	-- The hospital level a room needs (Data/Levels; nil = 1). Its ⭐ gate still applies too (depth update §3).
+	Level: number?,
 }
 
 local ENTRIES: { [RoomId]: Room } = {
@@ -78,6 +80,7 @@ local ENTRIES: { [RoomId]: Room } = {
 		Beds = 0,
 		DecorSlots = 3,
 		Wing = "Starter",
+		Level = 3, -- the Hospital
 	},
 }
 

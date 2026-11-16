@@ -10,7 +10,7 @@
 --                    to the next tier, then that tier's boost and rewards ("🥇 Gold → +3% 💰 · 💰400 ⭐8"); a maxed
 --                    badge says so. Values come from Logic/Badges.statValue on the Snapshot (Stats, Playtime, Story,
 --                    Rooms, Decor), the tiers from Snapshot.Badges. The server decides; this only shows it.
--- The banner (ctx.on "Celebrate" (icon, text, colour), and every tier-up the Snapshot shows after the save loaded):
+-- The banner (ctx.on "Cheer" (icon, text, colour), and every tier-up the Snapshot shows after the save loaded):
 -- a candy card slides in at the top with turning rays behind the icon, a bump and a fanfare, then leaves by itself
 -- after a few seconds. It never blocks play, waits while the first-session tutorial runs, and honours calm motion.
 -- Phones: the cards scroll, the tabs share the width, every button is >= 56 px tall.
@@ -339,7 +339,7 @@ function BadgeBook.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- The banner: tier-ups and Doctor ranks
 	--------------------------------------------------------------------------------------------------------------
-	local bannerGui = Kit.screen("Celebrate", Theme.DisplayOrder.Fx)
+	local bannerGui = Kit.screen("CheerBanner", Theme.DisplayOrder.Fx)
 	local banner = Instance.new("Frame")
 	banner.Name = "Banner"
 	banner.AnchorPoint = Vector2.new(0.5, 0)
@@ -422,7 +422,7 @@ function BadgeBook.init(ctx: Types.Ctx)
 		table.insert(queue, { Icon = icon, Text = text, Color = if typeof(color) == "Color3" then color else ACCENT })
 		showNext()
 	end
-	ctx.on("Celebrate", cheer)
+	ctx.on("Cheer", cheer)
 
 	-- Tier-ups the Snapshot shows (never for the save loading in).
 	local known: { [string]: number }? = nil

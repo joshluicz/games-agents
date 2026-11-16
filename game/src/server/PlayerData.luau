@@ -19,6 +19,9 @@
 --   · A join that finds another server's lock waits for it: quick retries for a fast rejoin, then slower ones
 --     until that lock's lease runs out (a server that died without releasing it), never a whole session on
 --     defaults while the real save sits behind a stale lock.
+--   · A rejoin to THIS server (a new Player object, the same UserId) first waits for the old Player's load or
+--     leave-save (bounded by RELEASE_WAIT): the lock carries this server's id, so the claim alone wouldn't stop it,
+--     and the old write landing later would leave a stale save loaded and then clear the new session's lock.
 --   · Dirty is only cleared when nothing changed while the write was in flight.
 --   · A first v2 load reads Config.LegacyDataStoreName once and migrates the shop-sim save.
 --   · Saved day fields later than the real UTC day are pulled back on load (Schema.reconcile's `today`).
@@ -55,6 +58,7 @@ local LOCK_RETRY_SECONDS = 3
 local LOCK_SLOW_RETRY_SECONDS = 10 -- then slower tries until that lock's lease runs out
 local LOCK_MAX_WAIT = LEASE_SECONDS + 30 -- whatever the other server's clock says
 local ERROR_RETRIES = 3
+local RELEASE_WAIT = 60 -- seconds a same-server rejoin waits for the old session's leave-save (retries included)
 local SAVING_OFF_TOAST = "⚠️ Saving is off"
 local WAITING_TOAST = "⏳ Opening your clinic..."
 local FRESH_SAVE = "FreshSave" -- the Workspace attribute (Studio test switch) and the player attribute it sets
@@ -75,6 +79,36 @@ type WriteResult = "Ok" | "Failed" | "LostLock" | "Skipped"
 
 local sessions: { [Player]: Session } = {}
 local pendingWrites = 0
+-- UserId -> store calls still running on this server for a Player of that UserId: a load, or a leave-save.
+-- Keyed by UserId, not Player: a rejoin to the same server is a new Player, and its load waits for these.
+local busy: { [number]: number } = {}
+
+local function hold(userId: number)
+	busy[userId] = (busy[userId] or 0) + 1
+end
+
+local function unhold(userId: number)
+	local left = (busy[userId] or 1) - 1
+	busy[userId] = if left > 0 then left else nil
+end
+
+-- A rejoin to this server: the last Player's load or leave-save lands first. Its lock carries this server's id, so
+-- claim() would take it at once; the old write would then clear the new session's lock (and this load would read a
+-- save from before it). Bounded by RELEASE_WAIT. False if the player left meanwhile.
+local function waitForStore(player: Player): boolean
+	local started = os.clock()
+	while busy[player.UserId] do
+		if player.Parent ~= Players then
+			return false
+		end
+		if os.clock() - started > RELEASE_WAIT then
+			warn("[PlayerData] The last save for", player.UserId, "is still running; loading anyway")
+			break
+		end
+		task.wait(0.2)
+	end
+	return player.Parent == Players
+end
 
 local function getStore(name: string): DataStore?
 	local ok, result = pcall(function()
@@ -363,10 +397,14 @@ local function load(player: Player)
 
 	local data: Data, canSave: boolean, owned: boolean = Schema.default(), false, false
 	local fresh = freshSave()
+	local userId = player.UserId
+	local held = false
 	if fresh then
 		warn("[PlayerData] FreshSave is on (Studio only): " .. player.Name .. " plays a blank save that is never saved")
 		task.wait() -- a real load always yields: let every system start first, as it would live
-	else
+	elseif waitForStore(player) then
+		hold(userId) -- a quicker rejoin waits for this load (and its hand-back below)
+		held = true
 		local loaded, err = pcall(function()
 			data, canSave, owned = loadFromStore(player)
 		end)
@@ -389,10 +427,18 @@ local function load(player: Player)
 	}
 
 	if player.Parent ~= Players then
-		-- Left while loading: hand the lock straight back, without writing data.
+		-- Left while loading: hand the lock straight back, without writing data (a quick rejoin waits for it).
 		session.CanSave = false
-		task.spawn(write, player, session, true)
+		task.spawn(function()
+			pcall(write, player, session, true)
+			if held then
+				unhold(userId)
+			end
+		end)
 		return
+	end
+	if held then
+		unhold(userId)
 	end
 
 	sessions[player] = session
@@ -412,22 +458,30 @@ local function release(player: Player)
 		return
 	end
 	session.Released = true
+	local userId = player.UserId
+	hold(userId) -- a rejoin to this server waits for this leave-save (waitForStore)
 	-- Let other PlayerRemoving handlers (a cure landing, a goal) finish their last update first.
 	task.wait()
 	-- The last save, and the lock handed back. A failed request is retried with backoff (it writes the whole
 	-- save, so a repeat is harmless); without that, one hiccup loses everything since the last autosave and
 	-- strands the lock for a whole lease.
-	for attempt = 1, ERROR_RETRIES do
-		local result, err = write(player, session, true)
-		if result ~= "Failed" or isPermanent(err) or attempt == ERROR_RETRIES then
-			if result == "Failed" then
-				warn("[PlayerData] Gave up on the leave-save for", player.UserId)
+	local done, crash = pcall(function()
+		for attempt = 1, ERROR_RETRIES do
+			local result, err = write(player, session, true)
+			if result ~= "Failed" or isPermanent(err) or attempt == ERROR_RETRIES then
+				if result == "Failed" then
+					warn("[PlayerData] Gave up on the leave-save for", userId)
+				end
+				break
 			end
-			break
+			task.wait(2 ^ (attempt - 1)) -- 1 s, 2 s
 		end
-		task.wait(2 ^ (attempt - 1)) -- 1 s, 2 s
+	end)
+	if not done then
+		warn("[PlayerData] Leave-save crashed for", userId, crash)
 	end
 	sessions[player] = nil
+	unhold(userId)
 end
 
 ------------------------------------------------------------------------------------------------------------------

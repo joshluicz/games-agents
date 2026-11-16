@@ -9,6 +9,10 @@
 -- you're in the first-session tutorial (the server doesn't send one then either: Server/DayReport).
 -- Look (candy pop, memory-20261116-007): an orange header; the count is big gold outlined display text on turning
 -- rays and springs when it lands; candy chips for ⭐ and 📖; new faces in outlined bubbles that pop in one by one.
+-- Juice (depth update, design §4): the count rolls up from 0 with a tick per number (Kit.countUp), then lands with
+-- a fanfare and a confetti burst from it; the ⭐ chip rolls its "+n" and its stars fly into the HUD's ⭐; the chips
+-- and faces pop in one by one; the next goal's bar fills up; the 🛒 button breathes. Calm: the numbers are just
+-- there, no confetti.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -27,6 +31,7 @@ local ACCENT = Theme.Colors.Primary
 local AUTO_CLOSE = 8
 local MAX_FACES = 5
 local FACE_STAGGER = 0.08 -- seconds between each new face's pop
+local COUNT_SECONDS = 0.9 -- the big count's roll
 
 local function textLimit(label: TextLabel, max: number)
 	local limit = Instance.new("UITextSizeConstraint")
@@ -137,11 +142,9 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	})
 	textLimit(cured, 72)
 	Kit.outline(cured, Theme.Size.StrokeLarge)
-	local scoreValue = Instance.new("NumberValue")
-	scoreValue.Parent = cured
-	scoreValue.Changed:Connect(function(v: number)
-		cured.Text = "😊 " .. Hud.format(math.floor(v + 0.5))
-	end)
+	local function curedText(n: number): string
+		return "😊 " .. Hud.format(math.floor(n + 0.5))
+	end
 
 	-- ⭐ and 📖 chips
 	local chips = Instance.new("Frame")
@@ -272,6 +275,7 @@ function DayReportPanel.init(ctx: Types.Ctx)
 		Parent = nextCard,
 	})
 	Kit.shine(goButton) -- opens the in-game 💰 Shop on your next goal (nothing paid lives there)
+	Kit.breathing(goButton)
 
 	-- The auto-close bar along the bottom of the card
 	local timerTrack = Instance.new("Frame")
@@ -302,10 +306,12 @@ function DayReportPanel.init(ctx: Types.Ctx)
 		token += 1
 		local mine = token
 
-		-- The count rolls up from 0.
-		scoreValue.Value = 0
-		cured.Text = "😊 0"
-		starsChip.Text = "⭐ +" .. Hud.format(report.StarsGained)
+		-- The counts roll up from 0.
+		Kit.countUp(cured, 0, curedText, 0)
+		local function starsText(n: number): string
+			return "⭐ +" .. Hud.format(math.floor(n + 0.5))
+		end
+		Kit.countUp(starsChip, 0, starsText, 0)
 		pagesChip.Text = "📖 +" .. #report.NewPages
 		pagesChip.Visible = #report.NewPages > 0
 
@@ -362,7 +368,16 @@ function DayReportPanel.init(ctx: Types.Ctx)
 			local meter, ratio = progressTo(ctx.State, room, upgrade, nextGoal.Id)
 			nextMeter.Text = if meter == "Stars" then "⭐" else "💰"
 			nextFill.BackgroundColor3 = if meter == "Stars" then Theme.Colors.Star else Theme.Colors.Cash
-			nextFill.Size = UDim2.fromScale(ratio, 1)
+			if Hud.calm() then
+				nextFill.Size = UDim2.fromScale(ratio, 1)
+			else
+				nextFill.Size = UDim2.fromScale(0, 1) -- fills up once the count has landed
+				task.delay(1.3, function()
+					if token == mine then
+						TweenService:Create(nextFill, Theme.Tween.Fill, { Size = UDim2.fromScale(ratio, 1) }):Play()
+					end
+				end)
+			end
 		end
 
 		modal.open()
@@ -375,25 +390,23 @@ function DayReportPanel.init(ctx: Types.Ctx)
 			end)
 		end
 		if Hud.calm() then
-			scoreValue.Value = report.Cured
+			Kit.countUp(cured, report.Cured, curedText, 0)
+			Kit.countUp(starsChip, report.StarsGained, starsText, 0)
 		else
 			task.delay(0.25, function()
 				if token == mine then
-					TweenService:Create(
-						scoreValue,
-						TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-						{ Value = report.Cured }
-					):Play()
-					task.delay(0.9, function()
+					Kit.countUp(cured, report.Cured, curedText, COUNT_SECONDS)
+					task.delay(COUNT_SECONDS, function()
 						if token == mine then
 							Kit.bump(score) -- the number and its rays spring together
-							Kit.bump(starsChip)
+							Kit.confetti(modal.Root, 26, UDim2.fromScale(0.5, 0.25))
+							Kit.countUp(starsChip, report.StarsGained, starsText, 0.5)
 							if pagesChip.Visible then
 								task.delay(FACE_STAGGER, Kit.bump, pagesChip)
 							end
 							Hud.sound("Fanfare")
 							if report.StarsGained > 0 then
-								Hud.fly(starsChip, "⭐", "Stars", math.min(report.StarsGained, 6))
+								task.delay(0.5, Hud.fly, starsChip, "⭐", "Stars", math.min(report.StarsGained, 6))
 							end
 						end
 					end)

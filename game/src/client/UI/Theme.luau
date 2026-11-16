@@ -81,15 +81,44 @@ Theme.Size = table.freeze({
 Theme.Tween = table.freeze({
 	Press = TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 	Release = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-	PopIn = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	Hover = TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	PopIn = TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 	PopOut = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 	Fade = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 	Bump = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 	Shine = TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+	Slide = TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out), -- toasts and panels slide in
+	SlideOut = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+	Fill = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), -- progress bars filling up
 })
 Theme.PressScale = 0.9
+Theme.HoverScale = 1.05 -- a mouse over a Kit button (computers only; touch never hovers)
+Theme.PopFrom = 0.75 -- Kit.popIn grows from this scale
 Theme.ShineEvery = 3.5 -- seconds between shine sweeps on call-to-action buttons
 Theme.RaysSpin = 18 -- seconds per turn of the reward rays
+
+-- Depth update juice (design §4). Every one of these stops with reduced motion (Kit.reducedMotion()).
+Theme.Juice = table.freeze({
+	BreathScale = 0.045, -- idle "breathing" on a call to action: grows this much at the top of a breath
+	BreathSeconds = 1.6, -- one breath, in and out
+	DotHopEvery = 2.6, -- a red "something new" dot hops this often
+	ShimmerSeconds = 2.2, -- one sweep of a rarity frame's shimmer (Legendary and up turn faster)
+	CountSeconds = 0.6, -- Kit.countUp's default roll (Kit.Juice.countSeconds stretches it for big jumps)
+	ConfettiPieces = 28, -- one Kit.confetti burst
+	ConfettiSeconds = 1.8, -- how long a piece takes to fall
+	CelebrateSeconds = 7, -- a celebration screen closes itself after this (tap to close sooner)
+	FlySeconds = 0.55, -- a flying coin's trip to the wallet, after its burst
+})
+
+-- The candy confetti set (UI and world).
+Theme.Confetti = table.freeze({
+	Palette.Candy.Pink,
+	Palette.Candy.Yellow,
+	Palette.Candy.Cyan,
+	Palette.Candy.Lime,
+	Palette.Candy.Purple,
+	Palette.Candy.Orange,
+})
 
 -- ScreenGui.DisplayOrder: higher draws on top.
 Theme.DisplayOrder = table.freeze({
@@ -97,7 +126,8 @@ Theme.DisplayOrder = table.freeze({
 	Hud = 10,
 	Panel = 20, -- Shop, Book, Goals
 	Popup = 30, -- Mailbox letter, Day Report
-	Fx = 40, -- cure pops, NEW PAGE banner
+	Fx = 40, -- cure pops, NEW PAGE banner, flying coins
+	Celebrate = 45, -- level-up, new nurse, set complete, new room (UI/Celebrate)
 	Toast = 50,
 })
 

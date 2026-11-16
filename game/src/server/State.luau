@@ -11,6 +11,8 @@
 -- Time played, boosts and badges: Playtime, Stats and Badges are the saved fields; Boosts is Server/Boosts.list (timed
 -- boosts running, permanent percents) and MakeSeconds the hold time at each station with every boost (the client's
 -- ring follows it, Guide). The live play seconds are the player attributes PlayToday/PlayTotal (Server/Playtime).
+-- Depth update (build plan §B2): Level, Nurses, Equipped, NurseIndex, JournalSets and Simple are copies of the save
+-- fields of the same names. Slots aren't sent: the client reads them from Data/Levels.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -99,6 +101,12 @@ function State.snapshot(player: Player): Types.Snapshot
 		MakeSeconds = makeSeconds(player),
 		Stats = deepCopy(data.Stats),
 		Badges = deepCopy(data.Badges),
+		Level = data.Level,
+		Nurses = deepCopy(data.Nurses),
+		Equipped = deepCopy(data.Equipped),
+		NurseIndex = deepCopy(data.NurseIndex),
+		JournalSets = deepCopy(data.JournalSets),
+		Simple = data.Simple,
 	}
 end
 

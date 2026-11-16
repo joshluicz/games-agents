@@ -13,6 +13,10 @@
 -- Look (candy pop, memory-20261116-007): the letter has a blue header, the envelope sits on turning rays while a
 -- gift waits, and the gift amount is big gold outlined text; Goals has a lime header and candy cards whose claim
 -- button shines once a goal is done. The gift and the goals are free in-game 💰 and ⭐, never Robux.
+-- Juice (depth update, design §4): the gift amount rolls up from 0 as the letter unfolds (Kit.countUp); a claim
+-- button that has something waiting breathes (Kit.breathing); claiming bursts confetti from it and flies the 💰 and
+-- ⭐ into the HUD; goal bars fill up and their counts roll while the panel is open, and a goal that just filled
+-- pops its claim button in. Calm: no confetti, numbers simply set.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -210,6 +214,18 @@ local function buildLetter(ctx: Types.Ctx)
 	})
 	Kit.shine(claim)
 	modal.Focus = claim
+	local stopBreath: (() -> ())? = nil
+	local function breathe(on: boolean)
+		if on and not stopBreath then
+			stopBreath = Kit.breathing(claim)
+		elseif not on and stopBreath then
+			stopBreath()
+			stopBreath = nil
+		end
+	end
+	local function giftText(n: number): string
+		return "🎁 💰" .. Hud.format(math.floor(n + 0.5))
+	end
 
 	-- The rays turn only while the letter is open and a gift waits.
 	local function syncRays()
@@ -272,10 +288,12 @@ local function buildLetter(ctx: Types.Ctx)
 		envelope.Text = if ready then "💌" else "📭"
 		note.Visible = ready
 		gift.Visible = ready
-		gift.Text = "🎁 💰" .. Hud.format(ctx.Config.MailboxGiftCash or 0)
+		-- (A roll already heading to this amount carries on: see animateOpen.)
+		Kit.countUp(gift, ctx.Config.MailboxGiftCash or 0, giftText, 0)
 		claim.Text = if ready then "🎁 Open!" else "👍 OK"
-		-- A gift waiting: the lime "Open!" with a shine. Nothing waiting: a plain blue OK.
+		-- A gift waiting: the lime "Open!" with a shine, breathing. Nothing waiting: a plain blue OK.
 		paintButton(claim, if ready then Theme.Colors.Good else Theme.Colors.Secondary, ready)
+		breathe(ready)
 		if ready then
 			message.Text = if drawFaces(state) > 0 then "Thank you, doctor!" else "Welcome to your clinic!"
 		end
@@ -309,7 +327,13 @@ local function buildLetter(ctx: Types.Ctx)
 		end)
 		if note.Visible then
 			Hud.pop(note, 0.6)
-			task.delay(0.35, Kit.bump, gift) -- the gift amount springs once the letter unfolds
+			-- The gift amount rolls up from 0 once the letter unfolds.
+			Kit.countUp(gift, 0, giftText, 0)
+			task.delay(0.35, function()
+				if gift.Visible then
+					Kit.countUp(gift, ctx.Config.MailboxGiftCash or 0, giftText, 0.7)
+				end
+			end)
 		end
 	end
 
@@ -331,7 +355,9 @@ local function buildLetter(ctx: Types.Ctx)
 		claim.Interactable = true
 		if ok then
 			ctx.fire("Claimed", "Mailbox")
+			breathe(false)
 			Kit.bump(gift)
+			Kit.confetti(modal.Root, 24, UDim2.fromScale(0.5, 0.45))
 			Hud.fly(gift, "💰", "Cash", 8)
 			Hud.sound("Chime")
 			if reply ~= "" then
@@ -378,6 +404,7 @@ type GoalRow = {
 	Reward: TextLabel,
 	Claim: TextButton,
 	Done: boolean, -- as last drawn, so the claim button springs in once when a goal fills
+	Goal: string, -- the goal id drawn, so a new goal in the same row doesn't roll from the old one
 }
 
 local function buildGoals(ctx: Types.Ctx)
@@ -504,6 +531,7 @@ local function buildGoals(ctx: Types.Ctx)
 			Parent = frame,
 		})
 		Kit.shine(claim)
+		Kit.breathing(claim) -- only moves while it shows (a goal is done)
 		local row: GoalRow = {
 			Frame = frame,
 			Icon = icon,
@@ -513,6 +541,7 @@ local function buildGoals(ctx: Types.Ctx)
 			Reward = reward,
 			Claim = claim,
 			Done = false,
+			Goal = "",
 		}
 
 		claim.Activated:Connect(function()
@@ -534,6 +563,8 @@ local function buildGoals(ctx: Types.Ctx)
 			if ok then
 				ctx.fire("Claimed", "Goal", def.Id)
 				Hud.sound("Fanfare")
+				local origin = claim.AbsolutePosition + claim.AbsoluteSize / 2 - modal.Root.AbsolutePosition
+				Kit.confetti(modal.Root, 20, UDim2.fromOffset(origin.X, origin.Y))
 				if (def.Reward.Cash or 0) > 0 then
 					Hud.fly(claim, "💰", "Cash", 6)
 				end
@@ -566,16 +597,30 @@ local function buildGoals(ctx: Types.Ctx)
 				row.Frame.Visible = true
 				local progress = math.clamp(goal.Progress or 0, 0, def.Target)
 				local done = progress >= def.Target
+				-- While the panel is open, the same goal's count rolls and its bar fills; otherwise they're set.
+				local live = modal.isOpen() and row.Goal == def.Id and not Hud.calm()
+				row.Goal = def.Id
 				row.Icon.Text = def.Icon
 				row.Text.Text = goalText(data, def)
-				row.Count.Text = progress .. "/" .. def.Target
+				local target = def.Target
+				Kit.countUp(row.Count, progress, function(n: number): string
+					return math.floor(n + 0.5) .. "/" .. target
+				end, if live then nil else 0)
 				row.Reward.Text = rewardText(def)
-				row.Fill.Size = UDim2.fromScale(progress / math.max(def.Target, 1), 1)
+				local goalSize = UDim2.fromScale(progress / math.max(def.Target, 1), 1)
+				if live and row.Fill.Size ~= goalSize then
+					TweenService:Create(row.Fill, Theme.Tween.Fill, { Size = goalSize }):Play()
+				else
+					row.Fill.Size = goalSize
+				end
 				row.Claim.Visible = done
 				row.Claim.Text = "🎁"
 				row.Frame.BackgroundColor3 = if done then Kit.lighten(Theme.Colors.Good, 0.85) else Theme.Colors.Paper
 				if done and not row.Done then
-					Kit.bump(row.Claim)
+					Kit.punch(row.Claim, 0.4, Theme.Tween.PopIn)
+					if live then
+						Hud.sound("Sparkle")
+					end
 				end
 				row.Done = done
 			elseif rows[index] then

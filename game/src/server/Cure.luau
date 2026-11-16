@@ -4,9 +4,11 @@
 --   Cure.resolve(ctx: Types.CureCtx): Result?
 --
 -- In order (each step is guarded, so a broken system downstream never stops the payout before it):
---   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic). Boosts
+--   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic; so
+--                                 do the recipe's length and the plot's Cheerer, ctx.Items and ctx.Cheer). Boosts
 --                                 (Server/Boosts): the helper's Cash and Tips boosts (they earn the cash) and the
---                                 owner's Stars boost (they earn the stars), scoped to night and the patient's wing
+--                                 owner's Stars boost (they earn the stars), scoped to night and the patient's wing.
+--                                 Every factor multiplies once, in Logic/Pay, with one rounding at the end
 --   2. Economy.addCash(helper)    the helper earns the cash (and their Cured count goes up, and this UTC week's
 --                                 count for the weekly leaderboard: Logic/Leaderboard.addWeekCure), then
 --                                 Badges.onCure counts the cure for the badges (Server/Badges)
@@ -86,6 +88,8 @@ local function sanitize(ctx: any): Types.CureCtx?
 	if type(patience) ~= "number" or patience ~= patience then
 		patience = 0
 	end
+	local items = ctx.Items
+	local cheer = ctx.Cheer
 	return {
 		Helper = ctx.Helper,
 		Owner = ctx.Owner,
@@ -96,6 +100,10 @@ local function sanitize(ctx: any): Types.CureCtx?
 		Visitor = ctx.Visitor == true,
 		PatienceLeft = math.clamp(patience, 0, 1),
 		Position = if typeof(ctx.Position) == "Vector3" then ctx.Position else Vector3.zero,
+		Items = if type(items) == "number" and items == items
+			then math.clamp(math.floor(items), 1, Pay.MAX_ITEMS)
+			else 1,
+		Cheer = if type(cheer) == "number" and cheer == cheer then math.clamp(cheer, 1, Pay.MAX_CHEER) else 1,
 	}
 end
 
@@ -130,6 +138,8 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 		Variant = cure.Variant,
 		Visitor = cure.Visitor,
 		Regular = cure.Regular ~= nil,
+		Items = cure.Items,
+		Cheer = cure.Cheer,
 		Cfg = Config,
 		CashBoost = cashBoost, -- playtime branch
 		TipsBoost = tipsBoost, -- playtime branch

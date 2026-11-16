@@ -3,8 +3,10 @@
 --   Pay.reward(args): { Cash: number, Stars: number }
 --
 -- Cash = BasePay
+--      x (1 + RecipeItemBonus x (Items - 1))    a longer recipe pays more: +50% for each item after the first
 --      x (1 + QuickServeBonus x PatienceLeft)   cure while they still have patience: up to +50%
 --      x (1 + TipsPerLevel x Tips)              the clinic's Tip Jar level: +20% each
+--      x Cheer                                  the plot's Cheerer on duty (CheerTip, 1 = none; at most x3)
 --      x NightPayMultiplier                     night patients
 --      x SparklyMultiplier / FrostyMultiplier   a rare variant
 --      x VisitorMultiplier                      Today's Visitor
@@ -18,6 +20,7 @@
 -- Cfg field counts as "no bonus", so a bad call pays a little instead of erroring mid-cure.
 
 export type Cfg = {
+	RecipeItemBonus: number?,
 	QuickServeBonus: number?,
 	TipsPerLevel: number?,
 	NightPayMultiplier: number?,
@@ -34,6 +37,8 @@ export type RewardArgs = {
 	Variant: string?, -- VariantId: "Sparkly" | "Frosty"
 	Visitor: boolean,
 	Regular: boolean,
+	Items: number?, -- the patient's recipe length (1..MAX_ITEMS; nil = 1)
+	Cheer: number?, -- the plot's Cheerer tip multiplier (nil or below 1 = none)
 	Cfg: Cfg, -- Shared/Config
 	CashBoost: number?, -- a multiplier >= 1 (Server/Boosts); nil or junk = 1
 	TipsBoost: number?, -- a fraction >= 0 added to the Tip Jar factor; nil or junk = 0
@@ -47,6 +52,8 @@ local Pay = {}
 Pay.STARS_DAY = 1
 Pay.STARS_NIGHT = 2
 Pay.STARS_SPECIAL = 3 -- a regular or Today's Visitor
+Pay.MAX_ITEMS = 3 -- recipes are 1..3 items (Logic/Recipe.MAX)
+Pay.MAX_CHEER = 3 -- a sanity cap on the Cheerer multiplier (Cheerers give at most ~1.4)
 
 -- VariantId -> the Config field holding its cash multiplier.
 local VARIANT_MULTIPLIER: { [string]: string } = {
@@ -86,13 +93,18 @@ function Pay.reward(args: RewardArgs): Reward
 	local patience = fraction(args.PatienceLeft)
 	local tips = math.max(0, math.floor(numberOr(args.Tips, 0)))
 
+	local items = math.clamp(math.floor(numberOr(args.Items, 1)), 1, Pay.MAX_ITEMS)
+	local cheer = numberOr(args.Cheer, 1)
+	cheer = if cheer >= 1 then math.min(cheer, Pay.MAX_CHEER) else 1
 	local cashBoost = math.max(1, numberOr(args.CashBoost, 1))
 	local tipsBoost = math.max(0, numberOr(args.TipsBoost, 0))
 	local starsBoost = math.max(1, numberOr(args.StarsBoost, 1))
 
 	local cash = math.max(0, numberOr(args.BasePay, 0))
+	cash *= 1 + bonus(cfg, "RecipeItemBonus") * (items - 1)
 	cash *= 1 + bonus(cfg, "QuickServeBonus") * patience
 	cash *= 1 + bonus(cfg, "TipsPerLevel") * tips + tipsBoost
+	cash *= cheer
 	if args.Night == true then
 		cash *= multiplier(cfg, "NightPayMultiplier")
 	end

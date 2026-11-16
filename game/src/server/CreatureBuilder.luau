@@ -9,8 +9,9 @@
 --     (a Model, or one MeshPart) replaces the placeholder look; its pivot's LookVector must be the creature's face.
 --     Size (Logic/CreatureSize): the species' Look.Scale x Config.CreatureSize x a per-patient wobble (±8%).
 --     Candy pop (memory-20261116-007): saturated SmoothPlastic bodies, dark eyes with white shine. Night patients
---     glow in a rich version of their body colour (PointLight, a Highlight rim, a little Neon on their tips).
---     Sparkly gets rainbow bits and rainbow glitter; Frosty an icy cyan tint and frost sparkles.
+--     glow in a rich version of their body colour (a shadow-free PointLight, a Neon glow ring under their feet and
+--     Neon on their tips; no Highlight). Sparkly gets rainbow bits and rainbow glitter; Frosty an icy cyan tint and
+--     frost sparkles. Tagged CreatureBuilder.MOTION_TAG, so every client draws its hops (Feel/CreatureMotion).
 --   CreatureBuilder.badge(model): Badge?             the ailment badge (IconGui) and speech bubble (BubbleGui)
 --   CreatureBuilder.setRing(badge, fraction, colour) the badge's ring: 0..1, filling clockwise from 12 o'clock
 --   CreatureBuilder.setMood(model, mood)             "Sick" (little o mouth, worried brows) | "Happy" | "Sad" | "Sleep"
@@ -18,7 +19,40 @@
 --   CreatureBuilder.effectAt(position, kind)         a one-off burst that outlives the creature:
 --                                                    "Cure" | "Puff" (sad) | "Pop" (leaving)
 --
--- Model layout (Patients and Feel/CreatureActing rely on it):
+--   Depth update (build plan §B8; Foundation added these, T7 owns the file and keeps both signatures):
+--   CreatureBuilder.buildLook(look, name?): Model    a plain creature from any Look (Data/Nurses uses the same
+--                                                    recipe), built exactly like a patient (the v2 body, Root, Core
+--                                                    on Root.PoseJoint, limb Motor6Ds, sockets; sized by Look.Scale
+--                                                    x Config.CreatureSize, no wobble) with IconAnchor, but no badge,
+--                                                    no effects and no tags. NurseBuilder starts from it.
+--   CreatureBuilder.rigKit(model): Model             the same Root, Core and PoseJoint (and guessed sockets) for a
+--                                                    kit Model (NurseBuilder's ServerStorage.Nurses), so a nurse from
+--                                                    the brother's kit follows the same rig conventions.
+--   CreatureBuilder.setRecipe(badge, items, done)    show a patient's recipe on its badge (items = ItemIds in recipe
+--                                                    order, done = booleans). One item: the Need chip, as before
+--                                                    (hidden once given). Two or three: a row of item chips along
+--                                                    the badge's bottom edge, the next one to give a little bigger,
+--                                                    each given one dimmed with a ✅. Nothing left: no chips.
+--
+--   Creature motion (build plan §B4, the depth update's perf pass): the server never moves a creature every frame.
+--   For each animation it sets attributes once, and every client draws the in-between (Feel/CreatureMotion). These
+--   helpers only set attributes: they never yield and never move anything. The caller waits and then writes the end
+--   pose once itself (Root.CFrame = to; Model:ScaleTo(to)), so late joiners and server checks see the right place.
+--   CreatureBuilder.MOTION_TAG                       "CreatureMotion": build() tags patients; tag plot nurses too
+--   CreatureBuilder.hop(model, from, to, seconds, height, spin?, lean?)   HopFrom/HopTo/HopSeconds/HopHeight/
+--                                                    HopSpin/HopLean, then HopAt (server time) last
+--   CreatureBuilder.shake(model)                     ShakeAt: a 0.55 s "no, not that" head-shake
+--   CreatureBuilder.tilt(model, radians)             Tilt: a droop over everything else (0 = upright)
+--   CreatureBuilder.scale(model, from, to, seconds, style, direction)   ScaleFrom/ScaleTo/ScaleSeconds/ScaleStyle
+--                                                    ("Back"|"Sine"|"Quad")/ScaleDir ("In"|"Out"), then ScaleAt
+--
+-- Performance rules every creature keeps (build plan Review focus 4; docs/plan/2026-11-16-perf-budget.md): no
+-- Highlight (the world keeps at most one, and creatures never use it), no light casts shadows, and only parts at
+-- least SHADOW_STUDS across cast a shadow (the body's shadow covers the eyes, cheeks, feet and ears). A kit model
+-- from ServerStorage.Creatures is held to the same rules: its Highlights are removed (with a warning) and its
+-- lights' Shadows turned off.
+--
+-- Model layout (Patients, NurseBuilder and Feel/CreatureActing rely on it):
 --   PrimaryPart `Root`: an invisible anchored part at the bottom centre of the body. The pivot IS Root.CFrame, and
 --   its LookVector is where the face looks. Moving Root moves the whole creature with one replicated CFrame.
 --   `Core`: an invisible part on Root, joined by the Motor6D Root.PoseJoint (C0 = C1 = identity). Every visible part
@@ -33,7 +67,10 @@
 --   BellySocket, BackSocket and, on a teapot, SpoutSocket. Each one's front (-Z) faces out of the surface.
 --   Model attributes: PatientId, BuildScale (studs per unit at full size; Scale 1 is about 3 units tall), HeadRadius
 --   and NeckSize (studs: Vector3 width, 0, depth of the body at NeckSocket), Brows ("Grumpy" for a grumpy species).
---   Tag "ClinicCreature" (CollectionService), so clients find every creature as it streams in.
+--   Tags (CollectionService): "ClinicCreature" (Feel/CreatureActing acts its ailment) and MOTION_TAG
+--   "CreatureMotion" (Feel/CreatureMotion draws its hops), so clients find every patient as it streams in.
+--   CreatureMotion moves Root (its local CFrame) and the model's scale; CreatureActing only sets the Motor6Ds'
+--   Transform under it, so the two never fight.
 --   Root.IconAnchor (Attachment above the head) holds the BillboardGuis IconGui and BubbleGui. The badge is
 --   chunky and outlined like the top games' billboards: a dark rim, the patience ring, the station's candy ring
 --   and a white disc with the ailment, plus corner chips (what it needs, Today's Visitor ⭐, the variant).
@@ -175,6 +212,37 @@ local NEAR_STUDS = 16
 
 -- Big parts keep their own colour on a Sparkly creature; the small bits (ears, tops, wings, tails) go rainbow.
 local BIG_PARTS = { Body = true, Head = true, Belly = true, BellyTop = true, Crust = true, Puddle = true, Arm = true }
+
+-- Performance: only parts at least this many studs across (after scaling) cast a shadow.
+local SHADOW_STUDS = 1.5
+-- A night creature's glow ring under its feet (Neon, no Highlight): this much wider than the body, this see-through.
+local GLOW_RING_WIDTH = 1.15
+local GLOW_RING_TRANSPARENCY = 0.35
+
+-- The recipe row on the badge (setRecipe): chip centres along the face's bottom edge, in face-relative scale.
+local RECIPE_MAX = 3
+local RECIPE_Y = 0.92
+local TICK = "✅"
+-- Each item's chip ring is the colour of the station that makes it.
+local ITEM_RING: { [string]: Color3 } = {}
+for _, itemId in Items.Order do
+	local station = Stations[Items[itemId].Station]
+	ITEM_RING[itemId] = if station then station.Color else DEFAULT_STATION
+end
+
+-- BEGIN PURE: no services; a scratch Lune harness loads this block on its own.
+-- Where each of a recipe's chips sits along the bottom of the badge face (X centre, face-relative) and how big
+-- (Size, face-relative), in recipe order. The first item still missing (`nextIndex`) is drawn a little bigger.
+-- Fewer than 2 items: none (one item uses the Need chip).
+local function recipeLayout(count: number, nextIndex: number?): { { X: number, Size: number } }
+	local spots: { { X: number, Size: number } } = {}
+	local xs = if count == 2 then { 0.3, 0.7 } elseif count >= 3 then { 0.14, 0.5, 0.86 } else {}
+	for index, x in xs do
+		table.insert(spots, { X = x, Size = if index == nextIndex then 0.42 else 0.34 })
+	end
+	return spots
+end
+-- END PURE
 
 local DEFAULT_LOOK: Look = {
 	Shape = "Ball",
@@ -1408,23 +1476,39 @@ local function addEffects(model: Model, root: Part, middle: number, night: boole
 	fx.Parent = root
 
 	if night then
-		-- Spooky-cute: a rich glow in the creature's own colour, never scary.
+		-- Spooky-cute: a rich glow in the creature's own colour, never scary. A Neon ring under its feet and a
+		-- shadow-free PointLight do what a Highlight rim did, at a fraction of the cost (no Highlights on creatures).
 		local color = glowOf(body)
 		local glow = Instance.new("PointLight")
 		glow.Name = "NightGlow"
 		glow.Color = color
-		glow.Brightness = 1.5
-		glow.Range = 11
+		glow.Brightness = 1.8
+		glow.Range = 12
 		glow.Shadows = false
 		glow.Parent = fx
-		local halo = Instance.new("Highlight") -- one per night creature only (Roblox shows 31 at most)
-		halo.Name = "NightHalo"
-		halo.FillColor = color
-		halo.FillTransparency = 0.8 -- a light wash, so the face still reads
-		halo.OutlineColor = color
-		halo.OutlineTransparency = 0.1 -- a bright rim
-		halo.DepthMode = Enum.HighlightDepthMode.Occluded
-		halo.Parent = model
+
+		local extents = model:GetExtentsSize()
+		local width = math.max(extents.X, extents.Z, 0.5) * GLOW_RING_WIDTH
+		local ring = Instance.new("Part")
+		ring.Name = "GlowRing"
+		ring.Shape = Enum.PartType.Cylinder
+		ring.Size = Vector3.new(0.08, width, width) -- a cylinder runs along X: stood on end, it's a flat disc
+		ring.CFrame = root.CFrame * CFrame.new(0, 0.06, 0) * CFrame.Angles(0, 0, math.pi / 2)
+		ring.Material = Enum.Material.Neon
+		ring.Color = color
+		ring.Transparency = GLOW_RING_TRANSPARENCY
+		ring.CastShadow = false
+		ring.Anchored = false
+		ring.Massless = true
+		ring.CanCollide = false
+		ring.CanQuery = false
+		ring.CanTouch = false
+		ring.CollisionGroup = COLLISION_GROUP
+		ring.Parent = model
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = root
+		weld.Part1 = ring
+		weld.Parent = ring
 	end
 
 	local healLight = Instance.new("PointLight")
@@ -1457,6 +1541,32 @@ local function addEffects(model: Model, root: Part, middle: number, night: boole
 		frost.Lifetime = NumberRange.new(1, 1.8)
 		frost.LightEmission = 0.6
 		frost.Parent = fx
+	end
+end
+
+-- The performance rules (header): no Highlights, no shadow-casting lights, no shadows from small parts. `source`
+-- names a kit model in the warning; the placeholder never has a Highlight.
+local warnedHighlight: { [string]: boolean } = {}
+local function trimForPerformance(model: Model, source: string)
+	local removed = 0
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("Highlight") then
+			descendant:Destroy()
+			removed += 1
+		elseif descendant:IsA("Light") then
+			descendant.Shadows = false
+		elseif descendant:IsA("BasePart") then
+			local size = descendant.Size
+			if math.max(size.X, size.Y, size.Z) < SHADOW_STUDS then
+				descendant.CastShadow = false
+			end
+		end
+	end
+	if removed > 0 and not warnedHighlight[source] then
+		warnedHighlight[source] = true
+		warn(
+			"[CreatureBuilder] Removed " .. removed .. " Highlight(s) from " .. source .. " (creatures never use them)"
+		)
 	end
 end
 
@@ -1607,6 +1717,9 @@ local function makeBadge(
 	star.Visible = false
 	local stickerFrame = chip(face, "Sticker", 0.4, UDim2.fromScale(0.86, 0.14), stickerRing, sticker or "")
 	stickerFrame.Visible = sticker ~= nil
+	-- A 2-3 item recipe's chips (setRecipe fills it in); hidden until a recipe has more than one item.
+	local recipe = holder(face, "Recipe", 1, 7)
+	recipe.Visible = false
 	gui.Parent = anchor
 
 	-- A regular's speech bubble: an emote and 6 words or fewer, in chunky outlined letters on a candy bubble with a
@@ -1737,10 +1850,125 @@ function CreatureBuilder.build(patientId: string, variant: string?): Model
 		if variant then STICKER_RING[variant] or WHITE else WHITE
 	)
 
+	trimForPerformance(model, if kitModel then "Creatures." .. patientId else "the placeholder")
 	model.Name = patientId
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic -- streams in whole, never half a creature
 	model:SetAttribute("PatientId", patientId)
-	model:AddTag(CREATURE_TAG)
+	model:AddTag(CREATURE_TAG) -- Feel/CreatureActing acts its ailment on the Motor6Ds
+	model:AddTag(CreatureBuilder.MOTION_TAG) -- its hops are drawn on the clients (Feel/CreatureMotion)
+	return model
+end
+
+-- Not tagged: the caller decides how it moves (plot nurses use the motion attributes and the tag; belt riders
+-- follow the belt formula instead, build plan §B4).
+function CreatureBuilder.buildLook(look: any, name: string?): Model
+	local recipe: Look = if type(look) == "table" then look else DEFAULT_LOOK
+	-- The species' own size, player-sized like the patients, with no wobble (every copy of a nurse is the same).
+	local scale = CreatureSize.scale(recipe.Scale, Config)
+	local model, _, info = placeholder(recipe, false, scale)
+	local root, height = addRoot(model, true)
+	rig(model, root, info)
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "IconAnchor"
+	anchor.Position = Vector3.new(0, height + 0.25, 0)
+	anchor.Parent = root
+	trimForPerformance(model, "the placeholder")
+	model.Name = name or "Creature"
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	return model
+end
+
+-- One chip's look: the item's icon on its station's colour; a given item dims and gets a ✅ (if the chip has one).
+local function paintChip(chipFrame: GuiObject, itemId: any, given: boolean)
+	local item = if type(itemId) == "string" then rawget(Items :: any, itemId) else nil -- never `Order`
+	chipFrame.BackgroundColor3 = if item then ITEM_RING[itemId] or DEFAULT_STATION else DEFAULT_STATION
+	local icon = chipFrame:FindFirstChild(chipFrame.Name .. "Icon", true)
+	if icon and icon:IsA("TextLabel") then
+		icon.Text = if item then item.Icon else ""
+		icon.TextTransparency = if given then 0.55 else 0
+	end
+	local inner = chipFrame:FindFirstChild("Inner")
+	if inner and inner:IsA("GuiObject") then
+		inner.BackgroundTransparency = if given then 0.3 else 0
+	end
+	local tick = chipFrame:FindFirstChild("Tick")
+	if tick and tick:IsA("GuiObject") then
+		tick.Visible = given
+	end
+end
+
+local function recipeChip(row: Frame, name: string): Frame
+	local found = row:FindFirstChild(name)
+	if found and found:IsA("Frame") then
+		return found
+	end
+	local made = chip(row, name, 0.34, UDim2.fromScale(0.5, RECIPE_Y), DEFAULT_STATION, "")
+	local tick = emoji(made, "Tick", TICK, 0.6, 9)
+	tick.Position = UDim2.fromScale(0.84, 0.16)
+	tick.Visible = false
+	return made
+end
+
+function CreatureBuilder.setRecipe(badge: Badge, items: { string }, done: { boolean })
+	local list: { any } = if type(items) == "table" then items else {}
+	local given: { any } = if type(done) == "table" then done else {}
+	local count = math.min(#list, RECIPE_MAX)
+	local nextIndex: number? = nil
+	for index = 1, count do
+		if given[index] ~= true then
+			nextIndex = index
+			break
+		end
+	end
+
+	local face = badge.Gui:FindFirstChild("Face")
+	local found = face and face:FindFirstChild("Recipe")
+	local row: Frame? = if found and found:IsA("Frame") then found else nil
+	local need = badge.Need
+	if count <= 1 or not row then
+		-- One item (or none): the Need chip shows what's still missing, as it always has.
+		if row then
+			row.Visible = false
+		end
+		paintChip(need, if nextIndex then list[nextIndex] else nil, false)
+		need.Visible = nextIndex ~= nil
+		return
+	end
+
+	need.Visible = false
+	row.Visible = nextIndex ~= nil -- all given: the treat flow takes the badge over
+	local spots = recipeLayout(count, nextIndex)
+	for index = 1, RECIPE_MAX do
+		local name = "Item" .. index
+		local spot = spots[index]
+		if spot then
+			local chipFrame = recipeChip(row, name)
+			chipFrame.Position = UDim2.fromScale(spot.X, RECIPE_Y)
+			chipFrame.Size = UDim2.fromScale(spot.Size, spot.Size)
+			paintChip(chipFrame, list[index], given[index] == true)
+			chipFrame.Visible = true
+		else
+			local extra = row:FindFirstChild(name)
+			if extra and extra:IsA("GuiObject") then
+				extra.Visible = false
+			end
+		end
+	end
+end
+
+-- A kit Model (cloned, scripts removed, every part anchored, its face looking at -Z) gets the patients' rig: Root at
+-- the bottom centre of its bounding box, Core on Root.PoseJoint with every part welded to it, and sockets guessed
+-- from the box. Pivoted at the origin; returns the model.
+function CreatureBuilder.rigKit(model: Model): Model
+	local root, height = addRoot(model, false)
+	local core = rig(model, root, nil)
+	kitSockets(model, core, height)
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "IconAnchor"
+	anchor.Position = Vector3.new(0, height + 0.25, 0)
+	anchor.Parent = root
+	trimForPerformance(model, model.Name)
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	return model
 end
 
@@ -1864,6 +2092,63 @@ function CreatureBuilder.effectAt(position: Vector3, kind: string)
 	task.delay(2.5, function()
 		attachment:Destroy()
 	end)
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Creature motion: attributes the clients draw (build plan §B4). Setting an attribute to the value it already has
+-- sends nothing, so most hops in a walk (same size, same height) send just HopFrom, HopTo and HopAt.
+------------------------------------------------------------------------------------------------------------------
+
+CreatureBuilder.MOTION_TAG = "CreatureMotion"
+
+local SCALE_STYLES: { [string]: boolean } = { Back = true, Sine = true, Quad = true }
+
+-- One hop from `from` to `to` over `seconds`: `height` studs up at the top, `spin` radians of turn on the way (a
+-- happy spin), `lean` radians forward at the top. The caller waits `seconds`, then writes Root.CFrame = to once.
+function CreatureBuilder.hop(
+	model: Model,
+	from: CFrame,
+	to: CFrame,
+	seconds: number,
+	height: number,
+	spin: number?,
+	lean: number?
+)
+	model:SetAttribute("HopFrom", from)
+	model:SetAttribute("HopTo", to)
+	model:SetAttribute("HopSeconds", math.max(seconds, 0))
+	model:SetAttribute("HopHeight", height)
+	model:SetAttribute("HopSpin", spin or 0)
+	model:SetAttribute("HopLean", lean or 0)
+	model:SetAttribute("HopAt", Workspace:GetServerTimeNow()) -- last: a new HopAt tells the clients to read the set
+end
+
+-- The wrong-item head-shake (0.55 s), on top of whatever else it's doing.
+function CreatureBuilder.shake(model: Model)
+	model:SetAttribute("ShakeAt", Workspace:GetServerTimeNow())
+end
+
+-- A droop over everything else, until it's set back to 0.
+function CreatureBuilder.tilt(model: Model, radians: number)
+	model:SetAttribute("Tilt", radians)
+end
+
+-- Grow or shrink from `from` to `to` over `seconds` (style "Back" | "Sine" | "Quad", direction "In" | "Out"). The
+-- caller writes the end scale once when it's over (Model:ScaleTo(to)).
+function CreatureBuilder.scale(
+	model: Model,
+	from: number,
+	to: number,
+	seconds: number,
+	style: string,
+	direction: string
+)
+	model:SetAttribute("ScaleFrom", from)
+	model:SetAttribute("ScaleTo", to)
+	model:SetAttribute("ScaleSeconds", math.max(seconds, 0))
+	model:SetAttribute("ScaleStyle", if SCALE_STYLES[style] then style else "Quad")
+	model:SetAttribute("ScaleDir", if direction == "In" then "In" else "Out")
+	model:SetAttribute("ScaleAt", Workspace:GetServerTimeNow()) -- last, like HopAt
 end
 
 function CreatureBuilder.start() end

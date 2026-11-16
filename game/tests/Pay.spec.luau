@@ -8,6 +8,7 @@ local Pay = require("../src/shared/Logic/Pay")
 
 local CFG = {
 	BasePay = 12,
+	RecipeItemBonus = 0.5,
 	QuickServeBonus = 0.5,
 	TipsPerLevel = 0.2,
 	NightPayMultiplier = 2,
@@ -143,6 +144,36 @@ T.describe("Pay.reward", function()
 			local reward = Pay.reward(args({ CashBoost = junk, TipsBoost = junk, StarsBoost = junk }))
 			expect(reward).toEqual({ Cash = 18, Stars = 1 })
 		end
+	end)
+
+	test("a longer recipe pays more: +50% per item after the first", function()
+		expect(Pay.reward(args({ Items = 1 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 2 })).Cash).toBe(27) -- 12 x 1.5 x 1.5
+		expect(Pay.reward(args({ Items = 3 })).Cash).toBe(36) -- 12 x 2 x 1.5
+		expect(Pay.reward(args({ Items = 3 })).Stars).toBe(1) -- stars don't change
+	end)
+
+	test("recipe length: junk is 1 item, and never more than 3", function()
+		expect(Pay.reward(args({ Items = nil })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 0 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 0 / 0 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 99 })).Cash).toBe(36)
+	end)
+
+	test("a Cheerer on duty multiplies the cure's cash (so its 💰+5% shows)", function()
+		expect(Pay.reward(args({ PatienceLeft = 0, Cheer = 1.05 })).Cash).toBe(13) -- 12.6
+		expect(Pay.reward(args({ Cheer = 1.25 })).Cash).toBe(23) -- 18 x 1.25 = 22.5
+		expect(Pay.reward(args({ Cheer = 0.5 })).Cash).toBe(18) -- below 1 is no Cheerer
+		expect(Pay.reward(args({ Cheer = 0 / 0 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Cheer = 50 })).Cash).toBe(54) -- capped at x3
+	end)
+
+	test("recipe length, Cheerer and boosts all multiply together (one rounding at the end)", function()
+		-- 12 x 1.5 (2 items) x 1.5 (patience) x (1 + 0.5 Tips boost) x 1.2 (Cheerer) x 1.5 (Cash boost) = 72.9
+		local reward = Pay.reward(args({ Items = 2, TipsBoost = 0.5, Cheer = 1.2, CashBoost = 1.5, StarsBoost = 2 }))
+		expect(reward).toEqual({ Cash = 73, Stars = 2 })
+		-- a Cheerer and a Tips boost never cancel: junk Cheer with a real Tips boost is just the Tips boost
+		expect(Pay.reward(args({ Cheer = 0 / 0, TipsBoost = 0.5 })).Cash).toBe(27)
 	end)
 
 	test("a missing Cfg field is neutral, never an error", function()

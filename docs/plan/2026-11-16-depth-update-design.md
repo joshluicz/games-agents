@@ -22,8 +22,11 @@ and is cured.
 | ☕ Cocoa | **Cool:** tap to blow when the steam ring is biggest, 3 times | 3 good timings |
 
 - **Ratings: OK / Good / Perfect.** Never a fail: OK still cures. Perfect adds a small cash tip and +1 **combo**;
-  combo multiplies tips (×1.2 / ×1.5 / ×2 at 3 / 6 / 10), and a non-Perfect resets it. Cash only (never Stars, Book
-  or story).
+  combo multiplies tips (×1.2 / ×1.5 / ×2 at 3 / 6 / 10). A Good holds the combo and an OK (the miss) resets it
+  (decided 2026-11-16, build plan §E7). Cash only (never Stars, Book or story). A reset never looks like losing: the
+  🔥 chip stays warm and says "Go!".
+- **A longer recipe pays more:** each item after the first adds +50% to the cure's cash (2 items ×1.5, 3 items ×2),
+  so a Lv 2+ patient is worth its extra trips (review fix 2026-11-16, build plan §E5).
 - **Recipes by wing:** Starter 1 item · Bath wing 2 · Winter wing 2 · Night 2 · Garden 3 · Regulars their own. The
   first tutorial patients stay at 1 item. `Data/Ailments` gains `Recipe = { ItemId }`, and badges show the recipe as
   small icons that tick off.
@@ -42,7 +45,9 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
 - **One shared belt per server** (like the trending belt games): everyone sees the same nurses ride by and anyone
   can hire one. Each nurse shows its **rarity frame, role, level-1 stats and price** as it passes. Tap **Hire** (or
   walk up and press the prompt) to buy it, and it walks to your clinic.
-- **They come at set times:**
+- **They come at set times** *(the first numbers; §7 and `memory-20261116-017` made the belt rarer: about one nurse
+  every 40 s, odds 75 / 20 / 4.5 / 0.5, a Rare+ within 15 arrivals, Epic+ to hire from hospital Lv 3; shipped
+  2026-11-16, `Config.Belt`)*:
   - **Every 6 s** a nurse steps onto the belt. Each takes about 30 s to ride the whole belt; one nobody hires falls
     off the end.
   - **Rarity odds** for each new nurse are printed on the belt sign: Common 70% · Rare 24% · Epic 5% · Legendary 1%.
@@ -54,14 +59,16 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
   - Each player can hire at most one nurse every 3 s.
   - After **8 belt arrivals in a row without a Rare+**, the next one is Rare+. This is server-wide; it replaces the
     capsule pity.
-  - Prices: Common 💰100 · Rare 💰400 · Epic 💰1,500 · Legendary 💰6,000 (scaled ×1.0–×2.0 by the hospital level of
-    whoever is looking, so newcomers can always afford Commons).
+  - Prices: Common 💰100 · Rare 💰400 · Epic 💰1,500 · Legendary 💰6,000 (scaled ×1.0–×1.4 by the hospital level of
+    whoever is looking, so newcomers can always afford Commons; it was ×2.0, which made a level-up feel like a
+    penalty: review fix 2026-11-16, build plan §E5).
 - **No Robux** anywhere on the belt (red line 3).
 - **Rarities, high ones on a server schedule** (the brother: "the server has these high rarities periodically"):
   Common · Rare · Epic · Legendary always possible; **Mythic** only during Night Rush; **Secret** only during a
   server-wide **Golden Hour**. Golden Hour starts every 20 minutes of server uptime, lasts 2 minutes, and is
-  announced to everyone with a countdown banner. It runs on game time, never real-world dates. Every odd, including
-  the event odds, is on the belt sign. Prices: Mythic 💰20,000 · Secret 💰50,000 (level-scaled like the rest).
+  announced to everyone with a short banner that states the real chance ("Golden Hour: Secret 1%"), with **no
+  countdown** (a ticking clock on a rare thing is a FOMO timer, red line 3; review fix 2026-11-16, build plan §E6).
+  It runs on game time, never real-world dates. Every odd, including the event odds, is on the belt sign. Prices: Mythic 💰20,000 · Secret 💰50,000 (level-scaled like the rest).
 - **The Nurse Journal** (a bestiary, which is why kids love the belt games, per the brother):
   - Every nurse has an entry: a **silhouette** until you've *seen* it ride the belt, full colour once *hired*,
     grouped by rarity, with a completion %.
@@ -76,7 +83,8 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
   - **Maker:** stands at a station and makes its item into a shared nurse tray every N s.
   - **Healer:** treats the front patient when the recipe items are ready (OK rating, so players still beat nurses
     with Perfects).
-  - **Cheerer:** patients wait longer and tips grow a little while it's on duty.
+  - **Cheerer:** patients wait longer, and cures and tips pay a little more, while it's on duty (its 💰+% applies
+    to the cure's cash too, so a Common's +5% is visible).
 
   Speed, how much and how long scale with rarity × level.
 - **Slots:** nurses work only when **equipped**. Slots = hospital level (1 at the Stand … 5 at Mega). Equipped
@@ -95,6 +103,9 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
 
 - **The building:** a shell grows around the existing rooms (floors stack up, so it fits the 70×70 plot), built by
   PlotBuilder from the level.
+- **A bigger hospital is a busier one:** a new patient comes every 13 / 11 / 10 / 9 / 8 s at Lv 1–5 (was 13 s at
+  every level), so a level-up raises what a clinic can earn, and the nurses are what let you keep up (review fix
+  2026-11-16, build plan §E5).
 - **The upgrade:** a big celebration (full-screen rays, confetti, the building pops and grows).
 - **Rooms and levels:** room purchases keep their ⭐ gates, and a level is also required where it makes sense (the
   Garden at Lv 3).

@@ -18,6 +18,11 @@ was filed. Don't re-ask an answered question.
    since DevEx pays an individual's account. ⬜ **Joshua.**
 
 ## ✅ Answered
+- #8, the depth update review fixes (build plan §E5-E7): 2026-11-16, Joshua: "your call for all" → Claude's calls:
+  keep the per-level spawns (13 / 11 / 10 / 9 / 8 s), the ×1.0-×1.4 nurse prices and +50% per extra recipe item (the
+  line stays capped at 3, so faster spawns only help players who keep up); Golden Hour never gets a countdown (a 6 s
+  banner with the true odds, red line 3); a GOOD! holds the 🔥 combo, only an OK resets it to "Go!", a PERFECT!
+  adds +1.
 - The ownership note: agreed (per Joshua); the game stays on Joshua's account for now, a group later is possible:
   2026-11-16 → `memory-20261116-010`.
 - The name "Cure a Creature"; the brother's yes to going public ("my brother is ready"): 2026-11-16 →

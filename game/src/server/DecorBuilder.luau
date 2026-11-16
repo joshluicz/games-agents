@@ -16,7 +16,9 @@
 -- tags the bulb with PlotBuilder.NIGHT_LIGHT_TAG (Neon plus a PointLight, on only at night). Rounded and toy-like in
 -- the candy-pop look (memory-20261116-007): SmoothPlastic everywhere, Glass only for the see-through bowl and globe,
 -- and Look colours pushed to full saturation by `candy()` (Data/Decor's hexes are soft pastels). Every recipe stays
--- under 25 parts. Water, steam and snow are slow ParticleEmitters.
+-- at or under MAX_PARTS (25): a plot has 10 decor slots, so decor can add up to 250 parts to a Lv 5 plot's ~389
+-- (docs/plan/2026-11-16-perf-budget.md). A piece over it, kit models too, warns once per DecorId with its count.
+-- Water, steam and snow are slow ParticleEmitters.
 --
 -- Idle motion: a sub-Model tagged BOB_TAG sways on each client (Feel/Atmosphere), so nothing moves on the server and
 -- nothing replicates per frame. Its attributes:
@@ -798,6 +800,10 @@ local function fromKit(decorId: string): Model?
 		if descendant:IsA("LuaSourceContainer") then
 			warn("[DecorBuilder] Removed a script from ClinicKit.Decor." .. decorId .. " (decor is visual only)")
 			descendant:Destroy()
+		elseif descendant:IsA("Highlight") then
+			descendant:Destroy() -- the perf budget: at most one Highlight in the world
+		elseif descendant:IsA("Light") then
+			descendant.Shadows = false -- the perf budget: no shadow-casting lights
 		end
 	end
 	if not model:FindFirstChildWhichIsA("BasePart", true) then
@@ -823,6 +829,18 @@ local function fromKit(decorId: string): Model?
 end
 
 local templates: { [string]: Model } = {}
+local MAX_PARTS = 25 -- per decor piece (the perf budget)
+local checkedParts: { [string]: boolean } = {}
+
+local function countParts(model: Model): number
+	local parts = 0
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			parts += 1
+		end
+	end
+	return parts
+end
 
 function DecorBuilder.build(decorId: string): Model
 	local kitModel = fromKit(decorId)
@@ -839,6 +857,13 @@ function DecorBuilder.build(decorId: string): Model
 	end
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	model:SetAttribute("DecorId", decorId)
+	if not checkedParts[decorId] then
+		checkedParts[decorId] = true -- once per DecorId (a kit model swapped in mid-session isn't re-checked)
+		local parts = countParts(model)
+		if parts > MAX_PARTS then
+			warn(("[DecorBuilder] %s has %d parts (budget %d per piece)"):format(decorId, parts, MAX_PARTS))
+		end
+	end
 	return model
 end
 

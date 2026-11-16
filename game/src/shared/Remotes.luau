@@ -3,6 +3,11 @@
 -- The server creates them when this module is first required (Main does that first); clients wait for them.
 --
 -- Server -> client events:  Toast(text) · State(snapshot) · Cured(info) · DayReport(report)
+--   Depth update (depth-update build plan §B3; payload types in Shared/Types):
+--   TreatStart(session: TreatSession)   to the treating player: play these mini-games (Server/Treatment)
+--   NurseNews(info: NurseNews)          to one player: a nurse seen for the first time, hired, equipped
+--   Shout(info: ShoutInfo)              to everyone: an Epic+ nurse steps on the belt, a big hire, Golden Hour
+--   Celebrate(info: CelebrateInfo)      to one player: a level-up, a new nurse, a journal set (Client/UI/Celebrate)
 -- Client -> server functions (each returns ok: boolean, message: string, except GetState):
 --   Purchase(kind, id) · PlaceDecor(slotKey, decorId?) · ClaimGoal(index) · ClaimMailbox() · GetState() -> Snapshot
 --   TutorialAck()   the welcome card was tapped (or shown 4 s). Server/Tutorial: it only ever moves step 1 -> 2
@@ -15,9 +20,16 @@
 --                   never a DataStore call, nil when rate-limited)
 --   SetHelpers(on)  the owner's ⚙️ "👥 Friends only / 🤝 Anyone can help" switch: sets their own plot's OpenHelpers
 --                   (Server/Visits; `on` must be a boolean, the caller must own a plot, 1 s cooldown)
+--   Depth update:
+--   TreatResult(session: number, ratings: { Rating })   -> ok, message, TreatOutcome?  (Server/Treatment)
+--   SetSimple(on: boolean)                               Simple mode, saved (Server/Treatment)
+--   HireNurse(riderId: number)                           buy the nurse riding the belt (Server/NurseBelt)
+--   EquipNurse(nurseId: string, on: boolean)             put a nurse on or off duty (Server/Nurses)
+--   LevelUp()                                            the next hospital level (Server/Levels)
 --
 -- Server helpers (call only on the server):
---   Remotes.serve(name, handler)  wires a RemoteFunction with the rate limit and error safety built in
+--   Remotes.serve(name, handler)  wires a RemoteFunction with the rate limit and error safety built in. The handler
+--                                 returns (ok, message?, payload?): a table payload is passed on as a third value
 --   Remotes.allow(player, name)   the per-player, per-remote rate limit (Config.RemoteRatePerSecond)
 --   Remotes.toast(player, text)   always shown: a reply to what the player did, or a warning
 --   Remotes.news(player, text)    ambient news (a goal done, a new day, a room unlocked...): held back while the
@@ -34,7 +46,7 @@ local RunService = game:GetService("RunService")
 local Config = require(script.Parent.Config)
 
 local FOLDER_NAME = "Remotes"
-local EVENTS = { "Toast", "State", "Cured", "DayReport" }
+local EVENTS = { "Toast", "State", "Cured", "DayReport", "TreatStart", "NurseNews", "Shout", "Celebrate" }
 local FUNCTIONS = {
 	"Purchase",
 	"PlaceDecor",
@@ -47,6 +59,11 @@ local FUNCTIONS = {
 	"GetBoards",
 	"ClaimPlayGift",
 	"SetHelpers",
+	"TreatResult",
+	"SetSimple",
+	"HireNurse",
+	"EquipNurse",
+	"LevelUp",
 }
 
 local IS_SERVER = RunService:IsServer()
@@ -85,6 +102,10 @@ local Remotes = {
 	State = folder:WaitForChild("State") :: RemoteEvent,
 	Cured = folder:WaitForChild("Cured") :: RemoteEvent,
 	DayReport = folder:WaitForChild("DayReport") :: RemoteEvent,
+	TreatStart = folder:WaitForChild("TreatStart") :: RemoteEvent,
+	NurseNews = folder:WaitForChild("NurseNews") :: RemoteEvent,
+	Shout = folder:WaitForChild("Shout") :: RemoteEvent,
+	Celebrate = folder:WaitForChild("Celebrate") :: RemoteEvent,
 	-- client -> server
 	Purchase = folder:WaitForChild("Purchase") :: RemoteFunction,
 	PlaceDecor = folder:WaitForChild("PlaceDecor") :: RemoteFunction,
@@ -97,11 +118,17 @@ local Remotes = {
 	GetBoards = folder:WaitForChild("GetBoards") :: RemoteFunction,
 	ClaimPlayGift = folder:WaitForChild("ClaimPlayGift") :: RemoteFunction,
 	SetHelpers = folder:WaitForChild("SetHelpers") :: RemoteFunction,
+	TreatResult = folder:WaitForChild("TreatResult") :: RemoteFunction,
+	SetSimple = folder:WaitForChild("SetSimple") :: RemoteFunction,
+	HireNurse = folder:WaitForChild("HireNurse") :: RemoteFunction,
+	EquipNurse = folder:WaitForChild("EquipNurse") :: RemoteFunction,
+	LevelUp = folder:WaitForChild("LevelUp") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.
 Remotes.TOO_FAST = "Too fast! Try again."
 Remotes.OOPS = "Oops! Try again."
+Remotes.SOON = "Coming soon!" -- a feature whose server part hasn't landed yet (the Foundation stubs)
 
 ------------------------------------------------------------------------------------------------------------------
 -- Server helpers
@@ -139,11 +166,11 @@ function Remotes.allow(player: Player, name: string): boolean
 	return true
 end
 
--- Wires a client -> server RemoteFunction that answers (ok: boolean, message: string).
+-- Wires a client -> server RemoteFunction that answers (ok: boolean, message: string, payload: table?).
 -- The handler gets the raw, untrusted arguments: type-check every one of them before using it.
 -- Rate limiting and error safety are done here, so a handler that errors answers OOPS instead of erroring
--- on the client.
-function Remotes.serve(name: string, handler: (Player, ...any) -> (boolean, string?))
+-- on the client. A third return value is passed on only when it's a table (TreatResult's TreatOutcome).
+function Remotes.serve(name: string, handler: (Player, ...any) -> (boolean, string?, any?))
 	assertServer("serve")
 	local remote = folder:FindFirstChild(name)
 	assert(remote and remote:IsA("RemoteFunction"), "No RemoteFunction named " .. name)
@@ -155,12 +182,14 @@ function Remotes.serve(name: string, handler: (Player, ...any) -> (boolean, stri
 		if hook then
 			pcall(hook, player)
 		end
-		local ok, result, message = pcall(handler, player, ...)
+		local ok, result, message, payload = pcall(handler, player, ...)
 		if not ok then
 			warn("[Remotes] " .. name .. " handler failed:", result)
 			return false, Remotes.OOPS
 		end
-		return result == true, if typeof(message) == "string" then message else ""
+		return result == true,
+			if typeof(message) == "string" then message else "",
+			if type(payload) == "table" then payload else nil
 	end
 end
 
