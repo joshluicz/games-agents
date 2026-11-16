@@ -139,6 +139,59 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
 - Placement stays inside the 70×70 plot, built upward. It must keep the plot contracts and run within the perf
   budget (floors are simple slabs + glass; lights without shadows).
 
+## 7. Progression v2: nurses with jobs and abilities, a rarer belt, rebirths with abilities (`memory-20261116-017`)
+Builds on §2 (belt), §3/§6 (levels, floors). It ships right after the depth update merges.
+
+**Nurses get real jobs, specialties and abilities** (the brother asked "what do the nurses do?"):
+- **Jobs.** You assign each equipped nurse to a post:
+  - Maker (at a station)
+  - Healer (Counter or a department)
+  - Porter (walks patients to ward beds by lift)
+  - Receptionist (triage)
+  - Cheerer (waiting room patience)
+  - Medic (A&E)
+- **Specialty:** each nurse is great at one department (e.g. a penguin nurse in Hydro: +40% speed there).
+- **One signature ability,** stronger with rarity, with a visible cooldown and sparkle. Examples:
+  - Common: "Quick Bandage" (every 60 s, finishes a Patch instantly)
+  - Rare: "Calm Song" (pauses the line's patience for 10 s)
+  - Epic: "Double Dose" (a cure pays ×2)
+  - Legendary: "Golden Touch" (the next 3 treatments are Perfect)
+  - Mythic: "Time Bubble" (all stations make instantly for 8 s)
+  - Secret: "Miracle" (cures the whole line at once, once per day-cycle)
+- **Nurse XP:** nurses gain XP by working and level 1→10 (plus duplicates). Levels raise stats and unlock an ability
+  upgrade at 5 and 10.
+- **Team bonuses:** 2+ nurses of one department give a set bonus, so who you equip matters.
+
+**A rarer belt: "you need to feel like you earned it"** (the brother: in the belt games they come so often the rarity
+feels cheap):
+- A nurse steps on every **~40 s** (not 6 s); the belt also shows an empty "next nurse in…" track.
+- Base odds: Common 75% · Rare 20% · Epic 4.5% · Legendary 0.5%.
+- Mythic only in Night Rush, Secret only in Golden Hour, both much rarer.
+- Higher rarities can also be **gated by progress:** Epic+ only appear for players at hospital level 3+ and
+  Mythic/Secret after the first rebirth. Each player sees which rarities they can hire.
+- The pity is longer (a Rare+ within 15 arrivals), and prices stay high.
+
+**Rebirths = "Open a new branch"** (franchise), optional, never forced:
+- **Requirement:** a Mega Hospital (level 5) + cash; the cost rises per rebirth.
+- **Reset:** cash, upgrades, hospital level and rooms (the building starts again as a stand, in a new branch theme).
+- **Kept, always:** the Patient Book, Nurse Journal, every nurse and their levels, badges, Doctor rank, decor and
+  Stars, so nothing you collected is lost. A clear "you keep / you reset" screen comes first.
+- **Each rebirth gives:**
+  - **Rebirth Points** for a **Branch Ability Tree**. There are three branches:
+    - **Care:** patience, tips, Perfect window.
+    - **Speed:** make, walk and lift speed.
+    - **Fortune:** cash, Stars, belt luck within the shown odds.
+
+    Nodes have ranks, and capstones are powerful (e.g. "Twin Counters": treat two patients at once).
+  - **A permanent cash/Stars multiplier,** +25% per rebirth.
+  - **New content per rebirth:**
+    - Rebirth 1: Mythic/Secret on the belt + a new creature wing.
+    - Rebirth 2: an A&E upgrade (helicopter), the Pharmacy tier 2.
+    - Rebirth 3: Golden patients (rare shiny creature variants for the Book).
+    - Rebirth 5: a Legendary nurse only obtainable by rebirth.
+  - **A new branch theme:** a cosmetic hospital skin (Candy, Arctic, Space, Jungle…).
+- **Never Robux,** and no pressure to rebirth (red line 3).
+
 ## Kids' rules (red line 3)
 The belt is cash only; you see what you buy; the odds are shown and there's a pity guarantee. There are no fail states, no timers against the
 player and no pressure to spend. Every motion honours Reduced Motion and the calm toggle, and Simple mode exists.
