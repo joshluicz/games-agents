@@ -16,6 +16,8 @@ was filed. Don't re-ask an answered question.
 7. 🏢 **Personal, or Eitri Brokkr?** Does the game's income sit with Joshua personally or with the company (Renvae
    became a business line of Eitri Brokkr on 2026-10-17)? CoS read: personal and family for now, revisit if it earns,
    since DevEx pays an individual's account. ⬜ **Joshua.**
+9. 🛠️ **Admin abuse events: when, how often, and who hosts?** They're a must for a future update (`-022`). An event
+   announced for a time needs one of you online then (hours: `../joshua-hq`). ⬜ **Both, before the event update.**
 
 ## ✅ Answered
 - #8, the depth update review fixes (build plan §E5-E7): 2026-11-16, Joshua: "your call for all" → Claude's calls:
