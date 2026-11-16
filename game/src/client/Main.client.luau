@@ -50,7 +50,7 @@ local Schema = require(Shared:WaitForChild("Logic"):WaitForChild("Schema"))
 
 local UI_MODULES =
 	{ "Toasts", "Hud", "Shop", "BookPanel", "DayReportPanel", "Mailbox", "Guide", "PromptFilter", "Tutorial" }
-local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere" }
+local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureActing" } -- Feel.CreatureProps is its library
 local DATA_NAMES = {
 	"Ailments",
 	"Stations",

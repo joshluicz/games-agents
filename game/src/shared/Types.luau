@@ -31,7 +31,8 @@ export type Look = {
 	Ears: string, -- "None" | "Round" | "Floppy" | "Pointy" | "Long" | "Tufts"
 	Top: string, -- "None" | "Leaf" | "Bow" | "Cloud" | "Antennae" | "Crust" | "Pleat" | "Scoop" | "Star" | "Lid"
 	Extra: string, -- "None" | "Wings" | "Tail" | "Flippers" | "Spout"
-	Scale: number,
+	Scale: number, -- the species' size, 0.75..1.25 (Logic/CreatureSize)
+	Bits: { string }?, -- small accessories (Data/Patients lists them)
 }
 export type Patient = { Name: string, Ailment: AilmentId, Wing: WingId, Night: boolean?, Look: Look }
 export type Beat = { Emote: string, Bubble: string }

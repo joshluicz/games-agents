@@ -14,6 +14,8 @@ local Decor = require("../src/shared/Data/Decor")
 local DailyGoals = require("../src/shared/Data/DailyGoals")
 local Wings = require("../src/shared/Data/Wings")
 local Variants = require("../src/shared/Data/Variants")
+local AilmentActing = require("../src/shared/Data/AilmentActing")
+local CreatureSize = require("../src/shared/Logic/CreatureSize")
 
 local STATIONS = { Remedy = true, Plaster = true, Bath = true, Cocoa = true }
 local AILMENTS = {
@@ -64,6 +66,7 @@ T.describe("Data", function()
 				Decor = Decor,
 				Wings = Wings,
 				Variants = Variants,
+				AilmentActing = AilmentActing,
 			} :: { [string]: any }
 		do
 			local ok, err = pcall(function()
@@ -188,5 +191,92 @@ T.describe("Data", function()
 		for _, item in Items do
 			expect(STATIONS[item.Station]).toBe(true)
 		end
+	end)
+end)
+
+T.describe("Creatures", function()
+	local function eachLook(fn: (id: string, look: any) -> ())
+		for _, id in Patients.Order do
+			fn(id, Patients[id].Look)
+		end
+		for _, id in Regulars.Order do
+			fn(id, Regulars[id].Look)
+		end
+	end
+
+	test("every species has its own size, from small to big", function()
+		local smallest, biggest = math.huge, -math.huge
+		eachLook(function(id, look)
+			if look.Scale < CreatureSize.SPECIES_MIN or look.Scale > CreatureSize.SPECIES_MAX then
+				error(id .. " Scale " .. tostring(look.Scale) .. " is outside the size range")
+			end
+			smallest = math.min(smallest, look.Scale)
+			biggest = math.max(biggest, look.Scale)
+		end)
+		expect(smallest <= 0.8).toBe(true)
+		expect(biggest >= 1.15).toBe(true)
+	end)
+
+	test("Bits are short lists of names, none twice", function()
+		eachLook(function(id, look)
+			local seen = {}
+			for _, bit in look.Bits or {} do
+				expect(type(bit)).toBe("string")
+				if seen[bit] then
+					error(id .. " lists the Bit " .. bit .. " twice")
+				end
+				seen[bit] = true
+			end
+			expect(#(look.Bits or {}) <= 4).toBe(true)
+		end)
+	end)
+
+	test("every ailment acts something out, with only things the client can play", function()
+		local known: { [string]: { [string]: boolean } } = {}
+		for kind, list in AilmentActing.Vocabulary do
+			known[kind] = {}
+			for _, name in list do
+				known[kind][name] = true
+			end
+		end
+		expect(sorted(AilmentActing.Order)).toEqual(keys(AILMENTS))
+		local function check(name: string, acting: any)
+			if not known.Motions[acting.Motion] then
+				error(name .. ": unknown Motion " .. tostring(acting.Motion))
+			end
+			expect(#acting.Every).toBe(2)
+			expect(acting.Every[1] > 0 and acting.Every[1] <= acting.Every[2]).toBe(true)
+			for _, prop in acting.Props do
+				if not known.Props[prop] then
+					error(name .. ": unknown prop " .. prop)
+				end
+			end
+			for field, kind in { Burst = "Bursts", Ambient = "Ambients", Face = "Faces" } do
+				local value = acting[field]
+				if value ~= nil and not known[kind][value] then
+					error(name .. ": unknown " .. field .. " " .. tostring(value))
+				end
+			end
+			if acting.Cheeks ~= nil then
+				expect(string.match(acting.Cheeks, "^#%x%x%x%x%x%x$") ~= nil).toBe(true)
+			end
+			if acting.Glow ~= nil then
+				expect(acting.Glow > 0 and acting.Glow <= 1).toBe(true)
+			end
+		end
+		for _, id in AilmentActing.Order do
+			check(id, AilmentActing[id])
+			expect(#AilmentActing[id].Props >= 1).toBe(true) -- every ailment shows a prop
+		end
+		check("Default", AilmentActing.Default)
+	end)
+
+	test("attention comes as patience runs low", function()
+		local attention = AilmentActing.Attention
+		expect(0 < attention.Alert and attention.Alert < attention.Wave and attention.Wave < 1).toBe(true)
+		for _, range in { attention.WaveEvery, attention.AlertEvery } do
+			expect(range[1] > 0 and range[1] <= range[2]).toBe(true)
+		end
+		expect(attention.AlertEvery[2] <= attention.WaveEvery[1]).toBe(true) -- lower patience, more waving
 	end)
 end)

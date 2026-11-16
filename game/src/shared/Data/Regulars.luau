@@ -4,7 +4,7 @@
 -- Each beat is told with an emote and a speech bubble of 6 words or fewer. Lune-safe (no Roblox types).
 --
 -- `Patient` is the creature id: CreatureBuilder.build(Patient) uses this entry's `Look` (same recipe as
--- Data/Patients, with the same candy-pop colours) or a model at ServerStorage.Creatures.<Patient>.
+-- Data/Patients, with the same candy-pop colours, sizes and Bits) or a model at ServerStorage.Creatures.<Patient>.
 -- `Ailment` must be treatable at the First-Aid Stand (Remedy or Plaster), so every clinic can cure them.
 
 export type RegularId = string
@@ -17,6 +17,7 @@ export type Look = {
 	Top: string,
 	Extra: string,
 	Scale: number,
+	Bits: { string }?,
 }
 export type Regular = {
 	Name: string,
@@ -54,7 +55,8 @@ local ENTRIES: { [RegularId]: Regular } = {
 			Ears = "None",
 			Top = "Leaf",
 			Extra = "None",
-			Scale = 0.8,
+			Scale = 0.75,
+			Bits = { "Daisy", "Blush" },
 		},
 	},
 
@@ -81,7 +83,8 @@ local ENTRIES: { [RegularId]: Regular } = {
 			Ears = "None",
 			Top = "Lid",
 			Extra = "Spout",
-			Scale = 1,
+			Scale = 0.9,
+			Bits = { "Dots", "GrumpyBrows" },
 		},
 	},
 
@@ -108,7 +111,8 @@ local ENTRIES: { [RegularId]: Regular } = {
 			Ears = "None",
 			Top = "Star",
 			Extra = "Tail",
-			Scale = 0.9,
+			Scale = 0.85,
+			Bits = { "Trail" },
 		},
 	},
 }
