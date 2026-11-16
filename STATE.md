@@ -17,20 +17,18 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 - ✅ Claude Code ↔ Studio MCP connected (user scope).
 
 ## Next actions
-**Launch path (`memory-20261116-008`): a 16+ soft launch first, hospital levels as Update 1, no paid items.**
-- [x] **Claude:** the candy-pop revamp, playtested in Studio (2026-11-16).
-- [x] **Name:** "Cure a Creature" (page title "🏥 Cure a Creature", `memory-20261116-009`).
-- [ ] **Claude:** declutter + tutorial (`docs/plan/2026-11-16-first-session-design.md`), builder running; then playtest.
-- [x] **Ownership note** agreed (per Joshua); the game stays on his account for now (`memory-20261116-010`).
-- [x] **Page kit:** `docs/launch/page.md` (name, description) + `docs/launch/images/` (icon, 4 thumbnails).
-- [x] **Brother's yes to going public** ("my brother is ready", relayed 2026-11-16, `-009`).
-- [ ] **Joshua (+ anyone):** a 2-player test (hearts, helpers, owner leaving) and the phone emulator.
-- [ ] **Joshua:** Creator Hub: name, description, icon, thumbnails, genre, devices, the maturity questionnaire.
-- [ ] **After the tutorial lands + a final test:** commit Drafts, Publish to Roblox, then set Public (16+).
-- [ ] **Joshua:** the 1,000-Robux refundable all-ages fee (OPEN #4) and the 250 engaged 16+ plays (OPEN #6:
-      how many people he can ask).
-- [ ] **Claude, during the 16+ window:** design doc + build for **Hospital Levels** (Update 1).
-- [ ] **Later update:** the 2× Cash pass (`-006`), only after the ownership note.
+**Live (published 2026-11-16, Playtesters only):** the tutorial build + player-sized patients, admin panel, Throw away
+(`af773f8`). Go Public (16+) and start marketing **with the depth update**.
+- [ ] **Claude:** merge and playtest the parallel work: depth update (worktree `.worktrees/depth`: mini-games +
+      recipes, nurse belt + Nurse Journal + Mythic/Secret events, hospital levels, juice, perf), creatures v2
+      (`.worktrees/creatures`), leaderboards (`.worktrees/boards`), the Creator Store model shortlist
+      (`docs/research/2026-11-16-creator-store-models.*`). Then Joshua publishes.
+- [ ] **Joshua:** Performance Stats (FPS, ping) on PC + phone from the live game, for the lag.
+- [ ] **Brother:** play as a new player and with 🛠️ Admin; notes into `logs/playtests/`.
+- [ ] **Joshua:** Creator Hub: maturity questionnaire done? New icon + thumbnails (`docs/launch/images/`).
+- [ ] **Joshua:** the 1,000-Robux all-ages fee (OPEN #4); how many 16+ players he can ask (OPEN #6).
+- [ ] **Claude, after the depth update:** marketing kit (clip scripts, a message for friends, an ads test plan later).
+- [ ] **Later update:** the 2× Cash pass (`-006`).
 
 ## Blocked on
 - Nothing for the private build. Going public waits on the ownership note (OPEN #2) and a yes from both.
@@ -39,6 +37,12 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-16 (later, Joshua's PC, Claude + many parallel agents).** Launch prep and first publish: name "Cure a
+  Creature" (`-009`), ownership agreed (`-010`), the page (`docs/launch/page.md`) with AI-made images (Higgsfield, from
+  real captures). The first publish was the empty Baseplate; fixed by publishing the real build. Tutorial + declutter
+  (`6bb4ee2`), patients ×1.6 and spaced, spawns 13 s (`4d6fa10`), admin panel + Throw away (`af773f8`), all tested in
+  Studio and published (Playtesters). Joshua's playtest feedback became the depth update (`-011`, `-012`, `-013`).
+  Running in worktrees: the depth workflow, creatures v2, leaderboards, model scout.
 - **2026-11-16 (Joshua's PC, Claude, tidy-up + candy-pop revamp + launch decisions).** Joshua: the brother is stepping
   back, delete the old Shop, and a saturated, flashy, trending look (`memory-20261116-007`). `Workspace.Shop` and
   `RoofFade.client.luau` deleted; the grey Baseplate is now grass green (place version 23). New `shared/Palette.luau`
