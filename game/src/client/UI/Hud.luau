@@ -1478,40 +1478,54 @@ function Hud.init(ctx: Types.Ctx)
 	local savingChip = chip("NotSaving", "⚠️ Not saving", Theme.Colors.Danger, 3)
 	local noPlotChip = chip("NoClinic", "🏠 Clinics full", Theme.Colors.Secondary, 4)
 
-	-- 🎁 The daily play gifts (UI/PlayGifts opens on "Open" "Gifts"). A ring of 12 candy dots around the button fills
-	-- toward the next gift (renderGifts); it isn't a countdown to anything you could miss.
-	local RING_DOTS = 12
+	-- 🎁 The daily play gifts (UI/PlayGifts opens on "Open" "Gifts"): the button, and under it a candy progress bar
+	-- that fills toward the next gift with the time left in it (renderGifts). It isn't a countdown to anything you
+	-- could miss.
 	local giftHolder = Instance.new("Frame")
 	giftHolder.Name = "GiftsHolder"
 	giftHolder.BackgroundTransparency = 1
 	giftHolder.LayoutOrder = 5
-	giftHolder.Size = UDim2.fromOffset(86, 86)
+	giftHolder.Size = UDim2.fromOffset(84, 92)
 	giftHolder.Parent = wallet
-	local ringDots: { Frame } = {}
-	for i = 1, RING_DOTS do
-		local angle = (i - 1) / RING_DOTS * math.pi * 2
-		local ringDot = Instance.new("Frame")
-		ringDot.Name = "RingDot" .. i
-		ringDot.AnchorPoint = Vector2.new(0.5, 0.5)
-		ringDot.Position = UDim2.new(0.5, math.sin(angle) * 37, 0.5, -math.cos(angle) * 37)
-		ringDot.Size = UDim2.fromOffset(10, 10)
-		ringDot.BackgroundColor3 = Palette.White
-		ringDot.BorderSizePixel = 0
-		Kit.corner(ringDot, 5)
-		Kit.stroke(ringDot, Theme.Colors.Outline, 2)
-		ringDot.Parent = giftHolder
-		ringDots[i] = ringDot
-	end
 	local giftButton = Kit.iconButton({
 		Name = "Gifts",
 		Icon = "🎁",
 		Caption = "",
 		Kind = "Pink",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(62, 62),
-		ZIndex = 2,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0),
+		Size = UDim2.fromOffset(70, 70),
 		Parent = giftHolder,
+	})
+	local giftBar = Instance.new("Frame")
+	giftBar.Name = "GiftBar"
+	giftBar.AnchorPoint = Vector2.new(0.5, 1)
+	giftBar.Position = UDim2.fromScale(0.5, 1)
+	giftBar.Size = UDim2.fromOffset(80, 26)
+	giftBar.BackgroundColor3 = Palette.White
+	giftBar.BorderSizePixel = 0
+	giftBar.ZIndex = 4
+	Kit.corner(giftBar, 13)
+	Kit.stroke(giftBar, Theme.Colors.Outline, Theme.Size.Stroke)
+	giftBar.Parent = giftHolder
+	local giftFill = Instance.new("Frame")
+	giftFill.Name = "Fill"
+	giftFill.Size = UDim2.fromScale(0, 1)
+	giftFill.BackgroundColor3 = Theme.Colors.Cash
+	giftFill.BorderSizePixel = 0
+	giftFill.ZIndex = 4
+	Kit.corner(giftFill, 13)
+	Palette.candyGradient(giftFill)
+	giftFill.Parent = giftBar
+	local giftTime = Kit.label({
+		Name = "Time",
+		Text = "",
+		Outlined = true,
+		TextSize = Theme.TextSize.Small,
+		TextWrapped = false,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 5,
+		Parent = giftBar,
 	})
 	targets.Gifts = giftButton
 	giftButton.Activated:Connect(function()
@@ -1881,7 +1895,6 @@ function Hud.init(ctx: Types.Ctx)
 	-- Play gifts and timed boosts, live: the server's PlayToday/PlayTotal attributes move every second of play
 	--------------------------------------------------------------------------------------------------------------
 	local gifts = data.Playtime.Gifts
-	local giftCaption = giftButton:FindFirstChild("Caption") :: TextLabel?
 	local giftsWereReady = false
 	local giftsShown = false -- the first render after the save loads never shakes
 	local function renderGifts()
@@ -1898,17 +1911,13 @@ function Hud.init(ctx: Types.Ctx)
 			local from = if nextIndex > 1 then PlaytimeLogic.giftSeconds(gifts[nextIndex - 1]) else 0
 			ratio = math.clamp((save.TodaySeconds - from) / math.max(1, goal - from), 0, 1)
 		end
-		local lit = if ready or not nextIndex then #ringDots else math.floor(ratio * #ringDots)
-		for i, ringDot in ringDots do
-			ringDot.BackgroundColor3 = if i <= lit then Kit.lighten(Theme.Colors.Cash, 0.05) else Palette.White
-			ringDot.BackgroundTransparency = if i <= lit then 0 else 0.35
-		end
-		if giftCaption then
-			giftCaption.Text = if ready
-				then "Open!"
-				elseif nextIndex then PlaytimeLogic.duration(math.max(60, left))
-				else "✅"
-		end
+		local full = ready or not nextIndex
+		giftFill.Size = UDim2.fromScale(if full then 1 else math.max(ratio, 0.08), 1)
+		giftFill.BackgroundColor3 = if ready then Theme.Colors.Good else Theme.Colors.Cash
+		giftTime.Text = if ready
+			then "OPEN!"
+			elseif nextIndex then PlaytimeLogic.duration(math.max(60, left))
+			else "✅ Done"
 		Kit.setDot(giftButton, ready)
 		if ready and not giftsWereReady and giftsShown and giftHolder.Visible then
 			Hud.shake(giftButton)
