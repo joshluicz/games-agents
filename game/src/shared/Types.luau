@@ -310,6 +310,10 @@ export type CuredInfo = {
 	NewPage: boolean,
 	Position: Vector3,
 	Helper: number, -- UserId of the player who treated the patient
+	-- Progression v2 (Feel/CureFX's bonus lines; Server/Cure always sends them, "" / false = no):
+	Urgent: string?, -- "" | "AE" | "VIP": an ambulance (🚑 x3) or helicopter (🚁 x4) patient
+	Escorted: boolean?, -- it rode the lift with a Porter or a player (+20% 🛗)
+	Soaked: boolean?, -- it rested in the Hydro hot tub (+25% 🛁)
 }
 
 export type NextGoal = { Kind: string, Id: string, Icon: string }
@@ -470,6 +474,8 @@ export type CureCtx = {
 	Plot: Plot?, -- where it was cured (Cure asks Abilities and Nurses about this plot)
 	Dept: DeptId?, -- the department it recovered in (nurse XP specialty)
 	Wing: WingId?, -- for XP and the Book (already derivable; passed to save a lookup)
+	Escorted: boolean?, -- rode the lift with a Porter or a player (already in Extra; passed on to CuredInfo)
+	Soaked: boolean?, -- rested in a Hydro hot-tub spot (already in Extra; passed on to CuredInfo)
 }
 
 -- Team bonuses at a plot (Logic/Jobs.teamEffects, Server/Nurses.team): factors, 1 = none

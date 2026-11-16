@@ -24,6 +24,7 @@ end
 
 local Motion = pureBlock("src/client/Feel/CreatureMotion.luau", "Motion")
 local recipeLayout = pureBlock("src/server/CreatureBuilder.luau", "recipeLayout")
+local urgentIcon = pureBlock("src/server/CreatureBuilder.luau", "urgentIcon")
 local CFrame = roblox.CFrame
 local Vector3 = roblox.Vector3
 
@@ -114,5 +115,13 @@ T.describe("CreatureBuilder recipe row", function()
 		expect(#three).toBe(3)
 		expect(three[2].X - three[1].X).toBeCloseTo(three[3].X - three[2].X)
 		expect(#recipeLayout(5, 1)).toBe(3)
+	end)
+
+	test("Progression v2: the urgent chip is 🚑 for A&E, 🚁 for the air ambulance, nothing otherwise", function()
+		expect(urgentIcon("AE")).toBe("🚑")
+		expect(urgentIcon("VIP")).toBe("🚁")
+		expect(urgentIcon("")).toBe(nil)
+		expect(urgentIcon(nil)).toBe(nil)
+		expect(urgentIcon(1)).toBe(nil)
 	end)
 end)

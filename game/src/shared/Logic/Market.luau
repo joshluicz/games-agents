@@ -20,7 +20,8 @@
 --       `buyer` is the buyer's save, `listing` { NurseId, Rarity, Level, Price }, `owns` whether the buyer has that
 --       nurse: not rebirth-only ("Oops! Try again.") · the belt's gates (hospital level "🏥 Lv 3", rebirths "🏢 R1"; the
 --       same as Logic/Belt.gate) · no copy of it already ("You have one!", §E13) · roster room ("Roster full: sell or
---       list one") · cash >= Price ("Need 💰420"). `rebirths` defaults to buyer.Rebirth.Count
+--       list one") · the listing's Level within the buyer's nurse level cap ("🏢 R3 first!": a Lv 15 nurse needs R3,
+--       never clamped) · cash >= Price ("Need 💰420"). `rebirths` defaults to buyer.Rebirth.Count
 
 local Market = {}
 
@@ -127,6 +128,18 @@ local function rosterCap(cfg: any, rebirths: number): number
 	return math.max(0, math.min(cap, whole(r.Max, 8)))
 end
 
+-- The nurse level cap (Logic/Nurse.levelCap, repeated: no requires): MaxLevel, + LevelCapBonus from
+-- LevelCapRebirths. Also returns the rebirths that raise it, for the refusal's words.
+local function levelCapOf(cfg: any, rebirths: number): (number, number)
+	local n = section(cfg, "Nurses")
+	local cap = math.max(1, whole(n.MaxLevel, 10))
+	local at = math.max(0, whole(n.LevelCapRebirths, 3))
+	if whole(rebirths, 0) >= at then
+		cap += math.max(0, whole(n.LevelCapBonus, 0))
+	end
+	return cap, at
+end
+
 -- The belt's gates (Logic/Belt.gate, repeated: no requires).
 local function gate(cfg: any, rarity: string, level: number, rebirths: number): string?
 	local b = section(cfg, "Belt")
@@ -177,6 +190,10 @@ function Market.canBuy(
 	end
 	if owned >= rosterCap(cfg, count) then
 		return false, "Roster full: sell or list one"
+	end
+	local levelCap, capRebirths = levelCapOf(cfg, count)
+	if whole(listing.Level, 1) > levelCap then
+		return false, "🏢 R" .. capRebirths .. " first!" -- the same words as Server/Nurses.give's refusal
 	end
 	local price = math.max(0, num(listing.Price, math.huge))
 	if num(buyer.Cash, 0) < price then

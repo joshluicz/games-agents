@@ -108,6 +108,8 @@ Theme.Juice = table.freeze({
 	ConfettiSeconds = 1.8, -- how long a piece takes to fall
 	CelebrateSeconds = 7, -- a celebration screen closes itself after this (tap to close sooner)
 	FlySeconds = 0.55, -- a flying coin's trip to the wallet, after its burst
+	-- Progression v2
+	RingBeads = 12, -- beads round an ability's cooldown ring (Kit.ring): they light up as it fills, no numbers
 })
 
 -- The candy confetti set (UI and world).

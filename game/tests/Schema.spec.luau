@@ -5,6 +5,7 @@ local T = require("./expect")
 local expect, test = T.expect, T.test
 
 local Schema = require("../src/shared/Logic/Schema")
+local Nurses = require("../src/shared/Data/Nurses")
 
 T.describe("Schema.default", function()
 	test("is Version 4", function()
@@ -471,6 +472,125 @@ T.describe("Schema.reconcile", function()
 		-- ones stay resting)
 		expect(Schema.reconcile(data, 20500)).toEqual(data)
 	end)
+
+	test(
+		"a full v3 save (16 nurses, play time, boosts, stats, badges, journal) loads as v4 keeping everything",
+		function()
+			-- What an Update 1 test server wrote: Version 3 with every live field plus the depth update's.
+			local ids = {}
+			for _, id in Nurses.Order do
+				if Nurses[id].Source == nil then
+					table.insert(ids, id)
+				end
+			end
+			expect(#ids).toBe(16)
+			local nurses = {}
+			for index, id in ids do
+				nurses[id] = { Level = (index % 5) + 1, Copies = (index % 3) + 1 }
+			end
+			local v3 = {
+				Version = 3,
+				Cash = 98765,
+				Stars = 410,
+				Cured = 2600,
+				Upgrades = { Speed = 4, Tray = 2, Chairs = 3, Tips = 4 },
+				Rooms = { Stand = true, BathRoom = true, Ward = true, Garden = true },
+				Decor = { Owned = { InternRug = true, HeartRug = true }, Placed = { ["Stand:1"] = "InternRug" } },
+				Book = { DumplingFrog = { Cured = 40, Variants = { Sparkly = true } } },
+				Story = { ShySprout = { Beat = 5, LastBeatDay = 20499 } },
+				Daily = { Goals = { { Id = "Cure5", Progress = 4, Day = 20500 } }, LastGrantDay = 20500 },
+				Mailbox = { LastSeenDay = 20500 },
+				HeartsGiven = { Day = 20500, Plots = { ["311718381"] = true } },
+				ReferralRewarded = true,
+				VisitorDay = 20498,
+				HeartsReceived = 14,
+				Tutorial = 9,
+				WeekCures = { Week = 2968, Count = 120 },
+				Playtime = {
+					Day = 20500,
+					TodaySeconds = 2400,
+					TotalSeconds = 90000,
+					Claimed = { 1, 2, 3, 4, 5 },
+					Rank = 4,
+				},
+				Boosts = { StarRush = 300, QuickHands = 120 },
+				Stats = { Seeded = 1, Cures = 2600, NightCures = 200, ["Made:Remedy"] = 700 },
+				Badges = { Healer = 3, NightShift = 3, Potions = 3, Builder = 2 },
+				Level = 4,
+				Nurses = nurses,
+				Equipped = { ids[9], ids[2], ids[16], ids[1], ids[5] },
+				NurseIndex = { [ids[1]] = "Hired", [ids[3]] = "Seen" },
+				JournalSets = { Common = true },
+				Simple = true,
+			}
+			local data = Schema.reconcile(v3, 20500)
+			expect(data.Version).toBe(4)
+			for _, field in
+				{
+					"Cash",
+					"Stars",
+					"Cured",
+					"Rooms",
+					"Decor",
+					"Book",
+					"Story",
+					"Daily",
+					"Mailbox",
+					"HeartsGiven",
+					"ReferralRewarded",
+					"VisitorDay",
+					"HeartsReceived",
+					"Tutorial",
+					"WeekCures",
+					"Playtime",
+					"Boosts",
+					"Stats",
+					"Badges",
+					"Level",
+					"JournalSets",
+					"Simple",
+				}
+			do
+				local ok, err = pcall(function()
+					expect((data :: any)[field]).toEqual((v3 :: any)[field])
+				end)
+				if not ok then
+					error(field .. ": " .. tostring(err))
+				end
+			end
+			expect(data.Upgrades).toEqual({
+				Speed = 4,
+				Tray = 2,
+				Chairs = 3,
+				Tips = 4,
+				WardComfort = 0,
+				AESpeed = 0,
+				NightClinic = 0,
+			})
+			-- every nurse kept with its level and copies, XP 0; Equipped's first three work, the other 13 rest
+			local working: { string } = {}
+			for _, id in ids do
+				local entry = data.Nurses[id]
+				expect(entry.Level).toBe(nurses[id].Level)
+				expect(entry.Copies).toBe(nurses[id].Copies)
+				expect(entry.XP).toBe(0)
+				if entry.Job ~= "Rest" then
+					expect(entry.Job).toBe("")
+					table.insert(working, id)
+				end
+				expect(data.NurseIndex[id]).toBe("Hired") -- every owned nurse is Hired in the journal
+			end
+			table.sort(working)
+			local expected = { ids[9], ids[2], ids[16] }
+			table.sort(expected)
+			expect(working).toEqual(expected)
+			expect((data :: any).Equipped).toBeNil()
+			expect(data.Rebirth).toEqual(Schema.default().Rebirth)
+			expect(Schema.reconcile(data, 20500)).toEqual(data) -- the v4 save written back loads the same
+			expect(Schema.isNewer(v3)).toBe(false)
+			expect(Schema.isNewer(data)).toBe(false)
+		end
+	)
 
 	test("a v3 save with fewer equipped than the roster fills the rest by NurseId", function()
 		local data = Schema.reconcile({

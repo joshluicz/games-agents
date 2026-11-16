@@ -4,14 +4,31 @@
 --   PlotBuilder.buildRoom(roomId): Model           an unplaced room (kit clone or placeholder), PrimaryPart = Floor
 --   PlotBuilder.clearPlot(plotModel)               removes patients, decor and every room except the Stand, and
 --                                                  puts the Building back to Lv 1's (Level attribute 1)
---   PlotBuilder.buildBuilding(plotModel, level, grewFrom?): Model   (depth update, T5) the hospital shell for that
---                                                  level (Data/Levels): replaces Plot.Building, sets the plot's
---                                                  Level attribute. See "The hospital building" below
+--   PlotBuilder.buildBuilding(plotModel, level, grewFrom?, theme?): Model   the hospital for that level (Data/Levels)
+--                                                  in that branch theme (Data/Themes id; nil or unknown = Candy):
+--                                                  replaces Plot.Building, sets the Building's Level, GrewFrom,
+--                                                  GrewAt, Floors and Theme and the plot's Level and Theme attributes.
+--                                                  Progression v2 (build plan §B4): walkable floors, the lift, the
+--                                                  stairs and the departments. See "The hospital building" below
 -- Extra helpers (Plots uses them):
 --   PlotBuilder.placeRoom(plotModel, roomId): Model?      build + place in its slot (Floor.CFrame == slot CFrame)
 --   PlotBuilder.setPreview(plotModel, slotId, roomId?)    the "for sale" outline in an empty slot (nil = none)
 --   PlotBuilder.queueSpot(queueStart, spawn?, index): CFrame   place `index` in line (Patients stands patients there)
 --   PlotBuilder.NIGHT_LIGHT_TAG                            tag a lamp Part: Neon + PointLight on only at night
+-- Progression v2 tags (CollectionService), so clients and servers find these without scanning the town:
+--   PlotBuilder.STATION_TAG  ("BuildingStation")  a station inside the Building (the 💊 Station_Pharmacy Model);
+--                            Server/Stations wires it like a room's station
+--   PlotBuilder.LIFT_TAG     ("HospitalLift")     each Building's Lift Model (UI/LiftPanel slides its car)
+--   PlotBuilder.PROMPT_TAGS  { Lift = "LiftPrompt", Escort = "EscortPrompt", Soak = "SoakPrompt" } on those prompts
+--                            (UI/PromptFilter hides EscortPrompt and SoakPrompt on plots you can't work at)
+--   PlotBuilder.Pure         the building's layout in numbers (plot-local studs; tests/Hospital.spec checks it)
+-- Every plot also has a MascotSpot marker beside the Counter (Server/Rebirth's mascot, from R5) and a hidden
+-- SignGui.BranchBadge pill beside the RankBadge (Server/Rebirth shows "🏢 n" from R1).
+--
+-- Parts budget (docs/plan/2026-11-16-perf-budget.md): a Lv 5 plot with every room is at most 400 parts without
+-- creatures and decor. Flat details are drawn as SurfaceGuis (the awnings' stripes, the floor and lawn stripes,
+-- the wall bands, the windows, the ✚ crosses, the stair steps) so the walkable floors, the lift and the departments
+-- fit; tests/Hospital.spec and the perf note keep the count per level.
 --
 -- Every plot (kit or placeholder) also gets a QueueLane Model: pavement under the patients' line, from the Counter
 -- out toward the gate, with a coloured edge on each side and a numbered spot at each place in line (queueSpot), so
@@ -39,13 +56,18 @@ local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Palette = require(Shared.Palette)
+local Departments = require(Shared.Data.Departments)
 local LevelsData = require(Shared.Data.Levels)
 local Rooms = require(Shared.Data.Rooms)
 local Stations = require(Shared.Data.Stations)
+local Themes = require(Shared.Data.Themes)
 
 local PlotBuilder = {}
 
 PlotBuilder.NIGHT_LIGHT_TAG = "ClinicNightLight"
+PlotBuilder.STATION_TAG = "BuildingStation"
+PlotBuilder.LIFT_TAG = "HospitalLift"
+PlotBuilder.PROMPT_TAGS = table.freeze({ Lift = "LiftPrompt", Escort = "EscortPrompt", Soak = "SoakPrompt" })
 
 -- Room slots on a 70 x 70 plot, plot-local. Offset is the slot (= Floor) centre; Size is the floor footprint.
 PlotBuilder.SLOTS = table.freeze({
@@ -371,6 +393,43 @@ local function disc(parent: Instance, name: string, scale: number, color: Color3
 	return f
 end
 
+-- Flat details drawn on a face instead of built from parts (the parts budget): a SurfaceGui sized in studs, at a low
+-- resolution (flat candy shapes need little), hidden past `maxDistance` so far plots don't draw them.
+local DETAIL_NEAR = 160 -- studs: room and yard details
+local function detailGui(
+	p: BasePart,
+	name: string,
+	face: Enum.NormalId,
+	pixels: number,
+	maxDistance: number?
+): SurfaceGui
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = name
+	gui.Face = face
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = pixels
+	gui.LightInfluence = 1 -- lit like the part, so it dims at night with it
+	gui.MaxDistance = maxDistance or DETAIL_NEAR
+	gui.Parent = p
+	return gui
+end
+
+-- A flat band (scale units, centred at `position`) on a detail gui.
+-- Orientation (checked in Studio for the queue lane's numbers, 2026-11-16): on a part's Top face the gui's X runs
+-- along the part's -Z and its Y along the part's +X; on a side face its Y is up. Bands drawn here are symmetric, so
+-- they read the same either way round.
+local function band(gui: SurfaceGui, name: string, size: UDim2, position: UDim2, color: Color3): Frame
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.Position = position
+	f.Size = size
+	f.BackgroundColor3 = color
+	f.BorderSizePixel = 0
+	f.Parent = gui
+	return f
+end
+
 -- Billboards sized in studs shrink with distance like real objects, but never grow past their size at this many
 -- studs (BillboardGui.DistanceLowerLimit): standing next to a station, its icon stays a small part of the screen
 -- (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A2).
@@ -548,7 +607,9 @@ local function buildStation(model: Model, stationId: string, at: Vector3)
 		stationPart =
 			part(model, "Station_" .. stationId, Vector3.new(4.2, 3, 2.6), base * CFrame.new(0, 1.5, 0), color)
 		soft(part(model, "Top", Vector3.new(4.5, 0.3, 2.9), base * CFrame.new(0, 3.15, 0), WHITE))
-		soft(part(model, "Stripe", Vector3.new(4.25, 0.5, 0.1), base * CFrame.new(0, 2.2, -1.3), WHITE))
+		-- A white stripe across its front, 0.7 above its middle (drawn: the parts budget).
+		local front = detailGui(stationPart, "StripeGui", Enum.NormalId.Front, 20)
+		band(front, "Stripe", UDim2.fromScale(1, 0.5 / 3), UDim2.fromScale(0.5, 0.5 - 0.7 / 3), WHITE)
 		local top = base * CFrame.new(0, 3.3, 0)
 		if stationId == "Remedy" then
 			-- Potion bottles in colours no other station uses, so they never read as a colour clue.
@@ -573,9 +634,13 @@ local function buildStation(model: Model, stationId: string, at: Vector3)
 	iconBadge(stationPart, "IconGui", icon, color, 2.6, stationPart.Size.Y / 2 + 2.1)
 end
 
--- `floorTop` is the height of the floor it stands on in the model's own space (a room's FLOOR_TOP by default).
-local function buildBed(model: Model, index: number, at: Vector3, style: RoomStyle, floorTop: number?)
+-- `floorTop` is the height of the floor it stands on in the model's own space (a room's FLOOR_TOP by default);
+-- `turn` 1 turns its pillow end from the back (+Z) to +X (a ward bed across the front of the Wards floor).
+local function buildBed(model: Model, index: number, at: Vector3, style: RoomStyle, floorTop: number?, turn: number?)
 	local base = CFrame.new(at.X, floorTop or FLOOR_TOP, at.Z)
+	if turn == 1 then
+		base *= CFrame.Angles(0, math.pi / 2, 0)
+	end
 	part(model, "BedFrame", Vector3.new(4.4, 0.8, 7), base * CFrame.new(0, 0.4, 0), style.Main)
 	-- Bed_<n> is the mattress: patients lie on its top face; the pillow end is +Z (the room's back).
 	part(model, "Bed_" .. index, Vector3.new(4, 1, 6.6), base * CFrame.new(0, 1.3, 0), WHITE)
@@ -597,11 +662,11 @@ local function buildShell(model: Model, roomId: string, w: number, d: number, st
 	local back = d / 2
 	if not style.Garden then
 		-- Tall enough that the awning's high back edge rests on it.
-		part(model, "BackWall", Vector3.new(w, 8.6, 0.6), CFrame.new(0, FLOOR_TOP + 4.3, back - 0.3), style.Wall)
-		-- A white band low on the back wall (two-tone, like a sweet shop).
-		soft(
-			part(model, "WallBand", Vector3.new(w - 1.3, 1.1, 0.06), CFrame.new(0, FLOOR_TOP + 1.2, back - 0.63), WHITE)
-		)
+		local backWall =
+			part(model, "BackWall", Vector3.new(w, 8.6, 0.6), CFrame.new(0, FLOOR_TOP + 4.3, back - 0.3), style.Wall)
+		-- A white band low on the back wall (two-tone, like a sweet shop), 1.2 above the floor (drawn).
+		local wallGui = detailGui(backWall, "BandGui", Enum.NormalId.Front, 10)
+		band(wallGui, "WallBand", UDim2.fromScale((w - 1.3) / w, 1.1 / 8.6), UDim2.fromScale(0.5, 1 - 1.2 / 8.6), WHITE)
 		for _, side in { -1, 1 } do
 			local x = side * (w / 2 - 0.3)
 			part(
@@ -622,25 +687,34 @@ local function buildShell(model: Model, roomId: string, w: number, d: number, st
 			)
 		end
 		-- A striped awning over the back half, sloping down toward the front, with a flap hanging off its front
-		-- edge so the stripes run down the front.
-		local awning = { style.Main, WHITE }
+		-- edge so the stripes run down the front. One part each, the white stripes drawn on (the parts budget):
+		-- six stripes across, white first from the left.
 		local depth = d * 0.45
 		local stripes = 6
-		local stripeWidth = (w + 1) / stripes
-		for i = 1, stripes do
-			local x = -(w + 1) / 2 + (i - 0.5) * stripeWidth
-			local color = awning[(i % 2) + 1]
-			local stripe = CFrame.new(x, FLOOR_TOP + 8.1, back - depth / 2) * CFrame.Angles(math.rad(-12), 0, 0)
-			soft(part(model, "Awning", Vector3.new(stripeWidth, 0.35, depth + 0.6), stripe, color))
-			local edge = stripe * Vector3.new(0, -0.175, -(depth + 0.6) / 2)
-			soft(
-				part(
-					model,
-					"AwningFlap",
-					Vector3.new(stripeWidth, 0.8, 0.12),
-					CFrame.new(edge - Vector3.new(0, 0.4, 0)),
-					color
-				)
+		local slope = CFrame.new(0, FLOOR_TOP + 8.1, back - depth / 2) * CFrame.Angles(math.rad(-12), 0, 0)
+		local awning = soft(part(model, "Awning", Vector3.new(w + 1, 0.35, depth + 0.6), slope, style.Main))
+		local edge = slope * Vector3.new(0, -0.175, -(depth + 0.6) / 2)
+		local flap = soft(
+			part(
+				model,
+				"AwningFlap",
+				Vector3.new(w + 1, 0.8, 0.12),
+				CFrame.new(edge - Vector3.new(0, 0.4, 0)),
+				style.Main
+			)
+		)
+		local topGui = detailGui(awning, "StripesGui", Enum.NormalId.Top, 8)
+		local flapGui = detailGui(flap, "StripesGui", Enum.NormalId.Front, 8)
+		for i = 1, stripes, 2 do
+			-- Stripe i counts from the left (-X). On the Top face the gui's Y runs along +X; on the Front face its X
+			-- runs along -X (seen from the street).
+			band(topGui, "Stripe", UDim2.fromScale(1, 1 / stripes), UDim2.fromScale(0.5, (i - 0.5) / stripes), WHITE)
+			band(
+				flapGui,
+				"Stripe",
+				UDim2.fromScale(1 / stripes, 1),
+				UDim2.fromScale(1 - (i - 0.5) / stripes, 0.5),
+				WHITE
 			)
 		end
 		for _, side in { -1, 1 } do
@@ -736,16 +810,16 @@ local function placeholderRoom(roomId: string, accent: Color3?): Model
 	local floor = part(model, "Floor", size, CFrame.identity, style.Floor)
 	part(model, "Edge", Vector3.new(w + 0.6, 0.4, d + 0.6), CFrame.new(0, -0.15, 0), style.Main)
 	model.PrimaryPart = floor
-	-- Three painted stripes across the floor, so it reads as seven two-tone bands.
+	-- Three painted stripes across the floor, so it reads as seven two-tone bands (drawn on its top: on a Top face
+	-- the gui's X runs along Z, so bands across Z are columns).
+	local floorGui = detailGui(floor, "StripesGui", Enum.NormalId.Top, 6)
 	for i = -1, 1 do
-		paint(
-			part(
-				model,
-				"FloorStripe",
-				Vector3.new(w - 0.4, 0.04, d / 7),
-				CFrame.new(0, FLOOR_TOP + 0.03, i * d * 2 / 7),
-				style.FloorStripe
-			)
+		band(
+			floorGui,
+			"FloorStripe",
+			UDim2.fromScale(1 / 7, (w - 0.4) / w),
+			UDim2.fromScale(0.5 + i * 2 / 7, 0.5),
+			style.FloorStripe
 		)
 	end
 
@@ -1015,6 +1089,37 @@ local SIGN_X = -13 -- plot-local: beside the gate (the gate posts stand at x = �
 local SIGN_Z = -34 -- just behind the front fence (z = -34.6), the board's face 0.2 behind its rails
 local SIGN_BOTTOM = 4 -- the board's bottom edge; its frame starts 0.6 above the fence's 3-stud top
 
+-- A white pill with a dark rim on the sign's bottom row (the Doctor rank, the 🏢 branches), hidden until its system
+-- fills it.
+local function signPill(gui: SurfaceGui, name: string, size: UDim2, position: UDim2): TextLabel
+	local pill = Instance.new("TextLabel")
+	pill.Name = name
+	pill.BackgroundColor3 = WHITE
+	pill.BackgroundTransparency = 0.05
+	pill.Position = position
+	pill.Size = size
+	pill.Font = Palette.DisplayFont
+	pill.TextColor3 = Palette.Ink
+	pill.TextScaled = true
+	pill.Text = ""
+	pill.Visible = false
+	pill.ZIndex = 3
+	rounded(pill, UDim.new(0.5, 0))
+	local rim = Instance.new("UIStroke")
+	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	rim.Color = Palette.Outline
+	rim.Thickness = 3
+	rim.Parent = pill
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0.06, 0)
+	pad.PaddingRight = UDim.new(0.06, 0)
+	pad.PaddingTop = UDim.new(0.1, 0)
+	pad.PaddingBottom = UDim.new(0.1, 0)
+	pad.Parent = pill
+	pill.Parent = gui
+	return pill
+end
+
 local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color3)
 	local w, h = SIGN_SIZE.X, SIGN_SIZE.Y
 	local y = SIGN_BOTTOM + h / 2
@@ -1044,33 +1149,33 @@ local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color
 	gui.MaxDistance = 150
 	candyBoard(gui, accent, 8, 18, 5)
 	candyLabel(gui, "OwnerName", "✨ Free clinic", UDim2.fromScale(0.86, 0.5), UDim2.fromScale(0.07, 0.1), 4)
-	candyLabel(gui, "HeartCount", "", UDim2.fromScale(0.4, 0.28), UDim2.fromScale(0.07, 0.62), 3)
-	local rank = Instance.new("TextLabel")
-	rank.Name = "RankBadge"
-	rank.BackgroundColor3 = WHITE
-	rank.BackgroundTransparency = 0.05
-	rank.Position = UDim2.fromScale(0.5, 0.6)
-	rank.Size = UDim2.fromScale(0.43, 0.3)
-	rank.Font = Palette.DisplayFont
-	rank.TextColor3 = Palette.Ink
-	rank.TextScaled = true
-	rank.Text = ""
-	rank.Visible = false
-	rank.ZIndex = 3
-	rounded(rank, UDim.new(0.5, 0))
-	local rim = Instance.new("UIStroke")
-	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	rim.Color = Palette.Outline
-	rim.Thickness = 3
-	rim.Parent = rank
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0.06, 0)
-	pad.PaddingRight = UDim.new(0.06, 0)
-	pad.PaddingTop = UDim.new(0.1, 0)
-	pad.PaddingBottom = UDim.new(0.1, 0)
-	pad.Parent = rank
-	rank.Parent = gui
+	candyLabel(gui, "HeartCount", "", UDim2.fromScale(0.3, 0.28), UDim2.fromScale(0.07, 0.62), 3)
+	signPill(gui, "RankBadge", UDim2.fromScale(0.39, 0.3), UDim2.fromScale(0.54, 0.6))
+	signPill(gui, "BranchBadge", UDim2.fromScale(0.16, 0.3), UDim2.fromScale(0.37, 0.6))
 	gui.Parent = sign
+end
+
+-- Progression v2 (§B4): every sign has a hidden BranchBadge pill (Server/Rebirth shows "🏢 n" from R1), and every
+-- plot a MascotSpot marker beside the Counter (Server/Rebirth's mascot, from R5). A kit plot without them gets them.
+local MASCOT_SPOT = Vector3.new(-8, 0.5, -13) -- plot-local: left of the Counter, clear of the line and the Stand
+
+local function ensureSignBits(model: Model)
+	local sign = model:FindFirstChild("Sign")
+	local gui = sign and sign:FindFirstChild("SignGui")
+	if gui and gui:IsA("SurfaceGui") and not gui:FindFirstChild("BranchBadge") then
+		local rank = gui:FindFirstChild("RankBadge")
+		if rank and rank:IsA("GuiObject") then
+			-- Just left of the brother's RankBadge, the same height.
+			local pill =
+				signPill(gui, "BranchBadge", UDim2.new(0.16, 0, rank.Size.Y.Scale, rank.Size.Y.Offset), rank.Position)
+			pill.AnchorPoint = Vector2.new(1, 0)
+		else
+			signPill(gui, "BranchBadge", UDim2.fromScale(0.16, 0.3), UDim2.fromScale(0.37, 0.6))
+		end
+	end
+	if not model:FindFirstChild("MascotSpot") then
+		marker(model, "MascotSpot", model:GetPivot() * CFrame.new(MASCOT_SPOT))
+	end
 end
 
 local function buildFenceAndGate(scenery: Model, cf: CFrame, half: number, accent: Color3)
@@ -1090,8 +1195,17 @@ local function buildFenceAndGate(scenery: Model, cf: CFrame, half: number, accen
 		local glow = soft(ball(scenery, "GateLamp", 1.2, cf * CFrame.new(x, 7.6, -e), COLORS.LampGlow))
 		nightLight(glow, 16)
 	end
-	part(scenery, "GateArch", Vector3.new(gate * 2 + 2.6, 1, 1.6), cf * CFrame.new(0, 6.5, -e), accent)
-	soft(part(scenery, "GateArchStripe", Vector3.new(gate * 2 + 2.7, 0.34, 1.7), cf * CFrame.new(0, 6.5, -e), WHITE))
+	local arch = part(scenery, "GateArch", Vector3.new(gate * 2 + 2.6, 1, 1.6), cf * CFrame.new(0, 6.5, -e), accent)
+	-- A white stripe round its middle, on the street and plot sides (drawn: the parts budget).
+	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
+		band(
+			detailGui(arch, "StripeGui", face, 10, 300),
+			"Stripe",
+			UDim2.fromScale(1, 0.34),
+			UDim2.fromScale(0.5, 0.5),
+			WHITE
+		)
+	end
 end
 
 local function buildMailbox(scenery: Model, cf: CFrame, accent: Color3)
@@ -1113,49 +1227,46 @@ local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 	scenery.Name = "Scenery"
 	scenery.Parent = model
 
-	part(model, "Ground", Vector3.new(half * 2, 1, half * 2), cf * CFrame.new(0, -0.5, 0), COLORS.Lawn)
-	-- Mowing stripes, running from the street to the back.
+	local ground = part(model, "Ground", Vector3.new(half * 2, 1, half * 2), cf * CFrame.new(0, -0.5, 0), COLORS.Lawn)
+	-- Mowing stripes, running from the street to the back (drawn on the lawn: on a Top face the gui's Y runs along
+	-- +X, so stripes along Z are rows).
+	local lawn = detailGui(ground, "StripesGui", Enum.NormalId.Top, 3, 400)
 	for _, x in { -28, -14, 0, 14, 28 } do
-		paint(
-			part(
-				scenery,
-				"LawnStripe",
-				Vector3.new(7, 0.04, half * 2 - 1),
-				cf * CFrame.new(x, 0.02, 0),
-				COLORS.LawnStripe
-			)
+		band(
+			lawn,
+			"LawnStripe",
+			UDim2.fromScale((half * 2 - 1) / (half * 2), 7 / (half * 2)),
+			UDim2.fromScale(0.5, (x + half) / (half * 2)),
+			COLORS.LawnStripe
 		)
 	end
 
 	-- The front path from the gate to the counter (white edged), and candy stepping stones across the back yard.
 	local pathLength = half - 15.6
 	local pathZ = -(half + 15.6) / 2
-	part(scenery, "Path", Vector3.new(9, 0.2, pathLength), cf * CFrame.new(0, 0.05, pathZ), COLORS.Path)
-	for _, side in { -1, 1 } do
-		paint(
-			part(
-				scenery,
-				"PathEdge",
-				Vector3.new(0.6, 0.24, pathLength),
-				cf * CFrame.new(side * 4.8, 0.05, pathZ),
-				WHITE
-			)
-		)
+	local path = part(scenery, "Path", Vector3.new(10.2, 0.2, pathLength), cf * CFrame.new(0, 0.05, pathZ), COLORS.Path)
+	-- Its white edges, drawn along both sides (rows on its Top face).
+	local pathGui = detailGui(path, "EdgesGui", Enum.NormalId.Top, 10)
+	for _, v in { 0.3 / 10.2, 1 - 0.3 / 10.2 } do
+		band(pathGui, "PathEdge", UDim2.fromScale(1, 0.6 / 10.2), UDim2.fromScale(0.5, v), WHITE)
 	end
 	for i, z in { 3.5, 7.2, 10.9, 14.6 } do
 		cylinder(scenery, "SteppingStone", 0.2, 2.8, cf * CFrame.new(math.sin(z) * 0.8, 0.05, z), STONES[i])
 	end
 
 	-- The counter: patients queue in front of it (toward the street), you treat from behind it.
-	part(model, "Counter", Vector3.new(12, 3.4, 2.4), cf * CFrame.new(0, 1.7, -14.5), accent)
+	local counter = part(model, "Counter", Vector3.new(12, 3.4, 2.4), cf * CFrame.new(0, 1.7, -14.5), accent)
 	soft(part(scenery, "CounterTop", Vector3.new(12.8, 0.4, 3), cf * CFrame.new(0, 3.6, -14.5), WHITE))
-	soft(part(scenery, "CounterStripe", Vector3.new(12.2, 0.6, 0.1), cf * CFrame.new(0, 2.5, -15.72), WHITE))
+	-- A white stripe across its street side, 0.8 above its middle (drawn).
+	local counterGui = detailGui(counter, "StripeGui", Enum.NormalId.Front, 10)
+	band(counterGui, "CounterStripe", UDim2.fromScale(1, 0.6 / 3.4), UDim2.fromScale(0.5, 0.5 - 0.8 / 3.4), WHITE)
 
 	-- Markers. QueueStart and PatientSpawn face the counter; PatientExit faces the street.
 	local turn = CFrame.Angles(0, math.pi, 0)
 	marker(model, "QueueStart", cf * CFrame.new(0, 0.5, -18) * turn)
 	marker(model, "PatientSpawn", cf * CFrame.new(-4, 0.5, -32.5) * turn)
 	marker(model, "PatientExit", cf * CFrame.new(4, 0.5, -32.5))
+	marker(model, "MascotSpot", cf * CFrame.new(MASCOT_SPOT))
 
 	local slots = Instance.new("Folder")
 	slots.Name = "Slots"
@@ -1522,62 +1633,296 @@ local function buildQueueLane(plotModel: Model, accent: Color3)
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The hospital building (depth update §3, build plan §B4/§B8; memory-20261116-008: the building grows)
+-- The hospital building (depth update §3; Progression v2 §B4/§B8; memory-20261116-008: the building grows)
 ------------------------------------------------------------------------------------------------------------------
--- Plot.Building is a Model that every plot always has (an empty one at Lv 1, the open-air Stand). From Lv 2 a block
--- stands right behind the Stand, so from the street the Stand becomes its front porch and the block rises over it:
---   the ward       the ground storey (Lv 2+): walls on three sides, open at its two front corners where the side
---                  walkways come in (patients walk to its beds that way), a back door onto the stepping stones.
---                  Its beds are the level's Beds - 1 (the Stand has the first): BedSpot_<n> Models, each holding the
---                  mattress Part Bed_<n> that Patients looks for. A bed is kept (not rebuilt) when the level changes,
---                  so a patient resting on one never notices
---   storeys        Lv 3+ stack on top (Floors - 1 of them, STOREY studs each). Windows, the ambulance's stripe
---                  and crosses and the helipad's H are drawn on the walls (SurfaceGuis, LightInfluence 0 for windows,
---                  so they glow at night), which keeps a Lv 5 plot with every room at 389 parts (the building 45;
---                  budget 400, decor not counted)
---   the roof       Lv 2: a candy gable · Lv 3+: flat, with a water tank (Lv 3-4), then the tower and helipad
---   the signs      a name board on the façade (the level's name); Lv 3-4 a big ✚ on the roof's front edge; Lv 5
---                  a neon ✚ on the tower (Neon and a shadowless light at night, like the lamps)
---   Lv 4           the ambulance bay on the front-left lawn (the line turns right, so it's clear of patients)
--- The block's footprint comes from the plot's own Slots (so a kit plot moves it): between the side rooms' walkways,
--- in front of the back rooms, behind the Stand. Nothing reaches the Counter, the line, the gate, the walkways, the
--- stations or a room slot, and everything above the ward's walls is soft (walk-through and ray-ignored), so the
--- camera never snaps against it. Each piece is a child Model with the attribute Since (the level that adds it); the
--- Building carries Level, GrewFrom and GrewAt (the GetServerTimeNow() of a level-up, else 0) so a client effect can
--- grow the new pieces in. ServerStorage.ClinicKit.Building<level> (pivot = the plot's ground-top centre, facing the
--- street, with its own Bed_<n> Parts) replaces the placeholder for that level.
+-- Plot.Building is a Model that every plot always has: empty at Lv 1 (the open-air Stand; a branch theme only puts
+-- its prop on the Stand), and from Lv 2 a hospital you can walk round, right behind the Stand (the Stand becomes its
+-- front porch). Where everything goes is Pure.layout, in plot-local studs worked out from the plot's own Slots:
+--   Lobby        the ground storey (Lv 2): walls on three sides, open at its two front corners where the side
+--                walkways come in (patients cross it along the back lane), the lift's Landing_0 and the stairs'
+--                foot inside. Solid and opaque, like a room
+--   Floor_<n>    n = 1..Floors (Data/Levels): a collidable Slab and SlabBack (beside the lift) to walk on, a Landing
+--                marker (4x1x4, Floor = n) in front of the lift door and, indoors, see-through Walls (soft and
+--                ray-ignored: the camera never snaps on them, and the street sees in). At Lv 5 Floor_4 is the roof
+--   Lift         a glass Shaft (soft) at the back with its Car (soft; it moves only on clients, UI/LiftPanel) and a
+--                Cap. Every landing has an Attachment PromptPoint with a LiftPrompt (ActionText "Lift", ObjectText
+--                "🛗", HoldDuration 0, MaxActivationDistance 8) and an EscortPrompt ("Ride with patient", key F,
+--                disabled until Server/Lift.waitEscort turns the ground one on)
+--   Stairs       a walkable ramp per storey (Flight_<k>, floor k to k + 1) along the back strip, stacked one above
+--                the other; each floor's slab leaves that stairwell open. The steps are drawn on
+--   Wards        (Floor_1) the ward beds: BedSpot_<n> Models round the mattress Bed_<n> (Floor = 1 on both), Beds - 1
+--                of them (the Stand has the first). A bed is kept (not rebuilt) when the level or the theme changes,
+--                so a patient resting on one never notices
+--   Hydro        (Floor_2) the HotTub: TubSpot_1/2 markers on the water (Floor = 2) and a SoakPrompt ("🫧",
+--                disabled until Server/Patients turns it on)
+--   Pharmacy     (Floor_3) the 💊 Station_Pharmacy Model (tagged STATION_TAG: Server/Stations gives it the usual
+--                hold prompt; its IconGui is here)
+--   Roof         (Floor_4) the helipad with its HeliSpot marker (ArriveAt, set by Server/Patients) and a roof garden
+--                of planters, beside the Tower with its neon ✚ and beacon
+--   AmbulanceBay (Lv 2) on the front-left lawn: a painted bay and a toy Ambulance (ArriveAt, set by Server/Patients)
+--                with a StretcherSpot marker at its side door, facing the line
+--   the roof     Lv 2 a candy gable (RoofShell) · Lv 3-4 flat, with a water tank and a big ✚ on its front edge ·
+--                Lv 5 walkable (Floor_4)
+--   the sign     a name board (the level's name) high on the top storey's façade
+--   the theme    Data/Themes recolours the walls, the roof and the trim (the slabs' candy bands) and adds one prop
+--                (<= 6 parts) on the roof: ThemeProp. The plot's accent colour (the name board, the ✚ discs, the
+--                ambulance's badge, the ward beds) never changes: kids find "the pink one"
+-- Nothing covers the Counter, the line, the gate, the sign, the walkways, the stations or a room slot (the ambulance
+-- bay sits on the front-left lawn: the line runs straight back from the Counter). Each piece is a child Model with the
+-- attribute Since (the level that adds it); the Building carries Level, GrewFrom, GrewAt (the GetServerTimeNow() of a
+-- level-up, else 0), Floors and Theme, so a client effect can grow the new pieces in. Windows, the stair steps, the
+-- crosses, the helipad's H and the ambulance's stripes are drawn on faces (SurfaceGuis), which keeps a Lv 5 plot with
+-- every room under 400 parts (Pure.PARTS in the perf note; decor not counted).
+-- ServerStorage.ClinicKit.Building<level> (pivot = the plot's ground-top centre, facing the street) replaces the
+-- placeholder for that level: it needs the same names (Landing_0, Floor_<n>.Slab/Landing, Lift, BedSpot_<n>...).
+-- It gets Floors and Theme, prompts on any landing without them and the station tag; a missing lift is warned.
+
+-- PURE-BEGIN
+-- The building's layout in numbers only (no Roblox types), plot-local studs: x right as you face the street, z toward
+-- the back, y up from the plot's ground top. tests/Hospital.spec loads this block on its own.
+local Pure = {}
+
+Pure.STOREY = 7 -- an upper storey, slab to slab
+Pure.SLAB = 0.6 -- a slab's thickness; its centre is at its storey's base
+Pure.WALL = 0.6 -- the lobby's walls
+Pure.OVERHANG = 0.4 -- slabs reach this far past the walls (the candy band between storeys)
+Pure.STRIP = 3.4 -- the back strip inside the back wall: the stairs and the lift
+Pure.SHAFT = 3.6 -- the lift shaft's width (x)
+Pure.RUN = 7.8 -- a flight's run (x): every flight rises one storey over it (<= 45 degrees)
+Pure.LANDING = 4 -- a landing marker's footprint
+Pure.CAR_HEIGHT = 6
+Pure.GROUND_MIN = 7 -- the lobby is at least one walkable storey high ...
+Pure.GROUND_MAX = 9 -- ... and at most this, so its flight stays walkable
+Pure.SIGN_CLEAR = 2.5 -- the first upper storey's façade shows at least this much above the Stand
+Pure.FLOOR_TOP = 0.05 -- the lobby's painted floor, just above the lawn
+Pure.BED_HALF = 2.2 -- a bed is 4.4 wide ...
+Pure.BED_FOOT = 3.5 -- ... reaches this far from the mattress centre toward its foot ...
+Pure.BED_HEAD = 4 -- ... and this far toward its headboard
+Pure.FOOT_POINT = 4.9 -- where Patients stands a patient before it hops on (half the mattress + 1.6)
+
+type Footprint = { Half: number, Front: number, Back: number, Ground: number }
+type Rect = { X0: number, X1: number, Z0: number, Z1: number }
+type Bed = { X: number, Z: number, Turn: number } -- Turn 0: the pillow to the back (+z) · 1: the pillow to +x
+type Layout = {
+	Strip: { Z0: number, Z1: number },
+	Left: { X0: number, X1: number }, -- beside the lift: the beds, the tub, the Pharmacy, the Tower
+	Shaft: Rect,
+	Landing: { X: number, Z: number }, -- every floor's, in front of the lift door
+	Ramp: { XLow: number, XHigh: number, Z: number, Width: number }, -- a flight's foot (low) and top (high)
+	Slab: Rect,
+	SlabBack: Rect,
+	Beds: { Bed },
+	Tub: { X: number, Z: number, Diameter: number },
+	Pharmacy: { X: number, Z: number, Width: number },
+	Tower: Rect,
+	Pad: { X: number, Z: number, Diameter: number },
+	Planters: { { X: number, Z: number } },
+}
+
+-- The lobby's height: one walkable storey, raised (at most to GROUND_MAX) only when a tall kit Stand would hide the
+-- first upper storey's façade.
+function Pure.ground(standTop: number): number
+	return math.clamp(standTop + Pure.SIGN_CLEAR - Pure.STOREY, Pure.GROUND_MIN, Pure.GROUND_MAX)
+end
+
+-- Floor k's slab centre (k >= 1).
+function Pure.slabY(f: Footprint, k: number): number
+	return f.Ground + (k - 1) * Pure.STOREY
+end
+
+-- Floor k's walking surface (k = 0: the lobby's painted floor).
+function Pure.floorTop(f: Footprint, k: number): number
+	if k <= 0 then
+		return Pure.FLOOR_TOP
+	end
+	return Pure.slabY(f, k) + Pure.SLAB / 2
+end
+
+-- How many floors are indoors (walled storeys) and whether the top one is the roof (Data/Departments Roof's Floor).
+function Pure.storeys(floors: number, roofFloor: number): (number, boolean)
+	local count = math.max(0, math.floor(floors))
+	return math.min(count, roofFloor - 1), count >= roofFloor
+end
+
+-- A bed's footprint (the frame and headboard).
+function Pure.bedRect(bed: Bed): Rect
+	if bed.Turn == 1 then
+		return {
+			X0 = bed.X - Pure.BED_FOOT,
+			X1 = bed.X + Pure.BED_HEAD,
+			Z0 = bed.Z - Pure.BED_HALF,
+			Z1 = bed.Z + Pure.BED_HALF,
+		}
+	end
+	return {
+		X0 = bed.X - Pure.BED_HALF,
+		X1 = bed.X + Pure.BED_HALF,
+		Z0 = bed.Z - Pure.BED_FOOT,
+		Z1 = bed.Z + Pure.BED_HEAD,
+	}
+end
+
+-- Where Patients stands a patient before it hops onto that bed (just past its foot).
+function Pure.bedFoot(bed: Bed): (number, number)
+	if bed.Turn == 1 then
+		return bed.X - Pure.FOOT_POINT, bed.Z
+	end
+	return bed.X, bed.Z - Pure.FOOT_POINT
+end
+
+function Pure.layout(f: Footprint): Layout
+	local h, front, back = f.Half, f.Front, f.Back
+	local wall, over = Pure.WALL, Pure.OVERHANG
+	local stripZ0, stripZ1 = back - wall - Pure.STRIP, back - wall
+	-- The flights' foot is by the right wall; each rises toward the lift, which stands just left of their top.
+	local xLow = h - wall - 0.4
+	local xHigh = xLow - Pure.RUN
+	local shaftX1 = xHigh - 0.6
+	local shaftX0 = shaftX1 - Pure.SHAFT
+	local leftWall = -h + wall
+	if shaftX0 < leftWall + 0.2 then
+		-- A narrow kit plot: keep the shaft inside; the flights get shorter (steeper).
+		shaftX0 = leftWall + 0.2
+		shaftX1 = shaftX0 + Pure.SHAFT
+		xHigh = math.min(shaftX1 + 0.6, xLow - 2)
+	end
+	local left = { X0 = leftWall, X1 = shaftX0 - 0.3 }
+	local leftMid = (left.X0 + left.X1) / 2
+	local firstBed = leftWall + 0.1 + Pure.BED_HALF
+	local padX0, padX1 = xHigh + 1, h - over
+	local padZ0, padZ1 = front - over + 0.2, stripZ0 - 0.2
+	return {
+		Strip = { Z0 = stripZ0, Z1 = stripZ1 },
+		Left = left,
+		Shaft = { X0 = shaftX0, X1 = shaftX1, Z0 = stripZ0, Z1 = stripZ1 },
+		Landing = { X = (shaftX0 + shaftX1) / 2, Z = stripZ0 - Pure.LANDING / 2 - 0.2 },
+		Ramp = { XLow = xLow, XHigh = xHigh, Z = (stripZ0 + stripZ1) / 2, Width = Pure.STRIP - 0.2 },
+		Slab = { X0 = -h - over, X1 = h + over, Z0 = front - over, Z1 = stripZ0 },
+		SlabBack = { X0 = -h - over, X1 = shaftX0, Z0 = stripZ0, Z1 = back + over },
+		Beds = {
+			-- Two side by side beside the lift, pillows to the back (their feet on the main slab) ...
+			{ X = firstBed, Z = back - Pure.BED_HEAD, Turn = 0 },
+			{ X = firstBed + Pure.BED_HALF * 2 + 0.2, Z = back - Pure.BED_HEAD, Turn = 0 },
+			-- ... and from Lv 4 a third across the front right, its pillow to the right wall.
+			{ X = h - Pure.BED_HEAD, Z = front + Pure.BED_HALF, Turn = 1 },
+		},
+		Tub = { X = leftMid, Z = back - 4.3, Diameter = 8 },
+		Pharmacy = { X = leftMid, Z = stripZ0 + 1.3, Width = left.X1 - left.X0 - 1 },
+		Tower = { X0 = -h + 0.5, X1 = shaftX0 - 1.5, Z0 = front + 2, Z1 = stripZ1 },
+		Pad = { X = (padX0 + padX1) / 2, Z = (padZ0 + padZ1) / 2, Diameter = math.min(padX1 - padX0, padZ1 - padZ0) },
+		Planters = { { X = -h + 2.5, Z = front + 0.8 }, { X = -h + 6.5, Z = front + 0.8 } },
+	}
+end
+-- PURE-END
+
+PlotBuilder.Pure = Pure
 
 local BUILDING_GAP = 1 -- studs between the Stand's back and the block's front wall
 local BUILDING_DEPTH = 11 -- the block's depth when nothing behind it is closer
 local WALKWAY_CLEAR = 2.5 -- kept free between the block and a room slot beside it (the side walkways)
 local YARD_CLEAR = 5 -- kept free between the block and a room slot behind it
-local WARD_HEIGHT = 12 -- the ground storey, at least (it grows so its sign shows over a taller kit Stand)
-local SIGN_CLEAR = 2.5 -- the ward's façade shows this much above the Stand
-local STOREY = 7
-local WARD_OPEN = 5.5 -- the ward's sides are open this far back from its front wall (the walkways' way in)
-local WARD_DOOR = 4 -- the back door's width (the stepping stones run through it)
-local DOOR_HEIGHT = 7
-local WARD_FLOOR_TOP = 0.05 -- the ward's painted floor, just above the lawn
-local BED_INSET = 6.2 -- a ward bed's centre from the block's middle
-local BED_BACK = 6.2 -- and behind the block's front wall
+local WARD_OPEN = 5.5 -- the lobby's sides are open this far back from its front wall (the walkways' way in)
 local WINDOW = 3.2 -- windows are this square (drawn on the walls)
 local DETAIL_PIXELS = 12 -- SurfaceGui detail on walls: low resolution is plenty for flat candy shapes
+local WALLS_GLASS = 0.5 -- the upper storeys' walls are see-through, so the street sees the wards, tub and pharmacy
+local PANE_GLASS = 0.45 -- and their drawn windows too
 local BAY_AT = Vector3.new(-26.8, 0, -16.5) -- the ambulance bay (plot-local), its nose to the street
+local STAND_TOP = 9.5 -- the placeholder Stand's top, when there's no Room_Stand to measure
 
-type Footprint = { Half: number, Front: number, Back: number, Ground: number }
-type BuildingStyle = { Accent: Color3, Wall: Color3, Glass: Color3, Floor: Color3, Board: Color3 }
+-- The floors the departments are on (Data/Departments) and the level each building piece first appears at
+-- (Data/Levels), so a piece's Since follows the data.
+local function deptFloor(dept: string, fallback: number): number
+	local row = rawget(Departments :: any, dept)
+	return if type(row) == "table" and type(row.Floor) == "number" then row.Floor else fallback
+end
+local WARDS_FLOOR = deptFloor("Wards", 1)
+local HYDRO_FLOOR = deptFloor("Hydro", 2)
+local PHARMACY_FLOOR = deptFloor("Pharmacy", 3)
+local ROOF_FLOOR = deptFloor("Roof", 4)
 
-local function buildingStyle(accent: Color3): BuildingStyle
+local function hasDept(row: any, dept: string): boolean
+	return type(row) == "table" and type(row.Departments) == "table" and table.find(row.Departments, dept) ~= nil
+end
+
+local function firstLevel(test: (any) -> boolean): number
+	for level, row in LevelsData do
+		if test(row) then
+			return level
+		end
+	end
+	return 2
+end
+
+local function sinceFloor(k: number): number
+	return firstLevel(function(row)
+		return row.Floors >= k
+	end)
+end
+
+local function sinceDept(dept: string): number
+	return firstLevel(function(row)
+		return hasDept(row, dept)
+	end)
+end
+
+local function sinceBed(index: number): number
+	return firstLevel(function(row)
+		return row.Beds - 1 >= index
+	end)
+end
+
+local function extraBeds(level: number): number
+	local row = LevelsData[level]
+	return if row then math.max(0, row.Beds - 1) else 0
+end
+
+type BuildingStyle = {
+	Accent: Color3, -- the plot's own colour: never themed
+	Wall: Color3,
+	Roof: Color3,
+	Trim: Color3,
+	Glass: Color3,
+	Floor: Color3,
+	Board: Color3,
+	Theme: string,
+	Prop: string,
+}
+
+local function hexColor(hex: any, fallback: Color3): Color3
+	if type(hex) == "string" and string.match(hex, "^#%x%x%x%x%x%x$") then
+		local ok, color = pcall(Color3.fromHex, hex)
+		if ok then
+			return color
+		end
+	end
+	return fallback
+end
+
+-- A Data/Themes id and its row; anything unknown is the default (Candy: today's look).
+local function themeOf(themeId: any): (string, any)
+	local row = if type(themeId) == "string" then rawget(Themes :: any, themeId) else nil
+	if type(row) == "table" then
+		return themeId, row
+	end
+	return Themes.Default, rawget(Themes :: any, Themes.Default)
+end
+
+local function buildingStyle(accent: Color3, themeId: string?): BuildingStyle
+	local id, theme = themeOf(themeId)
 	return {
 		Accent = accent,
-		Wall = lighten(accent, 0.78),
+		Wall = hexColor(theme.Wall, lighten(accent, 0.78)),
+		Roof = hexColor(theme.Roof, accent),
+		Trim = hexColor(theme.Trim, accent),
 		Glass = lighten(WORLD.Water, 0.35),
 		Floor = WORLD.Floor,
 		Board = darken(accent, 0.12),
+		Theme = id,
+		Prop = if type(theme.Prop) == "string" then theme.Prop else "",
 	}
 end
 
--- Where the block goes, in plot-local studs (x from -Half to Half, z from Front to Back), and the ward's height.
+-- Where the block goes, in plot-local studs (x from -Half to Half, z from Front to Back), and the lobby's height.
 local function footprint(plotModel: Model): Footprint
 	local pivot = plotModel:GetPivot()
 	local standHalf, standBack = 11, 1
@@ -1610,14 +1955,14 @@ local function footprint(plotModel: Model): Footprint
 	half = math.max(half, 7)
 	back = math.max(back, front + 8)
 
-	local standTop = 9.5
+	local standTop = STAND_TOP
 	local rooms = plotModel:FindFirstChild("Rooms")
 	local standRoom = rooms and rooms:FindFirstChild("Room_Stand")
 	if standRoom and standRoom:IsA("Model") then
 		local box, size = standRoom:GetBoundingBox()
 		standTop = pivot:PointToObjectSpace(box.Position).Y + size.Y / 2
 	end
-	return { Half = half, Front = front, Back = back, Ground = math.max(WARD_HEIGHT, standTop + SIGN_CLEAR) }
+	return { Half = half, Front = front, Back = back, Ground = Pure.ground(standTop) }
 end
 
 local function wedge(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3): WedgePart
@@ -1640,7 +1985,8 @@ local function nightGlow(p: BasePart): BasePart
 	return p
 end
 
--- A disc standing upright and facing the street (Roblox cylinders run along X, so turn it to face -Z).
+-- A disc standing upright and facing the street (Roblox cylinders run along X, so turn it to face -Z). Its Right
+-- face is the one toward the street.
 local function upright(parent: Instance, name: string, diameter: number, thick: number, at: CFrame, color: Color3)
 	local p = part(parent, name, Vector3.new(thick, diameter, diameter), at * CFrame.Angles(0, math.rad(90), 0), color)
 	p.Shape = Enum.PartType.Cylinder
@@ -1662,14 +2008,16 @@ end
 
 -- Windows drawn on a wall's face: cols x rows rounded panes in white frames, each WINDOW studs square (smaller if
 -- the face is crowded). LightInfluence 0 keeps them bright, so after dark they glow against the darkened walls.
--- skipTopMiddle leaves the top row's middle window out (a sign hangs there).
+-- skipTopMiddle leaves the top row's middle window out (a sign hangs there). `see` makes the panes see-through (the
+-- glass storeys).
 local function windowGui(
 	p: BasePart,
 	face: Enum.NormalId,
 	cols: number,
 	rows: number,
 	glass: Color3,
-	skipTopMiddle: boolean?
+	skipTopMiddle: boolean?,
+	see: number?
 )
 	local sideways = face == Enum.NormalId.Left or face == Enum.NormalId.Right
 	local width = if sideways then p.Size.Z else p.Size.X
@@ -1685,6 +2033,7 @@ local function windowGui(
 				glassPane.Position = UDim2.fromScale((col - 0.5) / cols, (row - 0.5) / rows)
 				glassPane.Size = UDim2.fromScale(w, h)
 				glassPane.BackgroundColor3 = glass
+				glassPane.BackgroundTransparency = see or 0
 				glassPane.BorderSizePixel = 0
 				rounded(glassPane, UDim.new(0.2, 0))
 				local frame = Instance.new("UIStroke")
@@ -1700,17 +2049,10 @@ end
 
 -- A flat rectangle on a face (scale units): stripes, crosses, a windscreen.
 local function decal(gui: SurfaceGui, name: string, size: UDim2, position: UDim2, color: Color3, corner: number?)
-	local f = Instance.new("Frame")
-	f.Name = name
-	f.AnchorPoint = Vector2.new(0.5, 0.5)
-	f.Position = position
-	f.Size = size
-	f.BackgroundColor3 = color
-	f.BorderSizePixel = 0
+	local f = band(gui, name, size, position, color)
 	if corner then
 		rounded(f, UDim.new(corner, 0))
 	end
-	f.Parent = gui
 end
 
 local function piece(parent: Instance, name: string, since: number): Model
@@ -1738,98 +2080,361 @@ end
 
 -- The ✚: a WHITE cross on a disc in the plot's accent colour, in a white rim, facing the street from `at` (its
 -- centre). Never a red cross on white: that's the Red Cross emblem, a protected symbol games may not use
--- (docs/guides/build-the-clinic.md, Rules); the plot accents (Palette.PlotColors) are never red. A neon one glows at
--- night: the rim and cross turn Neon and the disc lights up (a shadowless PointLight, like the lamps).
+-- (docs/guides/build-the-clinic.md, Rules); the plot accents (Palette.PlotColors) are never red. The cross is drawn
+-- on the disc (unlit, so it stays bright). A neon one glows at night: the rim turns Neon and the disc lights up (a
+-- shadowless PointLight, like the lamps).
 local function crossSign(parent: Instance, at: CFrame, diameter: number, accent: Color3, neon: boolean)
 	local rim = upright(parent, "SignRim", diameter + 0.7, 0.5, at, WHITE)
 	local face = upright(parent, "SignDisc", diameter, 0.5, at * CFrame.new(0, 0, -0.12), accent)
-	local long, short = diameter * 0.64, diameter * 0.22
-	local bars = {
-		soft(part(parent, "Cross", Vector3.new(long, short, 0.3), at * CFrame.new(0, 0, -0.45), WHITE)),
-		soft(part(parent, "Cross", Vector3.new(short, long, 0.3), at * CFrame.new(0, 0, -0.45), WHITE)),
-	}
+	local gui = faceGui(face, "CrossGui", Enum.NormalId.Right, 0)
+	gui.PixelsPerStud = 24
+	band(gui, "Cross", UDim2.fromScale(0.64, 0.22), UDim2.fromScale(0.5, 0.5), WHITE)
+	band(gui, "Cross", UDim2.fromScale(0.22, 0.64), UDim2.fromScale(0.5, 0.5), WHITE)
 	if neon then
 		nightGlow(rim)
-		for _, bar in bars do
-			nightGlow(bar)
-		end
 		nightLight(face, 24)
 	end
 end
 
-local function buildWard(model: Model, f: Footprint, style: BuildingStyle)
-	local ward = piece(model, "Ward", 2)
+------------------------------------------------------------------------------------------------------------------
+-- The lobby, the floors, the lift and the stairs
+------------------------------------------------------------------------------------------------------------------
+
+-- The ground storey: open at its two front corners, with no back door (the lift and the stairs stand there).
+local function buildLobby(model: Model, f: Footprint, style: BuildingStyle)
+	local lobby = piece(model, "Lobby", sinceFloor(1))
 	local half, front, back, g = f.Half, f.Front, f.Back, f.Ground
 	local w, d = half * 2, back - front
 	local cz = (front + back) / 2
-	paint(part(ward, "WardFloor", Vector3.new(w - 0.6, 0.04, d - 0.6), CFrame.new(0, 0.03, cz), style.Floor))
-	part(ward, "FrontWall", Vector3.new(w, g, 0.6), CFrame.new(0, g / 2, front + 0.3), style.Wall)
-
-	-- The back wall, with a door onto the stepping stones and a window either side.
-	local segment = (w - WARD_DOOR) / 2
-	for _, side in { -1, 1 } do
-		local x = side * (WARD_DOOR / 2 + segment / 2)
-		local wall = part(ward, "BackWall", Vector3.new(segment, g, 0.6), CFrame.new(x, g / 2, back - 0.3), style.Wall)
-		windowGui(wall, Enum.NormalId.Back, 1, 1, style.Glass)
-	end
-	part(
-		ward,
-		"DoorTop",
-		Vector3.new(WARD_DOOR + 0.2, g - DOOR_HEIGHT, 0.6),
-		CFrame.new(0, (g + DOOR_HEIGHT) / 2, back - 0.3),
-		style.Wall
-	)
-
-	-- The sides: open at the front (the walkways' way in, up to the ceiling), walled behind, with a window.
+	paint(part(lobby, "LobbyFloor", Vector3.new(w - 0.6, 0.04, d - 0.6), CFrame.new(0, 0.03, cz), style.Floor))
+	part(lobby, "FrontWall", Vector3.new(w, g, 0.6), CFrame.new(0, g / 2, front + 0.3), style.Wall)
+	local backWall = part(lobby, "BackWall", Vector3.new(w, g, 0.6), CFrame.new(0, g / 2, back - 0.3), style.Wall)
+	windowGui(backWall, Enum.NormalId.Back, 2, 1, style.Glass)
 	local openTo = front + WARD_OPEN
 	local wallLength = back - openTo
 	for _, side in { -1, 1 } do
-		local x = side * (half - 0.3)
 		local wall = part(
-			ward,
+			lobby,
 			"SideWall",
 			Vector3.new(0.6, g, wallLength),
-			CFrame.new(x, g / 2, openTo + wallLength / 2),
+			CFrame.new(side * (half - 0.3), g / 2, openTo + wallLength / 2),
 			style.Wall
 		)
 		windowGui(wall, if side < 0 then Enum.NormalId.Left else Enum.NormalId.Right, 1, 1, style.Glass)
 	end
-
-	-- The ceiling and the candy trim round it (soft: the camera passes through).
-	soft(part(ward, "Ledge", Vector3.new(w + 0.8, 0.6, d + 0.8), CFrame.new(0, g, cz), style.Accent))
 end
 
-local function buildStorey(model: Model, f: Footprint, style: BuildingStyle, index: number)
-	local storey = piece(model, "Storey_" .. index, index + 2)
-	local half, front, back = f.Half, f.Front, f.Back
-	local base = f.Ground + (index - 1) * STOREY
-	local cz = (front + back) / 2
-	local color = if index % 2 == 1 then WHITE else style.Wall -- white and pastel layers, like a cake
-	local block = soft(
-		part(storey, "Block", Vector3.new(half * 2, STOREY, back - front), CFrame.new(0, base + STOREY / 2, cz), color)
+-- The two prompts every landing has, at a rider's chest height.
+local function liftPrompts(landing: BasePart)
+	if landing:FindFirstChild("PromptPoint") then
+		return
+	end
+	local point = Instance.new("Attachment")
+	point.Name = "PromptPoint"
+	point.Position = Vector3.new(0, 2.5, 0)
+	point.Parent = landing
+	local lift = Instance.new("ProximityPrompt")
+	lift.Name = "LiftPrompt"
+	lift.ActionText = "Lift"
+	lift.ObjectText = "🛗"
+	lift.HoldDuration = 0
+	lift.MaxActivationDistance = 8
+	lift.RequiresLineOfSight = false
+	CollectionService:AddTag(lift, PlotBuilder.PROMPT_TAGS.Lift)
+	lift.Parent = point
+	local escort = Instance.new("ProximityPrompt")
+	escort.Name = "EscortPrompt"
+	escort.ActionText = "Ride with patient"
+	escort.ObjectText = "🛗"
+	escort.HoldDuration = 0
+	escort.MaxActivationDistance = 8
+	escort.RequiresLineOfSight = false
+	escort.KeyboardKeyCode = Enum.KeyCode.F -- beside the LiftPrompt's E
+	escort.GamepadKeyCode = Enum.KeyCode.ButtonY
+	escort.Enabled = false
+	CollectionService:AddTag(escort, PlotBuilder.PROMPT_TAGS.Escort)
+	escort.Parent = point
+end
+
+local function landingMarker(parent: Instance, name: string, floor: number, f: Footprint, layout: Layout): BasePart
+	local at = layout.Landing
+	local y = Pure.floorTop(f, floor)
+	-- Facing out of the lift (toward the street), resting on the floor.
+	local landing = marker(parent, name, CFrame.new(at.X, y + 0.5, at.Z), Vector3.new(Pure.LANDING, 1, Pure.LANDING))
+	landing:SetAttribute("Floor", floor)
+	liftPrompts(landing)
+	return landing
+end
+
+local function rectPart(parent: Instance, name: string, r: Rect, y: number, height: number, color: Color3): Part
+	return part(
+		parent,
+		name,
+		Vector3.new(r.X1 - r.X0, height, r.Z1 - r.Z0),
+		CFrame.new((r.X0 + r.X1) / 2, y, (r.Z0 + r.Z1) / 2),
+		color
 	)
-	-- Windows on the three sides you can see from the street (one every ~7 studs across, ~5.5 deep).
-	local across = math.max(1, math.floor(half * 2 / 7))
-	local deep = math.max(1, math.floor((back - front) / 5.5))
-	windowGui(block, Enum.NormalId.Front, across, 1, style.Glass)
-	windowGui(block, Enum.NormalId.Left, deep, 1, style.Glass)
-	windowGui(block, Enum.NormalId.Right, deep, 1, style.Glass)
-	if index > 1 then
-		soft(
-			part(
-				storey,
-				"Ledge",
-				Vector3.new(half * 2 + 0.8, 0.6, back - front + 0.8),
-				CFrame.new(0, base, cz),
-				style.Accent
-			)
-		)
+end
+
+-- Floor_k: its slabs (they collide: you walk on them), its landing and, indoors, its see-through walls.
+local function buildFloor(model: Model, f: Footprint, layout: Layout, style: BuildingStyle, k: number, indoor: boolean)
+	local floorModel = piece(model, "Floor_" .. k, sinceFloor(k))
+	local y = Pure.slabY(f, k)
+	rectPart(floorModel, "Slab", layout.Slab, y, Pure.SLAB, style.Trim)
+	rectPart(floorModel, "SlabBack", layout.SlabBack, y, Pure.SLAB, style.Trim)
+	landingMarker(floorModel, "Landing", k, f, layout)
+	if indoor then
+		local height = Pure.STOREY - Pure.SLAB
+		local walls = soft(part(
+			floorModel,
+			"Walls",
+			Vector3.new(f.Half * 2, height, f.Back - f.Front),
+			CFrame.new(0, y + Pure.SLAB / 2 + height / 2, (f.Front + f.Back) / 2),
+			if k % 2 == 1 then WHITE else style.Wall -- white and pastel layers, like a cake
+		))
+		walls.Transparency = WALLS_GLASS
+		walls.CastShadow = false
+		-- Windows on the three sides you see from the street (one every ~7 studs across, ~5.5 deep).
+		local across = math.max(1, math.floor(f.Half * 2 / 7))
+		local deep = math.max(1, math.floor((f.Back - f.Front) / 5.5))
+		windowGui(walls, Enum.NormalId.Front, across, 1, style.Glass, false, PANE_GLASS)
+		windowGui(walls, Enum.NormalId.Left, deep, 1, style.Glass, false, PANE_GLASS)
+		windowGui(walls, Enum.NormalId.Right, deep, 1, style.Glass, false, PANE_GLASS)
 	end
 end
 
--- Lv 2: a candy gable over the ward (ridge running across, so its front slope faces the street).
-local function buildGable(model: Model, f: Footprint, style: BuildingStyle, top: number)
-	local roof = piece(model, "Roof", 2)
+-- The glass lift: its shaft from the lobby floor to `top`, a cap, and the car resting at the lobby with its doors
+-- drawn on its street side (open; UI/LiftPanel closes them, slides the car and opens them on each client).
+local function buildLift(model: Model, layout: Layout, style: BuildingStyle, top: number)
+	local lift = piece(model, "Lift", sinceFloor(1))
+	local s = layout.Shaft
+	local w, d = s.X1 - s.X0, s.Z1 - s.Z0
+	local cx, cz = (s.X0 + s.X1) / 2, (s.Z0 + s.Z1) / 2
+	local shaft = soft(part(lift, "Shaft", Vector3.new(w, top, d), CFrame.new(cx, top / 2, cz), style.Glass))
+	shaft.Transparency = 0.6
+	shaft.CastShadow = false
+	soft(part(lift, "Cap", Vector3.new(w + 0.5, 0.5, d + 0.5), CFrame.new(cx, top + 0.25, cz), style.Trim))
+	local car = soft(
+		part(
+			lift,
+			"Car",
+			Vector3.new(w - 0.4, Pure.CAR_HEIGHT, d - 0.4),
+			CFrame.new(cx, Pure.FLOOR_TOP + Pure.CAR_HEIGHT / 2, cz),
+			WHITE
+		)
+	)
+	car.Transparency = 0.35
+	car.CastShadow = false
+	local doors = detailGui(car, "DoorsGui", Enum.NormalId.Front, 20, 200)
+	for i, name in { "DoorL", "DoorR" } do
+		local door =
+			band(doors, name, UDim2.fromScale(0.5, 1), UDim2.fromScale(if i == 1 then -0.21 else 1.21, 0.5), style.Trim)
+		local rim = Instance.new("UIStroke")
+		rim.Color = WHITE
+		rim.Thickness = 3
+		rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		rim.Parent = door
+	end
+	lift:SetAttribute("Ride", "") -- Server/Lift: "<from>,<to>,<seconds>,<serverTime>" for each ride (clients slide it)
+	lift:SetAttribute("Rider", 0) -- ... and who rode and when (Feel/HospitalFX dings others' rides)
+	lift:SetAttribute("RideAt", 0)
+	CollectionService:AddTag(lift, PlotBuilder.LIFT_TAG)
+end
+
+-- One flight per storey, from floor k (at the right wall) up to floor k + 1 (beside the lift): a thin plate tilted
+-- along the back strip with its steps drawn on, stacked one storey above the last so each keeps full headroom.
+local function buildStairs(model: Model, f: Footprint, layout: Layout, style: BuildingStyle, floors: number)
+	local stairs = piece(model, "Stairs", sinceFloor(1))
+	local r = layout.Ramp
+	local color = lighten(style.Trim, 0.35)
+	for k = 0, floors - 1 do
+		local low = Vector3.new(r.XLow, Pure.floorTop(f, k), r.Z)
+		local high = Vector3.new(r.XHigh, Pure.floorTop(f, k + 1), r.Z)
+		local length = (high - low).Magnitude
+		-- The walking surface runs from `low` to `high`; the plate's centre sits half its thickness under it.
+		local frame = CFrame.lookAt((low + high) / 2, high) * CFrame.new(0, -0.2, 0)
+		local flight = part(stairs, "Flight_" .. k, Vector3.new(r.Width, 0.4, length), frame, color)
+		flight:SetAttribute("Since", sinceFloor(k + 1))
+		local steps = detailGui(flight, "StepsGui", Enum.NormalId.Top, 8)
+		local count = math.max(3, math.floor(length / 1.2))
+		for i = 1, count - 1 do
+			band(steps, "Step", UDim2.fromScale(0.05, 1), UDim2.fromScale(i / count, 0.5), darken(color, 0.22))
+		end
+	end
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The departments
+------------------------------------------------------------------------------------------------------------------
+
+-- A ward bed: a BedSpot_<n> Model round the mattress Part Bed_<n>, on the Wards floor.
+local function wardBed(parent: Instance, f: Footprint, layout: Layout, index: number, accent: Color3)
+	local bed = layout.Beds[index]
+	if not bed then
+		return
+	end
+	local spot = piece(parent, "BedSpot_" .. index, sinceBed(index))
+	spot:SetAttribute("Floor", WARDS_FLOOR)
+	buildBed(
+		spot,
+		index,
+		Vector3.new(bed.X, 0, bed.Z),
+		styleFor("Stand", accent),
+		Pure.floorTop(f, WARDS_FLOOR),
+		bed.Turn
+	)
+	local mattress = spot:FindFirstChild("Bed_" .. index)
+	if mattress then
+		mattress:SetAttribute("Floor", WARDS_FLOOR)
+	end
+end
+
+-- Hydro: a round hot tub; patients soak at its two TubSpots; the SoakPrompt waits at its front edge.
+local function buildHydro(model: Model, f: Footprint, layout: Layout)
+	local hydro = piece(model, "Hydro", sinceDept("Hydro"))
+	local t = layout.Tub
+	local base = Pure.floorTop(f, HYDRO_FLOOR)
+	local rim = 1.6
+	local tubModel = Instance.new("Model")
+	tubModel.Name = "HotTub"
+	local tub = cylinder(tubModel, "Tub", rim, t.Diameter, CFrame.new(t.X, base + rim / 2, t.Z), WHITE)
+	local water =
+		paint(cylinder(tubModel, "Water", 0.1, t.Diameter - 0.8, CFrame.new(t.X, base + rim + 0.03, t.Z), WORLD.Water))
+	water.Transparency = 0.15
+	local bubble = soft(ball(tubModel, "Bubble", 1.1, CFrame.new(t.X + 1.4, base + rim + 0.35, t.Z - 2.2), WHITE))
+	bubble.Transparency = 0.1
+	bubble.CastShadow = false
+	for i, dx in { -1.9, 1.9 } do
+		local spot = marker(tubModel, "TubSpot_" .. i, CFrame.new(t.X + dx, base + rim + 0.5, t.Z))
+		spot:SetAttribute("Floor", HYDRO_FLOOR)
+	end
+	local point = Instance.new("Attachment")
+	point.Name = "SoakPoint"
+	point.CFrame = tub.CFrame:ToObjectSpace(CFrame.new(t.X, base + 2.6, t.Z - t.Diameter / 2))
+	point.Parent = tub
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "SoakPrompt"
+	prompt.ActionText = "🫧"
+	prompt.ObjectText = ""
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 10
+	prompt.RequiresLineOfSight = false
+	prompt.Enabled = false
+	CollectionService:AddTag(prompt, PlotBuilder.PROMPT_TAGS.Soak)
+	prompt.Parent = point
+	tubModel.Parent = hydro
+end
+
+-- The 💊 Pharmacy: a station Model by the station contract (Server/Stations finds it by its tag), a counter in the
+-- station's colour with a white stripe and its floating icon, and a shelf of bottles drawn behind it.
+local function buildPharmacy(model: Model, f: Footprint, layout: Layout)
+	local pharmacy = piece(model, "Pharmacy", sinceDept("Pharmacy"))
+	local p = layout.Pharmacy
+	local base = Pure.floorTop(f, PHARMACY_FLOOR)
+	local data = rawget(Stations :: any, "Pharmacy")
+	local color: Color3 = if data then data.Color else CANDY.Mint
+	local station = Instance.new("Model")
+	station.Name = "Station_Pharmacy"
+	local counter = part(station, "Counter", Vector3.new(4.6, 3, 2.6), CFrame.new(p.X, base + 1.5, p.Z), color)
+	station.PrimaryPart = counter
+	soft(part(station, "Top", Vector3.new(4.9, 0.3, 2.9), CFrame.new(p.X, base + 3.15, p.Z), WHITE))
+	band(
+		detailGui(counter, "StripeGui", Enum.NormalId.Front, 20),
+		"Stripe",
+		UDim2.fromScale(1, 0.5 / 3),
+		UDim2.fromScale(0.5, 0.5 - 0.7 / 3),
+		WHITE
+	)
+	local shelf = soft(
+		part(
+			station,
+			"Shelf",
+			Vector3.new(math.max(p.Width, 4), 4.4, 0.6),
+			CFrame.new(p.X, base + 2.2, layout.Strip.Z1 - 0.3),
+			lighten(color, 0.55)
+		)
+	)
+	local bottles = detailGui(shelf, "BottlesGui", Enum.NormalId.Front, 12)
+	local colors = { CANDY.Pink, CANDY.Yellow, CANDY.Cyan, CANDY.Purple, CANDY.Orange }
+	for row = 1, 2 do
+		for col = 1, 5 do
+			local bottle = band(
+				bottles,
+				"Bottle",
+				UDim2.fromScale(0.1, 0.26),
+				UDim2.fromScale((col - 0.5) / 5, row * 0.46 - 0.14),
+				colors[(row + col) % #colors + 1]
+			)
+			rounded(bottle, UDim.new(0.35, 0))
+		end
+	end
+	iconBadge(counter, "IconGui", if data then data.Icon else "💊", color, 2.6, 1.5 + 2.1)
+	CollectionService:AddTag(station, PlotBuilder.STATION_TAG)
+	station.Parent = pharmacy
+end
+
+-- The roof (Floor_4): the helipad (a yellow ring, a dark pad and a white H drawn on one flat see-through part), its
+-- HeliSpot marker, and a roof garden of planters in front of the tower.
+local function buildRoofTop(model: Model, layout: Layout, roofTop: number)
+	local roof = piece(model, "Roof", sinceDept("Roof"))
+	local pad = layout.Pad
+	local surface = paint(
+		part(roof, "Pad", Vector3.new(pad.Diameter, 0.1, pad.Diameter), CFrame.new(pad.X, roofTop + 0.06, pad.Z), WHITE)
+	)
+	surface.Transparency = 1
+	local gui = faceGui(surface, "PadGui", Enum.NormalId.Top, 1)
+	disc(gui, "Ring", 1, CANDY.Yellow, 1)
+	disc(gui, "Inner", 0.86, WORLD.Street, 2)
+	local letter = candyLabel(gui, "H", "H", UDim2.fromScale(0.44, 0.44), UDim2.fromScale(0.28, 0.28), 5)
+	letter.ZIndex = 3
+	local heli = marker(roof, "HeliSpot", CFrame.new(pad.X, roofTop + 0.5, pad.Z))
+	heli:SetAttribute("ArriveAt", 0) -- Server/Patients sets it; Feel/HospitalFX flies the helicopter in
+	for i, at in layout.Planters do
+		part(
+			roof,
+			"Planter",
+			Vector3.new(3, 1.2, 1.6),
+			CFrame.new(at.X, roofTop + 0.6, at.Z),
+			PLANTERS[i % #PLANTERS + 1]
+		)
+		local flowers = if i % 2 == 0 then lighten(CANDY.Pink, 0.25) else WORLD.LeavesLight
+		soft(ball(roof, "Flowers", 1.9, CFrame.new(at.X, roofTop + 1.6, at.Z), flowers))
+	end
+end
+
+-- Lv 5: a two-storey tower on the roof's left, its neon ✚ facing the street and a beacon on top. Returns the spot on
+-- its top where a theme prop stands.
+local function buildTower(model: Model, layout: Layout, style: BuildingStyle, roofTop: number): CFrame
+	local tower = piece(model, "Tower", sinceDept("Roof"))
+	local t = layout.Tower
+	local cx, cz = (t.X0 + t.X1) / 2, (t.Z0 + t.Z1) / 2
+	local w, d = t.X1 - t.X0, t.Z1 - t.Z0
+	local height = Pure.STOREY * 2
+	local block =
+		soft(part(tower, "TowerBlock", Vector3.new(w, height, d), CFrame.new(cx, roofTop + height / 2, cz), WHITE))
+	windowGui(block, Enum.NormalId.Front, 1, 2, style.Glass, true) -- the neon ✚ takes the top front window
+	windowGui(block, Enum.NormalId.Left, 1, 2, style.Glass)
+	windowGui(block, Enum.NormalId.Right, 1, 2, style.Glass)
+	soft(
+		part(
+			tower,
+			"TowerLedge",
+			Vector3.new(w + 0.8, 0.6, d + 0.8),
+			CFrame.new(cx, roofTop + Pure.STOREY, cz),
+			style.Trim
+		)
+	)
+	soft(part(tower, "TowerCap", Vector3.new(w + 1, 0.8, d + 1), CFrame.new(cx, roofTop + height, cz), style.Roof))
+	crossSign(tower, CFrame.new(cx, roofTop + Pure.STOREY + 3.5, t.Z0 - 0.4), 4.8, style.Accent, true)
+	-- A beacon on the cap's front half, glowing red at night.
+	nightGlow(soft(ball(tower, "Beacon", 1.4, CFrame.new(cx, roofTop + height + 1.1, t.Z0 + 2), CANDY.Red)))
+	return CFrame.new(cx, roofTop + height + 0.4, t.Z1 - 2)
+end
+
+-- Lv 2: a candy gable over the top storey (ridge running across, so its front slope faces the street). Returns the
+-- spot on its ridge for a theme prop, and its front eave (for icicles) with its width.
+local function buildGable(model: Model, f: Footprint, style: BuildingStyle, top: number): (CFrame, CFrame, number)
+	local roof = piece(model, "RoofShell", sinceFloor(1))
 	local w = f.Half * 2 + 1.2
 	local front, back = f.Front - 0.6, f.Back + 0.6
 	local roofHalf = (back - front) / 2
@@ -1840,9 +2445,15 @@ local function buildGable(model: Model, f: Footprint, style: BuildingStyle, top:
 	local base = top + 0.3
 	for _, side in { -1, 1 } do -- -1 = the front slope, rising toward the back
 		local slope = CFrame.new(0, base + rise / 2, centre + side * roofHalf / 2) * CFrame.Angles(side * angle, 0, 0)
-		soft(part(roof, "RoofSlope", Vector3.new(w, 0.5, length), slope, style.Accent))
-		-- A white stripe across each slope, like the Stand's awning.
-		soft(part(roof, "RoofStripe", Vector3.new(w + 0.04, 0.54, 1.2), slope, WHITE))
+		local slab = soft(part(roof, "RoofSlope", Vector3.new(w, 0.5, length), slope, style.Roof))
+		-- A white stripe across each slope's middle, like the Stand's awning (drawn).
+		band(
+			detailGui(slab, "StripeGui", Enum.NormalId.Top, 6, 400),
+			"RoofStripe",
+			UDim2.fromScale(1.2 / length, 1),
+			UDim2.fromScale(0.5, 0.5),
+			WHITE
+		)
 	end
 	for _, xSide in { -1, 1 } do
 		local x = xSide * (f.Half - 0.2)
@@ -1868,89 +2479,37 @@ local function buildGable(model: Model, f: Footprint, style: BuildingStyle, top:
 	end
 	local ridge = soft(part(roof, "Ridge", Vector3.new(w + 0.3, 0.8, 0.8), CFrame.new(0, base + rise, centre), WHITE))
 	ridge.Shape = Enum.PartType.Cylinder
+	return CFrame.new(-f.Half * 0.55, base + rise + 0.3, centre), CFrame.new(0, base, front + 0.1), w
 end
 
--- Lv 3+: a flat roof with a lip, and a water tank until the tower and helipad take the space (Lv 5).
-local function buildFlatRoof(model: Model, f: Footprint, style: BuildingStyle, top: number, level: number)
-	local roof = piece(model, "Roof", level)
+-- Lv 3-4: a flat roof with a lip and a water tank. Returns the spot for a theme prop (the front left) and its front
+-- edge (for icicles) with its width.
+local function buildFlatRoof(
+	model: Model,
+	f: Footprint,
+	style: BuildingStyle,
+	top: number,
+	level: number
+): (CFrame, CFrame, number)
+	local roof = piece(model, "RoofShell", level)
 	local half, front, back = f.Half, f.Front, f.Back
 	local cz = (front + back) / 2
 	soft(
-		part(
-			roof,
-			"RoofCap",
-			Vector3.new(half * 2 + 0.8, 0.6, back - front + 0.8),
-			CFrame.new(0, top, cz),
-			style.Accent
-		)
+		part(roof, "RoofCap", Vector3.new(half * 2 + 0.8, 0.6, back - front + 0.8), CFrame.new(0, top, cz), style.Roof)
 	)
-	if level < 5 then
-		local at = CFrame.new(half - 3, top + 0.3, back - 3)
-		soft(part(roof, "TankStand", Vector3.new(2.4, 1.2, 2.4), at * CFrame.new(0, 0.6, 0), WHITE))
-		soft(cylinder(roof, "Tank", 2.6, 3, at * CFrame.new(0, 2.5, 0), style.Accent))
-		soft(ball(roof, "TankTop", 1.2, at * CFrame.new(0, 3.9, 0), WHITE))
-	end
+	local at = CFrame.new(half - 3, top + 0.3, back - 3)
+	soft(part(roof, "TankStand", Vector3.new(2.4, 1.2, 2.4), at * CFrame.new(0, 0.6, 0), WHITE))
+	soft(cylinder(roof, "Tank", 2.6, 3, at * CFrame.new(0, 2.5, 0), style.Roof))
+	soft(ball(roof, "TankTop", 1.2, at * CFrame.new(0, 3.9, 0), WHITE))
+	return CFrame.new(-half + 3.5, top + 0.3, front + 2.5), CFrame.new(0, top - 0.3, front - 0.4), half * 2 + 0.8
 end
 
--- Lv 5: a two-storey tower on the roof's left, its neon ✚ facing the street and a beacon on top.
-local function buildTower(model: Model, f: Footprint, style: BuildingStyle, top: number)
-	local tower = piece(model, "Tower", 5)
-	local x0, x1 = -f.Half + 1, -f.Half + 9
-	local z0 = f.Front + 2
-	local z1 = math.min(z0 + 8, f.Back - 1)
-	local cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
-	local base = top + 0.3
-	local height = STOREY * 2
-	local block = soft(
-		part(tower, "TowerBlock", Vector3.new(x1 - x0, height, z1 - z0), CFrame.new(cx, base + height / 2, cz), WHITE)
-	)
-	windowGui(block, Enum.NormalId.Front, 1, 2, style.Glass, true) -- the neon ✚ takes the top front window
-	windowGui(block, Enum.NormalId.Left, 1, 2, style.Glass)
-	windowGui(block, Enum.NormalId.Right, 1, 2, style.Glass)
-	soft(
-		part(
-			tower,
-			"TowerLedge",
-			Vector3.new(x1 - x0 + 0.8, 0.6, z1 - z0 + 0.8),
-			CFrame.new(cx, base + STOREY, cz),
-			style.Accent
-		)
-	)
-	soft(
-		part(
-			tower,
-			"TowerCap",
-			Vector3.new(x1 - x0 + 1, 0.8, z1 - z0 + 1),
-			CFrame.new(cx, base + height, cz),
-			style.Accent
-		)
-	)
-	crossSign(tower, CFrame.new(cx, base + STOREY + 3.5, z0 - 0.4), 4.8, style.Accent, true)
-	-- A beacon on the roof, glowing red at night.
-	nightGlow(soft(ball(tower, "Beacon", 1.4, CFrame.new(cx, base + height + 1.1, cz), CANDY.Red)))
-end
-
--- Lv 5: the helipad on the roof beside the tower: a yellow ring, a dark pad and a white H, all drawn on one flat
--- see-through part (a SurfaceGui on its top).
-local function buildHelipad(model: Model, f: Footprint, top: number)
-	local pad = piece(model, "Helipad", 5)
-	local left = -f.Half + 10 -- the tower's right side, plus a step
-	local cx, cz = (left + f.Half) / 2, (f.Front + f.Back) / 2
-	local diameter = math.min(f.Half - left, f.Back - f.Front) - 1.5
-	local surface = paint(part(pad, "Pad", Vector3.new(diameter, 0.1, diameter), CFrame.new(cx, top + 0.36, cz), WHITE))
-	surface.Transparency = 1
-	local gui = faceGui(surface, "PadGui", Enum.NormalId.Top, 1)
-	disc(gui, "Ring", 1, CANDY.Yellow, 1)
-	disc(gui, "Inner", 0.86, WORLD.Street, 2)
-	local letter = candyLabel(gui, "H", "H", UDim2.fromScale(0.44, 0.44), UDim2.fromScale(0.28, 0.28), 5)
-	letter.ZIndex = 3
-end
-
--- Lv 4: the ambulance bay, a painted bay with a toy ambulance parked nose to the street. Its stripe, its badges (a
--- white cross on the plot's accent colour, never a red cross on white: see crossSign) and windscreen are drawn on
--- its sides (SurfaceGuis), so it stays a handful of parts.
+-- A&E: the ambulance bay, a painted bay with a toy ambulance parked nose to the street. Its stripe, its badges (a
+-- white cross on the plot's accent colour, never a red cross on white: see crossSign) and windscreen are drawn on its
+-- sides; each axle is one long cylinder that shows a wheel on both sides. The StretcherSpot by its side door faces
+-- the line (Server/Patients pops an urgent patient out there).
 local function buildAmbulanceBay(model: Model, style: BuildingStyle)
-	local bay = piece(model, "AmbulanceBay", 4)
+	local bay = piece(model, "AmbulanceBay", sinceDept("AE"))
 	local at = CFrame.new(BAY_AT)
 	paint(part(bay, "BayFloor", Vector3.new(7.4, 0.06, 13), at * CFrame.new(0, 0.04, 0), lighten(WORLD.Street, 0.5)))
 	local van = Instance.new("Model")
@@ -1983,31 +2542,145 @@ local function buildAmbulanceBay(model: Model, style: BuildingStyle)
 			)
 		)
 	end
-	for _, x in { -2.15, 2.15 } do
-		for _, z in { -3.2, 3 } do
-			local wheel =
-				soft(part(van, "Wheel", Vector3.new(0.7, lift * 2, lift * 2), at * CFrame.new(x, lift, z), Palette.Ink))
-			wheel.Shape = Enum.PartType.Cylinder
-		end
+	for _, z in { -3.2, 3 } do
+		local axle =
+			soft(part(van, "Axle", Vector3.new(5, lift * 2, lift * 2), at * CFrame.new(0, lift, z), Palette.Ink))
+		axle.Shape = Enum.PartType.Cylinder
 	end
+	marker(van, "StretcherSpot", at * CFrame.new(3.6, 0.5, 1.3) * CFrame.Angles(0, -math.pi / 2, 0))
+	van:SetAttribute("ArriveAt", 0) -- Server/Patients sets it; Feel/HospitalFX flashes and sirens
 	van.Parent = bay
 end
 
--- A ward bed: a BedSpot_<n> Model round the mattress Part Bed_<n>.
-local function wardBed(model: Model, f: Footprint, index: number, accent: Color3)
-	local spot = piece(model, "BedSpot_" .. index, if index == 1 then 2 else 4)
-	local side = if index % 2 == 1 then -1 else 1
-	local x = side * math.min(BED_INSET, f.Half - 3)
-	local z = math.min(f.Front + BED_BACK, f.Back - 4.4)
-	buildBed(spot, index, Vector3.new(x, 0, z), styleFor("Stand", accent), WARD_FLOOR_TOP)
+------------------------------------------------------------------------------------------------------------------
+-- Branch themes: one roof prop each (Data/Themes Prop, <= 6 parts, all walk-through)
+------------------------------------------------------------------------------------------------------------------
+
+-- Icicles hang under a roof's front edge (`edge`: its centre line, facing the street), with a snow lip on it.
+local function propIcicles(parent: Instance, edge: CFrame, width: number)
+	soft(part(parent, "Snow", Vector3.new(width, 0.35, 0.9), edge * CFrame.new(0, 0.12, 0), WHITE)).CastShadow = false
+	local ice = lighten(CANDY.Blue, 0.6)
+	for i = 1, 4 do
+		local x = (i - 2.5) / 4 * width * 0.8
+		local length = if i % 2 == 0 then 1.8 else 1.2
+		local icicle = soft(
+			part(
+				parent,
+				"Icicle",
+				Vector3.new(0.45, length, 0.45),
+				edge * CFrame.new(x, -length / 2, 0) * CFrame.Angles(0, math.rad(45), 0),
+				ice
+			)
+		)
+		icicle.Transparency = 0.15
+		icicle.CastShadow = false
+	end
 end
 
-local function extraBeds(level: number): number
-	local row = LevelsData[level]
-	return if row then math.max(0, row.Beds - 1) else 0
+local PROPS: { [string]: (Instance, CFrame, BuildingStyle) -> () } = {
+	Palm = function(parent, at, _style)
+		local height = 4.5
+		soft(cylinder(parent, "Trunk", height, 0.7, at * CFrame.new(0, height / 2, 0), WORLD.Trunk))
+		local crown = at * CFrame.new(0, height + 0.1, 0)
+		for i = 0, 3 do
+			soft(
+				part(
+					parent,
+					"Leaf",
+					Vector3.new(3.4, 0.2, 1.1),
+					crown
+						* CFrame.Angles(0, i * math.pi / 2, 0)
+						* CFrame.new(1.5, -0.3, 0)
+						* CFrame.Angles(0, 0, math.rad(-22)),
+					WORLD.Leaves
+				)
+			).CastShadow =
+				false
+		end
+		soft(ball(parent, "Coconut", 0.8, crown * CFrame.new(0.3, -0.5, 0.4), WORLD.Trunk)).CastShadow = false
+	end,
+	Rocket = function(parent, at, style)
+		soft(cylinder(parent, "Body", 4, 1.7, at * CFrame.new(0, 2.2, 0), WHITE))
+		soft(ball(parent, "Nose", 1.7, at * CFrame.new(0, 4.2, 0), style.Roof)).CastShadow = false
+		for _, side in { -1, 1 } do
+			soft(part(parent, "Fin", Vector3.new(0.25, 1.6, 1.4), at * CFrame.new(side * 0.95, 1, 0), style.Trim)).CastShadow =
+				false
+		end
+		soft(ball(parent, "Window", 0.75, at * CFrame.new(0, 3, -0.75), style.Glass)).CastShadow = false
+	end,
+	Shell = function(parent, at, style)
+		upright(parent, "Shell", 3.2, 0.4, at * CFrame.new(0, 1.3, 0), lighten(style.Trim, 0.2))
+		for _, angle in { -35, 0, 35 } do
+			soft(
+				part(
+					parent,
+					"Rib",
+					Vector3.new(0.2, 1.5, 0.3),
+					at * CFrame.new(0, 1.3, -0.3) * CFrame.Angles(0, 0, math.rad(angle)) * CFrame.new(0, 0.75, 0),
+					WHITE
+				)
+			).CastShadow =
+				false
+		end
+		soft(ball(parent, "Pearl", 0.8, at * CFrame.new(0, 0.45, -0.5), WHITE)).CastShadow = false
+	end,
+	Crown = function(parent, at, style)
+		soft(cylinder(parent, "Band", 1.1, 3, at * CFrame.new(0, 0.55, 0), style.Roof))
+		for i = 0, 3 do
+			local a = i * math.pi / 2 + math.pi / 4
+			soft(ball(parent, "Point", 0.7, at * CFrame.new(math.cos(a) * 1.2, 1.45, math.sin(a) * 1.2), style.Roof)).CastShadow =
+				false
+		end
+		soft(ball(parent, "Gem", 0.7, at * CFrame.new(0, 0.6, -1.45), style.Trim)).CastShadow = false
+	end,
+}
+
+-- The theme's prop: icicles under `edge`, anything else standing at `spot` (both plot-local, facing the street).
+local function themeProp(model: Model, style: BuildingStyle, level: number, spot: CFrame?, edge: CFrame?, width: number)
+	if style.Prop == "" then
+		return
+	end
+	local prop = piece(model, "ThemeProp", level)
+	prop:SetAttribute("Theme", style.Theme)
+	if style.Prop == "Icicles" then
+		if edge and width > 0 then
+			propIcicles(prop, edge, width)
+		end
+	elseif spot then
+		local build = PROPS[style.Prop]
+		if build then
+			build(prop, spot, style)
+		end
+	end
+	if #prop:GetChildren() == 0 then
+		prop:Destroy()
+	end
 end
 
-local function kitBuilding(level: number): Model?
+-- Lv 1 has no building, so a theme's prop goes on the Stand: standing on its awning's back, or (icicles) under the
+-- awning's flap.
+local function standSpots(plotModel: Model): (CFrame?, CFrame?, number)
+	local rooms = plotModel:FindFirstChild("Rooms")
+	local stand = rooms and rooms:FindFirstChild("Room_Stand")
+	if not (stand and stand:IsA("Model")) then
+		return nil, nil, 0
+	end
+	local pivot = plotModel:GetPivot()
+	local box, size = stand:GetBoundingBox()
+	local c = pivot:PointToObjectSpace(box.Position)
+	local spot = CFrame.new(c.X - size.X * 0.27, c.Y + size.Y / 2 - 0.3, c.Z + size.Z / 2 - 1)
+	local flap = stand:FindFirstChild("AwningFlap", true)
+	if flap and flap:IsA("BasePart") then
+		return spot, pivot:ToObjectSpace(flap.CFrame) * CFrame.new(0, -flap.Size.Y / 2, 0), flap.Size.X
+	end
+	return spot, nil, 0
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Putting it together
+------------------------------------------------------------------------------------------------------------------
+
+local function kitBuilding(level: number, themeId: string): Model?
 	local kit = ServerStorage:FindFirstChild("ClinicKit")
 	local template = kit and kit:FindFirstChild("Building" .. level)
 	if not (template and template:IsA("Model")) then
@@ -2020,63 +2693,100 @@ local function kitBuilding(level: number): Model?
 	for _, descendant in model:GetDescendants() do
 		if descendant:IsA("BasePart") and string.match(descendant.Name, "^Bed_%d+$") then
 			beds += 1
+		elseif descendant:IsA("BasePart") and (descendant.Name == "Landing" or descendant.Name == "Landing_0") then
+			liftPrompts(descendant) -- the brother's landings get the same prompts
+		elseif descendant.Name == "Station_Pharmacy" then
+			CollectionService:AddTag(descendant, PlotBuilder.STATION_TAG)
+		elseif descendant.Name == "Lift" and descendant:IsA("Model") then
+			CollectionService:AddTag(descendant, PlotBuilder.LIFT_TAG)
 		end
 	end
 	if beds < extraBeds(level) then
 		warn("[PlotBuilder] ClinicKit.Building" .. level .. " needs " .. extraBeds(level) .. " Bed_<n> Parts")
 	end
+	local row = LevelsData[level]
+	if row and row.Floors > 0 and not model:FindFirstChild("Landing_0") then
+		warn("[PlotBuilder] ClinicKit.Building" .. level .. " has no Landing_0: its lift won't work")
+	end
+	model:SetAttribute("Theme", themeId)
 	return model
 end
 
--- Builds the shell in plot-local space (the plot's ground-top centre at the origin, -Z to the street). Beds whose
+-- Builds the hospital in plot-local space (the plot's ground-top centre at the origin, -Z to the street). Beds whose
 -- index is in `keep` are left out: the old ones move across.
-local function placeholderBuilding(plotModel: Model, level: number, keep: { [number]: boolean }): Model
+local function placeholderBuilding(plotModel: Model, level: number, keep: { [number]: boolean }, themeId: string): Model
 	local model = Instance.new("Model")
 	local row = LevelsData[level]
-	if row and row.Floors > 0 then
-		local accent = plotAccent(plotModel) or CANDY.Pink
-		local style = buildingStyle(accent)
-		local f = footprint(plotModel)
-		local upper = row.Floors - 1
-		local top = f.Ground + upper * STOREY
-		buildWard(model, f, style)
-		for index = 1, upper do
-			buildStorey(model, f, style, index)
+	local accent = plotAccent(plotModel) or CANDY.Pink
+	local style = buildingStyle(accent, themeId)
+	local f = footprint(plotModel)
+	local floors = if row then math.max(0, row.Floors) else 0
+	if row and floors > 0 then
+		local layout = Pure.layout(f)
+		local indoor, roofWalkable = Pure.storeys(floors, ROOF_FLOOR)
+		local top = Pure.slabY(f, indoor + 1) -- the roof's height (its slab's centre)
+		buildLobby(model, f, style)
+		for k = 1, floors do
+			buildFloor(model, f, layout, style, k, k <= indoor)
 		end
-		local sign = piece(model, "Sign", level)
-		if upper == 0 then
-			buildGable(model, f, style, top)
-			-- The Clinic's name on the ward's façade, above the Stand.
-			nameBoard(sign, CFrame.new(0, f.Ground - 1.4, f.Front - 0.16), math.min(f.Half, 9), row.Name, style)
-		else
-			buildFlatRoof(model, f, style, top, level)
-			nameBoard(sign, CFrame.new(0, top - 1.15, f.Front - 0.16), math.min(f.Half * 1.1, 13), row.Name, style)
-			if level < 5 then
-				crossSign(sign, CFrame.new(0, top + 3.95, f.Front + 1), 6, accent, false)
-			else
-				buildTower(model, f, style, top)
-				buildHelipad(model, f, top)
+		landingMarker(model, "Landing_0", 0, f, layout)
+		buildStairs(model, f, layout, style, floors)
+		buildLift(
+			model,
+			layout,
+			style,
+			if roofWalkable then Pure.floorTop(f, floors) + Pure.CAR_HEIGHT + 0.6 else top - Pure.SLAB / 2
+		)
+
+		if hasDept(row, "Wards") and WARDS_FLOOR <= floors then
+			local wards = piece(model, "Wards", sinceDept("Wards"))
+			for index = 1, extraBeds(level) do
+				if not keep[index] then
+					wardBed(wards, f, layout, index, accent)
+				end
 			end
 		end
-		if level >= 4 then
+		if hasDept(row, "Hydro") and HYDRO_FLOOR <= floors then
+			buildHydro(model, f, layout)
+		end
+		if hasDept(row, "Pharmacy") and PHARMACY_FLOOR <= floors then
+			buildPharmacy(model, f, layout)
+		end
+		if hasDept(row, "AE") then
 			buildAmbulanceBay(model, style)
 		end
-		for index = 1, extraBeds(level) do
-			if not keep[index] then
-				wardBed(model, f, index, accent)
-			end
+
+		local sign = piece(model, "Sign", level)
+		nameBoard(sign, CFrame.new(0, top - 1.15, f.Front - 0.16), math.min(f.Half * 1.1, 13), row.Name, style)
+		local spot: CFrame?, edge: CFrame?, width = nil, nil, 0
+		if roofWalkable then
+			local roofTop = Pure.floorTop(f, floors)
+			buildRoofTop(model, layout, roofTop)
+			spot = buildTower(model, layout, style, roofTop)
+			edge, width = CFrame.new(0, top - Pure.SLAB / 2, f.Front - Pure.OVERHANG), f.Half * 2 + Pure.OVERHANG * 2
+		elseif indoor <= 1 then
+			spot, edge, width = buildGable(model, f, style, top)
+		else
+			spot, edge, width = buildFlatRoof(model, f, style, top, level)
+			crossSign(sign, CFrame.new(0, top + 3.95, f.Front + 1), 6, accent, false)
 		end
+		themeProp(model, style, level, spot, edge, width)
+	else
+		-- Lv 1: the open-air Stand. A branch theme still shows: its prop on the Stand.
+		local spot, edge, width = standSpots(plotModel)
+		themeProp(model, style, level, spot, edge, width)
 	end
 	model.WorldPivot = CFrame.identity
 	model:PivotTo(plotModel:GetPivot())
 	return model
 end
 
-function PlotBuilder.buildBuilding(plotModel: Model, level: number, grewFrom: number?): Model
+function PlotBuilder.buildBuilding(plotModel: Model, level: number, grewFrom: number?, theme: string?): Model
 	local row = LevelsData[level]
 	local lv = if row then level else 1
+	local themeId = themeOf(theme)
 	local old = plotModel:FindFirstChild("Building")
-	local model = kitBuilding(lv)
+	local model = kitBuilding(lv, themeId)
 	if model then
 		model:PivotTo(plotModel:GetPivot())
 	else
@@ -2084,16 +2794,17 @@ function PlotBuilder.buildBuilding(plotModel: Model, level: number, grewFrom: nu
 		local keep: { [number]: boolean } = {}
 		if old then
 			for index = 1, extraBeds(lv) do
-				if old:FindFirstChild("BedSpot_" .. index) then
+				if old:FindFirstChild("BedSpot_" .. index, true) then
 					keep[index] = true
 				end
 			end
 		end
-		model = placeholderBuilding(plotModel, lv, keep)
+		model = placeholderBuilding(plotModel, lv, keep, themeId)
+		local wards = (model :: Model):FindFirstChild("Wards")
 		for index in keep do
-			local spot = (old :: Instance):FindFirstChild("BedSpot_" .. index)
-			if spot then
-				spot.Parent = model
+			local spot = (old :: Instance):FindFirstChild("BedSpot_" .. index, true)
+			if spot and wards then
+				spot.Parent = wards
 			end
 		end
 	end
@@ -2104,11 +2815,14 @@ function PlotBuilder.buildBuilding(plotModel: Model, level: number, grewFrom: nu
 	local from = if type(grewFrom) == "number" then grewFrom else lv
 	building:SetAttribute("GrewFrom", from)
 	building:SetAttribute("GrewAt", if from < lv then Workspace:GetServerTimeNow() else 0)
+	building:SetAttribute("Floors", if LevelsData[lv] then LevelsData[lv].Floors else 0)
+	building:SetAttribute("Theme", themeId)
 	if old then
 		old:Destroy()
 	end
 	building.Parent = plotModel
 	plotModel:SetAttribute("Level", lv)
+	plotModel:SetAttribute("Theme", themeId)
 	return building
 end
 
@@ -2313,6 +3027,7 @@ function PlotBuilder.buildTown(): { Model }
 		local model = kitPlot(index, cf) or buildPlaceholderPlot(index, cf)
 		model.WorldPivot = cf
 		buildQueueLane(model, plotAccentFor(index))
+		ensureSignBits(model) -- a kit plot's sign gets its BranchBadge, and the plot its MascotSpot
 		model:SetAttribute("PlotIndex", index)
 		model:SetAttribute("OwnerUserId", 0)
 		model:SetAttribute("OpenHelpers", false)

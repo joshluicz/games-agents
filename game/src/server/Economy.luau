@@ -7,7 +7,10 @@
 --   Economy.level(p, upgradeId): number     the player's upgrade level (0 if unknown or not loaded)
 --   Economy.purchase(p, kind, id): (ok, message)   kind "Upgrade" | "Room" | "Decor"; validates everything. A room
 --                                           also needs its hospital level (Rooms.Level: the Garden needs Lv 3),
---                                           checked by Logic/Progress.canBuyRoom from the save's Level
+--                                           checked by Logic/Progress.canBuyRoom from the save's Level. Progression
+--                                           v2: an upgrade also passes its gates first (Logic/Progress.canBuyUpgrade:
+--                                           Ward Comfort and A&E Speed "Needs 🏥 Lv 2", Night Clinic "Needs 🏢 R4");
+--                                           then the three sell like the others (Data/Upgrades prices, max level)
 --   Economy.placeDecor(p, slotKey, decorId?): (ok, message)   the PlaceDecor request; nil decorId puts it away
 --   Economy.toast(p, text) · Economy.toastAll(text)
 --   Economy.Purchased                       signal (p, kind, id) after a purchase lands (Carry can watch Tray);
@@ -184,6 +187,12 @@ local function buyUpgrade(player: Player, data: Types.Data, id: string): (boolea
 	local upgrade = rawget(Upgrades :: any, id)
 	if type(upgrade) ~= "table" then
 		return rejectJunk(player, "upgrade " .. id)
+	end
+	-- Progression v2 gates: the hospital level ("Needs 🏥 Lv 2": Ward Comfort, A&E Speed) and the rebirths ("Needs 🏢
+	-- R4": Night Clinic). A normal "no", not junk.
+	local open, why = ProgressLogic.canBuyUpgrade(data, id, Upgrades)
+	if not open then
+		return false, why
 	end
 	local level = Economy.level(player, id)
 	local price = Prices.upgradePrice(Upgrades, id, level)

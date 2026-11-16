@@ -215,7 +215,7 @@ jobs, team bonuses, the next rebirth's cost and the tree's effects from the Snap
 | Function | Args (untrusted) | Server | Rules (in order; any failure = `false` + a ≤ 6-word message, nothing changes) |
 |---|---|---|---|
 | `SetJob` | `(nurseId: string, job: string)` | T1 Nurses | owned · `job` is a Data/Jobs id (not `"Rest"`) · open at your hospital level (`Logic/Jobs.open`; else "🏥 Lv 2 first!") · a resting nurse may take a job only while working < roster cap · 0.35 s per player. Saves `Job` (`""` when it equals the Role) |
-| `OpenBranch` | `(confirm: boolean)` | T2 Rebirth | `confirm == true` · loaded and `PlayerData.canSave` (else "⚠️ Saving is off") · tutorial done · `Logic/Rebirth.canRebirth` (Lv 5, cash ≥ cost) · no treat session open (`Treatment.busy`: "Finish treating first!") · 5 s per player · then `Patients.reopen(owner)`, **re-check**, then ONE update (§B8). One click can never rebirth twice: the count it checked must equal the count it writes |
+| `OpenBranch` | `(confirm: boolean)` | T2 Rebirth | `confirm == true` · loaded and `PlayerData.canSave` (else "⚠️ Saving is off") · tutorial done · no perk card waiting (`Rebirth.Offer` empty; else "🃏 Pick your card first!": one card per branch, no re-roll fishing; admin free rebirths skip it; added at integration) · `Logic/Rebirth.canRebirth` (Lv 5, cash ≥ cost) · no treat session open (`Treatment.busy`: "Finish treating first!") · 5 s per player · then `Patients.reopen(owner)`, **re-check**, then ONE update (§B8). One click can never rebirth twice: the count it checked must equal the count it writes |
 | `ChoosePerk` | `(perkId: string)` | T2 | `perkId` is in `Rebirth.Offer` and not in `Perks` · ONE update: add it, clear `Offer`, apply its start-of-branch effect now (§B5 Perks) |
 | `BuyNode` | `(nodeId: string)` | T2 | a Data/Tree node · `Logic/Tree.canBuy` (points, max rank, a capstone's 6 points in its branch) · ONE update |
 | `ResetTree` | `()` | T2 | 2 s per player · ONE update: every rank refunded (`Logic/Tree.refund`) |
@@ -235,7 +235,9 @@ jobs, team bonuses, the next rebirth's cost and the tree's effects from the Snap
 - **The stock.** It is server-wide and in memory. Every `Config.Agency.RestockSeconds` of server uptime brings a new
   restock (index `Logic/Agency.restock(uptime)`). It holds `Config.Agency.Slots` (4) distinct nurses rolled with
   `Config.Agency.Odds` (Common to Epic only; rebirth-only nurses never). The 🍀 Lucky Stock capstone adds 2 slots for
-  you only, rolled from the same shown odds with a seed of (UserId, restock), so rejoining never re-rolls them.
+  you only, rolled from the same shown odds with a seed of (UserId, restock), so rejoining never re-rolls them. A
+  shared-stock nurse is never repeated in them unless every nurse of the rolled rarity is in the shared stock; then a
+  shared one may repeat, so the shown odds stay true (integration: `Logic/Agency.personal`).
 - **`AgencyBuy(slot, nurseId, expect)`**, checked in this order:
   1. `slot` is a whole number and the slot exists in YOUR view for the CURRENT restock.
   2. `nurseId` equals that slot's nurse. Else: "New nurses came! Look again", plus a fresh `AgencyNews`.
@@ -282,7 +284,8 @@ jobs, team bonuses, the next rebirth's cost and the tree's effects from the Snap
   4. The seller still owns that nurse, and it is still listed under this id.
   5. The buyer passes the gates (`Logic/Belt.gate`: hospital level and rebirths, the same as the belt; otherwise the
      Market would skip them).
-  6. The buyer has roster room and doesn't own that nurse ("You have one!", §E13).
+  6. The buyer has roster room and doesn't own that nurse ("You have one!", §E13), and the listing's level is within
+     the buyer's nurse level cap ("🏢 R3 first!": never clamped; `Logic/Market.canBuy`, added at integration).
   7. The buyer has cash ≥ price.
   8. 2 s per buyer.
   9. **Lock:** remove the listing from the table first, so a second buyer finds nothing.
@@ -296,6 +299,8 @@ jobs, team bonuses, the next rebirth's cost and the tree's effects from the Snap
       Try again."
   13. Afterwards: `PlayerData.saveNow(seller)` **then** `PlayerData.saveNow(buyer)`.
       - Seller first: a crash between the two writes can lose a nurse, but never duplicate one.
+      - `PlayerData.writeAfter(seller, buyer)` (integration) holds the buyer's autosave and leave-save behind the
+        seller's write too (bounded at 10 s), so the autosave loop can't reorder the two.
       - Then `MarketNews` goes to everyone, `Celebrate` NewNurse goes to the buyer and "💰 Sold 🐶!" goes to the
         seller.
 - **Who sees what.**
@@ -341,6 +346,9 @@ type MarketView = { Listings: { Listing }, FeePercent: number, MaxPerSeller: num
   Plot: Plot?,      -- where it was cured (Cure asks Abilities and Nurses about this plot)
   Dept: string?,    -- the department it recovered in (nurse XP specialty)
   Wing: string?,    -- for XP and Book (already derivable; passed to save a lookup)
+  Escorted: boolean?, Soaked: boolean?,  -- (integration) passed on to CuredInfo
+-- CuredInfo gains (integration; Server/Cure always sends them, "" / false = no): Urgent: string?,
+--   Escorted: boolean?, Soaked: boolean?   -- Feel/CureFX's "🚑 ×3", "+20% 🛗", "+25% 🛁" lines
 ```
 
 ### B4. Instances and attributes
@@ -413,7 +421,22 @@ spawn. Each has a `Prompt` (ProximityPrompt; ActionText "Agency"/"Market"; the c
 
 Each is ≤ 25 parts, with no Highlight and no shadow-casting light.
 
-**Workspace attributes:** `AgencyRestock: number` (T3: the restock index). The belt's are unchanged.
+**Workspace attributes:** `AgencyRestock: number` (T3: the restock index). The belt's are unchanged. The belt model
+`Workspace.NurseBelt` gains (T3) a `NextLamp` Part (a PointLight `Glow`) over the nurse-house door and the attribute
+`NextArrivalAt` (a `GetServerTimeNow` time, read by UI/BeltView for the number-free lamp).
+
+**What T6 built beyond the text above (recorded at integration):**
+- The ground storey is `Building.Lobby`. The Lv 2-4 roof piece is `RoofShell`; the department piece `Roof` exists
+  only at Lv 5. The theme prop is `ThemeProp` (attribute `Theme`). Landings carry the attribute `Floor`.
+- The SoakPrompt sits at `HotTub.Tub.SoakPoint`. EscortPrompt uses key F / ButtonY, so it shares an Attachment with
+  the LiftPrompt (E). The third ward bed (Lv 4) lies across the front right of `Floor_1`.
+- CollectionService tags: `BuildingStation` (the Pharmacy), `HospitalLift` (each Lift Model), `LiftPrompt`,
+  `EscortPrompt`, `SoakPrompt`.
+- Ride attributes: `Player.LiftRide` = `"<plotIndex>,<from>,<to>,<seconds>,<serverTime>"`; on the Lift Model
+  `Ride` = `"<from>,<to>,<seconds>,<serverTime>"`, then `Rider` (UserId, 0 = a patient or porter alone) and `RideAt`
+  (server time). `Lift.ride` answers at once with a third payload `{ Seconds, From, To }`.
+- A Lv 5 plot with every room is 372 parts (378 with the Jungle/Royal prop), measured by the real PlotBuilder under
+  a Lune mock; with the 10 heaviest placeholder decor in its 10 slots, 548 (`tests/Hospital.spec`).
 
 **Player attributes:** `Combo` (unchanged). `WalkBoost: number` (T2: Quick Feet ranks; T2 sets
 `Humanoid.WalkSpeed = 16 + WalkBoost` on every CharacterAdded).
@@ -736,7 +759,8 @@ real cures a minute at Lv 3 and Lv 5 (P22's session) and re-run the calculator i
   - `roll(roster, cfg, r01s, slots?, taken?): { NurseId }`: distinct, by odds, never `Source`; two r01s a slot; a
     rarity with nobody left falls to the next lower; never one in `taken`.
   - `personal(roster, cfg, userId, restock, owned): { NurseId }` (`owned` = the shared stock's nurses this restock,
-    never repeated; it must not depend on anything the player can change, or a buy would re-roll it): a seeded roll
+    never repeated unless every nurse of the rolled rarity is in it, so the shown odds stay true (integration); it
+    must not depend on anything the player can change, or a buy would re-roll it): a seeded roll
     (`seeded(seed, n)`; it takes no Random object: the
     seed makes the r01s).
   - `price(cfg, rarity, level, bargain)`, `sellBack(entry, rarity, cfg)`, `odds(cfg)`.
@@ -915,7 +939,9 @@ part + timed) × `Logic/Rebirth.multiplier(count)`. Other kinds take no rebirth 
 (percent per kind) and `Rebirth` (the multiplier).
 
 **Foundation `PlayerData`**: `PlayerData.isOpen(p): boolean` (loaded, not closing) · `PlayerData.saveNow(p): boolean`
-(yields; writes now if this session owns the lock; never runs two writes for one player at once).
+(yields; writes now if this session owns the lock; never runs two writes for one player at once) · *(integration)*
+`PlayerData.writeAfter(first, second)` (never yields: `second`'s next writes wait, at most 10 s, until `first`'s
+changes so far have landed; the Market's seller → buyer order).
 
 **Foundation `Admin`** (new actions; each calls the hook named, which is stubbed until its owner lands):
 
@@ -942,9 +968,9 @@ CreatureActing, HospitalFX`.
 
 | Event (args) | Fired by | Heard by |
 |---|---|---|
-| `Open ("Nurses", "Team" \| rarity)` | Hud, anyone | T5 NursePanel ("Team" = your roster page) |
+| `Open ("Nurses", "Team" \| "Branch" \| rarity)` | Hud, anyone | T5 NursePanel ("Team" = your roster page, "Branch" = the 🏢 rebirth-only Journal page) |
 | `Open ("Branch", "Open" \| "Perks" \| "Tree" \| "Themes")` | T5 Shop (Hospital tab), T8 Celebrate (after a rebirth: "Perks") | T5 BranchPanel |
-| `Open ("Agency")` · `Open ("Market")` | T5 NursePanel, the kiosks' prompts (client `Triggered`) | T3 · T4 |
+| `Open ("Agency", "Hire" \| "Sell"?)` · `Open ("Market", "Buy" \| "Sell" \| "Mine"?)` | T5 NursePanel, the kiosks' prompts (client `ProximityPromptService.PromptTriggered`) | T3 · T4 |
 | `Sell (nurseId)` · `List (nurseId)` | T5 NursePanel's card buttons | T3 AgencyPanel (sell confirm) · T4 MarketPanel (list flow) |
 | `Open ("Lift", floors)` | T6 LiftPanel itself (a `LiftPrompt`'s client `Triggered`) | T6 LiftPanel |
 | `AgencyNews (view)` · `MarketNews (view)` · `BeltScout (info)` | Main.client (remotes) | T3 · T4, T5 · T3 |
@@ -1220,8 +1246,9 @@ Done 2026-11-16 (commit "Progression v2 foundation: schema v4, contracts, data, 
 - [ ] Specs (`MiniGamesPure`, `Juice`): auto games, the ease scaling, the triage card's states, ring fractions.
 
 ### Integration (lead)
-- [ ] Apply the requests, boot, run §D, write `logs/playtests/2026-11-16-progression-v2.md`, update README/STATE,
-  commit, merge.
+- [x] Apply the requests, update the README, commit (2026-11-17, "Progression v2: parallel build integrated"; 982
+  Lune specs pass, selene 0/0, rojo build OK). The integration report lists what was left.
+- [ ] Boot, run §D, write `logs/playtests/2026-11-16-progression-v2.md`, update STATE, merge.
 
 ---
 ## D. Studio playtest checklist

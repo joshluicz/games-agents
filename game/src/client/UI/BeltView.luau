@@ -1,5 +1,11 @@
 --!strict
--- BeltView (depth-update design §2, build plan §B4/§B9; memory-20261116-012/-013). OWNER: T4.
+-- BeltView (depth-update design §2, build plan §B4/§B9; memory-20261116-012/-013). OWNER: T3 (Progression v2;
+-- Update 1's T4).
+-- Progression v2 (build plan §C T3): a Mythic/Secret rider shows "🏢 R1" until your first rebirth, like "🏥 Lv 3"
+-- (no lock, no price); a new nurse with a full roster shows "Roster full" and its Hire turns into "Sell or list
+-- one", which opens the 👩‍⚕️ Team page; every price takes 🏷️ Bargain off (Pure.bargainPrice, the server's formula);
+-- 🔭 Belt Scout owners see a "🔭 Next: <rarity>" chip over the nurse house (the bus "BeltScout"); and the house's
+-- NextLamp glows brighter as the next nurse nears (the belt's NextArrivalAt), with no numbers anywhere (§E9).
 -- The shared Nurse Belt as THIS player sees it: smooth riders, a Hire card over each one, the odds popup, and the
 -- Golden Hour / Night Rush / big-arrival banners.
 --   init(ctx)   binds Workspace.NurseBelt (and a belt that replaces it later); listens for the bus "Shout" and
@@ -56,6 +62,7 @@ local Palette = require(Shared:WaitForChild("Palette"))
 local Logic = Shared:WaitForChild("Logic")
 local BeltLogic = require(Logic:WaitForChild("Belt"))
 local NurseLogic = require(Logic:WaitForChild("Nurse"))
+local RebirthLogic = require(Logic:WaitForChild("Rebirth"))
 local TutorialLogic = require(Logic:WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
@@ -160,8 +167,10 @@ end
 
 -- What a rider's Hire button does for this viewer, first match wins: "Hired" (someone took it) · "Max" (yours is at
 -- the top level) · "Level" (your hospital is under its rarity's Config.Belt.MinLevel: Epic and up need Lv 3) ·
--- "Far" (no character, or past HireDistance less a stud of slack) · "Poor" (short of cash) · "Ready".
--- `rarity` and `level` are optional (no gate without them).
+-- "Rebirth" (Progression v2: fewer rebirths than Config.Belt.MinRebirths: Mythic and Secret need R1) · "Full" (a new
+-- nurse and your roster is full) · "Far" (no character, or past HireDistance less a stud of slack) · "Poor" (short of
+-- cash) · "Ready". `rarity` and `level` are optional (no gate without them); so are `rebirths` (no rebirth gate, and
+-- the level cap is Config.Nurses.MaxLevel, without them) and `full`.
 function Pure.hireState(
 	hired: boolean,
 	entry: any,
@@ -170,16 +179,25 @@ function Pure.hireState(
 	price: number,
 	distance: number?,
 	rarity: string?,
-	level: number?
+	level: number?,
+	rebirths: number?,
+	full: boolean?
 ): string
 	if hired then
 		return "Hired"
 	end
-	if not BeltLogic.canHire(entry, cfg) then
+	local cap = if rebirths ~= nil then NurseLogic.levelCap(rebirths, cfg) else nil
+	if not BeltLogic.canHire(entry, cfg, cap) then
 		return "Max"
 	end
 	if rarity ~= nil and not BeltLogic.levelOk(cfg, rarity, level or 1) then
 		return "Level"
+	end
+	if rarity ~= nil and rebirths ~= nil and math.floor(rebirths) < BeltLogic.minRebirths(cfg, rarity) then
+		return "Rebirth"
+	end
+	if full == true and entry == nil then
+		return "Full"
 	end
 	local belt = if type(cfg) == "table" and type(cfg.Belt) == "table" then cfg.Belt else {}
 	local reach = if finite(belt.HireDistance) then belt.HireDistance else 40
@@ -279,6 +297,75 @@ function Pure.priceText(price: number, minLevel: number, level: number): string
 		return "🏥 Lv " .. minLevel
 	end
 	return "💰" .. Pure.short(price)
+end
+
+-- Progression v2. 🏷️ Bargain (Logic/Rebirth.effects .Bargain) off a belt price, rounded once more: Server/NurseBelt's
+-- Pure.bargainPrice is the same formula (tests/AgencyServer.spec checks they agree), so the card shows what you pay.
+function Pure.bargainPrice(price: any, bargain: any): number
+	local p = if finite(price) then math.max(0, price) else 0
+	local off = if finite(bargain) then math.clamp(bargain, 0, 0.9) else 0
+	return math.floor(p * (1 - off) + 0.5)
+end
+
+-- The price cell (and a chip) with every gate: the gate itself ("🏥 Lv 3" | "🏢 R1", Logic/Belt.gate) or your price.
+function Pure.gatedPrice(price: number, gate: string?): string
+	if type(gate) == "string" and gate ~= "" then
+		return gate
+	end
+	return "💰" .. Pure.short(price)
+end
+
+-- The reply for a gate, the server's own words (Server/NurseBelt): "🏥 Lv 3 hospital first!" · "🏢 R1 first!".
+function Pure.gateMessage(gate: string): string
+	if string.sub(gate, 1, #"🏥") == "🏥" then
+		return gate .. " hospital first!"
+	end
+	return gate .. " first!"
+end
+
+-- A new nurse wouldn't fit: you don't own it and the roster is full (Logic/Nurse.canAdd on the Snapshot).
+function Pure.rosterFull(state: any, nurseId: string, cfg: any, isKnown: ((string) -> boolean)?): boolean
+	local nurses = if type(state) == "table" and type(state.Nurses) == "table" then state.Nurses else {}
+	if nurses[nurseId] ~= nil then
+		return false
+	end
+	local ok = NurseLogic.canAdd(state, nurseId, cfg, isKnown)
+	return not ok
+end
+
+-- The odds popup's rebirth note (6 words or fewer): "🏢 Mythic/Secret from R1", or nil when no rarity waits for one.
+function Pure.rebirthNote(cfg: any, rarities: { string }): string?
+	local names: { string } = {}
+	local needed = 0
+	for _, rarity in rarities do
+		local count = BeltLogic.minRebirths(cfg, rarity)
+		if count > 0 then
+			table.insert(names, rarity)
+			needed = if needed == 0 then count else math.min(needed, count)
+		end
+	end
+	if #names == 0 then
+		return nil
+	end
+	return "🏢 " .. table.concat(names, "/") .. " from R" .. needed
+end
+
+-- The 🔭 Belt Scout chip: "🔭 Next: 💎 Rare" (the next arrival's rarity), or nil for junk. `info` is that rarity's
+-- Data/Rarities row.
+function Pure.scoutText(info: any): string?
+	if type(info) ~= "table" or type(info.Icon) ~= "string" or type(info.Name) ~= "string" then
+		return nil
+	end
+	return "🔭 Next: " .. info.Icon .. " " .. info.Name
+end
+
+-- The nurse house lamp: 0 right after a nurse came, 1 when the next one is due (no numbers on screen, §E9).
+function Pure.lampLevel(nextAt: any, now: number, every: any): number
+	if not finite(nextAt) or not finite(now) then
+		return 0
+	end
+	local span = if finite(every) and every > 0 then every else 40
+	return math.clamp(1 - (nextAt - now) / span, 0, 1)
 end
 -- PURE-END
 
@@ -433,6 +520,30 @@ function BeltView.init(ctx: Types.Ctx)
 	local function myLevel(): number
 		local level = ctx.State.Level
 		return if type(level) == "number" then level else 1
+	end
+
+	-- Progression v2: what the belt reads from your branch (worked out once per snapshot, not per rider per frame).
+	local branch = { Rebirths = 0, Bargain = 0, Scout = false }
+	local function syncBranch(state: any)
+		local rebirth = if type(state) == "table" then state.Rebirth else nil
+		branch.Rebirths = if type(rebirth) == "table" and type(rebirth.Count) == "number" then rebirth.Count else 0
+		local ok, effects = pcall(RebirthLogic.effects, state, cfg, data.Perks, data.Tree)
+		branch.Bargain = if ok and type(effects) == "table" then effects.Bargain else 0
+		branch.Scout = ok and type(effects) == "table" and effects.BeltScout == true
+	end
+	syncBranch(ctx.State)
+
+	local function isKnown(nurseId: string): boolean
+		return type(nurseId) == "string" and type(rawget(data.Nurses, nurseId)) == "table"
+	end
+
+	local function gateFor(rarity: string): string?
+		return BeltLogic.gate(cfg, rarity, myLevel(), branch.Rebirths)
+	end
+
+	-- Your price for a rarity: the belt's at your hospital level, 🏷️ Bargain off (what the server charges).
+	local function myPrice(rarity: string): number
+		return Pure.bargainPrice(BeltLogic.price(cfg, rarity, myLevel()), branch.Bargain)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
@@ -611,6 +722,19 @@ function BeltView.init(ctx: Types.Ctx)
 			})
 			textLimit(gateNote, 20)
 		end
+		local rebirthNote = Pure.rebirthNote(cfg, rarityOrder)
+		if rebirthNote then
+			local note = Kit.label({
+				Name = "RebirthGate",
+				Text = rebirthNote,
+				TextScaled = true,
+				TextColor3 = Theme.Colors.InkSoft,
+				Size = UDim2.new(1, 0, 0, 26),
+				LayoutOrder = 22,
+				Parent = scroll,
+			})
+			textLimit(note, 20)
+		end
 		return modal
 	end
 
@@ -628,7 +752,7 @@ function BeltView.init(ctx: Types.Ctx)
 				cells.Day.Text = Pure.percent(row.Day)
 				cells.Night.Text = Pure.percent(row.Night)
 				cells.Golden.Text = Pure.percent(row.Golden)
-				cells.Price.Text = Pure.priceText(row.Price, row.MinLevel, myLevel())
+				cells.Price.Text = Pure.gatedPrice(Pure.bargainPrice(row.Price, branch.Bargain), gateFor(row.Rarity))
 				for _, column in { "Day", "Night", "Golden" } do
 					local label = (cells :: any)[column] :: TextLabel
 					local holder = label.Parent :: Frame
@@ -1065,10 +1189,21 @@ function BeltView.init(ctx: Types.Ctx)
 	local function draw(rider: Rider, calm: boolean)
 		local state = ctx.State
 		local entry = myEntry(rider.NurseId)
-		local price = BeltLogic.price(cfg, rider.Rarity, myLevel())
+		local price = myPrice(rider.Rarity)
 		local level = myLevel()
-		local hireState =
-			Pure.hireState(rider.Hired, entry, cfg, state.Cash, price, rider.Distance, rider.Rarity, level)
+		local rosterFull = Pure.rosterFull(state, rider.NurseId, cfg, isKnown)
+		local hireState = Pure.hireState(
+			rider.Hired,
+			entry,
+			cfg,
+			state.Cash,
+			price,
+			rider.Distance,
+			rider.Rarity,
+			level,
+			branch.Rebirths,
+			rosterFull
+		)
 		local full = rider.Id == focusId
 		local mark = journalMark(rider.NurseId)
 		local keyText = if rider.PromptShown and rider.Prompt then keyLabel(rider.Prompt :: ProximityPrompt) else nil
@@ -1076,7 +1211,7 @@ function BeltView.init(ctx: Types.Ctx)
 		rider.Price = price
 
 		local prompt = rider.Prompt
-		local priceText = Pure.priceText(price, BeltLogic.minLevel(cfg, rider.Rarity), level)
+		local priceText = Pure.gatedPrice(price, gateFor(rider.Rarity))
 		if prompt and prompt.ObjectText ~= priceText then
 			prompt.ObjectText = priceText
 		end
@@ -1138,7 +1273,7 @@ function BeltView.init(ctx: Types.Ctx)
 			if owned > 0 and hireState ~= "Max" then
 				text ..= "  ⬆️Lv" .. (owned + 1)
 			end
-			stat.Text = text
+			stat.Text = if hireState == "Full" then "👥 Roster full" else text
 		end
 
 		local button, pill, keyChip = rider.Button, rider.Pill, rider.Key
@@ -1158,23 +1293,30 @@ function BeltView.init(ctx: Types.Ctx)
 			if not done then
 				button.Text = if rider.Busy
 					then "⏳"
-					elseif hireState == "Level" then priceText
+					elseif hireState == "Level" or hireState == "Rebirth" then priceText
+					elseif hireState == "Full" then "Sell or list one"
 					else "Hire " .. priceText
 				local ready = hireState == "Ready"
 				local kitColor = button:GetAttribute("KitColor")
+				-- "Sell or list one" is a way on (it opens your 👩‍⚕️ Team page), so it stays a calm blue, not grey.
 				button.BackgroundColor3 = if ready and typeof(kitColor) == "Color3"
 					then kitColor
+					elseif hireState == "Full" then Kit.lighten(Theme.Colors.Secondary, 0.08)
 					else Theme.Colors.Disabled
 				local border = borderOf(button)
 				if border then
-					border.Transparency = if ready then 0 else 0.3
+					border.Transparency = if ready or hireState == "Full" then 0 else 0.3
 				end
 			end
 		end
 
 		local chipPrice = rider.ChipPrice
 		if chipPrice then
-			chipPrice.Text = if hireState == "Hired" then "✅" elseif hireState == "Max" then "⭐MAX" else priceText
+			chipPrice.Text = if hireState == "Hired"
+				then "✅"
+				elseif hireState == "Max" then "⭐MAX"
+				elseif hireState == "Full" then "👥 Full"
+				else priceText
 			chipPrice.TextColor3 = if hireState == "Ready" or hireState == "Hired"
 				then Theme.Colors.Ink
 				else Theme.Colors.InkSoft
@@ -1191,10 +1333,16 @@ function BeltView.init(ctx: Types.Ctx)
 			ctx.toast("Get closer! 👣") -- the server's own words (NurseBelt) for the same case
 			Hud.shake(button)
 			return
-		elseif state == "Level" then
-			-- The server's own words (NurseBelt) for the same case: grow the hospital first (Shop's 🏥 tab).
-			ctx.toast("🏥 Lv " .. BeltLogic.minLevel(cfg, rider.Rarity) .. " hospital first!")
+		elseif state == "Level" or state == "Rebirth" then
+			-- The server's own words (NurseBelt) for the same case: grow the hospital first (Shop's 🏥 tab), or open a
+			-- branch first (Progression v2).
+			ctx.toast(Pure.gateMessage(gateFor(rider.Rarity) or ("🏥 Lv " .. BeltLogic.minLevel(cfg, rider.Rarity))))
 			Hud.shake(button)
+			return
+		elseif state == "Full" then
+			-- Making room is your call: the Team page, where you can sell or list one (nothing happens here).
+			Hud.sound("Pop")
+			ctx.fire("Open", "Nurses", "Team")
 			return
 		elseif state == "Poor" then
 			local short = rider.Price - (if type(ctx.State.Cash) == "number" then ctx.State.Cash else 0)
@@ -1695,13 +1843,8 @@ function BeltView.init(ctx: Types.Ctx)
 			end
 		elseif info.Kind == "Arrival" then
 			local rarity = if type(info.Rarity) == "string" then rawget(data.Rarities, info.Rarity) else nil
-			-- No "look what arrived" banner for a nurse your hospital can't hire yet: it still rides, with its 🏥 label.
-			if
-				rarity
-				and BeltLogic.shouts(info.Rarity)
-				and allowed()
-				and BeltLogic.levelOk(cfg, info.Rarity, myLevel())
-			then
+			-- No "look what arrived" banner for a nurse you can't hire yet: it still rides, with its 🏥 / 🏢 label.
+			if rarity and BeltLogic.shouts(info.Rarity) and allowed() and gateFor(info.Rarity) == nil then
 				ctx.fire("Banner", {
 					Id = "BeltArrival",
 					Icon = rarity.Icon,
@@ -1736,10 +1879,120 @@ function BeltView.init(ctx: Types.Ctx)
 		end
 	end)
 
+	--------------------------------------------------------------------------------------------------------------
+	-- 🔭 Belt Scout: the next arrival's rarity over the nurse house (perk owners only; the server only tells them)
+	--------------------------------------------------------------------------------------------------------------
+	local scoutInfo: any = nil
+	local scoutGui: BillboardGui? = nil
+	local scoutLabel: TextLabel? = nil
+
+	local function renderScout()
+		local text = if scoutInfo then Pure.scoutText(rawget(data.Rarities, scoutInfo.Rarity)) else nil
+		local show = branch.Scout and text ~= nil and beltStart ~= nil
+		if not show then
+			if scoutGui then
+				scoutGui.Enabled = false
+			end
+			return
+		end
+		local anchor = beltStart :: BasePart
+		local gui = scoutGui
+		if not gui or gui.Adornee ~= anchor then
+			if gui then
+				gui:Destroy()
+			end
+			local made = Instance.new("BillboardGui")
+			made.Name = "BeltScoutChip"
+			made.Adornee = anchor
+			made.AlwaysOnTop = true
+			made.LightInfluence = 0
+			made.MaxDistance = INFO_MAX_DISTANCE
+			made.ResetOnSpawn = false
+			made.Size = UDim2.fromOffset(200, 48)
+			made.StudsOffsetWorldSpace = Vector3.new(0, 11, 0) -- over the nurse house's roof
+			local chip = Kit.label({
+				Name = "Next",
+				Text = "",
+				TextScaled = true,
+				Outlined = true,
+				BackgroundColor3 = Theme.Colors.Purple,
+				BackgroundTransparency = 0,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.new(1, -8, 1, -8),
+				Parent = made,
+			})
+			Kit.corner(chip, 14)
+			Kit.stroke(chip, Theme.Colors.Outline, Theme.Size.Stroke)
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, 10)
+			pad.PaddingRight = UDim.new(0, 10)
+			pad.PaddingTop = UDim.new(0, 6)
+			pad.PaddingBottom = UDim.new(0, 6)
+			pad.Parent = chip
+			made.Parent = playerGui
+			scoutGui = made
+			scoutLabel = chip
+			gui = made
+		end
+		local label = scoutLabel
+		if label and label.Text ~= text then
+			label.Text = text :: string
+			label.BackgroundColor3 = hexColor(rarityInfo(scoutInfo.Rarity).Color, Theme.Colors.Purple)
+			Hud.pop(label, 1.15) -- still with calm effects (Hud.pop checks)
+		end
+		if gui then
+			gui.Enabled = true
+		end
+	end
+
+	ctx.on("BeltScout", function(info: any)
+		if type(info) == "table" and type(info.Rarity) == "string" and rawget(data.Rarities, info.Rarity) then
+			scoutInfo = info
+			renderScout()
+		end
+	end)
+
+	--------------------------------------------------------------------------------------------------------------
+	-- The nurse house's "next nurse" lamp: brighter as the next nurse nears (the belt's NextArrivalAt), no numbers
+	--------------------------------------------------------------------------------------------------------------
+	local LAMP_NEAR = 220 -- studs from the camera: farther away the lamp isn't updated
+	local lampDim = Kit.lighten(Theme.Colors.Cash, 0.55)
+	local lampBright = Theme.Colors.Cash
+	task.spawn(function()
+		while true do
+			local belt = boundBelt
+			local lamp = if belt then belt:FindFirstChild("NextLamp") else nil
+			local camera = Workspace.CurrentCamera
+			local near = lamp ~= nil
+				and lamp:IsA("BasePart")
+				and camera ~= nil
+				and (camera.CFrame.Position - lamp.Position).Magnitude <= LAMP_NEAR
+			if near and lamp and lamp:IsA("BasePart") and belt then
+				local level = Pure.lampLevel(
+					belt:GetAttribute("NextArrivalAt"),
+					Workspace:GetServerTimeNow(),
+					cfg.Belt.ArriveSeconds
+				)
+				lamp.Color = lampDim:Lerp(lampBright, level)
+				lamp.Material = if level >= 0.8 then Enum.Material.Neon else Enum.Material.SmoothPlastic
+				local light = lamp:FindFirstChildWhichIsA("PointLight")
+				if light then
+					light.Brightness = 0.2 + 2.2 * level
+				end
+				task.wait(0.5)
+			else
+				task.wait(2)
+			end
+		end
+	end)
+
 	-- Prices, NEW! stickers and ⬆️ follow your level, cash and journal; banners held back by the tutorial show
 	-- once it ends.
 	local wasAllowed = allowed()
-	ctx.onState(function()
+	ctx.onState(function(state: any)
+		syncBranch(state)
+		renderScout()
 		for _, rider in riders do
 			rider.Drawn = ""
 		end

@@ -6,6 +6,13 @@
 --   Shop.upgradeButton(upgradeId): TextButton?   that upgrade row's buy button (UI/Tutorial points at it)
 --   Shop.tabButton(tabId): TextButton?           a tab ("Upgrades" | "Rooms" | "Decor" | "Hospital")
 --   Shop.levelUpButton(): TextButton?            the Hospital tab's Level up button (for pointers)
+--   Shop.Pure                                    the pure helpers below (tests/BranchUI.spec loads the block)
+-- Progression v2 (T5, build plan §C): gated upgrades show "🏥 Lv 2" (tap: the Hospital tab) or "🏢 R4" (Logic/Progress
+-- .canBuyUpgrade); the level card lists the departments open at your level (not nurse slots); and the 🏥 tab has a
+-- calm 🏢 Branch card: at hospital Lv 5 "🏢 New branch" with its cost and "Look 👀" (→ Open("Branch", "Open"), the
+-- keep/reset screen), and once you have branches (or a reward waits) 🃏 🌳 🎨 buttons into UI/BranchPanel plus a line
+-- for a card to pick or tree points to spend. No dot, shine or breathing for "you can open a branch" (red line 3):
+-- the 🏥 tab's dot is a level-up you can afford or a branch reward to claim (Hud.shopNews.Branch).
 -- Every price, lock and level shown here is read from the Snapshot and Shared/Data, for display only. Buying calls
 -- Purchase(kind, id), placing calls PlaceDecor(slotKey, decorId?) and levelling up calls LevelUp(); the server
 -- checks everything and answers (ok, message), which is shown as a toast (a level-up's yes is the server's Celebrate
@@ -27,11 +34,123 @@ local Palette = require(Shared:WaitForChild("Palette"))
 local Prices = require(Shared:WaitForChild("Logic"):WaitForChild("Prices"))
 local LevelsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Levels"))
 local ProgressLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Progress"))
+local RebirthLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Rebirth"))
+local TreeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tree"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
 local Shop = {}
+
+------------------------------------------------------------------------------------------------------------------
+-- Pure helpers (Progression v2): no Roblox services or types, only RebirthLogic and TreeLogic. tests/BranchUI.spec
+-- loads the block between the PURE markers on its own, so keep it that way.
+------------------------------------------------------------------------------------------------------------------
+-- PURE-BEGIN
+local Pure = {}
+
+export type BranchCard = {
+	Show: boolean, -- at hospital Lv 5, with branches, or a reward waiting
+	Title: string,
+	Sub: string,
+	Look: boolean, -- "Look 👀" (the keep/reset screen): at hospital Lv 5 only
+	Links: boolean, -- 🃏 🌳 🎨: once there's anything to see there
+	Lines: { string }, -- a reward to claim: a card to pick, tree points to spend
+}
+
+Pure.TEXT = {
+	NewBranch = "🏢 New branch",
+	YourBranches = "🏢 Your branches",
+	Look = "Look 👀",
+	CardWaits = "🃏 A card to pick!",
+}
+
+local function count(value: any): number
+	if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
+		return 0
+	end
+	return math.max(0, math.floor(value))
+end
+
+local function commas(n: number): string
+	local digits = tostring(math.floor(math.abs(n)))
+	local grouped = string.reverse((string.gsub(string.reverse(digits), "(%d%d%d)", "%1,")))
+	if string.sub(grouped, 1, 1) == "," then
+		grouped = string.sub(grouped, 2)
+	end
+	return grouped
+end
+
+-- 50,000 · 1.3M past a million (as Hud.format).
+function Pure.short(n: any): string
+	local value = count(n)
+	if value >= 1000000 then
+		return (string.gsub(string.format("%.1f", value / 1000000), "%.0$", "")) .. "M"
+	end
+	return commas(value)
+end
+
+-- The 🏥 tab's branch card. It says what a branch costs and where to look, never "you can open one now".
+function Pure.branchCard(state: any, cfg: any, treeData: any): BranchCard
+	local rebirth = if type(state) == "table" and type(state.Rebirth) == "table" then state.Rebirth else {}
+	local branches = count(rebirth.Count)
+	local settings = if type(cfg) == "table" and type(cfg.Rebirth) == "table" then cfg.Rebirth else {}
+	local minLevel = math.max(1, count(settings.MinLevel or 5))
+	local atTop = type(state) == "table" and count(state.Level) >= minLevel
+	local offer = type(rebirth.Offer) == "table" and #rebirth.Offer > 0
+	local points = count(rebirth.Points)
+	local nodes = if type(treeData) == "table" then treeData.Nodes else nil
+	local spendable = false
+	if points > 0 and type(nodes) == "table" and type(nodes.Order) == "table" then
+		for _, nodeId in nodes.Order do
+			if TreeLogic.canBuy(rebirth.Tree, points, nodeId, nodes) then
+				spendable = true
+				break
+			end
+		end
+	end
+	local lines: { string } = {}
+	if offer then
+		table.insert(lines, Pure.TEXT.CardWaits)
+	end
+	if spendable then
+		table.insert(lines, "🌳 " .. points .. (if points == 1 then " point" else " points") .. " to spend")
+	end
+	local sub = if atTop then "💰" .. Pure.short(RebirthLogic.cost(branches, cfg)) else ""
+	if branches > 0 then
+		sub = (if sub ~= "" then sub .. "  ·  " else "") .. "🏢 R" .. branches
+	end
+	return {
+		Show = atTop or branches > 0 or offer or spendable,
+		Title = if atTop then Pure.TEXT.NewBranch else Pure.TEXT.YourBranches,
+		Sub = sub,
+		Look = atTop,
+		Links = branches > 0 or offer or spendable,
+		Lines = lines,
+	}
+end
+
+-- A gated upgrade's button: "Needs 🏥 Lv 2" -> "🏥 Lv 2" (Logic/Progress.canBuyUpgrade's words).
+function Pure.gateText(message: string): string
+	return (string.gsub(message, "^Needs ", ""))
+end
+
+-- A level's line on the Hospital card: its departments' icons, then 🛏️ beds and 🧪 the recipe size.
+function Pure.levelLine(row: any, departments: any): string
+	local icons: { string } = {}
+	for _, deptId in (if type(row) == "table" and type(row.Departments) == "table" then row.Departments else {}) do
+		local dept = if type(departments) == "table" then rawget(departments, deptId) else nil
+		if type(dept) == "table" then
+			table.insert(icons, dept.Icon)
+		end
+	end
+	local beds = if type(row) == "table" then count(row.Beds) else 0
+	local recipe = if type(row) == "table" then count(row.RecipeCap) else 0
+	return table.concat(icons, " ") .. "   🛏️ " .. beds .. "   🧪 " .. recipe
+end
+-- PURE-END
+
+Shop.Pure = Pure
 
 local ACCENT = Theme.Colors.Pink
 local TABS = {
@@ -84,6 +203,8 @@ local STYLES: { [string]: Style } = {
 	Locked = { Color = Theme.Colors.Disabled, Light = false, Active = false, Shine = false, Lock = true },
 	Place = { Color = Theme.Colors.Secondary, Light = false, Active = true, Shine = true, Lock = false },
 	Busy = { Color = Theme.Colors.Quiet, Light = true, Active = false, Shine = false, Lock = false },
+	-- Progression v2: an upgrade for later branches ("🏢 R4"): grey, no 🔒 (nothing to hurry for), tap says why.
+	Gate = { Color = Theme.Colors.Disabled, Light = false, Active = true, Shine = false, Lock = false },
 }
 
 local function childOf(parent: Instance, name: string, class: string): Instance?
@@ -583,6 +704,16 @@ function Shop.init(ctx: Types.Ctx)
 			if not price then
 				return
 			end
+			-- Progression v2: a hospital-level gate leads to the Hospital tab; a branch gate just says so.
+			local gateOk, gateMessage = ProgressLogic.canBuyUpgrade(state, upgradeId, data.Upgrades)
+			if not gateOk then
+				ctx.toast(gateMessage)
+				Hud.shake(row.Buy)
+				if string.find(gateMessage, ProgressLogic.LEVEL_ICON, 1, true) then
+					selectTab("Hospital")
+				end
+				return
+			end
 			if (state.Cash or 0) < price then
 				needMore(row.Buy, price)
 				return
@@ -605,9 +736,15 @@ function Shop.init(ctx: Types.Ctx)
 			local price = Prices.upgradePrice(data.Upgrades, upgradeId, level)
 			setPips(row, math.min(level, max), max)
 			row.Note.Text = upgrade.Hint
-			setRowState(row, if price then "Open" else "Owned")
+			local gateOk, gateMessage = ProgressLogic.canBuyUpgrade(state, upgradeId, data.Upgrades)
+			setRowState(row, if not price then "Owned" elseif gateOk then "Open" else "Locked")
 			if not price then
 				style(row.Buy, "Done", "✅ Max")
+			elseif not gateOk then
+				-- Same order as the server (Economy checks Logic/Progress.canBuyUpgrade first): the hospital level
+				-- (grey with a 🔒, tap: the Hospital tab), then the branches (grey, no 🔒).
+				local levelGate = string.find(gateMessage, ProgressLogic.LEVEL_ICON, 1, true) ~= nil
+				style(row.Buy, if levelGate then "Poor" else "Gate", Pure.gateText(gateMessage))
 			elseif (state.Cash or 0) >= price then
 				style(row.Buy, "Buy", "💰 " .. Hud.format(price))
 			else
@@ -1069,13 +1206,8 @@ function Shop.init(ctx: Types.Ctx)
 		local row = LevelsLogic.row(levels, level)
 		nowIcon.Text = row.Icon
 		nowTitle.Text = "Lv " .. level .. " · " .. row.Name
-		-- FOUNDATION (Progression v2): slots are gone; T5 shows departments here
-		nowStats.Text = ("🏢 %d   🛏️ %d   🧍 %d   🧪 %d"):format(
-			row.Floors,
-			row.Beds,
-			row.Queue,
-			row.RecipeCap
-		)
+		-- Progression v2: the departments open at this level (nurse slots are gone: Config.Roster), beds, recipe size.
+		nowStats.Text = Pure.levelLine(row, data.Departments)
 		for index, step in steps do
 			local done = index <= level
 			step.Tile.BackgroundColor3 = if index == level
@@ -1152,6 +1284,104 @@ function Shop.init(ctx: Types.Ctx)
 		end
 	end)
 
+	-- The 🏢 Branch card (Progression v2): calm. At Lv 5 what a new branch costs and "Look 👀" (the keep/reset screen);
+	-- with branches, the way into the cards, the tree and the themes, and a line for any reward waiting there.
+	local branchCard = card(pages.Hospital, "Branch", 3, Kit.lighten(HOSPITAL, 0.88))
+	Kit.pad(branchCard, 12)
+	local branchList = Kit.list(branchCard, Enum.FillDirection.Vertical, 8)
+	branchList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	branchList.VerticalAlignment = Enum.VerticalAlignment.Top
+	local branchHead = Instance.new("Frame")
+	branchHead.Name = "Head"
+	branchHead.LayoutOrder = 1
+	branchHead.BackgroundTransparency = 1
+	branchHead.Size = UDim2.new(1, 0, 0, 60)
+	branchHead.Parent = branchCard
+	iconTile(branchHead, "Tile", 60, HOSPITAL, "🏢")
+	local branchTitle = Kit.label({
+		Name = "Title",
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(72, 0),
+		Size = UDim2.new(1, -72, 0, 32),
+		Parent = branchHead,
+	})
+	textLimit(branchTitle, Theme.TextSize.Title)
+	local branchSub = Kit.label({
+		Name = "Sub",
+		Text = "",
+		TextScaled = true,
+		TextColor3 = Theme.Colors.InkSoft,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(72, 34),
+		Size = UDim2.new(1, -72, 0, 24),
+		Parent = branchHead,
+	})
+	textLimit(branchSub, Theme.TextSize.Body)
+	local branchLines = Kit.label({
+		Name = "Lines",
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 2,
+		Size = UDim2.new(1, 0, 0, 28),
+		Parent = branchCard,
+	})
+	textLimit(branchLines, Theme.TextSize.Body)
+	local branchButtons = Instance.new("Frame")
+	branchButtons.Name = "Buttons"
+	branchButtons.LayoutOrder = 3
+	branchButtons.BackgroundTransparency = 1
+	branchButtons.Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight)
+	branchButtons.Parent = branchCard
+	local branchButtonList = Kit.list(branchButtons, Enum.FillDirection.Horizontal, 8)
+	branchButtonList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	local function branchButton(name: string, order: number, kind: string, text: string, width: number): TextButton
+		local button = Kit.button({
+			Name = name,
+			Kind = kind,
+			Text = text,
+			TextScaled = true,
+			LayoutOrder = order,
+			Size = UDim2.fromOffset(width, Theme.Size.ButtonHeight),
+			Parent = branchButtons,
+		})
+		textLimit(button, Theme.TextSize.Body)
+		return button
+	end
+	local lookButton = branchButton("Look", 1, "Secondary", Pure.TEXT.Look, 150)
+	local perksLink = branchButton("Perks", 2, "Pink", "🃏", 64)
+	local treeLink = branchButton("Tree", 3, "Good", "🌳", 64)
+	local themesLink = branchButton("Themes", 4, "Cyan", "🎨", 64)
+	lookButton.Activated:Connect(function()
+		ctx.fire("Open", "Branch", "Open")
+	end)
+	perksLink.Activated:Connect(function()
+		ctx.fire("Open", "Branch", "Perks")
+	end)
+	treeLink.Activated:Connect(function()
+		ctx.fire("Open", "Branch", "Tree")
+	end)
+	themesLink.Activated:Connect(function()
+		ctx.fire("Open", "Branch", "Themes")
+	end)
+
+	local function refreshBranch(state: Types.Snapshot)
+		local view = Pure.branchCard(state, ctx.Config, data.Tree)
+		branchCard.Visible = view.Show and state.PlotIndex ~= nil
+		branchTitle.Text = view.Title
+		branchSub.Text = view.Sub
+		branchSub.Visible = view.Sub ~= ""
+		branchLines.Text = table.concat(view.Lines, "   ")
+		branchLines.Visible = #view.Lines > 0
+		lookButton.Visible = view.Look
+		perksLink.Visible = view.Links
+		treeLink.Visible = view.Links
+		themesLink.Visible = view.Links
+		branchButtons.Visible = view.Look or view.Links
+	end
+
 	-- The tab's dot: a room you can buy right now (its level too), or the next level is ready.
 	local function roomReady(state: Types.Snapshot): boolean
 		if state.PlotIndex == nil then
@@ -1181,10 +1411,12 @@ function Shop.init(ctx: Types.Ctx)
 		refreshRooms(state)
 		refreshDecor(state)
 		refreshHospital(state)
+		refreshBranch(state)
 		local news = Hud.shopNews(data, state)
 		Kit.setDot(tabButtons.Rooms, roomReady(state))
 		Kit.setDot(tabButtons.Decor, news.Decor)
-		Kit.setDot(tabButtons.Hospital, levelReady(state))
+		-- A level-up you can afford, or a branch reward to claim (a card, tree points); never "you can open a branch".
+		Kit.setDot(tabButtons.Hospital, levelReady(state) or news.Branch)
 		if placing and placeView.Visible then
 			renderPlace(state)
 		end

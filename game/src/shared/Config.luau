@@ -233,8 +233,18 @@ Config.Roster = { Base = 3, PerRebirth = 1, Max = 8 }
 Config.NurseXP = { PerCure = 1, Specialty = 1, FastLearners = 2 }
 
 -- Signature abilities (Data/Abilities, Logic/Abilities): cooldown x CooldownStep at each of UpgradeLevels, never
--- below MinCooldown seconds; x SecondWind with that perk.
-Config.Abilities = { CooldownStep = 0.85, UpgradeLevels = { 5, 10 }, MinCooldown = 20, SecondWind = 0.8 }
+-- below MinCooldown seconds; x SecondWind with that perk. The design table's effect numbers (Server/Abilities):
+-- FastMake = Busy Paws' station holds x0.5, CashNext = Double Dose's cure pay x2, NearStation = Time Bubble needs
+-- the owner within 25 studs of a station.
+Config.Abilities = {
+	CooldownStep = 0.85,
+	UpgradeLevels = { 5, 10 },
+	MinCooldown = 20,
+	SecondWind = 0.8,
+	FastMake = 0.5,
+	CashNext = 2,
+	NearStation = 25,
+}
 
 -- Rebirths: "🏢 Open a new branch" (Logic/Rebirth). Optional, never pushed.
 Config.Rebirth = {

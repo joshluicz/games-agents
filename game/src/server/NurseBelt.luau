@@ -1,8 +1,18 @@
 --!strict
 -- The Nurse Belt: one shared conveyor along the town's main street, where nurses ride by and anyone can hire the
 -- one they see, for in-game cash (depth-update design §2 and §7, build plan §B4/§B8; memory-20261116-012/-013/-017).
--- Server only. OWNER: T3. Cash only; no Robux anywhere on the belt (red line 3). Every odd, the event odds too, is on
--- its sign.
+-- Server only. OWNER: T3 (Progression v2 too). Cash only; no Robux anywhere on the belt (red line 3). Every odd, the
+-- event odds too, is on its sign.
+--
+-- Progression v2 (build plan §B8 "T3 NurseBelt"): a hire also needs the rarity's rebirths (Logic/Belt.gate: Mythic and
+-- Secret from R1, "🏢 R1 first!") and roster room for a new nurse (Logic/Nurse.canAdd: "Roster full: sell or list
+-- one"); the price takes 🏷️ Bargain off (Pure.bargainPrice; UI/BeltView shows the same number). 🔭 Belt Scout: while
+-- a perk owner is in the server, the next arrival's rarity is rolled one arrival early (right after an arrival, or
+-- when an owner joins or picks the perk), with the odds on the sign at that moment (its Event says which), and sent
+-- with the BeltScout remote to the perk owners only; the arrival then uses that roll. The sign's gate line says
+-- "🏥 Epic+ from Lv 3 · 🏢 Mythic/Secret from R1". The nurse house's NextLamp part glows brighter on the client as
+-- the next nurse nears (the belt model's NextArrivalAt attribute: a GetServerTimeNow time; never a number on
+-- screen, §E9).
 --
 -- Where (Joshua, 2026-11-16: "conveyor belt should be on the main road"): Config.Belt.Offset puts its start (the
 -- nurse house) just inside the east welcome arch, on the street's row-1 half; it runs Config.Belt.Length studs west
@@ -17,7 +27,8 @@
 --       Config.Belt.Length studs): BeltStart and BeltEnd (invisible anchored markers on the conveyor's top: a rider
 --       stands at BeltStart.Position:Lerp(BeltEnd.Position, alpha)), Conveyor (its top face carries the SurfaceGui
 --       ConveyorGui > Clip > Stripes for the client to scroll; attributes StripeStuds and StudsPerSecond), Sign
---       (SurfaceGui OddsGui: every odd now, day and night, the Golden Hour odds, the Lv 3 gate, the pity count) and
+--       (SurfaceGui OddsGui: every odd now, day and night, the Golden Hour odds, the Lv 3 and R1 gates, the pity
+--       count), NextLamp (a Part with a PointLight over the house door; added to a kit belt that lacks one) and
 --       Riders (Folder). A Model at ServerStorage.ClinicKit.NurseBelt with the same child names replaces the
 --       placeholder (its pivot = the belt's start on the street, its +X along the belt; no scripts; its Sign stays
 --       where the kit put it).
@@ -27,9 +38,10 @@
 --       left before a guaranteed Rare+), the Shout remote, and HireNurse. Riders face the street's centre line.
 --   NurseBelt.hire(p, riderId): (ok, message)
 --       the rider exists and isn't hired or leaving · Config.Belt.HireCooldown per player · the player is within
---       HireDistance of the rider's formula position (Logic/Belt.alpha, never the part) · Logic/Belt.canHire ·
---       Logic/Belt.levelOk (Epic and up need hospital Lv 3: "🏥 Lv 3 hospital first!") ·
---       price = Logic/Belt.price(rarity, Levels.level(p)) -> Nurses.grant (the charge and the copy in one update).
+--       HireDistance of the rider's formula position (Logic/Belt.alpha, never the part) · Logic/Belt.gate (Epic and
+--       up need hospital Lv 3: "🏥 Lv 3 hospital first!"; Mythic and Secret the first rebirth: "🏢 R1 first!") ·
+--       Logic/Nurse.canAdd (roster room, the level cap) · price = Pure.bargainPrice(Logic/Belt.price(rarity,
+--       Levels.level(p)), Bargain) -> Nurses.grant(.., "Belt") (the charge and the copy in one update).
 --       The rider spins, hops off and walks toward the hirer's clinic, then poofs. A hired Common or Rare that leaves
 --       no other nurse riding brings the next arrival to ReplaceSeconds from now (Pure.afterHire), so the belt is
 --       never left empty, yet hiring can't speed the belt up while others still ride. Nothing yields between the
@@ -65,8 +77,12 @@ local Config = require(Shared.Config)
 local Palette = require(Shared.Palette)
 local Remotes = require(Shared.Remotes)
 local BeltLogic = require(Shared.Logic.Belt)
+local NurseLogic = require(Shared.Logic.Nurse)
+local RebirthLogic = require(Shared.Logic.Rebirth)
 local NursesData = require(Shared.Data.Nurses)
+local PerksData = require(Shared.Data.Perks)
 local Rarities = require(Shared.Data.Rarities)
+local TreeData = require(Shared.Data.Tree)
 local CreatureBuilder = require(script.Parent.CreatureBuilder)
 local Levels = require(script.Parent.Levels)
 local NurseBuilder = require(script.Parent.NurseBuilder)
@@ -107,7 +123,6 @@ local MSG = {
 	Taken = "Already hired! 💛",
 	Wait = "Wait a moment! ⏳",
 	Closer = "Get closer! 👣",
-	Level = "🏥 Lv %d hospital first!",
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -186,17 +201,57 @@ function Pure.forced(value: any, pityDue: boolean): string?
 	return value
 end
 
--- The sign's gate line (6 words or fewer): who may hire Epic and up. Level 1 means anyone: no line.
-function Pure.gateLine(level: number): string
-	if level <= 1 then
-		return ""
-	end
-	return string.format("🏥 Epic+ hire from Lv %d", level)
-end
-
 -- The event whose odds rolled an arrival.
 function Pure.event(nightRush: boolean, golden: boolean): string
 	return if golden then "GoldenHour" elseif nightRush then "NightRush" else ""
+end
+
+-- Progression v2. 🏷️ Bargain (Logic/Rebirth.effects .Bargain, a fraction) off a belt price, rounded once more.
+-- UI/BeltView's Pure.bargainPrice is the same formula (tests/AgencyServer.spec checks they agree), so the card shows
+-- exactly what the hire charges.
+function Pure.bargainPrice(price: any, bargain: any): number
+	local p = if type(price) == "number" and price == price and price ~= math.huge then math.max(0, price) else 0
+	local off = if type(bargain) == "number" and bargain == bargain then math.clamp(bargain, 0, 0.9) else 0
+	return math.floor(p * (1 - off) + 0.5)
+end
+
+-- The sign's gate lines (each 6 words or fewer): who may hire what. "🏥 Epic+ from Lv 3" (the hospital level Epic
+-- needs; Epic and up share it), then one "🏢 Mythic/Secret from R1" per rebirth count that some rarity needs.
+function Pure.gateLines(cfg: any): { string }
+	local lines: { string } = {}
+	local level = BeltLogic.minLevel(cfg, "Epic")
+	if level > 1 then
+		table.insert(lines, string.format("🏥 Epic+ from Lv %d", level))
+	end
+	local counts: { number } = {}
+	local names: { [number]: { string } } = {}
+	for _, rarity in Pure.RARITIES do
+		local needed = BeltLogic.minRebirths(cfg, rarity)
+		if needed > 0 then
+			if not names[needed] then
+				names[needed] = {}
+				table.insert(counts, needed)
+			end
+			table.insert(names[needed], rarity)
+		end
+	end
+	for _, needed in counts do
+		table.insert(lines, string.format("🏢 %s from R%d", table.concat(names[needed], "/"), needed))
+	end
+	return lines
+end
+
+-- The same lines on one row: "🏥 Epic+ from Lv 3 · 🏢 Mythic/Secret from R1".
+function Pure.gateText(cfg: any): string
+	return table.concat(Pure.gateLines(cfg), " · ")
+end
+
+-- A refused hire's reply for a gate (Logic/Belt.gate): "🏥 Lv 3 hospital first!" · "🏢 R1 first!".
+function Pure.gateMessage(gate: string): string
+	if string.sub(gate, 1, #"🏥") == "🏥" then
+		return gate .. " hospital first!"
+	end
+	return gate .. " first!"
 end
 -- PURE-END
 
@@ -256,6 +311,13 @@ local forcedFrom: number? = nil -- uptime seconds of a forced Golden Hour (Studi
 local serverStart = Workspace:GetServerTimeNow() - time()
 local rng = Random.new()
 local failures: { [string]: number } = {}
+-- 🔭 Belt Scout: the next arrival's rarity, rolled one arrival early while a perk owner is here (nil = roll it when it
+-- arrives), and who has the perk now.
+type Upcoming = { Rarity: string, Event: string }
+local upcoming: Upcoming? = nil
+local scouts: { [Player]: boolean } = {}
+local NEXT_ATTRIBUTE = "NextArrivalAt" -- on the belt model: when the next nurse comes (the house lamp, BeltView)
+local LAMP_NAME = "NextLamp"
 
 local function report(label: string, err: any)
 	local count = (failures[label] or 0) + 1
@@ -289,6 +351,19 @@ end
 
 local function nightRush(): boolean
 	return Workspace:GetAttribute("IsNight") == true
+end
+
+local function rebirthsOf(data: any): number
+	local rebirth = if type(data) == "table" then data.Rebirth else nil
+	return if type(rebirth) == "table" and type(rebirth.Count) == "number" then rebirth.Count else 0
+end
+
+local function effectsOf(data: any): RebirthLogic.Effects
+	return RebirthLogic.effects(data, Config, PerksData, TreeData)
+end
+
+local function knownNurse(nurseId: string): boolean
+	return nurseOf(nurseId) ~= nil
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -329,6 +404,22 @@ local function marker(parent: Instance, name: string, cf: CFrame): Part
 	p.CanQuery = false
 	p.CanTouch = false
 	return p
+end
+
+-- The nurse house's "next nurse" lamp: a soft ball with a dim light (no shadows). The client sets how bright it is.
+local function addLamp(parent: Instance, cf: CFrame): Part
+	local lamp = ball(parent, LAMP_NAME, 1.1, cf, CANDY.Yellow)
+	lamp.CanCollide = false
+	lamp.CanQuery = false
+	lamp.CanTouch = false
+	local light = Instance.new("PointLight")
+	light.Name = "Glow"
+	light.Color = CANDY.Yellow
+	light.Brightness = 0.3
+	light.Range = 9
+	light.Shadows = false
+	light.Parent = lamp
+	return lamp
 end
 
 local function streetTop(): number
@@ -463,6 +554,9 @@ local function placeholderBelt(frame: CFrame): Model
 		Palette.Ink
 	)
 	door.CanCollide = false
+
+	-- The "next nurse" lamp over the door (§E9): BeltView brightens it as the next nurse nears. No numbers anywhere.
+	addLamp(model, frame * CFrame.new(houseX + 2.85, 5.4, 0))
 
 	-- The cloud cushion at the far end: unhired nurses hop off into it and poof home.
 	local endX = length + 4.6
@@ -666,7 +760,7 @@ local function buildSign(sign: BasePart): SignView
 	}
 	for _, rarity in Rarities.Order do
 		local info = rarityInfo(rarity)
-		local line = row(0.072)
+		local line = row(0.067)
 		local a, b, c = columns(line)
 		local name =
 			textLabel(line, "Name", (if info then info.Icon .. " " .. info.Name else rarity), a, rarityColor(rarity))
@@ -682,7 +776,7 @@ local function buildSign(sign: BasePart): SignView
 		view.Night[rarity] = night
 	end
 	view.Golden = textLabel(row(0.07), "Golden", "", UDim2.fromScale(1, 1), CANDY.Yellow)
-	view.Gate = textLabel(row(0.065), "Gate", "", UDim2.fromScale(1, 1))
+	view.Gate = textLabel(row(0.095), "Gate", "", UDim2.fromScale(1, 1)) -- two lines: the level and rebirth gates
 	view.Pity = textLabel(row(0.075), "Pity", "", UDim2.fromScale(1, 1))
 	gui.Parent = sign
 	return view
@@ -717,7 +811,7 @@ local function refreshSign()
 	setCell(view.DayHead, "☀️", not night)
 	setCell(view.NightHead, "🌙", night)
 	view.Golden.Text = "👑 Golden Hour: Secret " .. Pure.percent(Config.Belt.GoldenSecret)
-	view.Gate.Text = Pure.gateLine(BeltLogic.minLevel(Config, "Epic"))
+	view.Gate.Text = table.concat(Pure.gateLines(Config), "\n")
 	view.Pity.Text = "🎁 Rare+ in " .. tostring(BeltLogic.pityLeft(dry, Config))
 end
 
@@ -852,13 +946,45 @@ local function onPrompt(player: Player, riderId: number)
 	end
 end
 
-local function arrive(now: number, startAt: number)
-	local b = belt :: Belt
+-- The next arrival's rarity, with the odds on the sign right now (Night Rush, Golden Hour, the pity, BeltForce), and
+-- the event whose odds rolled it.
+local function rollRarity(): Upcoming
 	local night = nightRush()
 	local goldenOn = golden.Active
 	local pity = BeltLogic.pityDue(dry, Config)
 	local forced = if RunService:IsStudio() then Pure.forced(Workspace:GetAttribute("BeltForce"), pity) else nil
 	local rarity = forced or BeltLogic.roll(BeltLogic.odds(Config, night, goldenOn), rng:NextNumber(), pity)
+	return { Rarity = rarity, Event = Pure.event(night, goldenOn) }
+end
+
+local function sendScout(player: Player)
+	local ahead = upcoming
+	if ahead and player.Parent == Players then
+		Remotes.BeltScout:FireClient(player, { Rarity = ahead.Rarity, Event = ahead.Event })
+	end
+end
+
+-- 🔭 Belt Scout: roll the next arrival now (one arrival early) if it isn't rolled yet, and tell `only` (one player who
+-- just got the perk) or every perk owner.
+local function scoutAhead(only: Player?)
+	if upcoming == nil then
+		upcoming = rollRarity()
+	end
+	if only then
+		sendScout(only)
+		return
+	end
+	for player in scouts do
+		sendScout(player)
+	end
+end
+
+local function arrive(now: number, startAt: number)
+	local b = belt :: Belt
+	-- A roll made one arrival early (🔭 Belt Scout) is used as it was told; otherwise roll with the odds now.
+	local roll = upcoming or rollRarity()
+	upcoming = nil
+	local rarity = roll.Rarity
 	local nurseId = BeltLogic.pick(NursesData, rarity, rng:NextNumber())
 	if not nurseId then
 		rarity = "Common"
@@ -887,7 +1013,7 @@ local function arrive(now: number, startAt: number)
 	model:SetAttribute("StartAt", startAt)
 	model:SetAttribute("RideSeconds", Config.Belt.RideSeconds)
 	model:SetAttribute("Hired", false)
-	model:SetAttribute("Event", Pure.event(night, goldenOn))
+	model:SetAttribute("Event", roll.Event)
 
 	local _, size = model:GetBoundingBox()
 	local attachment = Instance.new("Attachment")
@@ -936,6 +1062,10 @@ local function arrive(now: number, startAt: number)
 	end
 	seenBy(rider, now, playerPositions())
 	refreshSign()
+	-- The pity count is up to date now, so the early roll for the next arrival is exactly the one it would get.
+	if next(scouts) ~= nil then
+		scoutAhead(nil)
+	end
 end
 
 local function ridingCount(): number
@@ -1004,6 +1134,18 @@ end
 -- Public API
 ------------------------------------------------------------------------------------------------------------------
 
+-- The belt model's NextArrivalAt (the house lamp): written only when the time moves by more than 2 s, so a full belt
+-- (MaxRiders; the next arrival waits a second at a time) doesn't write it every second. It then stays in the past and
+-- the lamp stays bright.
+local lastPublished = -math.huge
+local function publishNext()
+	local b = belt
+	if b and math.abs(nextArrival - lastPublished) > 2 then
+		lastPublished = nextArrival
+		b.Model:SetAttribute(NEXT_ATTRIBUTE, nextArrival)
+	end
+end
+
 function NurseBelt.goldenHour(): boolean
 	return golden.Active
 end
@@ -1045,18 +1187,23 @@ function NurseBelt.hire(player: Player, riderId: number): (boolean, string)
 	if not data then
 		return false, Remotes.OOPS
 	end
-	local canHire, why = BeltLogic.canHire(data.Nurses[rider.NurseId], Config)
-	if not canHire then
+	local level = Levels.level(player)
+	-- Epic and up ride for everyone but need hospital Lv 3 to hire (memory-20261116-017), and Mythic and Secret the
+	-- first rebirth (design §7); the card already says so ("🏥 Lv 3" / "🏢 R1", never a lock or a price).
+	local gate = BeltLogic.gate(Config, rider.Rarity, level, rebirthsOf(data))
+	if gate then
+		return false, Pure.gateMessage(gate)
+	end
+	-- Roster room for a new nurse ("Roster full: sell or list one"), or not at the level cap for a copy ("Max
+	-- level!"): a clear reply before the grant (which checks it again inside its one update).
+	local canAdd, why = NurseLogic.canAdd(data, rider.NurseId, Config, knownNurse)
+	if not canAdd then
 		return false, why
 	end
-	-- Epic and up ride for everyone but need hospital Lv 3 to hire (memory-20261116-017); the card already says so.
-	if not BeltLogic.levelOk(Config, rider.Rarity, Levels.level(player)) then
-		return false, string.format(MSG.Level, BeltLogic.minLevel(Config, rider.Rarity))
-	end
-	local price = BeltLogic.price(Config, rider.Rarity, Levels.level(player))
+	local price = Pure.bargainPrice(BeltLogic.price(Config, rider.Rarity, level), effectsOf(data).Bargain)
 
 	rider.Claimed = true
-	local ok, granted, message = pcall(Nurses.grant, player, rider.NurseId, price)
+	local ok, granted, message = pcall(Nurses.grant, player, rider.NurseId, price, "Belt")
 	if not ok or granted ~= true then
 		rider.Claimed = false
 		if not ok then
@@ -1074,6 +1221,7 @@ function NurseBelt.hire(player: Player, riderId: number): (boolean, string)
 		end
 	end
 	nextArrival = Pure.afterHire(nextArrival, now, rider.Rarity, Config, others)
+	publishNext()
 	if Pure.hiredShout(rider.Rarity) then
 		Remotes.Shout:FireAllClients({
 			Kind = "Hired",
@@ -1096,6 +1244,7 @@ local function tick()
 		else
 			nextArrival = now + 1
 		end
+		publishNext()
 	end
 	if now >= nextStep then
 		nextStep = now + Config.Belt.ServerStepSeconds
@@ -1157,6 +1306,10 @@ function NurseBelt.start()
 	if sign and sign:IsA("BasePart") then
 		b.Sign = buildSign(sign)
 	end
+	if not model:FindFirstChild(LAMP_NAME) then
+		-- A kit belt without the "next nurse" lamp gets one above where riders step on, a little back toward the house.
+		addLamp(model, CFrame.new(start.Position + Vector3.new(0, 4.5, 0) - dir * 1.5))
+	end
 	belt = b
 	model.Parent = Workspace
 
@@ -1171,7 +1324,30 @@ function NurseBelt.start()
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		lastHire[player] = nil
+		scouts[player] = nil
 	end)
+	-- 🔭 Belt Scout owners: on every save change (a join's load, a perk chosen), cheap (the perks and the tree only).
+	-- A new owner gets the next arrival's rarity at once (rolled now if nobody had it rolled yet).
+	local function syncScout(player: Player, data: any)
+		if player.Parent ~= Players then
+			scouts[player] = nil
+			return
+		end
+		local ok, has = pcall(function()
+			return effectsOf(data).BeltScout
+		end)
+		if not ok then
+			report("the Belt Scout check", has)
+			return
+		end
+		if has and not scouts[player] then
+			scouts[player] = true
+			scoutAhead(player)
+		elseif not has and scouts[player] then
+			scouts[player] = nil
+		end
+	end
+	PlayerData.Changed:Connect(syncScout)
 
 	local now = Workspace:GetServerTimeNow()
 	updateGolden(now)
@@ -1182,7 +1358,14 @@ function NurseBelt.start()
 		end
 	end
 	nextArrival = now
+	publishNext()
 	refreshSign()
+	for _, player in Players:GetPlayers() do -- owners loaded before the belt started (after its first riders)
+		local data = PlayerData.get(player)
+		if data then
+			syncScout(player, data)
+		end
+	end
 
 	task.spawn(function()
 		while true do

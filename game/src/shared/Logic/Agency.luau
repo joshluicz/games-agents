@@ -15,8 +15,10 @@
 --                                            always gives the same numbers
 --   Agency.personal(roster, cfg, userId, restock, owned): { NurseId }
 --       the 🍀 Lucky Stock capstone's LuckySlots nurses for one player this restock: a roll seeded by (userId,
---       restock), so asking again (or rejoining) never re-rolls them. `owned` = the shared stock's nurses this
---       restock (never repeated in your own slots); it must not depend on anything the player can change
+--       restock), so asking again (or rejoining) never re-rolls them. Each slot rolls its rarity with the SHOWN
+--       odds. `owned` = the shared stock's nurses this restock: never repeated in your own slots unless every nurse
+--       of the rolled rarity is in it (then a shared one may repeat, so the shown odds stay true); never two of the
+--       same among your own slots. It must not depend on anything the player can change
 --   Agency.price(cfg, rarity, level, bargain?): number
 --       the belt's base price x PriceScale[hospital level] x PriceMultiplier x (1 - bargain), rounded once
 --       (Lv 1: Common 150, Rare 600, Epic 2,250)
@@ -152,10 +154,47 @@ function Agency.seeded(seed: number, n: number): { number }
 	return out
 end
 
+-- Each own slot rolls its rarity with the shown odds, then picks a nurse of that rarity that is neither in your
+-- own slots nor in the shared stock. Only when every nurse of that rarity is already in the shared stock may a
+-- shared one repeat (never one of your own slots), so the shown odds stay exactly true (with the shipped roster
+-- about 12% of Lucky Stock restocks need that, almost always Commons). A rarity with nobody at all falls to the
+-- next lower one (a roster that small never ships).
 function Agency.personal(roster: any, cfg: any, userId: number, restock: number, owned: { string }?): { string }
 	local slots = math.max(0, math.floor(num(settings(cfg).LuckySlots, 2)))
 	local seed = (math.floor(math.abs(num(userId, 0))) % 1000003) * 7919 + math.floor(math.abs(num(restock, 0))) + 1
-	return Agency.roll(roster, cfg, Agency.seeded(seed, slots * 2), slots, owned)
+	local r01s = Agency.seeded(seed, slots * 2)
+	local odds = Agency.odds(cfg)
+	local inShared: { [string]: boolean } = {}
+	if type(owned) == "table" then
+		for _, id in owned do
+			inShared[id] = true
+		end
+	end
+	local mine: { [string]: boolean } = {}
+	local out: { string } = {}
+	for k = 1, slots do
+		local step = rank(Agency.rarity(odds, r01s[2 * k - 1]))
+		local ids: { string } = {}
+		while step >= 1 do
+			local fresh: { string } = {}
+			local repeats: { string } = {}
+			for _, id in candidates(roster, Agency.RARITIES[step], mine) do
+				table.insert(if inShared[id] then repeats else fresh, id)
+			end
+			ids = if #fresh > 0 then fresh else repeats
+			if #ids > 0 then
+				break
+			end
+			step -= 1
+		end
+		if #ids > 0 then
+			local index = math.clamp(math.floor(math.clamp(num(r01s[2 * k], 0), 0, 1) * #ids) + 1, 1, #ids)
+			local nurseId = ids[index]
+			mine[nurseId] = true
+			table.insert(out, nurseId)
+		end
+	end
+	return out
 end
 
 function Agency.price(cfg: any, rarity: string, level: number, bargain: number?): number

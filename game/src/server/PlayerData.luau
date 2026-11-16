@@ -16,6 +16,13 @@
 --                                       true when the write landed. Never two writes for one player at once (it
 --                                       waits for one in flight). False when not loaded, leaving, or not saving.
 --                                       The Market saves the seller THEN the buyer; a rebirth saves at once
+--   PlayerData.writeAfter(first, second)   (integration) the ORDER of two saves: `second`'s next writes (autosave,
+--                                       saveNow, its leave-save) wait until `first`'s changes made so far have
+--                                       landed, up to WRITE_AFTER_SECONDS (10 s). The Market calls it
+--                                       (seller, buyer) on every sale, so the buyer's autosave can't land the nurse
+--                                       before the seller's write takes it away: a crash between the two can lose
+--                                       a nurse but never duplicate one. Bounded, so two players trading both ways
+--                                       never wait on each other for long
 --
 -- Safety (roblox-datastores skill):
 --   · Writes use UpdateAsync with a session lock, so two servers never write over each other (fast rejoin,
@@ -70,6 +77,7 @@ local RELEASE_WAIT = 60 -- seconds a same-server rejoin waits for the old sessio
 local SAVING_OFF_TOAST = "⚠️ Saving is off"
 local WAITING_TOAST = "⏳ Opening your clinic..."
 local FRESH_SAVE = "FreshSave" -- the Workspace attribute (Studio test switch) and the player attribute it sets
+local WRITE_AFTER_SECONDS = 10 -- writeAfter: the longest a save waits for the other one to land
 
 type Session = {
 	Data: Data,
@@ -81,6 +89,9 @@ type Session = {
 	Saving: boolean,
 	Released: boolean, -- the player left: no more autosaves, the leave-save is under way
 	Final: boolean, -- the leave-save took its snapshot: later updates would be lost, so they're refused
+	Written: number, -- the Changes count the last successful data write held (writeAfter waits on it)
+	After: { Session: any, Changes: number, Until: number }?, -- writeAfter: write only once that session's
+	-- Changes up to this count have landed (or Until passes)
 }
 
 type WriteResult = "Ok" | "Failed" | "LostLock" | "Skipped"
@@ -260,6 +271,19 @@ local function write(player: Player, session: Session, release: boolean): (Write
 	if not activeStore or not session.Owned then
 		return "Skipped", nil
 	end
+	-- writeAfter: another save must land first (the Market's seller before its buyer). Bounded: Until.
+	local after = session.After
+	while after do
+		local first = after.Session
+		if first.Written >= after.Changes or not first.CanSave or os.clock() >= after.Until then
+			if session.After == after then
+				session.After = nil
+			end
+			break
+		end
+		task.wait(0.1)
+		after = session.After
+	end
 	while session.Saving do
 		task.wait(0.1)
 	end
@@ -307,6 +331,9 @@ local function write(player: Player, session: Session, release: boolean): (Write
 		result = "LostLock"
 	else
 		session.LastWrite = os.clock()
+		if wroteData then
+			session.Written = math.max(session.Written, changes)
+		end
 		-- An update() that ran while the request was in flight isn't in this snapshot: stay dirty for it.
 		if wroteData and session.Changes == changes then
 			session.Dirty = false
@@ -432,6 +459,8 @@ local function load(player: Player)
 		Saving = false,
 		Released = false,
 		Final = false,
+		Written = 0,
+		After = nil,
 	}
 
 	if player.Parent ~= Players then
@@ -549,6 +578,16 @@ function PlayerData.saveNow(player: Player): boolean
 	end
 	local ok, result = pcall(write, player, session, false)
 	return ok and result == "Ok"
+end
+
+-- The order of two saves (see the header): `second` writes only once `first`'s changes so far have landed (bounded
+-- by WRITE_AFTER_SECONDS). Never yields. Without both sessions it does nothing.
+function PlayerData.writeAfter(first: Player, second: Player)
+	local a, b = sessions[first], sessions[second]
+	if not a or not b or a == b then
+		return
+	end
+	b.After = { Session = a, Changes = a.Changes, Until = os.clock() + WRITE_AFTER_SECONDS }
 end
 
 function PlayerData.start()

@@ -1,5 +1,5 @@
 --!strict
--- Treatment mini-games (depth-update design §1, build plan §B3/§B9). Client only. OWNER: T2.
+-- Treatment mini-games (depth-update design §1, build plan §B3/§B9). Client only. OWNER: T2; Progression v2: T8.
 --   init(ctx)   listens for the bus "TreatStart" (Types.TreatSession, forwarded from the server by Main.client)
 --
 -- One short game per session.Games entry, in recipe order, on a candy card in the middle of the screen. Big targets
@@ -23,14 +23,27 @@
 -- the session as all OK by then). A new TreatStart replaces a running one. Nothing here decides anything: the
 -- server checks the session, the time, the distance and the tip.
 --
+-- Progression v2 (build plan §B3 TreatSession/TreatOutcome, §C T8):
+--   Auto   a game an ability made PERFECT (Golden Touch, Quick Bandage/Soap) sparkles for a moment ("✨ Magic
+--          help!"), pops "✨ PERFECT!" and is skipped; the minimum report time counts only the games really played
+--          (Pure.played, as the server's MiniGame.accept does).
+--   Ease   🎯 Steady Hands (1..1.3) widens the Perfect windows: the Pour's ⭐ band and Good slack, the Cool's blow
+--          window, a little more time to patch and scrub (Pure.eased). The client draws and rates with it; the
+--          server never checks it (it takes the client's ratings), so the two always agree.
+--   Soak   the Hydro hot tub's one Scrub game is a "🫧 Bubble bath!" card, a tip only ("🛁 Ahh, so cosy!").
+--   Triage when the server's TreatOutcome has Triage (Lv 3+, no Receptionist), the card stays for "🔀 Which
+--          floor?": a huge button per department (Data/Departments icon, the badge chip's colour) over the soft time
+--          bar (no digits). One tap asks Triage(session, dept): "✅ Right floor!" or "Oops, not this floor!" (it
+--          goes the right way anyway). No tap: the bar empties and the patient goes by itself. Never a fail.
 -- Bus events: listens "TreatStart" (session) · fires "MiniGameRated" (game, rating) as each game ends (the client's
 -- own rating, for feel) · "TreatDone" (outcome, session) after the server's reply (session = the TreatStart payload,
 -- with its Position) · "Sound" (name) for the hits: Pour, Patch, Scrub, Blow, Tick, plus Whoosh, Splash, Sparkle,
--- Pop. The rating cues (RateOK/RateGood/RatePerfect on MiniGameRated) and Tip/Combo (on TreatDone) are Feel/Sounds'
+-- Pop, Triage. The rating cues (RateOK/RateGood/RatePerfect on MiniGameRated) and Tip/Combo (on TreatDone) are Feel/Sounds'
 -- own, so this file never plays them (they would double).
 -- The pure helpers between the PURE markers use no Roblox API, so a Lune harness can load that block on its own.
 
 local ContextActionService = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -53,6 +66,10 @@ local Pure = {}
 
 Pure.KNOWN = { Pour = true, Patch = true, Scrub = true, Cool = true } -- the games this client can draw
 Pure.MAX_GAMES = 6 -- a recipe has at most 3; more than this is junk
+-- Progression v2: 🎯 Steady Hands widens the Perfect windows by up to 30% (TreatSession.Ease, 1..1.3; client only)
+Pure.EASE_MAX = 1.3
+Pure.TRIAGE_MAX = 3 -- floor buttons on the triage card (two today: 🛏️ Wards and 🛁 Hydro)
+Pure.TRIAGE_SECONDS_MAX = 10
 
 export type Session = {
 	Session: number,
@@ -62,7 +79,13 @@ export type Session = {
 	Simple: boolean,
 	Combo: number, -- a whole number >= 0
 	Timeout: number?, -- seconds, nil when the payload had none
+	-- Progression v2 (build plan §B3 TreatSession): defaults when the server sends none
+	Kind: string, -- "Treat" | "Soak" (the Hydro hot tub's 🫧 bubble bath: one Scrub game for a tip)
+	Auto: { boolean }, -- per game: an ability made it PERFECT already (shown with ✨ and skipped)
+	Ease: number, -- 1..EASE_MAX: how much wider the Perfect windows are
 }
+export type TriageOption = { Dept: string, Icon: string, Name: string }
+export type TriageCard = { Options: { TriageOption }, Seconds: number }
 export type Point = { X: number, Y: number }
 
 local function finite(value: any): number?
@@ -101,6 +124,11 @@ function Pure.session(raw: any): Session?
 	end
 	local combo = finite(raw.Combo)
 	local timeout = finite(raw.Timeout)
+	local rawAuto = if type(raw.Auto) == "table" then raw.Auto else {}
+	local auto: { boolean } = {}
+	for index = 1, count do
+		auto[index] = rawAuto[index] == true
+	end
 	return {
 		Session = id,
 		PatientId = if type(raw.PatientId) == "string" then raw.PatientId else "",
@@ -109,8 +137,119 @@ function Pure.session(raw: any): Session?
 		Simple = raw.Simple == true,
 		Combo = if combo then math.max(0, math.floor(combo)) else 0,
 		Timeout = if timeout and timeout > 0 then timeout else nil,
+		Kind = if raw.Kind == "Soak" then "Soak" else "Treat",
+		Auto = auto,
+		Ease = math.clamp(finite(raw.Ease) or 1, 1, Pure.EASE_MAX),
 	}
 end
+
+-- The games the player really plays (not made PERFECT by an ability): what the minimum report time counts, the
+-- same way the server's MiniGame.accept counts it.
+function Pure.played(games: { string }, auto: { boolean }?): { string }
+	local out: { string } = {}
+	for index, gameId in games do
+		if not (type(auto) == "table" and auto[index] == true) then
+			table.insert(out, gameId)
+		end
+	end
+	return out
+end
+
+local function copyOf(value: any): { [any]: any }
+	local out = {}
+	if type(value) == "table" then
+		for key, item in value do
+			out[key] = item
+		end
+	end
+	return out
+end
+
+-- Config.MiniGame with the Perfect windows widened by `ease` (🎯 Steady Hands, 1..EASE_MAX): the Pour's ⭐ band
+-- (round its middle) and its Good slack, the Cool's blow window, and a little more time to patch and to scrub. New
+-- tables (Config is frozen). The client draws and rates with it; the server takes the client's ratings, so the two
+-- always agree. ease 1 (or junk) is the plain settings.
+function Pure.eased(mini: any, ease: number?): any
+	local out = copyOf(mini)
+	local k = math.clamp(finite(ease) or 1, 1, Pure.EASE_MAX)
+	if k <= 1 then
+		return out
+	end
+	local pour = copyOf(out.Pour)
+	local low, high = finite(pour.BandMin) or 0.7, finite(pour.BandMax) or 0.86
+	local middle, half = (low + high) / 2, (high - low) / 2 * k
+	pour.BandMin = math.max(0, middle - half)
+	pour.BandMax = math.min(1, middle + half)
+	pour.GoodSlack = (finite(pour.GoodSlack) or 0.12) * k
+	out.Pour = pour
+	local cool = copyOf(out.Cool)
+	cool.Window = (finite(cool.Window) or 0.3) * k
+	out.Cool = cool
+	local patch = copyOf(out.Patch)
+	patch.Seconds = (finite(patch.Seconds) or 4.5) * k
+	out.Patch = patch
+	local scrub = copyOf(out.Scrub)
+	scrub.Seconds = (finite(scrub.Seconds) or 4) * k
+	out.Scrub = scrub
+	return out
+end
+
+-- The triage card from TreatOutcome.Triage ({ Options: { DeptId }, Seconds }): a big floor button per known
+-- department (Data/Departments: its icon, like the patient's badge chip), at most TRIAGE_MAX, no repeats, and the
+-- soft bar's length. nil when there's nothing to pick (junk, fewer than two floors, no time).
+function Pure.triage(raw: any, departments: any): TriageCard?
+	if type(raw) ~= "table" or type(raw.Options) ~= "table" or type(departments) ~= "table" then
+		return nil
+	end
+	local options: { TriageOption } = {}
+	local seen: { [string]: boolean } = {}
+	for _, dept in raw.Options do
+		if #options >= Pure.TRIAGE_MAX then
+			break
+		end
+		local row = if type(dept) == "string" then rawget(departments, dept) else nil
+		if type(row) == "table" and not seen[dept] then
+			seen[dept] = true
+			table.insert(options, {
+				Dept = dept,
+				Icon = if type(row.Icon) == "string" then row.Icon else "❓",
+				Name = if type(row.Name) == "string" then row.Name else dept,
+			})
+		end
+	end
+	local seconds = finite(raw.Seconds)
+	if #options < 2 or seconds == nil or seconds <= 0 then
+		return nil
+	end
+	return { Options = options, Seconds = math.min(seconds, Pure.TRIAGE_SECONDS_MAX) }
+end
+
+-- The triage card's soft bar: 1 with all the time left, 0 when it's gone (never digits).
+function Pure.triageBar(elapsed: number, seconds: number): number
+	local total = finite(seconds) or 0
+	if total <= 0 then
+		return 0
+	end
+	return math.clamp(1 - (finite(elapsed) or 0) / total, 0, 1)
+end
+
+-- What the server's Triage answer means: "Right" (✅ Right floor!), "Wrong" ("Oops, not this floor!": it still goes
+-- the right way, never a fail) or "Quiet" (no answer, refused or too late: the patient just goes by itself). A
+-- payload { Right = boolean } wins; else the server's words; else ok.
+function Pure.triageResult(ok: any, message: any, payload: any): string
+	if type(payload) == "table" and type(payload.Right) == "boolean" then
+		return if payload.Right then "Right" else "Wrong"
+	end
+	local text = if type(message) == "string" then string.lower(message) else ""
+	if string.find(text, "oops", 1, true) and string.find(text, "floor", 1, true) then
+		return "Wrong"
+	end
+	return if ok == true then "Right" else "Quiet"
+end
+Pure.TRIAGE_TEXT = {
+	Right = { Icon = "✅", Text = "Right floor!" },
+	Wrong = { Icon = "🙃", Text = "Oops, not this floor!" },
+}
 
 -- Pour: how full the bottle is after holding for `held` seconds (0..1). Same defaults as Logic/MiniGame.
 function Pure.fill(held: number, fillSeconds: number?): number
@@ -281,6 +420,22 @@ local GAME_LOOK: { [string]: GameLook } = {
 }
 local TAP_LOOK: GameLook =
 	{ Icon = "✨", Title = "Tap!", Hint = "Tap to help!", Color = Theme.Colors.Good, Sound = "Pop" }
+-- Progression v2: the Hydro hot tub's bubble bath (TreatSession Kind "Soak": one Scrub game, a tip only)
+local SOAK_LOOK: GameLook =
+	{ Icon = "🫧", Title = "Bubble bath!", Hint = "Pop the bubbles!", Color = Theme.Colors.Cyan, Sound = "Scrub" }
+-- The triage card's floor buttons (Kit kinds), in the colour of each department's badge chip (CreatureBuilder.setDept)
+local DEPT_KINDS: { [string]: string } = {
+	Reception = "Primary",
+	AE = "Danger",
+	Wards = "Pink",
+	Hydro = "Cyan",
+	Pharmacy = "Good",
+	Roof = "Purple",
+}
+local AUTO_HOLD = 0.5 -- an ability's PERFECT game shows its sparkle this long before the rating pop
+local TRIAGE_MARGIN = 0.3 -- the floor buttons stop taking taps this long before the server stops waiting
+local TRIAGE_HOLD = 1.1 -- the triage answer stays this long before the card closes
+local TRIAGE_LEAD = 0.45 -- the results flash this long before the floor buttons come
 
 type RatingLook = { Text: string, Icon: string, Color: Color3 }
 local RATING_LOOK: { [string]: RatingLook } = {
@@ -455,8 +610,15 @@ local function pointer(): string
 	return "👆"
 end
 
+-- The running session's Config.MiniGame, eased by 🎯 Steady Hands (Pure.eased); nil between sessions.
+local activeMini: any = nil
+
+local function miniOf(ctx: Types.Ctx): any
+	return activeMini or ctx.Config.MiniGame
+end
+
 local function settingsOf(ctx: Types.Ctx, name: string): any
-	local mini = ctx.Config.MiniGame
+	local mini = miniOf(ctx)
 	local value = if type(mini) == "table" then mini[name] else nil
 	return if type(value) == "table" then value else {}
 end
@@ -881,13 +1043,14 @@ local function clearPop(v: View)
 	end
 end
 
-local function showRating(v: View, rating: string)
+-- `magic`: an ability made it PERFECT (TreatSession.Auto): "✨ PERFECT!" with sparkles instead of stars.
+local function showRating(v: View, rating: string, magic: boolean?)
 	local look = RATING_LOOK[rating] or RATING_LOOK.OK
 	clearPop(v)
 	local token = popToken
 	local text, stroke = v.PopText, v.PopStroke
 	local scale = scaleOf(text)
-	text.Text = look.Text
+	text.Text = if magic then "✨ " .. look.Text else look.Text
 	text.TextColor3 = look.Color
 	text.TextTransparency = 0
 	text.Rotation = 0
@@ -896,7 +1059,7 @@ local function showRating(v: View, rating: string)
 	v.Pop.Visible = true
 	if rating == "Perfect" then
 		stopRays = Kit.celebrate(v.PopRays, look.Color)
-		burst(v.Pop, UDim2.fromScale(0.5, 0.5), "⭐", 8, 0.3)
+		burst(v.Pop, UDim2.fromScale(0.5, 0.5), if magic then "✨" else "⭐", 8, 0.3)
 		punch(v.Card, 1.04, 0.35)
 	elseif rating == "Good" then
 		burst(v.Pop, UDim2.fromScale(0.5, 0.5), "✨", 5, 0.24)
@@ -1008,6 +1171,9 @@ local function stop(run: Run)
 		return
 	end
 	run.Alive = false
+	if current == run then
+		activeMini = nil
+	end
 	for _, cleanup in run.Cleanups do
 		pcall(cleanup)
 	end
@@ -1876,8 +2042,8 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 	local session = run.Session
 	local known = Pure.KNOWN[gameId] == true
 	local simple = session.Simple or not known
-	local look = GAME_LOOK[gameId] or TAP_LOOK
-	setHeader(v, look.Icon, if simple then TAP_LOOK.Title else look.Title, look.Color)
+	local look = if session.Kind == "Soak" and gameId == "Scrub" then SOAK_LOOK else GAME_LOOK[gameId] or TAP_LOOK
+	setHeader(v, look.Icon, if simple and look ~= SOAK_LOOK then TAP_LOOK.Title else look.Title, look.Color)
 	v.Hint.Text = pointer() .. " " .. (if simple then TAP_LOOK.Hint else look.Hint)
 	setTime(v, nil)
 	markStep(v, index, nil)
@@ -1992,7 +2158,44 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 	if simple then
 		return "Good"
 	end
-	return MiniGame.rate(gameId, if type(score) == "number" then score else 0, ctx.Config)
+	-- Rated against the same (eased) windows the game was drawn with.
+	return MiniGame.rate(gameId, if type(score) == "number" then score else 0, { MiniGame = miniOf(ctx) })
+end
+
+-- A game an ability already made PERFECT (TreatSession.Auto: Golden Touch, Quick Bandage, Quick Soap): its icon
+-- sparkles on the stage for a moment, then the run goes on (the server rates it Perfect whatever is reported).
+local function playAuto(v: View, run: Run, index: number, gameId: string): string
+	local look = GAME_LOOK[gameId] or TAP_LOOK
+	setHeader(v, "✨", "Magic help!", Theme.Colors.Cash)
+	v.Hint.Text = look.Icon .. " ✨ Done for you!"
+	setTime(v, nil)
+	markStep(v, index, nil)
+	local layer = new("Frame", {
+		Name = "Auto" .. index,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 2,
+		Parent = v.Stage,
+	})
+	local function cleanup()
+		layer:Destroy()
+	end
+	table.insert(run.Cleanups, cleanup)
+	local glow = blob(layer, "Glow", Kit.lighten(Theme.Colors.Cash, 0.35), squareAt(0.62, UDim2.fromScale(0.5, 0.48)))
+	glow.ZIndex = 3
+	Kit.gloss(glow, 10)
+	local icon = emoji(glow, look.Icon, { Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.7, 0.7) })
+	icon.ZIndex = 4
+	punch(glow, 0.4, 0.4)
+	burst(layer, UDim2.fromScale(0.5, 0.48), "✨", 10, 0.18)
+	sound("Sparkle")
+	waitFor(run, if calm() then AUTO_HOLD * 0.6 else AUTO_HOLD)
+	local slot = table.find(run.Cleanups, cleanup)
+	if slot then
+		table.remove(run.Cleanups, slot)
+	end
+	cleanup()
+	return "Perfect"
 end
 
 -- The card after the last game: one chip per game with its rating, the tip, and what's next.
@@ -2030,6 +2233,7 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 	})
 	for index, gameId in run.Session.Games do
 		local rating = RATING_LOOK[ratings[index]] or RATING_LOOK.OK
+		local magic = run.Session.Auto[index] == true
 		local item = rawget(ctx.Data.Items :: any, run.Session.Items[index])
 		local chip = blob(row, "Chip" .. index, Kit.lighten(rating.Color, 0.1), {
 			LayoutOrder = index,
@@ -2043,7 +2247,7 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 			Size = UDim2.fromScale(0.62, 0.62),
 			ZIndex = 4,
 		})
-		emoji(chip, rating.Icon, {
+		emoji(chip, if magic then "✨" else rating.Icon, {
 			Position = UDim2.fromScale(0.86, 0.86),
 			Size = UDim2.fromScale(0.42, 0.42),
 			ZIndex = 5,
@@ -2069,7 +2273,10 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 		maxText(tipLabel, 44)
 		punch(tipLabel, 1.5, 0.35)
 	end
-	if type(outcome) ~= "table" then
+	if run.Session.Kind == "Soak" then
+		setHeader(v, "🫧", "So bubbly!", Theme.Colors.Cyan)
+		v.Hint.Text = if type(outcome) == "table" then "🛁 Ahh, so cosy!" else ""
+	elseif type(outcome) ~= "table" then
 		setHeader(v, "✨", "Nice!", Theme.Colors.Good)
 		v.Hint.Text = ""
 	elseif outcome.Complete == true then
@@ -2091,13 +2298,140 @@ local function rescue(ctx: Types.Ctx, run: Run)
 	end
 	run.Reported = true
 	local session = run.Session
-	task.wait(
-		Pure.holdBack(os.clock() - run.Started, MiniGame.minSeconds(session.Games, session.Simple, ctx.Config), 0.2)
-	)
+	local played = Pure.played(session.Games, session.Auto)
+	task.wait(Pure.holdBack(os.clock() - run.Started, MiniGame.minSeconds(played, session.Simple, ctx.Config), 0.2))
 	local ratings = table.create(#session.Games, "Good")
+	for index in ratings do
+		if session.Auto[index] then
+			ratings[index] = "Perfect"
+		end
+	end
 	local ok, _, outcome = Hud.ask(ctx.Remotes.TreatResult, session.Session, ratings)
 	if ok and type(outcome) == "table" then
 		fireBus("TreatDone", outcome, run.Raw)
+	end
+end
+
+-- After a finished treatment whose outcome has Triage (Lv 3+, no Receptionist on duty): "🔀 Which floor?" with a
+-- huge floor button per department (its icon, in its badge chip's colour) and the soft time bar draining (no
+-- digits). The first tap asks Triage(session, dept) once; the answer shows "✅ Right floor!" or "Oops, not this
+-- floor!" (the patient goes the right way anyway). No tap: the bar empties and the card just closes, and the patient
+-- goes by itself (the server waits Seconds). Never a fail.
+local function runTriage(ctx: Types.Ctx, v: View, run: Run, card: TriageCard, since: number)
+	local old = v.Stage:FindFirstChild("Results")
+	if old then
+		old:Destroy()
+	end
+	setHeader(v, "🔀", "Which floor?", Theme.Colors.Purple)
+	v.Hint.Text = "👀 Match the badge!"
+	local layer = new("Frame", {
+		Name = "Triage",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 2,
+		Parent = v.Stage,
+	})
+	table.insert(run.Cleanups, function()
+		layer:Destroy()
+	end)
+	local row = new("Frame", {
+		Name = "Row",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.48),
+		Size = UDim2.fromScale(0.96, 0.7),
+		BackgroundTransparency = 1,
+		ZIndex = 2,
+		Parent = layer,
+	})
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 18),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = row,
+	})
+
+	-- Taps and the gamepad's own selection work the buttons (A selects them), so the card's Space/A action steps
+	-- aside while they show.
+	ContextActionService:UnbindAction(ACTION)
+	local started = since -- when the server's answer came: its wait for a pick began just before
+	local picked = false
+	local answer: string? = nil
+	local buttons: { TextButton } = {}
+	local function choose(dept: string, button: TextButton)
+		if picked or not run.Alive or os.clock() - started > card.Seconds - TRIAGE_MARGIN then
+			return
+		end
+		picked = true
+		sound("Triage")
+		punch(button, 1.25, 0.35)
+		for _, other in buttons do
+			if other ~= button then
+				other.Interactable = false
+				other.BackgroundTransparency = 0.45
+			end
+		end
+		task.spawn(function()
+			local ok, message, payload = Hud.ask(ctx.Remotes.Triage, run.Session.Session, dept)
+			answer = Pure.triageResult(ok, message, payload)
+		end)
+	end
+	for index, option in card.Options do
+		local button = Kit.button({
+			Name = "Floor_" .. option.Dept,
+			Kind = DEPT_KINDS[option.Dept] or "Secondary",
+			Text = "",
+			LayoutOrder = index,
+			Size = UDim2.fromScale(1, 1),
+			SizeConstraint = Enum.SizeConstraint.RelativeYY,
+			ZIndex = 3,
+			Parent = row,
+		})
+		minSize(button, MIN_TAP) -- they fill the stage's height: about 120-190 px on phones
+		local icon = emoji(button, option.Icon, {
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.68, 0.68),
+		})
+		icon.ZIndex = 4
+		button.Activated:Connect(function()
+			choose(option.Dept, button)
+		end)
+		buttons[index] = button
+		punch(button, 0.5, 0.3 + index * 0.08)
+	end
+	local gamepad = UserInputService.PreferredInput == Enum.PreferredInput.Gamepad
+	if gamepad and buttons[1] then
+		GuiService.SelectedObject = buttons[1]
+	end
+
+	-- The soft bar drains while it waits; after a tap it waits a little longer for the answer.
+	while run.Alive and answer == nil do
+		local elapsed = os.clock() - started
+		if not picked then
+			setTime(v, Pure.triageBar(elapsed, card.Seconds))
+		end
+		if elapsed >= card.Seconds + (if picked then 3 else 0) then
+			break
+		end
+		task.wait(0.1)
+	end
+	if GuiService.SelectedObject and GuiService.SelectedObject:IsDescendantOf(layer) then
+		GuiService.SelectedObject = nil
+	end
+	if not run.Alive then
+		return
+	end
+	setTime(v, nil)
+	local look = if answer then Pure.TRIAGE_TEXT[answer] else nil
+	if look then
+		setHeader(v, look.Icon, look.Text, if answer == "Right" then Theme.Colors.Good else Theme.Colors.Secondary)
+		v.Hint.Text = if answer == "Right" then "💰 +bonus!" else "🛗 Off it goes!"
+		if answer == "Right" then
+			burst(layer, UDim2.fromScale(0.5, 0.48), "✨", 10, 0.2)
+			sound("Sparkle")
+		end
+		waitFor(run, TRIAGE_HOLD)
 	end
 end
 
@@ -2110,20 +2444,24 @@ local function runSession(ctx: Types.Ctx, run: Run)
 	showCombo(ctx, v, session.Combo, false)
 	v.Combo.Visible = not session.Simple
 	openCard(v)
+	if session.Kind == "Soak" then
+		sound("Splash")
+	end
 
 	local ratings: { string } = {}
 	for index, gameId in session.Games do
 		if not run.Alive then
 			return
 		end
-		local rating = playOne(ctx, v, run, index, gameId)
+		local magic = session.Auto[index] == true
+		local rating = if magic then playAuto(v, run, index, gameId) else playOne(ctx, v, run, index, gameId)
 		if not run.Alive then
 			return
 		end
 		ratings[index] = rating
 		fireBus("MiniGameRated", gameId, rating)
 		markStep(v, index, rating)
-		showRating(v, rating)
+		showRating(v, rating, magic)
 		if not session.Simple then
 			local predicted = MiniGame.settle(session.Combo, ratings :: any, ctx.Config)
 			showCombo(ctx, v, predicted, true)
@@ -2133,14 +2471,17 @@ local function runSession(ctx: Types.Ctx, run: Run)
 		end
 	end
 
-	-- Never sooner than the games' minimum time (the server would rate a too-quick report all OK).
-	local minimum = MiniGame.minSeconds(session.Games, session.Simple, ctx.Config)
+	-- Never sooner than the played games' minimum time (the server would rate a too-quick report all OK); the
+	-- games an ability made PERFECT don't count, the same as the server's MiniGame.accept.
+	local minimum = MiniGame.minSeconds(Pure.played(session.Games, session.Auto), session.Simple, ctx.Config)
 	if not waitFor(run, Pure.holdBack(os.clock() - run.Started, minimum, REPORT_MARGIN)) then
 		return
 	end
 	run.Reported = true
 	showResults(ctx, v, run, ratings, nil)
 	local ok, _, outcome = Hud.ask(ctx.Remotes.TreatResult, session.Session, ratings)
+	local answeredAt = os.clock()
+	local triage: TriageCard? = nil
 	if ok and type(outcome) == "table" then
 		fireBus("TreatDone", outcome, run.Raw)
 		if run.Alive then
@@ -2151,10 +2492,18 @@ local function runSession(ctx: Types.Ctx, run: Run)
 				showCombo(ctx, v, math.max(0, math.floor(combo)), true)
 			end
 		end
+		if session.Kind ~= "Soak" then
+			triage = Pure.triage(outcome.Triage, ctx.Data.Departments)
+		end
 	end
-	if waitFor(run, RESULT_HOLD) then
-		stop(run)
+	-- A floor to pick comes almost at once (the server is waiting); otherwise the answer stays a moment.
+	if not waitFor(run, if triage then TRIAGE_LEAD else RESULT_HOLD) then
+		return
 	end
+	if triage then
+		runTriage(ctx, v, run, triage, answeredAt)
+	end
+	stop(run)
 end
 
 local function start(ctx: Types.Ctx, raw: any)
@@ -2178,6 +2527,8 @@ local function start(ctx: Types.Ctx, raw: any)
 		Rng = Random.new(),
 	}
 	current = run
+	-- 🎯 Steady Hands: this session's games draw and rate with wider Perfect windows.
+	activeMini = Pure.eased(ctx.Config.MiniGame, session.Ease)
 	-- Close just before the server settles the session by itself (all OK): no report after that.
 	local timeout = session.Timeout or MiniGame.timeout(session.Games, ctx.Config)
 	task.delay(math.max(timeout - TIMEOUT_MARGIN, 1), function()

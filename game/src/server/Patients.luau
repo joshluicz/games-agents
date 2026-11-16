@@ -7,11 +7,58 @@
 --       Config.MaxQueue picks wait their turn. Refused when no station on the plot can treat it.
 --   Patients.reopen(owner): boolean   empties the owner's clinic and opens it again, as on a fresh join (a patient
 --       already treated is cured on the spot first, exactly as when an owner leaves)
---   Progression v2 (build plan §B8; STUB (T7) until T7 lands them):
---   Patients.adminAmbulance(owner): (ok, message)    an ambulance now (Lv 2+)
---   Patients.adminHelicopter(owner): (ok, message)   an air ambulance now (Lv 5; no R2 needed)
---   FOUNDATION: until T7 lands the Sunny/Sky rules, a patient whose wing needs rebirths or a helicopter (Data/Wings
---   Rebirths / Only) never comes, so nothing changes for anyone before T7.
+--   Progression v2 (build plan §B8, §C T7; OWNER: T7):
+--   Patients.adminAmbulance(owner): (ok, message)    an ambulance as soon as the line has room (Lv 2+)
+--   Patients.adminHelicopter(owner): (ok, message)   an air ambulance as soon as the line has room (Lv 5; no R2)
+--
+-- Progression v2: Hospital v2's patients (design §6; build plan §B3/§B4/§C T7, §E6-E8, §E11). In short:
+--   · 🚑 A&E (Lv 2+). About every Config.AE.EverySeconds (±Jitter, x (1 - 0.1 x A&E Speed), / Siren Pro; the first
+--     FirstSeconds after the clinic reaches Lv 2), only while the owner stands at their clinic, is done with the
+--     tutorial, the line has room (Config.MaxQueue still holds) and no other 🚑/🚁 patient waits: the parked
+--     Ambulance's ArriveAt is set (Feel/HospitalFX flashes it) and an urgent patient pops out at its StretcherSpot
+--     and goes to the FRONT of the line (behind anyone already being treated). Urgent = "AE", a 2-3 item recipe
+--     (Logic/Hospital.urgentRecipe; an item no station here makes is left out), patience x AE.PatienceMultiplier x
+--     (1 + 0.15 x A&E Speed), draining slower with the A&E team (TeamUrgent) and a Medic (Nurses.medic); it pays
+--     x3 + 2 ⭐ (Cure). A 🚑 chip and an orange rim on its badge (CreatureBuilder.setUrgent).
+--   · 🚁 Air ambulance (Lv 5 builds the helipad; it flies only from R2, §E11). Every Config.VIP.EverySeconds
+--     (±Jitter): HeliSpot's ArriveAt is set (HospitalFX flies a client-only helicopter in), and HELI_LAND_SECONDS
+--     later a Sky-wing patient steps out on the roof, rides the lift down (Lift.carry) and joins the line at the
+--     front. Urgent = "VIP": x4 + 3 ⭐. Sky-wing patients come no other way.
+--   · After the recipe is complete: its department (Logic/Hospital.route: 🛁 Hydro for a Bath-wing patient once
+--     Hydro is open, else 🛏️ Wards; the badge's chip from Lv 3, CreatureBuilder.setDept). From Lv 3 the helper
+--     picks the floor (Treatment.waitTriage, at most Config.Triage.Seconds: a right pick is +10%; a wrong one says
+--     "Oops, not this floor!" and it goes the right way anyway; no pick: it goes by itself). A Receptionist on duty
+--     (Nurses.reception) sends it at once, with the bonus. Then where it rests (Pure.destination): a Hydro patient
+--     takes a free hot-tub spot first; otherwise a free bed on the ground (the Stand's, a room's), else a ward bed
+--     upstairs, else it rests in place at the front of the line, as before.
+--   · Upstairs (a ward bed or the tub): it waits at the ground landing ("ToLift") for a Porter (Nurses.claimPorter,
+--     who walks over: Nurses.escort) or a player (Lift.waitEscort: the landing's EscortPrompt, Config.Lift.EscortWait
+--     s); either rides with it (Escorted: +20% cash, rest x0.5); nobody: it rides alone. Lift.carry moves everyone
+--     with one PivotTo each at the far landing (one ride at a time per plot). After the cure it rides down again.
+--   · 🛁 Hydro: in a tub spot it is "Soaking" (+25% cash, rest x0.5) and the tub's SoakPrompt opens ONE 🫧 Scrub game
+--     for it (Treatment.open Kind "Soak": a tip only, sharing the patient's TipCapPerCure). It soaks a little longer
+--     (SOAK_LINGER) after its cure while nobody has played it, so the game can be reached.
+--   · Rest seconds (Logic/Hospital.recover): Config.RecoverSeconds x escort x tub x (1 - 0.2 x Ward Comfort) x
+--     TeamRecover. The cure's Extra (Logic/Pay, at most Pay.MAX_EXTRA): escort x tub x right triage x TeamCash x
+--     (1 + 0.05 x Ward Comfort).
+--   · 👯 Twin Counters (the owner's capstone, §E6): the Treat prompt serves the first of the TWO front patients whose
+--     missing items you carry (else the first the nurse tray fits); Healers may serve #2 too; FrontNeeds covers both.
+--     Still one mini-game card at a time per player.
+--   · Medicines (Lv 4 Pharmacy): a carried medicine fills every missing slot its two ingredients cover, as ONE 🧪
+--     Pour game (Logic/Recipe.match with Data/Items).
+--   · Abilities (Abilities.Fired): RefillFront (the front waiting patient's patience full), RefillLine (everyone
+--     waiting), PauseLine (no patience drains; also Abilities.patiencePaused), CureLine (Miracle: every waiting
+--     patient cures on the spot through the usual Cure.resolve, the owner as helper, no tip). Medics (Nurses.Heal
+--     target "Urgent") give the 🚑/🚁 patient tray items, rated OK.
+--   · Perks and unlocks: 🚪 Busy Doors and a Receptionist shorten the arrival seconds (Logic/Hospital.arrival); 🦉
+--     Night Owl brings night patients for Config.NightOwl of a night after morning; 🌻 Sunny-wing patients come from
+--     R1 (Data/Wings Rebirths), using whatever stations you have; 🌟 Golden patients (Data/Variants, from R3) at
+--     Config.GoldenChance with a gold sheen (CreatureBuilder.setEffect "Golden").
+--   · Studio test switch: workspace:SetAttribute("ForceGoldenPatient", true): every new patient at an R3+ clinic is
+--     Golden. A live server ignores it.
+--   · Kids' rules: none of it is ever needed to cure (no fail states), and nothing counts down on screen.
+--   Patient attributes (§B4): Urgent ("" | "AE" | "VIP"), Dept ("Wards" | "Hydro"), Escorted, and State gains
+--   "Triage", "ToLift", "Riding", "Soaking".
 --
 -- A visit, step by step:
 --   1. Arrive. Each owned plot gets a patient every few seconds (the owner's hospital level: Levels.spawnSeconds,
@@ -83,6 +130,7 @@
 --   Counter.TreatAttachment.TreatPrompt: enabled only while a front patient waits; ObjectText = its ailment icon.
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
@@ -91,20 +139,29 @@ local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 local Types = require(Shared.Types)
 local Palette = require(Shared.Palette)
+local Hospital = require(Shared.Logic.Hospital)
+local Pay = require(Shared.Logic.Pay)
 local Prices = require(Shared.Logic.Prices)
 local Recipe = require(Shared.Logic.Recipe)
+local RebirthLogic = require(Shared.Logic.Rebirth)
 local AilmentsData = require(Shared.Data.Ailments)
 local ItemsData = require(Shared.Data.Items)
+local LevelsData = require(Shared.Data.Levels)
 local PatientsData = require(Shared.Data.Patients)
+local PerksData = require(Shared.Data.Perks)
 local RegularsData = require(Shared.Data.Regulars)
 local StationsData = require(Shared.Data.Stations)
+local TreeData = require(Shared.Data.Tree)
+local VariantsData = require(Shared.Data.Variants)
 local WingsData = require(Shared.Data.Wings)
 
+local Abilities = require(script.Parent.Abilities)
 local Carry = require(script.Parent.Carry)
 local CreatureBuilder = require(script.Parent.CreatureBuilder)
 local Cure = require(script.Parent.Cure)
 local Daily = require(script.Parent.Daily)
 local Levels = require(script.Parent.Levels)
+local Lift = require(script.Parent.Lift)
 local Nurses = require(script.Parent.Nurses)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
@@ -163,6 +220,22 @@ local ICON_TREATED = "💗"
 local ICON_SLEEP = "💤"
 local ICON_CURED = "🥰"
 local ICON_SAD = "😔"
+local ICON_SOAK = "🫧"
+
+-- Progression v2: Hospital v2 (every rule's number is in Config: AE, VIP, Triage, Escort, Hydro, Lift, WardComfort,
+-- AESpeed, GoldenChance; these are feel and safety only)
+local AE_LEVEL = 2 -- Data/Departments.AE.Opens: ambulances come from this hospital level
+local HELI_LEVEL = 5 -- Data/Departments.Roof.Opens: the helipad
+local HELI_LAND_SECONDS = 3.5 -- the helicopter lands first (Feel/HospitalFX: HELI_IN 3.2 s), then out steps its VIP
+local PLOT_MARGIN = 6 -- studs past the plot's edge that still count as the owner being at their clinic
+local POLL = 0.1 -- waiting on another system (the lift, a porter) looks this often
+local PORTER_SECONDS = 15 -- the most a patient waits for a Porter to walk over
+local CARRY_SECONDS = 8 -- the most a lift ride may take before the patient is put there anyway
+local ESCORT_SLACK = 2 -- seconds on top of Config.Lift.EscortWait before giving up on Lift.waitEscort
+local SOAK_LINGER = 6 -- a Hydro patient soaks this much longer after its cure while its 🫧 game is unplayed
+local SOAK_DISTANCE = 14 -- studs from the SoakPrompt the server accepts (its own check, beside the prompt's)
+local MAX_SLOWER = 4 -- a sanity cap on how much slower an urgent patient's patience may drain
+local MAX_FORCED_URGENT = 3 -- admin calls waiting at once
 
 ------------------------------------------------------------------------------------------------------------------
 -- Types
@@ -208,7 +281,24 @@ type PlotState = {
 	Loop: thread?,
 	SecondSpawned: boolean, -- the tutorial's 🩹 patient came this session
 	Forced: { string }, -- the admin panel's picks (Patients.sendNext), first come first
+	-- Progression v2
+	FloorRay: RaycastParams, -- the building's slabs and the plot's Ground (standing on a floor)
+	Level: number, -- the owner's hospital level (refreshed every tick)
+	Rebirths: number, -- the owner's Rebirth.Count (refreshed every tick)
+	Effects: Effects, -- the owner's perks + tree that patients use (refreshed every tick)
+	Team: { Cash: number, Recover: number, Urgent: number }, -- Nurses.team (refreshed every tick)
+	Medic: number, -- Nurses.medic(plot).Patience (refreshed every tick)
+	Receptionist: { Arrive: number, Triage: boolean }, -- Nurses.reception (refreshed every tick)
+	NextAE: number, -- os.clock() of the next ambulance
+	NextVIP: number, -- os.clock() of the next air ambulance
+	ForceUrgent: { string }, -- the admin panel's calls ("AE" | "VIP"), first come first
+	Incoming: number, -- urgent patients on their way to the line (a VIP on the roof or in the lift)
+	PausedUntil: number, -- os.clock(): a Calm Song pauses every patience ring until then
+	LiftBusy: boolean, -- one ride at a time on this plot's lift
 }
+
+-- The owner's perks and tree as patients use them (Logic/Rebirth.effects, cleaned)
+type Effects = { Arrive: number, SirenPro: number, NightOwl: boolean, TwinCounters: boolean }
 
 type Patient = {
 	Plot: PlotState,
@@ -251,12 +341,46 @@ type Patient = {
 	ScaleAnim: ScaleAnim?, -- the grow/shrink the clients are drawing (so the next one starts where it is)
 	Tilt: number,
 	Thread: thread?,
+	-- Progression v2
+	Wing: string, -- its Book wing (Data/Wings)
+	Urgent: string, -- "" | "AE" | "VIP"
+	Incoming: boolean, -- a VIP not in the line yet (on the roof, or riding down)
+	ArriveFloor: number, -- a VIP: the roof's floor number
+	Dept: string, -- where it recovers: "Wards" | "Hydro" (Logic/Hospital.route)
+	SpotKind: string, -- "Ground" | "Upstairs" | "Tub" | "Place" (its Bed, or none: it rests where it stands)
+	Floor: number, -- its spot's floor (0 = the ground)
+	Upstairs: boolean, -- standing on a floor above the ground right now
+	Escorted: boolean, -- rode the lift with a Porter or a player (+20% cash, rest x0.5)
+	Porter: string?, -- the Porter claimed for it (released when it's done or gone)
+	HasLift: boolean, -- it holds this plot's lift turn
+	Triage: { Helper: Player, Session: number, Options: { string }, Right: string }?, -- a floor pick to wait for
+	TriageBonus: boolean, -- a right pick (or a Receptionist): +10%
+	RecoverIn: string, -- the department it recovered in, for nurse XP: "Reception" | "Wards" | "Hydro"
+	Soaking: boolean, -- in a hot-tub spot (its 🫧 game can be played)
+	SoakDone: boolean, -- its 🫧 game was played
+	SoakSession: number?, -- the open Soak session on it
+}
+
+-- An urgent patient's arrival (spawnPatient)
+type UrgentSpawn = { Kind: string, Recipe: { string }, Start: CFrame, Air: boolean, Floor: number }
+
+-- What one treat would give one front patient (onTreat; Pure.plan)
+type TreatPlan = {
+	Carry: number,
+	Tray: number,
+	CarryIdx: { number },
+	TrayIdx: { number },
+	CarryUsed: { string },
+	TrayUsed: { string },
 }
 
 local active: { [Plot]: PlotState } = {}
 local prompts: { [Plot]: ProximityPrompt } = {}
 local lastTreat: { [Player]: number } = {}
 local rng = Random.new()
+local nightEndedAt = -math.huge -- os.clock() the last in-game night ended (🦉 Night Owl)
+local soakWired: { [ProximityPrompt]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local NEUTRAL_EFFECTS: Effects = { Arrive = 1, SirenPro = 1, NightOwl = false, TwinCounters = false }
 
 local deactivate: (plot: Plot) -> () -- defined further down
 
@@ -353,6 +477,117 @@ local function cancel(thread: thread?)
 	end
 end
 
+-- Runs fn(...) on its own thread and waits for it at most `timeout` seconds, so a bug elsewhere (a porter that never
+-- arrives, a ride that never ends) never holds a patient, or this plot's lift, forever. Returns (finished, result).
+local function within(timeout: number, label: string, fn: any, ...: any): (boolean, any)
+	local args = table.pack(...)
+	local finished, result = false, nil
+	task.spawn(function()
+		local ok, value = pcall(fn, table.unpack(args, 1, args.n))
+		if ok then
+			result = value
+		else
+			report(label, value)
+		end
+		finished = true
+	end)
+	local deadline = os.clock() + timeout
+	while not finished and os.clock() < deadline do
+		task.wait(POLL)
+	end
+	return finished, result
+end
+
+-- A number from another system: finite and clamped, junk -> `fallback`.
+local function clampNumber(value: any, low: number, high: number, fallback: number): number
+	if type(value) ~= "number" or value ~= value then
+		return fallback
+	end
+	return math.clamp(value, low, high)
+end
+
+-- That floor's landing in front of the lift door (Lift.landing; nil without a lift).
+local function landingOf(plot: Plot, floor: number): CFrame?
+	local ok, cf = pcall(Lift.landing, plot, floor)
+	if not ok then
+		report("Lift.landing", cf)
+		return nil
+	end
+	return if typeof(cf) == "CFrame" then cf else nil
+end
+
+-- The plot's team bonuses (Nurses.team): factors, 1 = none.
+local function teamOf(plot: Plot): { Cash: number, Recover: number, Urgent: number }
+	local ok, team = pcall(Nurses.team, plot)
+	if not ok then
+		report("Nurses.team", team)
+	end
+	local t: any = if ok and type(team) == "table" then team else {}
+	return {
+		Cash = clampNumber(t.Cash, 1, Pay.MAX_EXTRA, 1),
+		Recover = clampNumber(t.Recover, 0.05, 1, 1),
+		Urgent = clampNumber(t.Urgent, 1, MAX_SLOWER, 1),
+	}
+end
+
+-- The best Receptionist on duty (Nurses.reception): patients come Arrive x as often; Triage = it sends them at once.
+local function receptionOf(plot: Plot): { Arrive: number, Triage: boolean }
+	local ok, reception = pcall(Nurses.reception, plot)
+	if not ok then
+		report("Nurses.reception", reception)
+	end
+	local r: any = if ok and type(reception) == "table" then reception else {}
+	return { Arrive = clampNumber(r.Arrive, 0.2, 1, 1), Triage = r.Triage == true }
+end
+
+-- The best Medic on duty (Nurses.medic): urgent patients' patience drains this much slower (1 = none).
+local function medicOf(plot: Plot): number
+	local ok, medic = pcall(Nurses.medic, plot)
+	if not ok then
+		report("Nurses.medic", medic)
+	end
+	return clampNumber(if ok and type(medic) == "table" then (medic :: any).Patience else nil, 1, MAX_SLOWER, 1)
+end
+
+-- A Calm Song is pausing every patience ring at this plot (Abilities.patiencePaused).
+local function abilityPaused(plot: Plot): boolean
+	local ok, paused = pcall(Abilities.patiencePaused, plot)
+	if not ok then
+		report("Abilities.patiencePaused", paused)
+		return false
+	end
+	return paused == true
+end
+
+-- The owner's perks and tree, as patients use them (Logic/Rebirth.effects on the live save).
+local function effectsOf(owner: Player): Effects
+	local data = PlayerData.get(owner)
+	if not data then
+		return NEUTRAL_EFFECTS
+	end
+	local ok, effects = pcall(RebirthLogic.effects, data, Config, PerksData, TreeData)
+	if not ok or type(effects) ~= "table" then
+		if not ok then
+			report("Rebirth.effects", effects)
+		end
+		return NEUTRAL_EFFECTS
+	end
+	local e: any = effects
+	return {
+		Arrive = clampNumber(e.Arrive, 0.2, 1, 1),
+		SirenPro = clampNumber(e.SirenPro, 1, 4, 1),
+		NightOwl = e.NightOwl == true,
+		TwinCounters = e.TwinCounters == true,
+	}
+end
+
+-- The owner's rebirths (Data.Rebirth.Count; 0 before any).
+local function rebirthsOf(owner: Player): number
+	local data = PlayerData.get(owner)
+	local rebirth = if data then (data :: any).Rebirth else nil
+	return math.floor(clampNumber(if type(rebirth) == "table" then rebirth.Count else nil, 0, 1e6, 0))
+end
+
 local function alive(p: Patient): boolean
 	return p.State ~= "Gone" and p.Plot.Active
 end
@@ -368,19 +603,228 @@ end
 ------------------------------------------------------------------------------------------------------------------
 
 -- PURE-BEGIN
+-- (Progression v2 additions use `Hospital` = Logic/Hospital as well; a harness passes both.)
 local Pure = {}
 
 -- What one treat gives: the recipe slots the helper's own items fill, then the ones the nurse tray fills (each in
--- recipe order; each item used once). Carry first, so a kid's own making always counts.
+-- recipe order; each item used once). Carry first, so a kid's own making always counts. With `medicines`
+-- (Data/Items), a carried medicine fills every missing slot its two ingredients cover (Logic/Recipe.match).
+-- Also returns the items each side spends (one mini-game each: a medicine is one game for two slots).
 function Pure.plan(
 	recipe: { string },
 	done: { boolean },
 	carried: { string },
-	tray: { string }
-): ({ number }, { number })
-	local fromCarry = Recipe.match(recipe, done, carried)
-	local fromTray = Recipe.match(recipe, Recipe.apply(done, fromCarry), tray)
-	return fromCarry, fromTray
+	tray: { string },
+	medicines: any?
+): ({ number }, { number }, { string }, { string })
+	local fromCarry, carryUsed = Recipe.match(recipe, done, carried, medicines)
+	local fromTray, trayUsed = Recipe.match(recipe, Recipe.apply(done, fromCarry), tray, medicines)
+	return fromCarry, fromTray, carryUsed, trayUsed
+end
+
+-- 👯 Twin Counters: which of the front patients a treat serves, from each one's plan ({ Carry = slots the helper's
+-- items fill, Tray = slots the nurse tray fills }, in line order): the first whose missing items you carry, else
+-- the first the tray fits; nil = nothing fits anyone.
+function Pure.pickTwin(plans: { { Carry: number, Tray: number } }): number?
+	for index, plan in plans do
+		if plan.Carry > 0 then
+			return index
+		end
+	end
+	for index, plan in plans do
+		if plan.Tray > 0 then
+			return index
+		end
+	end
+	return nil
+end
+
+-- Where an urgent patient joins the line: in front of the first patient still waiting to be treated, so whoever is
+-- mid-mini-game or resting at the front keeps its place. `busy` = one flag per place in line, front first.
+function Pure.urgentPlace(busy: { boolean }): number
+	for index, isBusy in busy do
+		if not isBusy then
+			return index
+		end
+	end
+	return #busy + 1
+end
+
+-- Where a treated patient rests: "Tub" (a hot-tub spot), "Ground" (a bed on the ground: the Stand's, a room's),
+-- "Upstairs" (a ward bed up the lift) or "Place" (where it stands: the line waits, as before). A Hydro patient takes
+-- a free tub first; nobody else uses a tub.
+function Pure.destination(dept: string, free: { Tub: boolean?, Ground: boolean?, Upstairs: boolean? }): string
+	if dept == "Hydro" and free.Tub then
+		return "Tub"
+	elseif free.Ground then
+		return "Ground"
+	elseif free.Upstairs then
+		return "Upstairs"
+	end
+	return "Place"
+end
+
+-- The floor pick once the recipe is complete. "None": fewer than two places to send it (below Lv 3), or nobody to
+-- ask (a nurse finished it); "Instant": a Receptionist sends it at once, with the bonus; "Ask": the helper picks.
+function Pure.triageMode(options: { string }?, receptionist: boolean, byPlayer: boolean): string
+	if type(options) ~= "table" or #options < 2 then
+		return "None"
+	elseif receptionist then
+		return "Instant"
+	elseif byPlayer then
+		return "Ask"
+	end
+	return "None"
+end
+
+-- A pick earns the bonus only when it's the right floor ("" = no pick in time: no bonus).
+function Pure.triageBonus(pick: any, right: string): boolean
+	return type(pick) == "string" and pick ~= "" and pick == right
+end
+
+local function factor(value: any): number
+	return if type(value) == "number" and value == value and value > 0 and value < math.huge then value else 1
+end
+
+local function comfortLevel(value: any): number
+	return if type(value) == "number" and value == value then math.clamp(math.floor(value), 0, 10) else 0
+end
+
+-- A Config bonus fraction (0.2 = +20%): finite and in 0..1, junk -> 0.
+local function bonus(value: any): number
+	return if type(value) == "number" and value == value then math.clamp(value, 0, 1) else 0
+end
+
+-- The cure's situational cash factor (CureCtx.Extra): Escort/Porter x the hot tub x a right triage x the team's cash
+-- x Ward Comfort. `cfg` = Config (Escort, Hydro, Triage, WardComfort). Clamped to 1..maxExtra.
+function Pure.extra(
+	f: { Escorted: boolean?, Soaked: boolean?, Triage: boolean?, Team: number?, Comfort: number? },
+	cfg: any,
+	maxExtra: number
+): number
+	local value = 1
+	if f.Escorted then
+		value *= 1 + bonus(cfg.Escort and cfg.Escort.CashBonus)
+	end
+	if f.Soaked then
+		value *= 1 + bonus(cfg.Hydro and cfg.Hydro.CashBonus)
+	end
+	if f.Triage then
+		value *= 1 + bonus(cfg.Triage and cfg.Triage.RightBonus)
+	end
+	value *= math.max(1, factor(f.Team))
+	local perLevel = cfg.WardComfort and cfg.WardComfort.CashPerLevel
+	if type(perLevel) == "number" and perLevel > 0 then
+		value *= 1 + perLevel * comfortLevel(f.Comfort)
+	end
+	return math.clamp(value, 1, math.max(1, maxExtra))
+end
+
+-- Rest seconds (Logic/Hospital.recover, never under 0.5 s): base x the escort's RecoverFactor x the hot tub's x
+-- (1 - RecoverPerLevel x Ward Comfort) x the team's Recover factor.
+function Pure.rest(
+	base: number,
+	f: { Escorted: boolean?, Soaked: boolean?, Comfort: number?, Team: number? },
+	cfg: any
+): number
+	local perLevel = cfg.WardComfort and cfg.WardComfort.RecoverPerLevel
+	local comfort = 1 - (if type(perLevel) == "number" then perLevel else 0) * comfortLevel(f.Comfort)
+	return Hospital.recover(base, {
+		if f.Escorted then factor(cfg.Escort and cfg.Escort.RecoverFactor) else 1,
+		if f.Soaked then factor(cfg.Hydro and cfg.Hydro.RecoverFactor) else 1,
+		math.max(comfort, 0.05),
+		math.min(factor(f.Team), 1),
+	})
+end
+
+-- An urgent patient's recipe at this clinic (`makes` = { [ItemId]: true }): Logic/Hospital.urgentRecipe, or, when an
+-- item of it is made by no station here (the Sky wing's ☕ without a Winter Wing), the same with those items left
+-- out (its first, own-station item must stay). nil when nothing can be made of it.
+function Pure.urgentFor(recipe: { string }, makes: { [string]: boolean }, cap: number, minItems: number): { string }?
+	local direct = Hospital.urgentRecipe(recipe, makes, cap, minItems)
+	if direct then
+		return direct
+	end
+	local kept: { string } = {}
+	for _, item in recipe do
+		if makes[item] == true then
+			table.insert(kept, item)
+		end
+	end
+	if #kept == 0 or kept[1] ~= recipe[1] then
+		return nil
+	end
+	return Hospital.urgentRecipe(kept, makes, cap, minItems)
+end
+
+-- An urgent patient's patience: base x AE.PatienceMultiplier, and for a 🚑 x (1 + AESpeed.PatiencePerLevel x the
+-- owner's A&E Speed level). Never less than 1 s.
+function Pure.urgentPatience(base: number, urgent: string, aeSpeed: number, cfg: any): number
+	local multiplier = cfg.AE and cfg.AE.PatienceMultiplier
+	local value = factor(base) * (if type(multiplier) == "number" and multiplier > 0 then multiplier else 1)
+	local perLevel = cfg.AESpeed and cfg.AESpeed.PatiencePerLevel
+	if urgent == "AE" and type(perLevel) == "number" then
+		value *= 1 + perLevel * comfortLevel(aeSpeed)
+	end
+	return math.max(1, value)
+end
+
+-- Seconds to the next ambulance: AE.EverySeconds +-Jitter (`roll` in [0, 1)), x (1 - SoonerPerLevel x A&E Speed),
+-- / Siren Pro (Logic/Hospital.arrival: never under 1 s).
+function Pure.aeSeconds(cfg: any, roll: number, aeSpeed: number, sirenPro: number): number
+	local ae = cfg.AE or {}
+	local jitter = math.clamp(if type(ae.Jitter) == "number" then ae.Jitter else 0, 0, 0.9)
+	local base = factor(ae.EverySeconds) * (1 - jitter + 2 * jitter * math.clamp(roll, 0, 1))
+	local perLevel = cfg.AESpeed and cfg.AESpeed.SoonerPerLevel
+	local sooner = 1 - (if type(perLevel) == "number" then perLevel else 0) * comfortLevel(aeSpeed)
+	return Hospital.arrival(base, { math.max(sooner, 0.1), 1 / math.max(factor(sirenPro), 1) })
+end
+
+-- Seconds to the next air ambulance: VIP.EverySeconds +-Jitter.
+function Pure.vipSeconds(cfg: any, roll: number): number
+	local vip = cfg.VIP or {}
+	local jitter = math.clamp(if type(vip.Jitter) == "number" then vip.Jitter else 0, 0, 0.9)
+	return Hospital.arrival(factor(vip.EverySeconds) * (1 - jitter + 2 * jitter * math.clamp(roll, 0, 1)), {})
+end
+
+-- How much slower an urgent patient's patience drains: the A&E team's Urgent factor x the best Medic's Patience
+-- factor (1 = normal; junk or below 1 counts as 1; at most `max`).
+function Pure.slower(team: any, medic: any, max: number): number
+	return math.clamp(math.max(1, factor(team)) * math.max(1, factor(medic)), 1, max)
+end
+
+-- A new patient's variant: 🌟 Golden first (an owner with `goldenRebirths` rebirths: Config.GoldenChance, or always
+-- with the Studio switch `force`), then ✨ Sparkly, then 🧊 Frosty in winter. `rolls` = three numbers in [0, 1).
+function Pure.variant(
+	rebirths: number,
+	rolls: { number },
+	winter: boolean,
+	force: boolean,
+	cfg: any,
+	goldenRebirths: number
+): string?
+	if rebirths >= goldenRebirths and (force or (rolls[1] or 1) < (cfg.GoldenChance or 0)) then
+		return "Golden"
+	end
+	if (rolls[2] or 1) < (cfg.SparklyChance or 0) then
+		return "Sparkly"
+	end
+	if winter and (rolls[3] or 1) < (cfg.FrostyChance or 0) then
+		return "Frosty"
+	end
+	return nil
+end
+
+-- May a patient of this wing (a Data/Wings row) come to a clinic whose owner has `rebirths`? By the usual line: only
+-- wings without `Only`, once Rebirths are reached (🌻 Sunny from R1). By air (`byAir`): only "Helicopter" wings (🚁
+-- Sky; the helicopter itself only flies from R2).
+function Pure.wingOpen(wing: any, rebirths: number, byAir: boolean): boolean
+	local only = if type(wing) == "table" then wing.Only else nil
+	if byAir then
+		return only == "Helicopter"
+	end
+	local need = if type(wing) == "table" and type(wing.Rebirths) == "number" then wing.Rebirths else 0
+	return only == nil and rebirths >= need
 end
 
 -- The first recipe slot still missing, or nil when the recipe is complete.
@@ -559,6 +1003,111 @@ local function exitRoute(state: PlotState, from: Vector3): { Vector3 }
 	return points
 end
 
+-- Progression v2: the floor a part of the building is on: the nearest "Floor" attribute (a ward bed's Floor = 1, a
+-- tub spot's Floor = 2) or Floor_<n> Model above it (PlotBuilder §B4); 0 = the ground.
+local function floorOf(part: Instance, stop: Instance): number
+	local current: Instance? = part
+	while current and current ~= stop do
+		local value = current:GetAttribute("Floor")
+		if type(value) == "number" and value == value then
+			return math.clamp(math.floor(value), 0, 10)
+		end
+		local named = string.match(current.Name, "^Floor_(%d+)$")
+		if named then
+			return math.clamp(tonumber(named) or 0, 0, 10)
+		end
+		current = current.Parent
+	end
+	return 0
+end
+
+-- The floor surface under a point: the building's slabs and the plot's Ground (a short ray down; the walls above
+-- the ground storey are ray-ignored). The point itself when nothing is there.
+local function floorAt(state: PlotState, position: Vector3): Vector3
+	local include: { Instance } = {}
+	for _, name in { "Building", "Ground" } do
+		local found = state.Plot.Model:FindFirstChild(name)
+		if found then
+			table.insert(include, found)
+		end
+	end
+	state.FloorRay.FilterDescendantsInstances = include
+	local hit = Workspace:Raycast(position + Vector3.new(0, 3, 0), Vector3.new(0, -8, 0), state.FloorRay)
+	return if hit then Vector3.new(position.X, hit.Position.Y, position.Z) else position
+end
+
+-- A resting pivot standing on the floor at `cf` (a lift landing, a spot), facing the way it faces.
+local function standAt(state: PlotState, cf: CFrame): CFrame
+	local at = floorAt(state, cf.Position)
+	local look = cf.LookVector * Vector3.new(1, 0, 1)
+	return if look.Magnitude > 0.01 then CFrame.lookAt(at, at + look.Unit) else CFrame.new(at)
+end
+
+-- The free places to rest, nearest the Counter first: a bed on the ground, a ward bed upstairs (only with a lift to
+-- that floor) and a hot-tub spot (Building.Hydro.HotTub.TubSpot_<n>, at most Config.Hydro.Spots; also by lift).
+type Spots = { Ground: BasePart?, Upstairs: BasePart?, Tub: BasePart? }
+local function freeSpots(state: PlotState): Spots
+	local plot = state.Plot
+	local counter = plot.Counter.Position
+	local spots: Spots = { Ground = nil, Upstairs = nil, Tub = nil }
+	local groundBest, upBest = math.huge, math.huge
+	local hasLift = landingOf(plot, 0) ~= nil
+	local reachable: { [number]: boolean } = {}
+	local function canReach(floor: number): boolean
+		if reachable[floor] == nil then
+			reachable[floor] = hasLift and landingOf(plot, floor) ~= nil
+		end
+		return reachable[floor]
+	end
+	local tubSpots = math.max(0, math.floor(tonumber(Config.Hydro.Spots) or 2))
+	for _, holderName in { "Rooms", "Building" } do
+		local holder = plot.Model:FindFirstChild(holderName)
+		if holder then
+			for _, descendant in holder:GetDescendants() do
+				if descendant:IsA("BasePart") and not state.Beds[descendant] then
+					if string.match(descendant.Name, "^Bed_%d+$") then
+						local floor = floorOf(descendant, plot.Model)
+						local distance = (descendant.Position - counter).Magnitude
+						if floor == 0 then
+							if distance < groundBest then
+								spots.Ground, groundBest = descendant, distance
+							end
+						elseif distance < upBest and canReach(floor) then
+							spots.Upstairs, upBest = descendant, distance
+						end
+					elseif holderName == "Building" and not spots.Tub then
+						local n = tonumber(string.match(descendant.Name, "^TubSpot_(%d+)$"))
+						local floor = floorOf(descendant, plot.Model)
+						if n and n <= tubSpots and (floor == 0 or canReach(floor)) then
+							spots.Tub = descendant
+						end
+					end
+				end
+			end
+		end
+	end
+	return spots
+end
+
+-- The owner stands at their clinic (their plot, any floor, give or take PLOT_MARGIN).
+local function ownerAtClinic(state: PlotState): boolean
+	local character = state.Owner.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (root and root:IsA("BasePart")) then
+		return false
+	end
+	local here = state.Nav.Pivot:PointToObjectSpace(root.Position)
+	local half = Config.Town.PlotSize / 2 + PLOT_MARGIN
+	return math.abs(here.X) <= half and math.abs(here.Z) <= half
+end
+
+-- A named marker anywhere in the plot's Building (StretcherSpot, HeliSpot, ...), or nil.
+local function buildingPart(state: PlotState, name: string): BasePart?
+	local building = state.Plot.Model:FindFirstChild("Building")
+	local found = building and building:FindFirstChild(name, true)
+	return if found and found:IsA("BasePart") then found else nil
+end
+
 local function stationsOnPlot(plot: Plot): { [string]: boolean }
 	local found: { [string]: boolean } = {}
 	local rooms = plot.Model:FindFirstChild("Rooms")
@@ -643,8 +1192,9 @@ local function setTilt(p: Patient, radians: number)
 	CreatureBuilder.tilt(p.Model, radians)
 end
 
--- Hops along a path of points, a few studs per hop, turning to face where it's going.
-local function walk(p: Patient, points: { Vector3 }): boolean
+-- Hops along a path of points, a few studs per hop, turning to face where it's going. On a floor above the ground
+-- (`floorY`, the slab's height: Progression v2) every hop lands at that height instead of on the plot's ground.
+local function walk(p: Patient, points: { Vector3 }, floorY: number?): boolean
 	local state = p.Plot
 	for _, point in points do
 		while true do
@@ -656,7 +1206,8 @@ local function walk(p: Patient, points: { Vector3 }): boolean
 			end
 			local stepLength = distance / math.ceil(distance / HOP_LENGTH)
 			local direction = delta / distance
-			local landing = groundAt(state, from + direction * stepLength)
+			local ahead = from + direction * stepLength
+			local landing = if floorY then Vector3.new(ahead.X, floorY, ahead.Z) else groundAt(state, ahead)
 			local seconds = p.HopSeconds * math.sqrt(stepLength / HOP_LENGTH)
 			if not hop(p, CFrame.lookAt(landing, landing + direction), p.HopHeight, seconds) then
 				return false
@@ -686,6 +1237,15 @@ end
 
 local function setState(p: Patient, state: string)
 	p.Model:SetAttribute("State", state)
+end
+
+-- The State a patient in line shows: "Treating" while its mini-game is open (with Twin Counters the line can move
+-- under a patient mid-game), else "Waiting" at its place or "Arriving" on its way there.
+local function lineState(p: Patient): string
+	if p.Session then
+		return "Treating"
+	end
+	return if p.Arrived then "Waiting" else "Arriving"
 end
 
 local function ringColor(fraction: number): Color3
@@ -735,13 +1295,23 @@ local function showRecipe(p: Patient)
 	end
 end
 
--- The front patient, when it's standing at the Counter waiting to be treated (not mid-mini-game).
-local function waitingFront(state: PlotState): Patient?
-	local front = state.Queue[1]
-	if front and front.State == "Queue" and front.Arrived and not front.Session then
-		return front
+-- Ready to be treated: standing at its place in line, not mid-mini-game.
+local function ready(p: Patient): boolean
+	return p.State == "Queue" and p.Arrived and not p.Session and not p.Claimed
+end
+
+-- The patients a treat (or a Healer) may serve, front first: the front one, or with 👯 Twin Counters (the owner's
+-- capstone) the first TWO places in line, each only while it's ready.
+local function frontCandidates(state: PlotState): { Patient }
+	local places = if state.Effects.TwinCounters then 2 else 1
+	local out: { Patient } = {}
+	for index = 1, math.min(places, #state.Queue) do
+		local p = state.Queue[index]
+		if ready(p) then
+			table.insert(out, p)
+		end
 	end
-	return nil
+	return out
 end
 
 local function setPlotAttribute(state: PlotState, name: string, value: string)
@@ -756,12 +1326,20 @@ local function refreshFront(state: PlotState)
 	if active[state.Plot] ~= state then
 		return
 	end
-	local front = waitingFront(state)
+	local candidates = frontCandidates(state)
+	local front = candidates[1]
 	local waiting = front ~= nil
 	local item, station, icon, needs = "", "", "", ""
 	if front then
 		item, station, icon = front.Item, front.Station, front.AilmentIcon
-		needs = Recipe.join(Pure.needs(front.Recipe, front.Done, nil))
+		-- FrontNeeds covers every patient the Counter may serve (both with Twin Counters), front first.
+		local all: { string } = {}
+		for _, candidate in candidates do
+			for _, itemId in Pure.needs(candidate.Recipe, candidate.Done, nil) do
+				table.insert(all, itemId)
+			end
+		end
+		needs = Recipe.join(all)
 	end
 	local prompt = state.Prompt
 	if prompt.Enabled ~= waiting then
@@ -807,7 +1385,7 @@ local function removeFromQueue(state: PlotState, p: Patient)
 		if behind.State == "Queue" and behind.Arrived then
 			-- Its place moved up: it has to hop there before it can be treated (and patience pauses meanwhile).
 			behind.Arrived = false
-			setState(behind, "Arriving")
+			setState(behind, lineState(behind))
 		end
 	end
 	if state.Active then
@@ -816,29 +1394,25 @@ local function removeFromQueue(state: PlotState, p: Patient)
 	end
 end
 
--- The free bed nearest the Counter: Bed_<n> parts in the rooms, and the extra beds of the hospital level's
--- Building (Server/Levels builds it; its Beds count includes the Stand's own bed).
-local function freeBed(state: PlotState): BasePart?
-	local counter = state.Plot.Counter.Position
-	local best: BasePart?, bestDistance = nil, math.huge
-	for _, holderName in { "Rooms", "Building" } do
-		local holder = state.Plot.Model:FindFirstChild(holderName)
-		if holder then
-			for _, descendant in holder:GetDescendants() do
-				if
-					descendant:IsA("BasePart")
-					and string.match(descendant.Name, "^Bed_%d+$")
-					and not state.Beds[descendant]
-				then
-					local distance = (descendant.Position - counter).Magnitude
-					if distance < bestDistance then
-						best, bestDistance = descendant, distance
-					end
-				end
-			end
+-- Progression v2: an urgent patient joins the line at the front, behind anyone mid-mini-game or resting there
+-- (Pure.urgentPlace). Everyone behind it moves back a place (and hops there before it can be treated).
+local function insertUrgent(state: PlotState, p: Patient)
+	local busy: { boolean } = {}
+	for index, other in state.Queue do
+		busy[index] = other.State ~= "Queue" or other.Session ~= nil or other.Claimed
+	end
+	local index = math.clamp(Pure.urgentPlace(busy), 1, #state.Queue + 1)
+	table.insert(state.Queue, index, p)
+	p.Model:SetAttribute("QueueIndex", index)
+	for i = index + 1, #state.Queue do
+		local behind = state.Queue[i]
+		behind.Model:SetAttribute("QueueIndex", i)
+		if behind.State == "Queue" and behind.Arrived then
+			behind.Arrived = false
+			setState(behind, lineState(behind))
 		end
 	end
-	return best
+	refreshFront(state)
 end
 
 local function releaseBed(state: PlotState, p: Patient)
@@ -871,16 +1445,64 @@ local function dropSession(p: Patient, giveItemsBack: boolean)
 	end
 end
 
+-- Progression v2: its open 🫧 Soak session closes without settling.
+local function dropSoak(p: Patient)
+	local id = p.SoakSession
+	if not id then
+		return
+	end
+	p.SoakSession = nil
+	local ok, err = pcall(Treatment.drop, id)
+	if not ok then
+		report("Treatment.drop", err)
+	end
+end
+
+-- Progression v2: the Porter it claimed goes back to work.
+local function releasePorter(p: Patient)
+	local porter = p.Porter
+	if not porter then
+		return
+	end
+	p.Porter = nil
+	local ok, err = pcall(Nurses.releasePorter, p.Plot.Plot, porter)
+	if not ok then
+		report("Nurses.releasePorter", err)
+	end
+end
+
+-- Progression v2: its turn on the lift is over.
+local function liftDone(p: Patient)
+	if p.HasLift then
+		p.HasLift = false
+		p.Plot.LiftBusy = false
+	end
+end
+
+local refreshSoak: (state: PlotState) -> () -- defined further down
+
 local function removePatient(p: Patient)
 	if p.State == "Gone" then
 		return
 	end
 	dropSession(p, true)
+	dropSoak(p)
+	releasePorter(p)
+	liftDone(p)
 	local state = p.Plot
+	if p.Incoming then
+		p.Incoming = false
+		state.Incoming = math.max(0, state.Incoming - 1)
+	end
 	removeFromQueue(state, p)
 	releaseBed(state, p)
+	local wasSoaking = p.Soaking
+	p.Soaking = false
 	p.State = "Gone"
 	state.All[p] = nil
+	if wasSoaking and state.Active then
+		refreshSoak(state)
+	end
 	local thread = p.Thread
 	p.Thread = nil
 	cancel(thread)
@@ -894,12 +1516,23 @@ end
 -- Hands the cure to Cure.resolve on its own thread. The helper is whoever treated it, or the owner if they've
 -- left; Cure.resolve skips whichever of the two is gone.
 local function payCure(p: Patient)
-	local owner = p.Plot.Owner
+	local state = p.Plot
+	local owner = state.Owner
 	local helper = owner
 	local treatedBy = p.Helper
 	if treatedBy and treatedBy.Parent == Players then
 		helper = treatedBy -- if the helper has left, the owner gets the cure
 	end
+	-- Progression v2: what Patients knows about this cure (Pure.extra), for Logic/Pay via Cure.
+	local data = PlayerData.get(owner)
+	local comfort = if data then data.Upgrades.WardComfort or 0 else 0
+	local extra = Pure.extra({
+		Escorted = p.Escorted,
+		Soaked = p.SpotKind == "Tub",
+		Triage = p.TriageBonus,
+		Team = teamOf(state.Plot).Cash,
+		Comfort = comfort,
+	}, Config, Pay.MAX_EXTRA)
 	local ctx: Types.CureCtx = {
 		Helper = helper,
 		Owner = owner,
@@ -912,6 +1545,13 @@ local function payCure(p: Patient)
 		Position = p.Root.Position + Vector3.new(0, 2.5 * p.BaseScale, 0),
 		Items = #p.Recipe, -- a longer recipe pays more
 		Cheer = Pure.cheer(p.Plot.Plot.Model:GetAttribute("CheerTip"), MAX_CHEER_TIP), -- the plot's Cheerer
+		Urgent = if p.Urgent ~= "" then p.Urgent else nil, -- 🚑 x3 + 2 ⭐ · 🚁 x4 + 3 ⭐
+		Extra = extra,
+		Plot = state.Plot, -- Cure asks Abilities (Double Dose, Star Burst) about this plot
+		Dept = p.RecoverIn, -- where it recovered (nurse XP specialty)
+		Wing = p.Wing,
+		Escorted = if p.Escorted then true else nil, -- for the Cured payload (Feel/CureFX's "+20% 🛗")
+		Soaked = if p.SpotKind == "Tub" then true else nil, -- "+25% 🛁"
 	}
 	-- Its own thread: a patient thread cancelled mid-visit can never cut a reward in half.
 	task.spawn(function()
@@ -940,8 +1580,157 @@ local function settleEarly(p: Patient)
 	payCure(p)
 end
 
+------------------------------------------------------------------------------------------------------------------
+-- Progression v2: the lift (Server/Lift) and the floors above the ground
+------------------------------------------------------------------------------------------------------------------
+
+-- Waits for this plot's lift (one ride at a time), then holds it. False if the patient is gone meanwhile.
+local function liftTurn(p: Patient): boolean
+	local state = p.Plot
+	while state.LiftBusy and alive(p) do
+		task.wait(POLL)
+	end
+	if not alive(p) then
+		return false
+	end
+	state.LiftBusy = true
+	p.HasLift = true
+	return true
+end
+
+-- Rides the lift to `floor` with `others` (its escort: a Porter's model or a player's character). Lift.carry moves
+-- each one with ONE PivotTo at that landing when the ride ends (the car moves only on clients); then the patient
+-- stands at `to`. A ride that fails or never ends still puts it there, with a soft pop, so it never gets stuck.
+local function ride(p: Patient, floor: number, to: CFrame, others: { Model }): boolean
+	setState(p, "Riding")
+	local models: { Model } = { p.Model }
+	for _, model in others do
+		table.insert(models, model)
+	end
+	local finished, carried = within(CARRY_SECONDS, "Lift.carry", Lift.carry, p.Plot.Plot, models, floor)
+	if not alive(p) then
+		return false
+	end
+	if not (finished and carried == true) then
+		CreatureBuilder.effectAt(to.Position + Vector3.new(0, 1.5 * p.BaseScale, 0), "Pop")
+	end
+	p.Pivot = to
+	p.Root.CFrame = to -- its resting pose on that floor, once
+	p.Upstairs = floor > 0
+	return true
+end
+
+-- A Porter's model on the plot (Nurses builds Plot.Nurses.Nurse_<NurseId>).
+local function porterModel(plot: Plot, nurseId: string): Model?
+	local folder = plot.Model:FindFirstChild("Nurses")
+	local model = folder and folder:FindFirstChild("Nurse_" .. nurseId)
+	return if model and model:IsA("Model") then model else nil
+end
+
+-- Up the lift to `floor` for its rest (a ward bed or the hot tub). At the ground landing it waits ("ToLift") for a
+-- free Porter (Nurses.claimPorter; the porter walks over: Nurses.escort) or, with none, a player who can work here
+-- (Lift.waitEscort: the landing's EscortPrompt for Config.Lift.EscortWait s). Whoever comes rides with it (Escorted:
+-- +20% cash, rest x0.5); nobody: it rides alone (escort is a bonus, never a chore: §E7). True = it stands at that
+-- floor's landing.
+local function goUp(p: Patient, floor: number): boolean
+	local state = p.Plot
+	local plot = state.Plot
+	local ground, above = landingOf(plot, 0), landingOf(plot, floor)
+	if not (ground and above) then
+		return false
+	end
+	local groundStand = standAt(state, ground)
+	if not walk(p, bedRoute(state, p.Pivot.Position, groundStand.Position)) then
+		return false
+	end
+	if not liftTurn(p) then
+		return false
+	end
+	setState(p, "ToLift")
+	local others: { Model } = {}
+	local okPorter, porter = pcall(Nurses.claimPorter, plot)
+	if not okPorter then
+		report("Nurses.claimPorter", porter)
+	elseif type(porter) == "string" then
+		p.Porter = porter
+		local finished, arrived = within(PORTER_SECONDS, "Nurses.escort", Nurses.escort, plot, porter, ground)
+		if not alive(p) then
+			return false
+		end
+		local model = if finished and arrived == true then porterModel(plot, porter) else nil
+		if model then
+			table.insert(others, model)
+		else
+			releasePorter(p) -- it couldn't come: the patient asks a player instead
+		end
+	end
+	if #others == 0 then
+		local seconds = math.clamp(tonumber(Config.Lift.EscortWait) or 6, 0, 30)
+		local finished, rider = within(seconds + ESCORT_SLACK, "Lift.waitEscort", Lift.waitEscort, plot, seconds)
+		if not alive(p) then
+			return false
+		end
+		if
+			finished
+			and typeof(rider) == "Instance"
+			and rider:IsA("Player")
+			and rider.Parent == Players
+			and Plots.canWork(rider, plot)
+		then
+			local character = rider.Character
+			if character then
+				table.insert(others, character)
+			end
+		end
+	end
+	p.Escorted = #others > 0
+	p.Model:SetAttribute("Escorted", p.Escorted)
+	local rode = ride(p, floor, standAt(state, above), others)
+	liftDone(p)
+	return rode
+end
+
+-- Back down after the cure: to this floor's landing, then the lift (alone) to the ground. False = there's no lift
+-- (the caller pops it away where it is).
+local function goDown(p: Patient): boolean
+	local state = p.Plot
+	local here, ground = landingOf(state.Plot, p.Floor), landingOf(state.Plot, 0)
+	if not (here and ground) then
+		return false
+	end
+	local hereStand = standAt(state, here)
+	if not walk(p, { hereStand.Position }, hereStand.Y) then
+		return false
+	end
+	if not liftTurn(p) then
+		return false
+	end
+	local rode = ride(p, 0, standAt(state, ground), {})
+	liftDone(p)
+	return rode
+end
+
+-- Gone with a soft pop where it stands (no way down: the building changed under it).
+local function popAway(p: Patient)
+	p.Badge.Gui.Enabled = false
+	CreatureBuilder.effectAt(p.Root.Position + Vector3.new(0, 1.5 * p.BaseScale, 0), "Pop")
+	scaleTo(p, p.BaseScale * 0.05, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+	if not hop(p, p.Pivot, 0.5, 0.35) then
+		return
+	end
+	removePatient(p)
+end
+
 local function leave(p: Patient)
 	local state = p.Plot
+	if p.Upstairs then
+		if not goDown(p) then
+			if alive(p) then
+				popAway(p)
+			end
+			return
+		end
+	end
 	if not walk(p, exitRoute(state, p.Pivot.Position)) then
 		return
 	end
@@ -977,46 +1766,136 @@ local function sadLeave(p: Patient)
 	removePatient(p)
 end
 
+-- Progression v2: the floor pick (Lv 3+, no Receptionist on duty): Treatment.waitTriage waits for the helper's pick
+-- (at most Config.Triage.Seconds). It always goes the right way; a right pick is +10% (Pure.triageBonus).
+local function triage(p: Patient)
+	local ask = p.Triage
+	if not ask then
+		return
+	end
+	p.Triage = nil
+	setState(p, "Triage")
+	local ok, pick = pcall(Treatment.waitTriage, ask.Helper, ask.Session, ask.Options, ask.Right)
+	if not ok then
+		report("Treatment.waitTriage", pick)
+		return
+	end
+	if Pure.triageBonus(pick, ask.Right) then
+		p.TriageBonus = true
+	end
+end
+
+-- A point `studs` short of `target` on the way from `from` (where a patient stops before hopping into a tub).
+local function shortOf(target: Vector3, from: Vector3, studs: number): Vector3
+	local delta = Vector3.new(from.X - target.X, 0, from.Z - target.Z)
+	if delta.Magnitude < 0.05 then
+		return target
+	end
+	return target + delta.Unit * math.min(studs, delta.Magnitude)
+end
+
+-- The rest, wherever it is: eyes closed (in the tub, a happy soak), pink sparkles, the ring fills up. Seconds from
+-- Pure.rest (escort, tub, Ward Comfort, the team). False = the patient is gone.
+local function rest(p: Patient): boolean
+	local state = p.Plot
+	p.State = "Recovering"
+	setState(p, if p.Soaking then "Soaking" else "Recovering")
+	CreatureBuilder.setMood(p.Model, if p.Soaking then "Happy" else "Sleep")
+	p.Badge.Icon.Text = if p.Soaking then ICON_SOAK else ICON_SLEEP
+	CreatureBuilder.setEffect(p.Model, "Heal", true)
+	CreatureBuilder.setEffect(p.Model, "HealLight", true)
+	local data = PlayerData.get(state.Owner)
+	local seconds = Pure.rest(Config.RecoverSeconds, {
+		Escorted = p.Escorted,
+		Soaked = p.SpotKind == "Tub",
+		Comfort = if data then data.Upgrades.WardComfort or 0 else 0,
+		Team = state.Team.Recover,
+	}, Config)
+	local started = os.clock()
+	while true do
+		local done = (os.clock() - started) / seconds
+		showRing(p, done, RING_HEAL)
+		if done >= 1 then
+			break
+		end
+		if not sleep(p, TICK) then
+			return false
+		end
+	end
+	CreatureBuilder.setEffect(p.Model, "Heal", false)
+	CreatureBuilder.setEffect(p.Model, "HealLight", false)
+	return true
+end
+
 local function treatAndRecover(p: Patient)
 	local state = p.Plot
 	setState(p, "Treated")
 	if not hop(p, p.Pivot, p.HopHeight * 0.9, 0.3) then -- a happy little bounce
 		return
 	end
+	triage(p) -- Lv 3+: which floor? (it waits at the Counter meanwhile, so the line waits too)
+	if not alive(p) then
+		return
+	end
+	setState(p, "Treated")
 
 	local bed = p.Bed
+	local kind = p.SpotKind
 	if bed then
-		if not walk(p, bedRoute(state, p.Pivot.Position, bedFoot(bed))) then
+		removeFromQueue(state, p) -- off to rest: the line moves up now
+		if (kind == "Upstairs" or kind == "Tub") and p.Floor > 0 then
+			local up = goUp(p, p.Floor)
+			if not alive(p) then
+				return
+			end
+			if not up then
+				-- No way up after all (the building changed): it rests where it stands.
+				releaseBed(state, p)
+				p.Bed, bed, kind = nil, nil, "Place"
+				p.SpotKind = "Place"
+			end
+		end
+	end
+	local floorY = if p.Upstairs then p.Pivot.Y else nil
+	local approach = p.Pivot.Position -- where it stood before hopping into a tub (it hops back out to here)
+	if bed then
+		local target = if kind == "Tub" then shortOf(bed.Position, p.Pivot.Position, 3) else bedFoot(bed)
+		approach = target
+		local route = if floorY then { target } else bedRoute(state, p.Pivot.Position, target)
+		local porter = p.Porter
+		if porter then
+			-- Its Porter walks to the bed with it, then goes back to work.
+			task.spawn(function()
+				within(PORTER_SECONDS, "Nurses.escort", Nurses.escort, state.Plot, porter, CFrame.new(target))
+				if p.Porter == porter then
+					releasePorter(p)
+				end
+			end)
+		end
+		if not walk(p, route, floorY) then
 			return
 		end
 		if bed.Parent then
-			if not hop(p, bedPose(bed, true, p.BaseScale), 1.8, 0.5) then -- flop into bed
-				return
+			if kind == "Tub" then
+				-- In it goes: a splash into the bubbles (standing on the tub's floor, the water up to its middle).
+				if not hop(p, standAt(state, bed.CFrame), 1.8, 0.5) then
+					return
+				end
+				p.Soaking = true
+				refreshSoak(state)
+			else
+				if not hop(p, bedPose(bed, true, p.BaseScale), 1.8, 0.5) then -- flop into bed
+					return
+				end
 			end
 			p.InBed = true
 		end
 	end
+	p.RecoverIn = if p.Soaking then "Hydro" elseif kind == "Upstairs" then "Wards" else "Reception"
 
-	-- Rest: eyes closed, pink sparkles, the ring fills up.
-	p.State = "Recovering"
-	setState(p, "Recovering")
-	CreatureBuilder.setMood(p.Model, "Sleep")
-	p.Badge.Icon.Text = ICON_SLEEP
-	CreatureBuilder.setEffect(p.Model, "Heal", true)
-	CreatureBuilder.setEffect(p.Model, "HealLight", true)
-	local started = os.clock()
-	while true do
-		local done = (os.clock() - started) / Config.RecoverSeconds
-		showRing(p, done, RING_HEAL)
-		if done >= 1 then
-			break
-		end
-		if not sleep(p, TICK) then
-			return
-		end
+	if not rest(p) then
+		return
 	end
-	CreatureBuilder.setEffect(p.Model, "Heal", false)
-	CreatureBuilder.setEffect(p.Model, "HealLight", false)
 
 	-- Cured!
 	p.State = "Cured"
@@ -1025,15 +1904,37 @@ local function treatAndRecover(p: Patient)
 	CreatureBuilder.setMood(p.Model, "Happy")
 	p.Badge.Icon.Text = ICON_CURED
 	CreatureBuilder.effectAt(p.Root.Position + Vector3.new(0, 1.6 * p.BaseScale, 0), "Cure")
+	if p.Soaking then
+		-- A little longer in the bubbles while nobody has played its 🫧 game (and until a game on it ends).
+		local untilAt = os.clock() + SOAK_LINGER
+		while p.SoakSession ~= nil or (not p.SoakDone and os.clock() < untilAt) do
+			if not sleep(p, TICK) then
+				return
+			end
+		end
+		p.Soaking = false
+		refreshSoak(state)
+	end
 	if bed and p.InBed then
-		if not hop(p, bedPose(bed, false, p.BaseScale), 2.6, 0.6, math.pi * 2) then -- spin up on the bed
-			return
+		local away: CFrame
+		if kind == "Tub" then
+			if not hop(p, p.Pivot, 2.6, 0.6, math.pi * 2) then -- a happy spin in the tub
+				return
+			end
+			local out = Vector3.new(approach.X, floorY or groundAt(state, approach).Y, approach.Z)
+			local look = (out - p.Pivot.Position) * Vector3.new(1, 0, 1)
+			away = if look.Magnitude > 0.01 then CFrame.lookAt(out, out + look.Unit) else CFrame.new(out)
+		else
+			if not hop(p, bedPose(bed, false, p.BaseScale), 2.6, 0.6, math.pi * 2) then -- spin up on the bed
+				return
+			end
+			local foot = bedFoot(bed)
+			local at = Vector3.new(foot.X, floorY or groundAt(state, foot).Y, foot.Z)
+			local look = bed.CFrame.LookVector * Vector3.new(1, 0, 1)
+			away = if look.Magnitude > 0.01 then CFrame.lookAt(at, at + look) else CFrame.new(at)
 		end
 		releaseBed(state, p)
-		local foot = groundAt(state, bedFoot(bed))
-		local away = bed.CFrame.LookVector * Vector3.new(1, 0, 1)
-		local facing = if away.Magnitude > 0.01 then CFrame.lookAt(foot, foot + away) else CFrame.new(foot)
-		if not hop(p, facing, 1.8, 0.45) then
+		if not hop(p, away, 1.8, 0.45) then
 			return
 		end
 	else
@@ -1044,6 +1945,63 @@ local function treatAndRecover(p: Patient)
 	end
 	removeFromQueue(state, p) -- if it rested at the front of the line, the line moves on now
 	leave(p)
+end
+
+-- Progression v2: 💫 Miracle (Abilities CureLine): cured right where it waits, through the usual Cure.resolve (the
+-- owner is the helper; no mini-game, so no tip), then a happy spin, and off it goes.
+local function curedOnSpot(p: Patient)
+	setState(p, "Cured")
+	resolveCure(p)
+	CreatureBuilder.setMood(p.Model, "Happy")
+	p.Badge.Icon.Text = ICON_CURED
+	p.Badge.Need.Visible = false
+	CreatureBuilder.effectAt(p.Root.Position + Vector3.new(0, 1.6 * p.BaseScale, 0), "Cure")
+	if not hop(p, p.Pivot, 2.6, 0.6, math.pi * 2) then
+		return
+	end
+	leave(p)
+end
+
+-- Progression v2: a 🚁 VIP from the helipad steps out on the roof, rides the lift down, rounds the Stand to the
+-- queue lane and joins the line at the front (Pure.urgentPlace). Without a helipad or a lift it came in by the gate
+-- like anyone else, and just joins.
+local function flyIn(p: Patient): boolean
+	local state = p.Plot
+	if p.Upstairs then
+		local roof, ground = landingOf(state.Plot, p.ArriveFloor), landingOf(state.Plot, 0)
+		if roof and ground then
+			local roofStand = standAt(state, roof)
+			if not walk(p, { roofStand.Position }, roofStand.Y) then
+				return false
+			end
+			p.Floor = p.ArriveFloor
+			if not liftTurn(p) then
+				return false
+			end
+			local rode = ride(p, 0, standAt(state, ground), {})
+			liftDone(p)
+			if not rode then
+				return false
+			end
+			local route = exitRoute(state, p.Pivot.Position)
+			table.remove(route) -- not out of the gate: just to the lane
+			if not walk(p, route) then
+				return false
+			end
+		else
+			-- The lift went away under it: a pop, and in by the gate.
+			local gate = markerGround(state.Plot.Spawn)
+			CreatureBuilder.effectAt(gate.Position + Vector3.new(0, 1.5 * p.BaseScale, 0), "Pop")
+			p.Pivot = gate
+			p.Root.CFrame = gate
+			p.Upstairs = false
+		end
+	end
+	setState(p, "Arriving")
+	p.Incoming = false
+	state.Incoming = math.max(0, state.Incoming - 1)
+	insertUrgent(state, p)
+	return alive(p)
 end
 
 -- Hop to its place in line, then wait there (with little idle hops) until treated or out of patience.
@@ -1059,7 +2017,7 @@ local function waitInLine(p: Patient): boolean
 		if gap > 0.25 then
 			if p.Arrived then
 				p.Arrived = false
-				setState(p, "Arriving")
+				setState(p, lineState(p))
 				refreshFront(state)
 			end
 			if not stepToward(p, spot) then
@@ -1068,7 +2026,7 @@ local function waitInLine(p: Patient): boolean
 		else
 			if not p.Arrived then
 				p.Arrived = true
-				setState(p, "Waiting")
+				setState(p, lineState(p))
 				refreshFront(state)
 				if state.Queue[1] == p then
 					tutorialHook("onFrontArrived", state.Owner)
@@ -1090,8 +2048,18 @@ local function waitInLine(p: Patient): boolean
 end
 
 local function visit(p: Patient)
+	if p.Incoming then
+		-- 🚁 The helicopter lands first (Feel/HospitalFX flies it in from HeliSpot's ArriveAt); then out it steps.
+		if not sleep(p, HELI_LAND_SECONDS) then
+			return
+		end
+		p.Badge.Gui.Enabled = true
+	end
 	scaleTo(p, p.BaseScale, 0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out) -- pop in
 	if not hop(p, p.Pivot, p.HopHeight * 1.2, 0.45) then
+		return
+	end
+	if p.Incoming and not flyIn(p) then
 		return
 	end
 	if not waitInLine(p) then
@@ -1101,6 +2069,8 @@ local function visit(p: Patient)
 		treatAndRecover(p)
 	elseif p.State == "Sad" then
 		sadLeave(p)
+	elseif p.State == "Cured" then
+		curedOnSpot(p) -- a 💫 Miracle cured it in line
 	end
 end
 
@@ -1116,14 +2086,31 @@ end
 -- Who comes next
 ------------------------------------------------------------------------------------------------------------------
 
-local function rollVariant(): string?
-	if rng:NextNumber() < Config.SparklyChance then
-		return "Sparkly"
+-- Sparkly, Frosty in winter and (Progression v2) 🌟 Golden at an R3+ clinic (Pure.variant). The Studio test switch
+-- workspace:SetAttribute("ForceGoldenPatient", true) makes every new patient at an R3+ clinic Golden; a live server
+-- ignores it.
+local function rollVariant(state: PlotState): string?
+	local force = RunService:IsStudio() and Workspace:GetAttribute("ForceGoldenPatient") == true
+	local golden = rawget(VariantsData :: any, "Golden")
+	local goldenRebirths = if type(golden) == "table" and type(golden.Rebirths) == "number"
+		then golden.Rebirths
+		else math.huge
+	return Pure.variant(
+		state.Rebirths,
+		{ rng:NextNumber(), rng:NextNumber(), rng:NextNumber() },
+		Workspace:GetAttribute("IsWinter") == true,
+		force,
+		Config,
+		goldenRebirths
+	)
+end
+
+-- Night patients come at night; with 🦉 Night Owl (the owner's perk) for Config.NightOwl of a night after morning.
+local function nightOpen(state: PlotState): boolean
+	if Workspace:GetAttribute("IsNight") == true then
+		return true
 	end
-	if Workspace:GetAttribute("IsWinter") == true and rng:NextNumber() < Config.FrostyChance then
-		return "Frosty"
-	end
-	return nil
+	return state.Effects.NightOwl and Hospital.nightOwl(nightEndedAt, os.clock(), Config)
 end
 
 local function patienceFor(owner: Player, guest: boolean): number
@@ -1175,42 +2162,51 @@ local function recipeCapFor(owner: Player): number
 	return levelAsk("recipeCap", owner, 1)
 end
 
+-- True when the patient came. `urgent` (Progression v2): a 🚑/🚁 patient, with its own recipe and arrival spot.
 local function spawnPatient(
 	state: PlotState,
 	patientId: string,
 	regular: string?,
 	visitor: boolean,
 	variant: string?,
-	cap: number
-)
+	cap: number,
+	urgent: UrgentSpawn?
+): boolean
 	local entry = PatientsData[patientId]
 	local regularEntry = if regular then RegularsData[regular] else nil
 	local ailmentId = if regularEntry then regularEntry.Ailment elseif entry then entry.Ailment else nil
 	local ailment = if ailmentId then AilmentsData[ailmentId] else nil
 	local station = if ailment then StationsData[ailment.Station] else nil
-	local recipe = recipeOf(patientId, regular, cap)
-	if not (ailment and station and ItemsData[station.Item] and recipe) then
-		return
+	local recipe = if urgent then urgent.Recipe else recipeOf(patientId, regular, cap)
+	if not (ailment and station and ItemsData[station.Item] and recipe and #recipe > 0) then
+		return false
 	end
 
 	local ok, built = pcall(CreatureBuilder.build, patientId, variant)
 	if not ok or typeof(built) ~= "Instance" or not built:IsA("Model") then
 		report("CreatureBuilder.build", built)
-		return
+		return false
 	end
 	local model: Model = built
 	local root = model.PrimaryPart
 	local badge = CreatureBuilder.badge(model)
 	if not root or not badge then
 		model:Destroy()
-		return
+		return false
 	end
 
 	-- Night patients, and Night-wing regulars (they only visit at night): glow, pay 2x, count for night goals.
 	local night = (entry ~= nil and entry.Night == true) or (regularEntry ~= nil and regularEntry.Wing == "Night")
 	local patience = patienceFor(state.Owner, regular ~= nil or visitor)
+	local urgentKind = if urgent then urgent.Kind else ""
+	if urgent then
+		local data = PlayerData.get(state.Owner)
+		patience = Pure.urgentPatience(patience, urgentKind, if data then data.Upgrades.AESpeed or 0 else 0, Config)
+	end
+	local wing = if regularEntry then regularEntry.Wing elseif entry then entry.Wing else "Starter"
+	local air = urgent ~= nil and urgent.Air
 	local rhythm = rng:NextNumber(0.9, 1.12) -- every creature hops to its own beat
-	local start = markerGround(state.Plot.Spawn)
+	local start = if urgent then urgent.Start else markerGround(state.Plot.Spawn)
 	local p: Patient = {
 		Plot = state,
 		PatientId = patientId,
@@ -1251,11 +2247,39 @@ local function spawnPatient(
 		ScaleAnim = nil,
 		Tilt = 0,
 		Thread = nil,
+		Wing = wing,
+		Urgent = urgentKind,
+		Incoming = air,
+		ArriveFloor = if urgent then urgent.Floor else 0,
+		Dept = Hospital.route(wing, urgentKind, state.Level, LevelsData),
+		SpotKind = "Place",
+		Floor = 0,
+		Upstairs = air and urgent ~= nil and urgent.Floor > 0,
+		Escorted = false,
+		Porter = nil,
+		HasLift = false,
+		Triage = nil,
+		TriageBonus = false,
+		RecoverIn = "Reception",
+		Soaking = false,
+		SoakDone = false,
+		SoakSession = nil,
 	}
 
 	CreatureBuilder.setMood(model, "Sick")
 	showRing(p, 1, RING_CALM)
 	badge.Star.Visible = visitor
+	-- Progression v2: the 🚑/🚁 chip and rim, the department chip once there's a floor to pick (Lv 3+), the 🌟 sheen.
+	local okBadge, badgeErr = pcall(function()
+		CreatureBuilder.setUrgent(badge, urgentKind)
+		CreatureBuilder.setDept(badge, if Hospital.triageOptions(state.Level, LevelsData) then p.Dept else nil)
+		if variant == "Golden" then
+			CreatureBuilder.setEffect(model, "Golden", true)
+		end
+	end)
+	if not okBadge then
+		report("the v2 badge", badgeErr)
+	end
 	if regular then
 		local okBeat, beat = pcall(Story.bubble, state.Owner, regular)
 		if okBeat and type(beat) == "table" and type(beat.Emote) == "string" then
@@ -1278,20 +2302,35 @@ local function spawnPatient(
 	model:SetAttribute("Night", night)
 	model:SetAttribute("State", "Arriving")
 	model:SetAttribute("PatienceFraction", 1)
+	model:SetAttribute("Urgent", urgentKind) -- Progression v2 (§B4): "" | "AE" | "VIP"
+	model:SetAttribute("Dept", p.Dept) -- where it will recover: "Wards" | "Hydro"
+	model:SetAttribute("Escorted", false)
 	-- PivotTo, not root.CFrame: the model isn't in Workspace yet, so its welds aren't live and the body would stay
 	-- behind at the origin (each weld then locks in that gap when the model is parented in).
 	model:PivotTo(start)
 	model:ScaleTo(p.BaseScale * 0.15) -- pops in from tiny
+	if air then
+		badge.Gui.Enabled = false -- shown when it steps out of the helicopter (visit)
+	end
 	model.Parent = state.Plot.Model:FindFirstChild("Patients") or state.Plot.Model
 
 	state.All[p] = true
-	table.insert(state.Queue, p)
-	model:SetAttribute("QueueIndex", #state.Queue)
+	if air then
+		-- A 🚁 VIP isn't in the line until it reaches the ground, but its place is kept (Config.MaxQueue holds).
+		state.Incoming += 1
+		model:SetAttribute("QueueIndex", 0)
+	elseif urgent then
+		insertUrgent(state, p) -- a 🚑 patient goes to the front
+	else
+		table.insert(state.Queue, p)
+		model:SetAttribute("QueueIndex", #state.Queue)
+	end
 	state.Spawned += 1
 	state.LastPatient = patientId
 	local thread = coroutine.create(run)
 	p.Thread = thread
 	task.spawn(thread, p)
+	return true
 end
 
 local function hasGuest(state: PlotState, regular: string?, visitor: boolean): boolean
@@ -1335,7 +2374,7 @@ local function trySpawn(state: PlotState, plan: string)
 	end
 	local stations = stationsOnPlot(state.Plot)
 	local makes = itemsMadeOn(stations)
-	local isNight = Workspace:GetAttribute("IsNight") == true
+	local isNight = nightOpen(state) -- night patients (and 🦉 Night Owl's after morning)
 
 	-- 0. The tutorial's own two patients (no variant: nothing to explain yet). One item, always.
 	if plan == "First" or plan == "Second" then
@@ -1365,9 +2404,8 @@ local function trySpawn(state: PlotState, plan: string)
 		if not entry or not treatable(entry.Ailment) or not makeable(patientId, nil) then
 			return false
 		end
-		-- STUB (T7): Progression v2's wings wait for T7's rules (Sunny from R1, Sky by helicopter only)
-		local wing = rawget(WingsData :: any, entry.Wing)
-		if type(wing) == "table" and (wing.Rebirths ~= nil or wing.Only ~= nil) then
+		-- Progression v2: 🌻 Sunny from R1 (with whatever stations you have); 🚁 Sky only by air ambulance.
+		if not Pure.wingOpen(rawget(WingsData :: any, entry.Wing), state.Rebirths, false) then
 			return false
 		end
 		if entry.Night and not isNight then
@@ -1402,7 +2440,7 @@ local function trySpawn(state: PlotState, plan: string)
 			if not ok then
 				report("Daily.visitorFor", visitor)
 			elseif type(visitor) == "string" and eligible(visitor) then
-				spawnPatient(state, visitor, nil, true, rollVariant(), cap)
+				spawnPatient(state, visitor, nil, true, rollVariant(state), cap)
 				return
 			end
 		end
@@ -1438,12 +2476,148 @@ local function trySpawn(state: PlotState, plan: string)
 			break
 		end
 	end
-	spawnPatient(state, chosen, nil, false, rollVariant(), cap)
+	spawnPatient(state, chosen, nil, false, rollVariant(state), cap)
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Progression v2: urgent patients (🚑 A&E from Lv 2, 🚁 the air ambulance from R2 at Lv 5)
+------------------------------------------------------------------------------------------------------------------
+
+-- A 🚑/🚁 patient waits here already (in line, or on its way to it): only one at a time comes by itself.
+local function urgentWaiting(state: PlotState): boolean
+	for p in state.All do
+		if p.Urgent ~= "" and (p.Incoming or p.State == "Queue") then
+			return true
+		end
+	end
+	return false
+end
+
+-- Calls an urgent patient: "AE" (an ambulance: it pops out at the parked Ambulance's StretcherSpot) or "VIP" (the
+-- air ambulance: it steps out at HeliSpot on the roof). The pick: any patient whose ailment this clinic treats and
+-- whose wing may come by that way (Pure.wingOpen; 🚁 brings only the Sky wing), with an urgent recipe this clinic can
+-- make (Pure.urgentFor). Sets ArriveAt on the Ambulance / HeliSpot for Feel/HospitalFX. True = it came.
+local function callUrgent(state: PlotState, kind: string): boolean
+	local owner = state.Owner
+	local data = PlayerData.get(owner)
+	if not data then
+		return false
+	end
+	local stations = stationsOnPlot(state.Plot)
+	local makes = itemsMadeOn(stations)
+	local cap = recipeCapFor(owner)
+	local minItems = math.max(1, math.floor(tonumber(Config.AE.MinItems) or 2))
+	local byAir = kind == "VIP"
+	local night = nightOpen(state)
+	local pool: { { Id: string, Recipe: { string } } } = {}
+	for _, patientId in PatientsData.Order do
+		local entry = PatientsData[patientId]
+		local ailment = AilmentsData[entry.Ailment]
+		if
+			ailment
+			and stations[ailment.Station] == true
+			and Pure.wingOpen(rawget(WingsData :: any, entry.Wing), state.Rebirths, byAir)
+			and (byAir or not entry.Night or night)
+			and (entry.Wing ~= "Winter" or data.Rooms.WinterWing == true)
+		then
+			local recipe = Pure.urgentFor(ailment.Recipe, makes, cap, minItems)
+			if recipe then
+				table.insert(pool, { Id = patientId, Recipe = recipe })
+			end
+		end
+	end
+	if #pool == 0 then
+		return false
+	end
+	local choice = pool[rng:NextInteger(1, #pool)]
+	local start = markerGround(state.Plot.Spawn) -- no bay or helipad (a kit building): in by the gate
+	local floor = 0
+	local serverNow = Workspace:GetServerTimeNow()
+	if kind == "AE" then
+		local stretcher = buildingPart(state, "StretcherSpot")
+		if stretcher then
+			start = standAt(state, stretcher.CFrame)
+		end
+		local building = state.Plot.Model:FindFirstChild("Building")
+		local ambulance = building and building:FindFirstChild("Ambulance", true)
+		if ambulance then
+			ambulance:SetAttribute("ArriveAt", serverNow) -- Feel/HospitalFX: lights and a siren
+		end
+	else
+		local heli = buildingPart(state, "HeliSpot")
+		if heli then
+			heli:SetAttribute("ArriveAt", serverNow) -- Feel/HospitalFX: the helicopter flies in and lands
+			local roof = floorOf(heli, state.Plot.Model)
+			if roof == 0 then
+				roof = Hospital.floors(state.Level, LevelsData) -- the roof is the top floor (Data/Levels Floors)
+			end
+			if roof > 0 and landingOf(state.Plot, roof) and landingOf(state.Plot, 0) then
+				start, floor = standAt(state, heli.CFrame), roof
+			end
+		end
+	end
+	return spawnPatient(state, choice.Id, nil, false, rollVariant(state), cap, {
+		Kind = kind,
+		Recipe = choice.Recipe,
+		Start = start,
+		Air = byAir,
+		Floor = floor,
+	})
+end
+
+-- The ambulance and helicopter timers. Each comes about every so often (Pure.aeSeconds / Pure.vipSeconds; the first
+-- ambulance Config.AE.FirstSeconds after the clinic reaches Lv 2), only while the owner stands at their clinic, is
+-- done with the tutorial, the line has room and no other 🚑/🚁 patient waits. An admin's call comes as soon as the
+-- line has room.
+local function tickUrgent(state: PlotState, now: number, maxQueue: number)
+	local room = #state.Queue + state.Incoming < maxQueue
+	local forced = state.ForceUrgent[1]
+	if forced then
+		if room then
+			table.remove(state.ForceUrgent, 1)
+			callUrgent(state, forced)
+		end
+		return
+	end
+	local aeOpen = state.Level >= AE_LEVEL
+	local vipOpen = state.Level >= HELI_LEVEL and RebirthLogic.has(state.Rebirths, "Helicopter")
+	if not aeOpen then
+		state.NextAE = now + Config.AE.FirstSeconds
+	end
+	if not vipOpen then
+		state.NextVIP = now + Pure.vipSeconds(Config, rng:NextNumber())
+	end
+	if not room or not (aeOpen or vipOpen) then
+		return
+	end
+	if tutorialAsk("active", false, state.Owner) or urgentWaiting(state) or not ownerAtClinic(state) then
+		return
+	end
+	if aeOpen and now >= state.NextAE then
+		local data = PlayerData.get(state.Owner)
+		local aeSpeed = if data then data.Upgrades.AESpeed or 0 else 0
+		state.NextAE = now + Pure.aeSeconds(Config, rng:NextNumber(), aeSpeed, state.Effects.SirenPro)
+		callUrgent(state, "AE")
+	elseif vipOpen and now >= state.NextVIP then
+		state.NextVIP = now + Pure.vipSeconds(Config, rng:NextNumber())
+		callUrgent(state, "VIP")
+	end
 end
 
 ------------------------------------------------------------------------------------------------------------------
 -- The clinic's heartbeat: patience and arrivals
 ------------------------------------------------------------------------------------------------------------------
+
+-- Progression v2: what the plot's patients use from the owner's save and the nurses, once a tick.
+local function refreshPlot(state: PlotState)
+	local owner = state.Owner
+	state.Level = levelAsk("level", owner, 1)
+	state.Rebirths = rebirthsOf(owner)
+	state.Effects = effectsOf(owner)
+	state.Team = teamOf(state.Plot)
+	state.Medic = medicOf(state.Plot)
+	state.Receptionist = receptionOf(state.Plot)
+end
 
 local function makeSad(state: PlotState, p: Patient)
 	if p.State ~= "Queue" then
@@ -1465,12 +2639,19 @@ local function tickPatience(state: PlotState, dt: number)
 	if tutorialAsk("calm", false, state.Owner) then
 		return -- the tutorial's steps 1-6: nobody runs out of patience, so the ring stays full
 	end
+	if state.PausedUntil > os.clock() or abilityPaused(state.Plot) then
+		return -- 🎵 a Calm Song (Abilities PauseLine): every patience ring holds still
+	end
 	local outOfPatience: { Patient } = {}
 	-- A Cheerer on duty (Server/Nurses keeps the plot's CheerPatience) makes everyone's patience last longer.
 	local cheer = Pure.cheer(state.Plot.Model:GetAttribute("CheerPatience"), MAX_CHEER_PATIENCE)
+	-- 🚑/🚁 patients drain slower with the A&E team and a Medic on duty (Progression v2).
+	local slower = Pure.slower(state.Team.Urgent, state.Medic, MAX_SLOWER)
 	for index, p in state.Queue do
 		if p.State == "Queue" and p.Arrived and not p.Claimed and not p.Session then -- paused mid-mini-game
-			local rate = (if index == 1 then 1 else QUEUE_PATIENCE_RATE) / cheer
+			local rate = (if index == 1 then 1 else QUEUE_PATIENCE_RATE)
+				/ cheer
+				/ (if p.Urgent ~= "" then slower else 1)
 			p.Patience = math.max(p.Patience - dt * rate, 0)
 			local fraction = p.Patience / p.PatienceMax
 			showRing(p, fraction, ringColor(fraction))
@@ -1486,17 +2667,24 @@ local function tickPatience(state: PlotState, dt: number)
 end
 
 local function tick(state: PlotState, now: number, dt: number)
+	refreshPlot(state)
 	tickPatience(state, dt)
 	local cap = tutorialAsk("queueCap", nil, state.Owner)
 	-- The hospital level's line, never longer than Config.MaxQueue (3: one being treated + 2 waiting, on the lane's
-	-- three numbered spots). A higher level refills it sooner (spawnSeconds), it doesn't make it longer.
+	-- three numbered spots). A higher level refills it sooner (spawnSeconds), it doesn't make it longer. A 🚁 VIP on
+	-- its way down keeps its place (state.Incoming).
 	local levelCap = math.min(Config.MaxQueue, levelAsk("queueCap", state.Owner, Config.MaxQueue))
 	local maxQueue = if type(cap) == "number" then math.min(cap, levelCap) else levelCap
-	if now >= state.NextSpawn and #state.Queue < maxQueue then
+	tickUrgent(state, now, maxQueue)
+	if now >= state.NextSpawn and #state.Queue + state.Incoming < maxQueue then
 		local forced = table.remove(state.Forced, 1)
 		-- A higher hospital level gets patients faster (Data/Levels SpawnSeconds, Lv 1 = Config.SpawnEverySeconds):
-		-- the level's throughput. The line itself never grows past Config.MaxQueue (maxQueue above).
-		local every = levelAsk("spawnSeconds", state.Owner, Config.SpawnEverySeconds)
+		-- the level's throughput. The line itself never grows past Config.MaxQueue (maxQueue above). Progression v2:
+		-- 🚪 Busy Doors and a Receptionist on duty make them come sooner still (Logic/Hospital.arrival).
+		local every = Hospital.arrival(
+			levelAsk("spawnSeconds", state.Owner, Config.SpawnEverySeconds),
+			{ state.Effects.Arrive, state.Receptionist.Arrive }
+		)
 		if forced then
 			-- An admin's pick (Patients.sendNext) comes first; more picks follow REFILL_SECONDS apart.
 			state.NextSpawn = now + (if #state.Forced > 0 then REFILL_SECONDS else every * rng:NextNumber(0.85, 1.15))
@@ -1548,15 +2736,40 @@ local function nearCounter(player: Player, state: PlotState): boolean
 	return (root.Position - at).Magnitude <= PROMPT_DISTANCE + DISTANCE_SLACK
 end
 
-local function beginTreatment(state: PlotState, p: Patient, helper: Player)
+-- The recipe is complete. Progression v2: where it goes (Logic/Hospital.route at today's level) and where it rests
+-- (Pure.destination), reserved now so two patients never take one spot; then the floor pick (Pure.triageMode): a
+-- Receptionist sends it at once with the bonus, or the helper whose session (`session`) finished it picks
+-- (Treatment.waitTriage; the TriageAsk goes back to Treatment for the client's buttons). It stays at its place in
+-- line until it walks off (treatAndRecover), so the line waits for the pick.
+local function beginTreatment(state: PlotState, p: Patient, helper: Player, session: number?): Treatment.TriageAsk?
 	p.Helper = helper
 	p.PatienceLeft = math.clamp(p.Patience / p.PatienceMax, 0, 1)
 	p.State = "Treated"
-	local bed = freeBed(state)
-	if bed then
-		state.Beds[bed] = p
-		p.Bed = bed
-		removeFromQueue(state, p) -- off to bed: the line moves up now
+	p.Dept = Hospital.route(p.Wing, p.Urgent, state.Level, LevelsData)
+	p.Model:SetAttribute("Dept", p.Dept)
+	local spots = freeSpots(state)
+	local kind = Pure.destination(p.Dept, {
+		Tub = spots.Tub ~= nil,
+		Ground = spots.Ground ~= nil,
+		Upstairs = spots.Upstairs ~= nil,
+	})
+	local spot = if kind == "Tub" then spots.Tub elseif kind == "Ground" then spots.Ground else spots.Upstairs
+	if kind ~= "Place" and spot then
+		state.Beds[spot] = p
+		p.Bed = spot
+		p.SpotKind = kind
+		p.Floor = floorOf(spot, state.Plot.Model)
+	else
+		p.SpotKind = "Place" -- every spot taken: it rests where it stands, as before
+	end
+	local options = Hospital.triageOptions(state.Level, LevelsData)
+	local mode = Pure.triageMode(options, state.Receptionist.Triage, session ~= nil)
+	local ask: Treatment.TriageAsk? = nil
+	if mode == "Instant" then
+		p.TriageBonus = true -- a Receptionist sent it the right way
+	elseif mode == "Ask" and options and session then
+		p.Triage = { Helper = helper, Session = session, Options = options, Right = p.Dept }
+		ask = { Options = table.clone(options), Right = p.Dept }
 	end
 	-- Instant feedback; the patient's own thread picks up the walk to bed after its current hop.
 	setState(p, "Treated")
@@ -1567,30 +2780,37 @@ local function beginTreatment(state: PlotState, p: Patient, helper: Player)
 	CreatureBuilder.setMood(p.Model, "Happy")
 	refreshFront(state)
 	tutorialHook("onTreated", state.Owner)
+	return ask
 end
 
--- Recipe items were given (a mini-game settled, or a Healer delivered): tick them off and refill some patience,
--- then off to bed when the recipe is complete, or back in line for the rest. Never yields. True = complete.
-local function giveItems(state: PlotState, p: Patient, indices: { number }, helper: Player): boolean
+-- Recipe items were given (a mini-game settled, or a nurse delivered): tick them off and refill some patience,
+-- then off to bed when the recipe is complete, or back in line for the rest. Never yields. True = complete (and the
+-- floor pick to ask, when the helper's session `session` finished it).
+local function giveItems(
+	state: PlotState,
+	p: Patient,
+	indices: { number },
+	helper: Player,
+	session: number?
+): (boolean, Treatment.TriageAsk?)
 	p.Done = Recipe.apply(p.Done, indices)
 	p.Patience = Pure.refill(p.Patience, p.PatienceMax, ITEM_PATIENCE, #indices)
 	showRecipe(p)
 	if Recipe.complete(p.Recipe, p.Done) then
-		beginTreatment(state, p, helper)
-		return true
+		return true, beginTreatment(state, p, helper, session)
 	end
 	local fraction = p.Patience / p.PatienceMax
 	showRing(p, fraction, ringColor(fraction))
 	p.NextIdle = 0 -- a happy little hop straight away (its own thread does it)
-	setState(p, if p.Arrived then "Waiting" else "Arriving")
+	setState(p, lineState(p))
 	refreshFront(state)
-	return false
+	return false, nil
 end
 
 -- Treatment settled the session on `p` (the player's report, the timeout, or the helper leaving).
-local function settleTreat(p: Patient, sessionId: number, tip: number): boolean
+local function settleTreat(p: Patient, sessionId: number, tip: number): (boolean, Treatment.TriageAsk?)
 	if p.Session ~= sessionId then
-		return false -- dropped already (the patient went away)
+		return false, nil -- dropped already (the patient went away)
 	end
 	local helper = p.SessionHelper
 	local indices = p.SessionIndices or {}
@@ -1599,11 +2819,11 @@ local function settleTreat(p: Patient, sessionId: number, tip: number): boolean
 	p.SessionIndices = nil
 	p.SessionCarried = nil
 	if not alive(p) or p.State ~= "Queue" then
-		return false
+		return false, nil
 	end
 	p.TipPaid += math.max(0, tip)
 	local state = p.Plot
-	return giveItems(state, p, indices, helper or state.Owner)
+	return giveItems(state, p, indices, helper or state.Owner, sessionId)
 end
 
 -- Nothing in hand (or in the nurse tray) fits: a head-shake, and the station that makes the next missing item.
@@ -1632,65 +2852,106 @@ local function onTreat(plot: Plot, player: Player)
 	if not nearCounter(player, state) then
 		return
 	end
-	local p = state.Queue[1]
-	if not p or p.State ~= "Queue" or not p.Arrived or p.Claimed or p.Session then
+	local candidates = frontCandidates(state) -- the front patient (both front ones with 👯 Twin Counters)
+	if #candidates == 0 then
 		return
 	end
 	if Treatment.busy(player) then
 		return -- one mini-game at a time
 	end
 
-	-- What fits: the helper's own items first, then the nurse tray's.
+	-- What fits: the helper's own items first, then the nurse tray's. A carried medicine fills every slot its two
+	-- ingredients cover, as one game (Pure.plan with Data/Items). Twin Counters: the first of the two front
+	-- patients whose missing items you carry, else the first the tray fits (Pure.pickTwin).
 	local carried = carrying(player)
-	local fromCarry, fromTray = Pure.plan(p.Recipe, p.Done, carried, trayItems(plot))
-	if #fromCarry == 0 and #fromTray == 0 then
-		refuse(p, player, #carried == 0)
+	local tray = trayItems(plot)
+	local plans: { TreatPlan } = {}
+	for index, candidate in candidates do
+		local fromCarry, fromTray, carryUsed, trayUsed =
+			Pure.plan(candidate.Recipe, candidate.Done, carried, tray, ItemsData)
+		plans[index] = {
+			Carry = #fromCarry,
+			Tray = #fromTray,
+			CarryIdx = fromCarry,
+			TrayIdx = fromTray,
+			CarryUsed = carryUsed,
+			TrayUsed = trayUsed,
+		}
+	end
+	local pick = Pure.pickTwin(plans)
+	if not pick then
+		refuse(candidates[1], player, #carried == 0)
 		return
 	end
+	local p = candidates[pick]
+	local plan = plans[pick]
 
-	-- Take them: they're spent now (the mini-game can't fail).
+	-- Take them: they're spent now (the mini-game can't fail). Nothing yields between the check and the take.
 	p.Claimed = true
-	local given: { number } = {}
 	local taken: { string } = {}
-	for _, index in fromCarry do
-		local itemId = p.Recipe[index]
+	local fromTrayTaken: { string } = {}
+	local tookAll = true
+	for _, itemId in plan.CarryUsed do
 		if takeItem(player, itemId) then
-			table.insert(given, index)
 			table.insert(taken, itemId)
+		else
+			tookAll = false
+			break
 		end
 	end
-	for _, index in fromTray do
-		if takeFromTray(plot, p.Recipe[index]) then
-			table.insert(given, index)
+	if tookAll then
+		for _, itemId in plan.TrayUsed do
+			if takeFromTray(plot, itemId) then
+				table.insert(fromTrayTaken, itemId)
+			else
+				tookAll = false
+				break
+			end
 		end
 	end
 	p.Claimed = false
-	table.sort(given)
 	local function keepYourItems()
 		for _, itemId in taken do
 			giveBack(player, itemId)
 		end
 	end
-	if #given == 0 or not (alive(p) and p.State == "Queue" and state.Queue[1] == p and not p.Session) then
+	if not tookAll or not (alive(p) and p.State == "Queue" and table.find(state.Queue, p) and not p.Session) then
 		keepYourItems() -- the patient moved on while we checked
 		return
 	end
 
-	local items: { string } = {}
-	for _, index in given do
-		table.insert(items, p.Recipe[index])
+	local given: { number } = table.clone(plan.CarryIdx)
+	for _, index in plan.TrayIdx do
+		table.insert(given, index)
+	end
+	table.sort(given)
+	local items: { string } = table.clone(taken) -- one mini-game per item given (a medicine is one 🧪 Pour)
+	local medicines: { string } = {}
+	for _, itemId in fromTrayTaken do
+		table.insert(items, itemId)
+	end
+	for _, itemId in items do
+		local row = rawget(ItemsData :: any, itemId)
+		if type(row) == "table" and row.Medicine ~= nil then
+			table.insert(medicines, itemId)
+		end
 	end
 	local sessionId: number? = nil
 	local spec: Treatment.Spec = {
 		Plot = plot,
 		PatientId = p.PatientId,
+		Kind = "Treat",
 		Items = items,
+		Medicines = medicines,
 		Position = p.Root.Position + Vector3.new(0, 3 * p.BaseScale, 0),
 		Counter = plot.Counter.Position,
 		TipSoFar = p.TipPaid,
-		Settle = function(_ratings: { Types.Rating }, tip: number): boolean
+		Settle = function(_ratings: { Types.Rating }, tip: number): (boolean, Treatment.TriageAsk?)
 			local id = sessionId
-			return id ~= nil and settleTreat(p, id, tip)
+			if id == nil then
+				return false, nil
+			end
+			return settleTreat(p, id, tip)
 		end,
 	}
 	local ok, opened = pcall(Treatment.open, player, spec)
@@ -1710,10 +2971,13 @@ local function onTreat(plot: Plot, player: Player)
 	refreshFront(state)
 end
 
--- A Healer nurse is ready (Nurses.Heal via Treatment.onHeal): the front patient gets what the nurse tray holds for
--- it, rated OK, with no tip and no combo change (players still beat nurses with Perfects). The owner is the
--- helper, so the cure is theirs. Returns the items given (Treatment then tells Nurses.healed).
-local function healFront(plotArg: any, _nurseId: string): { string }
+-- A nurse is ready (Nurses.Heal via Treatment.onHeal): a Healer (target "Front") serves the front patient (or #2
+-- with Twin Counters), a Medic (target "Urgent", Progression v2) the 🚑/🚁 patient waiting anywhere in line. It gets
+-- what the nurse tray holds for it (a medicine fills both its slots), rated OK, with no tip and no combo change
+-- (players still beat nurses with Perfects). The owner is the helper, so the cure is theirs; nobody is asked to
+-- triage (a Receptionist still sends it with the bonus). Returns the items given (Treatment then tells
+-- Nurses.healed).
+local function healFront(plotArg: any, _nurseId: string, target: string?): { string }
 	local plot: Plot? = if typeof(plotArg) == "Instance" then Plots.fromInstance(plotArg) else plotArg
 	if not plot then
 		return {}
@@ -1722,23 +2986,32 @@ local function healFront(plotArg: any, _nurseId: string): { string }
 	if not state or not state.Active or state.Owner.Parent ~= Players then
 		return {}
 	end
-	local p = waitingFront(state)
-	if not p or p.Claimed then
-		return {}
+	local candidates: { Patient } = {}
+	if target == "Urgent" then
+		for _, p in state.Queue do
+			if p.Urgent ~= "" and ready(p) then
+				table.insert(candidates, p)
+			end
+		end
+	else
+		candidates = frontCandidates(state)
 	end
-	local given: { number } = {}
-	local items: { string } = {}
-	for _, index in Recipe.match(p.Recipe, p.Done, trayItems(plot)) do
-		local itemId = p.Recipe[index]
-		if takeFromTray(plot, itemId) then
-			table.insert(given, index)
-			table.insert(items, itemId)
+	local tray = trayItems(plot)
+	for _, p in candidates do
+		local indices, used = Recipe.match(p.Recipe, p.Done, tray, ItemsData)
+		if #indices > 0 then
+			local items: { string } = {}
+			for _, itemId in used do
+				if not takeFromTray(plot, itemId) then
+					return {} -- the tray changed under us (never, without a yield): nothing is given
+				end
+				table.insert(items, itemId)
+			end
+			giveItems(state, p, indices, state.Owner, nil)
+			return items
 		end
 	end
-	if #given > 0 then
-		giveItems(state, p, given, state.Owner)
-	end
-	return items
+	return {}
 end
 
 -- The clinic is closing mid-mini-game: if the items in it finish the recipe, the patient counts as treated (so
@@ -1759,6 +3032,180 @@ local function closeSessionEarly(p: Patient)
 	else
 		local helper = p.SessionHelper
 		dropSession(p, helper ~= nil and helper ~= p.Plot.Owner and helper.Parent == Players)
+	end
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Progression v2: the Hydro hot tub's 🫧 game, and abilities acting on the line
+------------------------------------------------------------------------------------------------------------------
+
+-- The plot's hot-tub prompt (PlotBuilder builds Building...HotTub.SoakPrompt, disabled), or nil below Lv 3.
+local function soakPrompt(state: PlotState): ProximityPrompt?
+	local building = state.Plot.Model:FindFirstChild("Building")
+	local tub = building and building:FindFirstChild("HotTub", true)
+	local prompt = tub and tub:FindFirstChild("SoakPrompt", true)
+	return if prompt and prompt:IsA("ProximityPrompt") then prompt else nil
+end
+
+-- A soaking patient whose 🫧 game nobody has played yet (and nobody is playing).
+local function soakTarget(state: PlotState): Patient?
+	for p in state.All do
+		if p.Soaking and not p.SoakDone and not p.SoakSession and p.State ~= "Gone" then
+			return p
+		end
+	end
+	return nil
+end
+
+-- 🫧 The SoakPrompt: ONE Scrub game for a soaking patient (Treatment.open Kind "Soak"): a tip only, sharing the
+-- patient's TipCapPerCure. Same rules as the Counter: someone who can work here, close by, one game at a time.
+local function onSoak(prompt: ProximityPrompt, player: Player)
+	local plot = Plots.fromInstance(prompt)
+	local state = if plot then active[plot] else nil
+	if not state or not state.Active then
+		return
+	end
+	local now = os.clock()
+	if now - (lastTreat[player] or 0) < TREAT_COOLDOWN then
+		return
+	end
+	lastTreat[player] = now
+	if not Plots.canWork(player, state.Plot) then
+		Remotes.toast(player, "🔒 Ask the owner to open up!")
+		return
+	end
+	if Treatment.busy(player) then
+		return -- one mini-game at a time
+	end
+	local holder = prompt.Parent
+	local at: Vector3? = if holder and holder:IsA("Attachment")
+		then holder.WorldPosition
+		elseif holder and holder:IsA("BasePart") then holder.Position
+		else nil
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if
+		not (at and root and root:IsA("BasePart"))
+		or (root.Position - at).Magnitude > SOAK_DISTANCE + DISTANCE_SLACK
+	then
+		return
+	end
+	local p = soakTarget(state)
+	if not p then
+		return
+	end
+	local sessionId: number? = nil
+	local spec: Treatment.Spec = {
+		Plot = state.Plot,
+		PatientId = p.PatientId,
+		Kind = "Soak",
+		Items = {},
+		Position = p.Root.Position + Vector3.new(0, 3 * p.BaseScale, 0),
+		Counter = p.Root.Position, -- a report from far from the tub is rated all OK, as at the Counter
+		TipSoFar = p.TipPaid,
+		Settle = function(_ratings: { Types.Rating }, tip: number): (boolean, Treatment.TriageAsk?)
+			if sessionId ~= nil and p.SoakSession == sessionId then
+				p.SoakSession = nil
+				p.SoakDone = true
+				p.TipPaid += math.max(0, tip)
+				if state.Active then
+					refreshSoak(state)
+				end
+			end
+			return false, nil -- a soak never changes the recipe
+		end,
+	}
+	local ok, opened = pcall(Treatment.open, player, spec)
+	if not ok or type(opened) ~= "number" then
+		if not ok then
+			report("Treatment.open (Soak)", opened)
+		end
+		return
+	end
+	sessionId = opened
+	p.SoakSession = opened
+	refreshSoak(state)
+end
+
+-- The 🫧 prompt is on while a patient soaks whose game is unplayed (wired the first time it's seen).
+refreshSoak = function(state: PlotState)
+	local prompt = soakPrompt(state)
+	if not prompt then
+		return
+	end
+	if not soakWired[prompt] then
+		soakWired[prompt] = true
+		prompt.Triggered:Connect(function(player: Player)
+			onSoak(prompt, player)
+		end)
+	end
+	local on = state.Active and soakTarget(state) ~= nil
+	if prompt.Enabled ~= on then
+		prompt.Enabled = on
+	end
+end
+
+local function refill(p: Patient)
+	p.Patience = p.PatienceMax
+	showRing(p, 1, RING_CALM)
+	showPatience(p, 1)
+end
+
+-- 💫 Miracle: cured on the spot (the patient's own thread plays it out: curedOnSpot). Only a patient in line, not
+-- mid-mini-game.
+local function cureOnSpot(state: PlotState, p: Patient)
+	if p.State ~= "Queue" or p.Session or p.Claimed then
+		return
+	end
+	p.Done = table.create(#p.Recipe, true)
+	p.Helper = state.Owner
+	p.PatienceLeft = math.clamp(p.Patience / p.PatienceMax, 0, 1)
+	p.RecoverIn = "Reception"
+	p.State = "Cured"
+	showRecipe(p)
+	removeFromQueue(state, p)
+end
+
+-- Abilities.Fired (plot, nurseId, abilityId, kind, value): the kinds that act on the line (build plan §B8).
+--   RefillFront  the front waiting patient's patience is full again (🤗 Warm Hug)
+--   RefillLine   everyone waiting (🌈 Rainbow Cheer)
+--   PauseLine    no patience drains for `value` seconds (🎵 Calm Song; Abilities.patiencePaused too)
+--   CureLine     every patient waiting (not being treated) is cured on the spot, owner as helper, no tip (💫 Miracle)
+local function onAbility(plotArg: any, _nurseId: any, _abilityId: any, kind: any, value: any)
+	local plot: Plot? = if typeof(plotArg) == "Instance"
+		then Plots.fromInstance(plotArg)
+		elseif type(plotArg) == "table" then plotArg
+		else nil
+	local state = if plot then active[plot] else nil
+	if not state or not state.Active or state.Owner.Parent ~= Players then
+		return
+	end
+	if kind == "RefillFront" then
+		for _, p in state.Queue do
+			if p.State == "Queue" and not p.Session then
+				refill(p)
+				break
+			end
+		end
+	elseif kind == "RefillLine" then
+		for _, p in state.Queue do
+			if p.State == "Queue" then
+				refill(p)
+			end
+		end
+	elseif kind == "PauseLine" then
+		state.PausedUntil = math.max(state.PausedUntil, os.clock() + clampNumber(value, 0, 60, 0))
+	elseif kind == "CureLine" then
+		local waiting: { Patient } = {}
+		for _, p in state.Queue do
+			if p.State == "Queue" and not p.Session and not p.Claimed then
+				table.insert(waiting, p)
+			end
+		end
+		for _, p in waiting do
+			cureOnSpot(state, p)
+		end
+		refreshFront(state)
 	end
 end
 
@@ -1815,7 +3262,13 @@ local function activate(owner: Player, plot: Plot)
 		end
 	end
 	ray.FilterDescendantsInstances = include
+	-- Standing on a floor (Progression v2): only what you can stand on (the slabs and the Ground; markers, glass and
+	-- the walls above the ground storey don't collide).
+	local floorRay = RaycastParams.new()
+	floorRay.FilterType = Enum.RaycastFilterType.Include
+	floorRay.RespectCanCollide = true
 
+	local now = os.clock()
 	local state: PlotState = {
 		Plot = plot,
 		Owner = owner,
@@ -1835,6 +3288,19 @@ local function activate(owner: Player, plot: Plot)
 		Loop = nil,
 		SecondSpawned = false,
 		Forced = {},
+		FloorRay = floorRay,
+		Level = levelAsk("level", owner, 1),
+		Rebirths = rebirthsOf(owner),
+		Effects = effectsOf(owner),
+		Team = { Cash = 1, Recover = 1, Urgent = 1 },
+		Medic = 1,
+		Receptionist = { Arrive = 1, Triage = false },
+		NextAE = now + Config.AE.FirstSeconds,
+		NextVIP = now + Pure.vipSeconds(Config, rng:NextNumber()),
+		ForceUrgent = {},
+		Incoming = 0,
+		PausedUntil = 0,
+		LiftBusy = false,
 	}
 	active[plot] = state
 	plot.Model:SetAttribute("FrontItem", "")
@@ -1875,6 +3341,13 @@ deactivate = function(plot: Plot)
 	end
 	table.clear(state.Queue)
 	table.clear(state.Beds)
+	table.clear(state.ForceUrgent)
+	state.Incoming = 0
+	state.LiftBusy = false
+	local tubPrompt = soakPrompt(state)
+	if tubPrompt then
+		tubPrompt.Enabled = false
+	end
 	state.Prompt.Enabled = false
 	state.Prompt.ObjectText = ""
 	plot.Model:SetAttribute("FrontItem", "")
@@ -1926,14 +3399,31 @@ function Patients.reopen(owner: Player): boolean
 	return true
 end
 
--- STUB (T7): an ambulance now (Lv 2+)
-function Patients.adminAmbulance(_owner: Player): (boolean, string)
-	return false, Remotes.SOON
+-- An admin's urgent call: it comes as soon as the line has room (no timer, no tutorial or presence rule).
+local function adminCall(owner: Player, kind: string, minLevel: number, icon: string): (boolean, string)
+	local plot = Plots.getPlot(owner)
+	local state = if plot then active[plot] else nil
+	if not state then
+		return false, "🏠 No clinic yet!"
+	end
+	if levelAsk("level", owner, 1) < minLevel then
+		return false, "🏥 Lv " .. minLevel .. " first!"
+	end
+	if #state.ForceUrgent >= MAX_FORCED_URGENT then
+		return false, "⏳ Line is full!"
+	end
+	table.insert(state.ForceUrgent, kind)
+	return true, icon .. " On the way!"
 end
 
--- STUB (T7): an air ambulance now (Lv 5; no R2 needed)
-function Patients.adminHelicopter(_owner: Player): (boolean, string)
-	return false, Remotes.SOON
+-- 🚑 An ambulance as soon as the line has room (Lv 2+).
+function Patients.adminAmbulance(owner: Player): (boolean, string)
+	return adminCall(owner, "AE", AE_LEVEL, "🚑")
+end
+
+-- 🚁 An air ambulance as soon as the line has room (Lv 5; no R2 needed).
+function Patients.adminHelicopter(owner: Player): (boolean, string)
+	return adminCall(owner, "VIP", HELI_LEVEL, "🚁")
 end
 
 function Patients.start()
@@ -1941,6 +3431,16 @@ function Patients.start()
 		ensurePrompt(plot)
 	end
 	Treatment.onHeal(healFront)
+	Abilities.Fired:Connect(onAbility)
+	-- 🦉 Night Owl: when the in-game night ends (IsNight true -> false)
+	local wasNight = Workspace:GetAttribute("IsNight") == true
+	Workspace:GetAttributeChangedSignal("IsNight"):Connect(function()
+		local isNight = Workspace:GetAttribute("IsNight") == true
+		if wasNight and not isNight then
+			nightEndedAt = os.clock()
+		end
+		wasNight = isNight
+	end)
 	Plots.PlotAssigned:Connect(function(owner: Player, plot: Plot)
 		activate(owner, plot)
 	end)

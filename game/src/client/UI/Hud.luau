@@ -12,6 +12,11 @@
 --                 can help" (your plot's OpenHelpers, set by the server through SetHelpers; only while you own a
 --                 clinic), plus 🛠️ Admin (opens UI/AdminPanel) only while the server has set the player attribute
 --                 IsAdmin. The card grows a row for each of 👥 and 🛠️ and scales its rows down on a short screen
+--   Progression v2 (build plan §C T8): no new bottom button (the seven still fit at 640 px). The Branch panel lives
+--                 in 🛒's 🏥 tab: a perk card waiting or tree points to spend dot 🛒 with a 🃏 / 🌳 sticker that
+--                 bounces once (never "you can open a branch"); after a rebirth its 🌳 points fly into 🛒
+--                 (UI/Celebrate). The Agency and the Market live in 👩‍⚕️ and at their kiosks; a nurse you sold sends
+--                 its coins flying into 💰 (NurseNews Sold / Gone)
 --   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty, each
 --                 with a red ✖ to throw it away) above the 🛒 📖 📬 🎯 👩‍⚕️ 🏅 🏆 buttons, each of the first five
 --                 with a dot when something waits there (a room you can buy or decor to place · new pages · mail · a
@@ -2204,6 +2209,17 @@ function Hud.init(ctx: Types.Ctx)
 	ctx.on("NursesNew", function(count: any)
 		Kit.setDot(buttons.Nurses, type(count) == "number" and count > 0)
 	end)
+	-- Progression v2: a nurse sold (to the Agency, or on the Market while you're away from the kiosk) sends its coins
+	-- home into 💰, so the cash roll has a reason to move.
+	ctx.on("NurseNews", function(info: any)
+		if type(info) ~= "table" then
+			return
+		end
+		local paid = if info.Kind == "Sold" then info.Cash elseif info.Kind == "Gone" then info.Price else nil
+		if type(paid) == "number" and paid == paid and paid > 0 then
+			Hud.fly(nil, "💰", "Cash", Kit.Juice.coins(paid))
+		end
+	end)
 
 	-- The 🔥 combo sticker follows the player attribute Combo (T1, session-only). Hidden during the tutorial.
 	local comboSteps = (ctx.Config.MiniGame and ctx.Config.MiniGame.Combo) or {}
@@ -2418,6 +2434,7 @@ function Hud.init(ctx: Types.Ctx)
 	end)
 
 	local loaded = false
+	local branchWasNews = false
 	local mailWasReady = false
 	local goalsWereReady = false
 	ctx.onState(function(state: Types.Snapshot)
@@ -2455,7 +2472,16 @@ function Hud.init(ctx: Types.Ctx)
 			elseif news.Decor then "Decor"
 			elseif news.Hospital or news.Branch then "Hospital"
 			else nil
-		Kit.setDot(buttons.Shop, shopTab ~= nil)
+		-- Progression v2: a branch reward waiting (and nothing else) makes the dot a 🃏 (a perk card to pick) or 🌳
+		-- (tree points to spend) sticker; it bounces once when it appears, never again (no pressure, red line 3).
+		local branchOnly = news.Branch and not (news.Rooms or news.Decor or news.Hospital)
+		local rebirth = (state :: any).Rebirth
+		local offer = type(rebirth) == "table" and type(rebirth.Offer) == "table" and #rebirth.Offer > 0
+		Kit.setDot(buttons.Shop, shopTab ~= nil, if branchOnly then (if offer then "🃏" else "🌳") else nil)
+		if animate and news.Branch and not branchWasNews then
+			Hud.pop(buttons.Shop, 1.15)
+		end
+		branchWasNews = news.Branch
 		if animate and mailReady and not mailWasReady then
 			Hud.shake(buttons.Mailbox)
 		end

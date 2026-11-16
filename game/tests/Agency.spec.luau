@@ -84,6 +84,29 @@ T.describe("Agency", function()
 		end
 	)
 
+	test(
+		"personal: every Common in the shared stock still gives 2 own slots, a shared one repeating only then",
+		function()
+			local commons = {}
+			for _, id in Nurses.Order do
+				if Nurses[id].Rarity == "Common" and Nurses[id].Source == nil then
+					table.insert(commons, id)
+				end
+			end
+			for k = 1, 300 do
+				local mine = Agency.personal(Nurses, Config, 5000 + k, k, commons)
+				expect(#mine).toBe(Config.Agency.LuckySlots)
+				expect(mine[1] ~= mine[2]).toBe(true)
+				for _, id in mine do
+					expect(Nurses[id].Source).toBeNil()
+					if table.find(commons, id) then
+						expect(Nurses[id].Rarity).toBe("Common") -- the rolled rarity, never a fall to another
+					end
+				end
+			end
+		end
+	)
+
 	test("price: x1.5 the belt's price at your level, Bargain off", function()
 		expect(Agency.price(Config, "Common", 1)).toBe(150)
 		expect(Agency.price(Config, "Rare", 1)).toBe(600)

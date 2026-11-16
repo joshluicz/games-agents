@@ -120,4 +120,17 @@ T.describe("Market listing and buying", function()
 		expect((Market.canBuy(buyer({ Level = 5 }), rebirthOnly, false, Config, Nurses))).toBe(false)
 		expect((Market.canBuy(buyer(), { NurseId = "Order", Price = 1 }, false, Config, Nurses))).toBe(false)
 	end)
+
+	test("canBuy: a nurse above the buyer's level cap needs R3 first (never clamped)", function()
+		local cap = Config.Nurses.MaxLevel
+		local at = Config.Nurses.LevelCapRebirths
+		local listing = { NurseId = "CloudKoala", Rarity = "Epic", Level = cap + 1, Price = 900 }
+		expect({ Market.canBuy(buyer(), listing, false, Config, Nurses) }).toEqual({
+			false,
+			"🏢 R" .. at .. " first!",
+		})
+		expect((Market.canBuy(buyer(), listing, false, Config, Nurses, at))).toBe(true)
+		local atCap = { NurseId = "CloudKoala", Rarity = "Epic", Level = cap, Price = 900 }
+		expect((Market.canBuy(buyer(), atCap, false, Config, Nurses))).toBe(true)
+	end)
 end)

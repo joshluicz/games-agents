@@ -40,10 +40,12 @@
 -- BeltScout are forwarded to the bus under the same names too:
 --   "AgencyNews" (view) · "MarketNews" (view) · "BeltScout" (info)   the Agency as you see it · the Market's
 --                                              listings · the next belt arrival's rarity (🔭 Belt Scout owners)
---   "Open" ("Nurses", "Team" | rarity)         the 👩‍⚕️ panel ("Team" = your roster page; Hud, anyone)
+--   "Open" ("Nurses", "Team" | "Branch" | rarity)   the 👩‍⚕️ panel ("Team" = your roster page, "Branch" = the 🏢
+--                                              Journal page of rebirth-only nurses; Hud, anyone)
 --   "Open" ("Branch", "Open" | "Perks" | "Tree" | "Themes")   UI.BranchPanel (from the Shop's 🏥 tab, and "Perks"
 --                                              after the Rebirth celebration)
---   "Open" ("Agency") · "Open" ("Market")      UI.AgencyPanel · UI.MarketPanel (NursePanel's buttons, the kiosks)
+--   "Open" ("Agency", tab?) · "Open" ("Market", tab?)   UI.AgencyPanel (tab "Hire" | "Sell") · UI.MarketPanel (tab
+--                                              "Buy" | "Sell" | "Mine") (NursePanel's buttons, the kiosks)
 --   "Sell" (nurseId) · "List" (nurseId)        NursePanel's card buttons -> UI.AgencyPanel (the sell confirm) ·
 --                                              UI.MarketPanel (the list flow)
 --   "Open" ("Lift", floors)                    UI.LiftPanel itself (a LiftPrompt's client Triggered)

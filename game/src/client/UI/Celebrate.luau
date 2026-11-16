@@ -1,8 +1,16 @@
 --!strict
--- Big celebration screens (depth-update design §4, build plan §B9). OWNER: T6.
+-- Big celebration screens (depth-update design §4, build plan §B9). OWNER: T6; Progression v2: T8.
 --   init(ctx)   listens for the bus "Celebrate" (info: Types.CelebrateInfo): from the server for a level-up
 --               ("LevelUp"), a first-time hire ("NewNurse") and a completed Journal group ("JournalSet"); Feel/CureFX
 --               fires "Room" for a room you just got (with an extra field `Room = <RoomId>`, see Words.of)
+-- Progression v2 (build plan §C T8): "Rebirth" (Count, Theme): "🏢 New branch!" in the new theme's colours (the
+-- ribbon its roof, the bubble its walls, the rays its roof), the count on the bubble ("🏢 2"), chips for what the
+-- branch gave (💰⭐ ×1.25, 🌳 +3, 👩‍⚕️ +1 nurse slot) and every "Unlock" the server sends right after it, folded in as
+-- chips (Golden patients with their odds, "🎲 1 in 50"). Its button is "🃏 Pick a card!": it closes and opens the
+-- Branch panel's perk cards (bus Open("Branch", "Perks")); closing it any other way just closes (the 🛒 dot waits,
+-- no nagging). As it closes, the branch's 🌳 points fly into 🛒. "Perk" (Perk): the card's icon, name and words.
+-- "NurseLevel" (NurseId, Level, Ability): the nurse's face, "⬆️ Lv 5", and its trick getting stronger. An "Unlock"
+-- with no Rebirth to join shows on its own. A new nurse also shows its trick (its Data/Abilities chip).
 -- What it shows: the screen dims, candy confetti rains, and in the middle the reward sits in a big white bubble on
 -- turning rays (Kit.celebrate) under a big outlined title on a ribbon in the moment's colour: the new level's name
 -- and its unlock chips (Data/Levels), the nurse's face with its rarity frame shimmering (Kit.rarityFrame) and its
@@ -11,7 +19,8 @@
 -- passing (no countdown: it just gets out of the way). On closing, a Journal group's cash flies into 💰 and a new
 -- nurse's icon into the 👩‍⚕️ button. One at a time (a short queue), never while the first-session tutorial runs
 -- (it waits for the tutorial to end). Calm (Kit.reducedMotion()): the rays hold still, no confetti, no bounce.
--- Sounds (Feel/Sounds over the bus): LevelUp, Celebrate (nurses and Journal sets), Fanfare (rooms).
+-- Sounds (Feel/Sounds over the bus): LevelUp, Celebrate (nurses, Journal sets, unlocks), Fanfare (rooms), and
+-- Progression v2's Rebirth, Perk and LevelNurse.
 -- Display only: the server already granted whatever this shows.
 
 local ContextActionService = game:GetService("ContextActionService")
@@ -24,6 +33,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
+local RebirthLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Rebirth"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
@@ -40,19 +50,39 @@ export type CelebrateWords = {
 	Title: string, -- ≤ 3 words
 	Icon: string,
 	Sub: string, -- one line under the title ("" = none)
-	Chips: { string }, -- up to 4 small chips (an emoji and a word or two)
+	Chips: { string }, -- small chips (an emoji and a few words), at most MaxChips
+	MaxChips: number,
 	Rarity: string?, -- a nurse's or a Journal group's rarity (its colour and frame)
 	NurseId: string?, -- a nurse to draw
 	Cash: number?, -- a Journal group's cash (flies into 💰 on closing)
 	Sound: string, -- the Feel/Sounds cue
+	-- Progression v2
+	Sticker: string?, -- the bubble's corner sticker ("🏢 2", "⬆️"); nil = the usual (NEW!, the rarity's icon)
+	Colors: { string }?, -- Rebirth: the branch theme's Wall, Roof and Trim (hex), for the ribbon, bubble and rays
+	Action: string?, -- "Perks": the button says "🃏 Pick a card!" and opens the Branch panel's perk cards
+	Points: number?, -- Rebirth: tree points that fly into 🛒 as it closes
 }
 
-local KINDS = { LevelUp = "LevelUp", NewNurse = "Celebrate", JournalSet = "Celebrate", Room = "Fanfare" }
+local KINDS = {
+	LevelUp = "LevelUp",
+	NewNurse = "Celebrate",
+	JournalSet = "Celebrate",
+	Room = "Fanfare",
+	-- Progression v2 (build plan §B3 CelebrateInfo kinds)
+	Rebirth = "Rebirth",
+	Perk = "Perk",
+	NurseLevel = "LevelNurse",
+	Unlock = "Celebrate",
+}
+Words.KINDS = KINDS
 -- The same role icons as the belt and the Journal (UI/BeltView Pure.ROLE_ICONS; tests/Juice checks they match). Never
 -- an item's icon (🧪 Potion, 🩹 Plaster): a pre-reader would read a Healer as a plaster.
 local ROLE_ICONS = { Maker = "🛠️", Healer = "🩺", Cheerer = "🎉" }
 Words.ROLE_ICONS = ROLE_ICONS
 local MAX_CHIPS = 4
+Words.MAX_CHIPS = MAX_CHIPS
+-- A rebirth has more to say: what it gave (💰⭐, 🌳, a nurse slot) plus the unlocks folded into it.
+Words.REBIRTH_CHIPS = 6
 local MAX_TITLE_WORDS = 3
 
 function Words.commas(n: number): string
@@ -62,6 +92,14 @@ function Words.commas(n: number): string
 		grouped = string.sub(grouped, 2)
 	end
 	return (if n < 0 then "-" else "") .. grouped
+end
+
+-- A multiplier as kids read it: 1.25 -> "1.25", 1.5 -> "1.5", 2 -> "2".
+function Words.decimal(n: number): string
+	local text = string.format("%.2f", n)
+	text = string.gsub(text, "0+$", "")
+	text = string.gsub(text, "%.$", "")
+	return text
 end
 
 local function cutWords(text: string, max: number): string
@@ -75,6 +113,19 @@ local function cutWords(text: string, max: number): string
 	return table.concat(words, " ")
 end
 
+local function finite(value: any): number?
+	if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+		return value
+	end
+	return nil
+end
+
+-- A whole number >= 0 (junk = 0).
+local function whole(value: any): number
+	local n = finite(value)
+	return if n and n > 0 then math.floor(n) else 0
+end
+
 -- A row of a keyed Data map by id (rawget, so a map's .Order is never an id).
 local function entry(map: any, id: any): any
 	if type(map) ~= "table" or type(id) ~= "string" or id == "" then
@@ -84,8 +135,69 @@ local function entry(map: any, id: any): any
 	return if type(found) == "table" then found else nil
 end
 
+local function isHex(value: any): boolean
+	return type(value) == "string" and string.match(value, "^#%x%x%x%x%x%x$") ~= nil
+end
+
+-- The perk card for an id: one of the 12, or the Fallback (Data/Perks.FallbackId, "TreePoints").
+local function perkOf(perks: any, id: any): any
+	local found = entry(perks, id)
+	if found then
+		return found
+	end
+	if type(perks) == "table" and id ~= nil and id == perks.FallbackId and type(perks.Fallback) == "table" then
+		return perks.Fallback
+	end
+	return nil
+end
+
+-- The roster cap after `count` rebirths (Config.Roster: Base + PerRebirth each, at most Max).
+local function rosterCap(cfg: any, count: number): number
+	local roster = if type(cfg) == "table" and type(cfg.Roster) == "table" then cfg.Roster else {}
+	local base, per = whole(roster.Base), whole(roster.PerRebirth)
+	local max = finite(roster.Max) or math.huge
+	return math.min(base + per * count, max)
+end
+
+-- The chips one unlock adds (Logic/Rebirth.UNLOCKS rows): its icon and words, and for Golden patients their odds
+-- ("🎲 1 in 50", from Config.GoldenChance), so the R3 unlock shows them (red line 3: odds always shown).
+function Words.unlockChips(unlockId: any, data: any): { string }
+	local row = entry(data.Unlocks, unlockId)
+	if not row then
+		return {}
+	end
+	local chips = { tostring(row.Icon) .. " " .. tostring(row.Text) }
+	if unlockId == "Golden" then
+		local cfg = data.Config
+		local chance = if type(cfg) == "table" then finite(cfg.GoldenChance) else nil
+		if chance and chance > 0 and chance <= 1 then
+			table.insert(chips, "🎲 1 in " .. math.floor(1 / chance + 0.5))
+		end
+	end
+	return chips
+end
+
+-- Folds an Unlock into a Rebirth celebration (the server sends them right after it): its chips join the Rebirth's,
+-- up to its MaxChips. True when it was folded (the caller then shows no screen of its own).
+function Words.fold(words: CelebrateWords, unlockId: any, data: any): boolean
+	if words.Kind ~= "Rebirth" then
+		return false
+	end
+	local chips = Words.unlockChips(unlockId, data)
+	if #chips == 0 then
+		return false
+	end
+	for _, text in chips do
+		if #words.Chips < words.MaxChips then
+			table.insert(words.Chips, text)
+		end
+	end
+	return true
+end
+
 -- What to show for a CelebrateInfo; nil for junk (no table, an unknown Kind, no Title or Icon).
--- data = { Nurses, Rarities, Levels, Decor, Rooms } (ctx.Data).
+-- data = { Nurses, Rarities, Levels, Decor, Rooms } (ctx.Data), and for Progression v2 also Perks, Themes,
+-- Abilities, Unlocks (Logic/Rebirth.UNLOCKS) and Config (Rebirth, Roster, GoldenChance).
 function Words.of(info: any, data: any): CelebrateWords?
 	if type(info) ~= "table" or type(info.Kind) ~= "string" or KINDS[info.Kind] == nil then
 		return nil
@@ -99,18 +211,30 @@ function Words.of(info: any, data: any): CelebrateWords?
 		Icon = info.Icon,
 		Sub = "",
 		Chips = {},
+		MaxChips = if info.Kind == "Rebirth" then Words.REBIRTH_CHIPS else MAX_CHIPS,
 		Rarity = nil,
 		NurseId = nil,
 		Cash = nil,
 		Sound = KINDS[info.Kind],
+		Sticker = nil,
+		Colors = nil,
+		Action = nil,
+		Points = nil,
 	}
 	local function chip(text: string?)
-		if text and text ~= "" and #words.Chips < MAX_CHIPS then
+		if text and text ~= "" and #words.Chips < words.MaxChips then
 			table.insert(words.Chips, text)
 		end
 	end
 	local function rarityOf(id: any): string?
 		return if entry(data.Rarities, id) then id else nil
+	end
+	local function abilityChip(nurse: any)
+		local ability = if nurse then entry(data.Abilities, nurse.Ability) else nil
+		if ability then
+			chip(tostring(ability.Icon) .. " " .. tostring(ability.Name))
+		end
+		return ability
 	end
 
 	if info.Kind == "LevelUp" then
@@ -143,6 +267,7 @@ function Words.of(info: any, data: any): CelebrateWords?
 			if roleIcon then
 				chip(roleIcon .. " " .. nurse.Role)
 			end
+			abilityChip(nurse) -- Progression v2: its signature trick
 		else
 			words.Rarity = rarityOf(info.Rarity)
 		end
@@ -168,6 +293,74 @@ function Words.of(info: any, data: any): CelebrateWords?
 		if room then
 			words.Sub = tostring(room.Name)
 		end
+	elseif info.Kind == "Rebirth" then
+		-- "🏢 New branch!": the count on the bubble, the new theme's look and colours, what this branch gave you,
+		-- and then a perk card to pick (every rebirth offers one: the 🌳 fallback when all 12 are owned).
+		local count = whole(info.Count)
+		if count > 0 then
+			words.Sticker = "🏢 " .. count
+		end
+		local theme = entry(data.Themes, info.Theme)
+		if theme then
+			words.Sub = tostring(theme.Icon) .. " " .. tostring(theme.Name)
+			if isHex(theme.Wall) and isHex(theme.Roof) and isHex(theme.Trim) then
+				words.Colors = { theme.Wall, theme.Roof, theme.Trim }
+			end
+		end
+		local cfg = if type(data.Config) == "table" then data.Config else {}
+		local rebirth = if type(cfg.Rebirth) == "table" then cfg.Rebirth else nil
+		if count > 0 and rebirth then
+			local counted = math.min(count, finite(rebirth.MaxBonusRebirths) or count)
+			local multiplier = 1 + math.max(0, finite(rebirth.CashPerRebirth) or 0) * counted
+			if multiplier > 1 then
+				chip("💰⭐ ×" .. Words.decimal(multiplier))
+			end
+			local points = whole(rebirth.PointsPerRebirth)
+			if points > 0 then
+				words.Points = points
+				chip("🌳 +" .. points)
+			end
+			if rosterCap(cfg, count) > rosterCap(cfg, count - 1) then
+				chip("👩‍⚕️ +1 nurse slot")
+			end
+		end
+		words.Action = "Perks"
+	elseif info.Kind == "Perk" then
+		local perk = perkOf(data.Perks, info.Perk)
+		if perk then
+			words.Sub = tostring(perk.Name)
+			chip(tostring(perk.Icon) .. " " .. tostring(perk.Text))
+		end
+	elseif info.Kind == "NurseLevel" then
+		local nurse = entry(data.Nurses, info.NurseId)
+		if nurse then
+			words.NurseId = info.NurseId
+			words.Rarity = rarityOf(nurse.Rarity)
+			words.Sub = tostring(nurse.Name)
+		end
+		local level = whole(info.Level)
+		if level > 0 then
+			words.Sticker = "⬆️ " .. level
+			chip("⬆️ Lv " .. level)
+		end
+		if info.Ability == true then
+			local ability = abilityChip(nurse)
+			if ability then
+				chip("💪 Stronger trick")
+				if ability.Daily ~= true then
+					chip("🔁 Ready sooner")
+				end
+			end
+		end
+	elseif info.Kind == "Unlock" then
+		local chips = Words.unlockChips(info.Unlock, data)
+		local row = entry(data.Unlocks, info.Unlock)
+		if row then
+			words.Sub = tostring(row.Text)
+		end
+		for _, text in chips do
+			chip(text)
+		end
 	end
 	return words
 end
@@ -187,7 +380,24 @@ local ACCENTS: { [string]: Color3 } = {
 	NewNurse = Theme.Colors.Cyan,
 	JournalSet = Theme.Colors.Purple,
 	Room = Theme.Colors.Good,
+	Rebirth = Theme.Colors.Purple, -- the Candy theme (no colours of its own)
+	Perk = Theme.Colors.Pink,
+	NurseLevel = Theme.Colors.Cyan,
+	Unlock = Theme.Colors.Good,
 }
+local EXTRA_SECONDS = { Rebirth = 3 } -- a rebirth has more to read before it closes by itself
+
+local function fromHex(value: string?, fallback: Color3): Color3
+	if type(value) ~= "string" then
+		return fallback
+	end
+	local ok, color = pcall(Color3.fromHex, value)
+	return if ok then color else fallback
+end
+
+local function textWidth(text: string): number
+	return utf8.len(text) or #text
+end
 
 local function usesDirectionalFocus(): boolean
 	local preferred = UserInputService.PreferredInput
@@ -203,6 +413,19 @@ end
 
 function Celebrate.init(ctx: Types.Ctx)
 	local data = ctx.Data :: any
+	-- What Words.of reads: the Data tables, plus the rebirth unlocks and the Config numbers it shows.
+	local wordsData = {
+		Nurses = data.Nurses,
+		Rarities = data.Rarities,
+		Levels = data.Levels,
+		Decor = data.Decor,
+		Rooms = data.Rooms,
+		Perks = data.Perks,
+		Themes = data.Themes,
+		Abilities = data.Abilities,
+		Unlocks = RebirthLogic.UNLOCKS,
+		Config = ctx.Config,
+	}
 	local gui = Kit.screen("Celebrate", Theme.DisplayOrder.Celebrate)
 	gui.Enabled = false
 
@@ -389,7 +612,7 @@ function Celebrate.init(ctx: Types.Ctx)
 	local token = 0
 	local openedAt = 0
 	local stopFx: { () -> () } = {}
-	local closeNow: () -> () = function() end
+	local closeNow: (byButton: boolean?) -> () = function(_byButton: boolean?) end
 
 	local function clearFx()
 		for _, stop in stopFx do
@@ -407,7 +630,8 @@ function Celebrate.init(ctx: Types.Ctx)
 			LayoutOrder = order,
 			BackgroundColor3 = Theme.Colors.Paper,
 			BackgroundTransparency = 0,
-			Size = UDim2.fromOffset(190, 40),
+			-- Wider for longer words (a perk's line), so the text never shrinks past reading.
+			Size = UDim2.fromOffset(math.clamp(textWidth(text) * 12 + 40, 190, 300), 40),
 			Parent = chips,
 		})
 		textLimit(label, 22)
@@ -419,10 +643,35 @@ function Celebrate.init(ctx: Types.Ctx)
 		return label
 	end
 
-	local function draw(words: CelebrateWords)
+	local function drawChips(words: CelebrateWords)
+		for _, child in chips:GetChildren() do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+		for index, text in words.Chips do
+			makeChip(text, index)
+		end
+		chips.Visible = #words.Chips > 0
+	end
+
+	-- The moment's colours: a nurse's rarity, a branch theme's (Rebirth), else the kind's accent.
+	local function colorsOf(words: CelebrateWords): (Color3, Color3?, Color3?)
 		local accent = if words.Rarity
 			then Kit.rarityColor(words.Rarity)
 			else ACCENTS[words.Kind] or Theme.Colors.Primary
+		local themed = words.Colors
+		if themed then
+			local wall = fromHex(themed[1], Theme.Colors.Paper)
+			local roof = fromHex(themed[2], accent)
+			local trim = fromHex(themed[3], Theme.Colors.Paper)
+			return roof, wall, trim
+		end
+		return accent, nil, nil
+	end
+
+	local function draw(words: CelebrateWords)
+		local accent, wall, trim = colorsOf(words)
 		ribbon.BackgroundColor3 = Kit.lighten(accent, 0.08)
 		title.Text = words.Icon .. " " .. words.Title
 		sub.Text = words.Sub
@@ -444,16 +693,28 @@ function Celebrate.init(ctx: Types.Ctx)
 				Parent = face,
 			})
 		end
-		bubble.BackgroundColor3 = if nurse then Kit.lighten(accent, 0.55) else Theme.Colors.Paper
+		bubble.BackgroundColor3 = if nurse then Kit.lighten(accent, 0.55) else wall or Theme.Colors.Paper
 
 		local frame = ring:FindFirstChild("RarityFrame")
 		if frame then
 			frame:Destroy()
 		end
+		local trimStroke = ring:FindFirstChild("ThemeTrim")
+		if trimStroke then
+			trimStroke:Destroy()
+		end
 		if words.Rarity then
 			table.insert(stopFx, Kit.rarityFrame(ring, words.Rarity))
+		elseif trim then
+			-- A branch theme: its trim colour rings the bubble.
+			local stroke = Kit.stroke(ring, trim, Theme.Size.StrokeLarge + 2)
+			stroke.Name = "ThemeTrim"
 		end
-		if words.Kind == "NewNurse" then
+		if words.Sticker then
+			sticker.Text = words.Sticker
+			sticker.BackgroundColor3 = Kit.lighten(accent, 0.08)
+			sticker.Visible = true
+		elseif words.Kind == "NewNurse" then
 			sticker.Text = "NEW!"
 			sticker.BackgroundColor3 = Theme.Colors.Dot
 			sticker.Visible = true
@@ -466,18 +727,14 @@ function Celebrate.init(ctx: Types.Ctx)
 			sticker.Visible = false
 		end
 
-		for _, child in chips:GetChildren() do
-			if child:IsA("GuiObject") then
-				child:Destroy()
-			end
-		end
-		for index, text in words.Chips do
-			makeChip(text, index)
-		end
-		chips.Visible = #words.Chips > 0
+		drawChips(words)
+		-- The button: "🃏 Pick a card!" after a rebirth (it opens the perk cards), else "🎉 Yay!".
+		local picks = words.Action == "Perks"
+		yay.Text = if picks then "🃏 Pick a card!" else "🎉 Yay!"
+		yay.Size = UDim2.fromOffset(if picks then 290 else 220, 64)
 	end
 
-	-- Things the reward leaves behind as it closes: cash into 💰, a new nurse into 👩‍⚕️.
+	-- Things the reward leaves behind as it closes: cash into 💰, a new nurse into 👩‍⚕️, a branch's 🌳 into 🛒.
 	local function afterClose(words: CelebrateWords)
 		if words.Cash and words.Cash > 0 then
 			Hud.fly(nil, "💰", "Cash", Kit.Juice.coins(words.Cash))
@@ -485,6 +742,9 @@ function Celebrate.init(ctx: Types.Ctx)
 		if words.NurseId then
 			local nurse = rawget(data.Nurses, words.NurseId)
 			Hud.fly(nil, if nurse then nurse.Icon else "👩‍⚕️", "Nurses", 1)
+		end
+		if words.Points and words.Points > 0 then
+			Hud.fly(nil, "🌳", "Shop", math.clamp(words.Points + 2, 3, 8))
 		end
 	end
 
@@ -497,9 +757,27 @@ function Celebrate.init(ctx: Types.Ctx)
 			if inputState ~= Enum.UserInputState.Begin then
 				return Enum.ContextActionResult.Pass
 			end
-			closeNow()
+			closeNow(false)
 			return Enum.ContextActionResult.Sink
 		end, false, Enum.ContextActionPriority.High.Value + 10, Enum.KeyCode.ButtonB)
+	end
+
+	-- The chips spring in one after another (from `from`, so chips folded in later pop on their own).
+	local function popChips(mine: number, from: number)
+		local index = 0
+		for _, child in chips:GetChildren() do
+			if child:IsA("GuiObject") then
+				index += 1
+				if index >= from then
+					task.delay(0.35 + (index - from + 1) * 0.09, function()
+						if token == mine and child.Parent then
+							Kit.bump(child)
+							Hud.sound("Pop", 0.5)
+						end
+					end)
+				end
+			end
+		end
 	end
 
 	local function show(words: CelebrateWords)
@@ -519,8 +797,11 @@ function Celebrate.init(ctx: Types.Ctx)
 			TweenService:Create(dim, Theme.Tween.Fade, { BackgroundTransparency = DIM }):Play()
 		end
 		Kit.popIn(stage)
-		table.insert(stopFx, Kit.celebrate(core, Kit.lighten(ACCENTS[words.Kind] or Theme.Colors.Cash, 0.2)))
-		Kit.confetti(rain, Theme.Juice.ConfettiPieces + 12)
+		local raysColor = if words.Colors
+			then colorsOf(words)
+			else Kit.lighten(ACCENTS[words.Kind] or Theme.Colors.Cash, 0.2)
+		table.insert(stopFx, Kit.celebrate(core, raysColor))
+		Kit.confetti(rain, Theme.Juice.ConfettiPieces + (if words.Kind == "Rebirth" then 24 else 12))
 		Hud.sound(words.Sound)
 
 		-- The reward springs in, then the title, then each chip.
@@ -535,17 +816,21 @@ function Celebrate.init(ctx: Types.Ctx)
 					Kit.punch(ribbon, 1.25, Theme.Tween.Bump)
 				end
 			end)
-			local index = 0
-			for _, child in chips:GetChildren() do
-				if child:IsA("GuiObject") then
-					index += 1
-					task.delay(0.35 + index * 0.09, function()
-						if token == mine and child.Parent then
-							Kit.bump(child)
-							Hud.sound("Pop", 0.5)
-						end
-					end)
-				end
+			if words.Sticker then
+				task.delay(0.3, function()
+					if token == mine then
+						Kit.punch(sticker, 1.6, Theme.Tween.Bump)
+					end
+				end)
+			end
+			popChips(mine, 1)
+			if words.Kind == "Rebirth" then
+				-- A second wave of confetti as the new branch "opens".
+				task.delay(0.6, function()
+					if token == mine then
+						Kit.confetti(rain, Theme.Juice.ConfettiPieces)
+					end
+				end)
 			end
 		else
 			bubble.Rotation = 0
@@ -555,9 +840,9 @@ function Celebrate.init(ctx: Types.Ctx)
 		if usesDirectionalFocus() then
 			GuiService.SelectedObject = yay
 		end
-		task.delay(Theme.Juice.CelebrateSeconds, function()
+		task.delay(Theme.Juice.CelebrateSeconds + (EXTRA_SECONDS[words.Kind] or 0), function()
 			if token == mine then
-				closeNow()
+				closeNow(false)
 			end
 		end)
 	end
@@ -588,7 +873,9 @@ function Celebrate.init(ctx: Types.Ctx)
 		end)
 	end
 
-	closeNow = function()
+	-- byButton: the 🎉 / 🃏 button (a Rebirth's then opens the perk cards). A tap on the dim, ButtonB or the time
+	-- running out only close.
+	closeNow = function(byButton: boolean?)
 		local words = current
 		if not words then
 			return
@@ -613,19 +900,50 @@ function Celebrate.init(ctx: Types.Ctx)
 			Kit.popOut(stage, finish)
 		end
 		afterClose(words)
+		if byButton == true and words.Action == "Perks" then
+			ctx.fire("Open", "Branch", "Perks")
+		end
 	end
 
 	yay.Activated:Connect(function()
-		closeNow()
+		closeNow(true)
 	end)
 	dim.Activated:Connect(function()
 		if os.clock() - openedAt >= TAP_GUARD then
-			closeNow()
+			closeNow(false)
 		end
 	end)
 
+	-- An Unlock joins the Rebirth it came with (waiting in the queue, or on screen now) as chips.
+	local function foldUnlock(info: any): boolean
+		if type(info) ~= "table" or info.Kind ~= "Unlock" then
+			return false
+		end
+		local target = queue[#queue]
+		if not (target and target.Kind == "Rebirth") then
+			target = if current and current.Kind == "Rebirth" then current else nil
+		end
+		if not target then
+			return false
+		end
+		local before = #target.Chips
+		if not Words.fold(target, info.Unlock, wordsData) then
+			return false
+		end
+		if target == current and #target.Chips > before then
+			drawChips(target)
+			if not Kit.reducedMotion() then
+				popChips(token, before + 1)
+			end
+		end
+		return true
+	end
+
 	ctx.on("Celebrate", function(info: any)
-		local words = Words.of(info, data)
+		if foldUnlock(info) then
+			return
+		end
+		local words = Words.of(info, wordsData)
 		if not words or #queue >= MAX_QUEUE then
 			return
 		end

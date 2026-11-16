@@ -18,7 +18,14 @@
 -- the device's Reduced Motion setting) cuts the particles and the confetti, drops the ring, the pop scale and the
 -- banner shine, and holds the rays still.
 --
--- Bus events fired: "Sound" (Chime, Sparkle, Fanfare, Pop, Thud, Heart): Feel/Sounds plays them; "Celebrate" (Room).
+-- Progression v2 (build plan §C T8): the cure pop grows a line per bonus that paid: "🌟 Golden!" (a Golden patient,
+-- with gold sparkles and the Golden chime), "🚑 ×3" / "🚁 ×4" (an ambulance or helicopter patient), "+20% 🛗" (you
+-- or a Porter rode it up to its bed) and "+25% 🛁" (it soaked in the hot tub). The numbers come from Config, the facts
+-- from the Cured payload (Urgent, Escorted, Soaked) or, until the server sends those, the patient model's own
+-- attributes. The rules are the pure BONUS block (tests/Juice).
+--
+-- Bus events fired: "Sound" (Chime, Sparkle, Fanfare, Pop, Thud, Heart, Golden): Feel/Sounds plays them;
+-- "Celebrate" (Room).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -50,6 +57,83 @@ local PALETTES: { [string]: { Color3 } } = {
 	Frosty = { Theme.Colors.Cyan, Theme.Colors.Paper },
 	Night = { Theme.Colors.Purple, Theme.Colors.Cash },
 	Room = { Theme.Colors.Good, Theme.Colors.Cash },
+	Golden = { Theme.Colors.Cash, Theme.Colors.Star },
+}
+
+-- BEGIN BONUS
+local Bonus = {}
+
+export type BonusLine = { Text: string, Kind: string }
+
+local function finiteNumber(value: any): number?
+	if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+		return value
+	end
+	return nil
+end
+
+-- 3 -> "3", 2.5 -> "2.5"
+local function short(n: number): string
+	if n == math.floor(n) then
+		return tostring(math.floor(n))
+	end
+	return (string.gsub(string.format("%.1f", n), "%.0$", ""))
+end
+
+local function section(cfg: any, key: string): any
+	local value = if type(cfg) == "table" then cfg[key] else nil
+	return if type(value) == "table" then value else {}
+end
+
+-- The bonus lines for one cure, in order: Golden, the urgent multiplier, the escort and the hot tub. `info` is the
+-- Cured payload; `attrs` the patient model's attributes ({ Urgent, Escorted, Soaked }) for any fact the payload
+-- doesn't carry; `cfg` is Config (AE/VIP CashMultiplier, Escort.CashBonus, Hydro.CashBonus). Kind picks the colour.
+function Bonus.lines(info: any, attrs: any, cfg: any): { BonusLine }
+	local out: { BonusLine } = {}
+	if type(info) ~= "table" then
+		return out
+	end
+	local fallback = if type(attrs) == "table" then attrs else {}
+	local function fact(key: string): any
+		local value = info[key]
+		if value == nil then
+			value = fallback[key]
+		end
+		return value
+	end
+	if info.Variant == "Golden" then
+		table.insert(out, { Text = "🌟 Golden!", Kind = "Golden" })
+	end
+	local urgent = fact("Urgent")
+	if urgent == "AE" or urgent == "VIP" then
+		local multiplier = finiteNumber(section(cfg, urgent).CashMultiplier)
+		if multiplier and multiplier > 1 then
+			local icon = if urgent == "AE" then "🚑" else "🚁"
+			table.insert(out, { Text = icon .. " ×" .. short(multiplier), Kind = urgent })
+		end
+	end
+	local function percent(key: string, field: string, icon: string, kind: string)
+		local share = finiteNumber(section(cfg, key)[field])
+		if share and share > 0 then
+			table.insert(out, { Text = "+" .. short(math.floor(share * 100 + 0.5)) .. "% " .. icon, Kind = kind })
+		end
+	end
+	if fact("Escorted") == true then
+		percent("Escort", "CashBonus", "🛗", "Escort")
+	end
+	if fact("Soaked") == true then
+		percent("Hydro", "CashBonus", "🛁", "Soak")
+	end
+	return out
+end
+-- END BONUS
+
+local BONUS_COLORS: { [string]: Color3 } = {
+	Golden = Theme.Colors.Cash,
+	AE = Theme.Colors.Danger,
+	VIP = Theme.Colors.Purple,
+	Escort = Theme.Colors.Secondary,
+	Soak = Theme.Colors.Cyan,
 }
 -- Confetti: one emitter per colour, so every burst is a mix of the candy set.
 local CONFETTI = { Theme.Colors.Pink, Theme.Colors.Cash, Theme.Colors.Cyan, Theme.Colors.Good, Theme.Colors.Purple }
@@ -112,6 +196,43 @@ local function ownerAt(position: Vector3): number?
 		end
 	end
 	return nil
+end
+
+-- The cured patient's own facts, while its model is still on the plot (the server's Patients sets them): the one
+-- with that PatientId nearest the cure, within a few studs. Empty when it's gone already.
+local function patientFacts(position: Vector3, patientId: string): { [string]: any }
+	local clinics = Workspace:FindFirstChild("Clinics")
+	if not clinics or patientId == "" then
+		return {}
+	end
+	local half = ctx.Config.Town.PlotSize / 2
+	for _, plot in clinics:GetChildren() do
+		if plot:IsA("Model") then
+			local p = plot:GetPivot():PointToObjectSpace(position)
+			if math.abs(p.X) <= half and math.abs(p.Z) <= half then
+				local folder = plot:FindFirstChild("Patients")
+				local best: Instance? = nil
+				local bestDistance = 12
+				for _, model in (if folder then folder:GetChildren() else {}) do
+					if model:IsA("Model") and model:GetAttribute("PatientId") == patientId then
+						local distance = (model:GetPivot().Position - position).Magnitude
+						if distance < bestDistance then
+							best, bestDistance = model, distance
+						end
+					end
+				end
+				if not best then
+					return {}
+				end
+				return {
+					Urgent = best:GetAttribute("Urgent"),
+					Escorted = best:GetAttribute("Escorted"),
+					Soaked = best:GetAttribute("Soaked"),
+				}
+			end
+		end
+	end
+	return {}
 end
 
 -- A throwaway Attachment in Terrain: world-space effects that clean themselves up.
@@ -530,12 +651,33 @@ local function onCured(info: any)
 		table.insert(lines, { Text = "⭐ +" .. stars .. helped, Color = Theme.Colors.Star })
 	end
 
+	-- Progression v2: a line for each bonus that paid (Golden, 🚑/🚁, 🛗, 🛁), for whoever saw the money.
+	if (iHelped or ownClinic) and position then
+		local facts = if info.Urgent == nil
+				or info.Escorted == nil
+				or info.Soaked == nil
+			then patientFacts(position, patientId)
+			else {}
+		for index, line in Bonus.lines(info, facts, ctx.Config) do
+			if index > 3 then
+				break
+			end
+			table.insert(lines, { Text = line.Text, Color = BONUS_COLORS[line.Kind] or Theme.Colors.Primary })
+		end
+	end
+
 	if position then
-		local mood = if variant == "Sparkly" or variant == "Frosty"
+		local mood = if variant == "Sparkly"
+				or variant == "Frosty"
+				or variant == "Golden"
 			then variant
 			elseif Workspace:GetAttribute("IsNight") == true then "Night"
 			else "Default"
-		burst(position + Vector3.new(0, 1.5, 0), PALETTES[mood :: string], if variant then 18 else 14)
+		burst(
+			position + Vector3.new(0, 1.5, 0),
+			PALETTES[mood :: string] or PALETTES.Default,
+			if variant then 18 else 14
+		)
 		floaters(position + Vector3.new(0, 2, 0), { "💖", "✨", "💖" })
 		moneyPop(position, lines)
 		-- The pay flies home: coins into 💰 (the helper), stars into ⭐ (the owner).
@@ -552,6 +694,8 @@ local function onCured(info: any)
 	sound("Chime", if iHelped then 1 else 0.7)
 	if variant == "Sparkly" then
 		task.delay(0.3, sound, "Sparkle")
+	elseif variant == "Golden" then
+		task.delay(0.3, sound, "Golden")
 	end
 
 	if info.NewPage == true and iHelped then
