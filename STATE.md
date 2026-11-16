@@ -3,37 +3,48 @@
 > Live state first, narrative second. New entries go at the **top** of `## Recent sessions`.
 
 ## Phase
-**Stage 0: tonight's private version** (2026-11-16). Game: a co-op shop sim with a night twist, built for under-13s,
-goal is money (`memory-20261116-002`). Plan: `docs/plan/2026-11-16-game-plan.md`.
+**Stage 0: Creature Clinic, private build** (2026-11-16). The concept moved from the shop sim to a creature clinic on
+your own plot (`memory-20261116-003` to `-006`). Design: `docs/plan/2026-11-16-creature-clinic-design.md`. Build plan
+and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 are built, merged and ran in Studio
+(`logs/playtests/2026-11-16-clinic-first-studio-run.md`). Winter build private and playtested by about 7 Dec.
 
 ## Setup status (2026-11-16, Joshua's PC)
-- ✅ Place **Shop Co-Op [WIP]** (placeId 112965897544918, universe 10777060712) is published under Joshua's account,
-  with Team Create on and Studio API access on (a DataStore call from Studio worked).
-- ✅ Rokit 1.2.0 with Rojo 7.7.1, selene 0.32.0 and StyLua 2.6.0. The Rojo plugin is installed and `rojo serve` syncs.
-- ✅ Claude Code ↔ Studio MCP connected.
-- ❓ Not checked: whether the game is set to **Private**, Joshua's ID age check + 2FA, and whether the brother has
-  been added as **Edit** (and as a Trusted Friend).
+- ✅ Place **Shop Co-Op [WIP]** (placeId 112965897544918, universe 10777060712) is owned by JokingPuzzle, with Team
+  Create on and Studio API access on. Max visitors set to 6 (Joshua, Creator Hub).
+- ✅ The brother (Dandlepeeps) is a collaborator with Edit and a Trusted Friend, and has been inside the place.
+- ✅ Rokit 1.2.0 with Rojo 7.7.1, selene 0.32.0, StyLua 2.6.0 and Lune 0.11.1 (`game/rokit.toml`). `rojo serve`
+  (port 34872) syncs this checkout's `game/` into Studio.
+- ✅ Claude Code ↔ Studio MCP connected (user scope).
 
 ## Next actions
-- [ ] **Joshua + Claude:** stop the playtest, then build the roof: a `Roof` Model in `Shop` (the build script is in the
-      2026-11-16 session notes below; `RoofFade.client.luau` is already synced). Save the place.
-- [ ] **Joshua + Claude:** finish the README checklist: upgrades, night (set `Config.DaySeconds = 20`, then put it back),
-      rejoin-save, and the phone emulator.
-- [ ] **Joshua:** confirm the game is Private. Add the brother: Collaborate → his name → **Edit** (Trusted Friends first).
-- [ ] **Brother:** the shop is already built in the real place. Open it from **Shared With Me** and decorate it with
-      Assistant. ⚠️ `docs/guides/build-the-shop.md` Part B (and its artifact page) still says to drop in his own
-      `Shop`. Update it to "decorate the existing Shop, don't add a second one" before he starts.
-- [ ] **Both:** pick the theme and name (OPEN #1). Change `game/src/shared/Config.luau` → `ProductName`, and the
-      "Welcome!" sign text in Studio.
-- [ ] **Both:** playtest to the definition of done (plan §2). Write notes in `logs/playtests/`.
+- [ ] **Both brothers:** a 2-player test (Test → Clients and Servers, or both join the private game): hearts, the
+      helpers sign, a friend treating, the owner leaving mid-cure. Checklist item 11 and the edge cases in
+      `game/README.md`. Add notes to `logs/playtests/`.
+- [ ] **Joshua:** the phone emulator: buttons, safe area, prompt reach. And: is it fun for a kid? Write it down.
+- [ ] **Brother:** `docs/guides/build-the-clinic.md`: the First-Aid Stand, the 4 rooms, the creatures and decor into
+      `ServerStorage.ClinicKit` / `ServerStorage.Creatures`. The code uses placeholders until his kit is in.
+- [ ] **Both:** the game's name and the cast's names and looks (OPEN #1). Then `Config.ProductName`.
+- [ ] **Both:** the old `Workspace.Shop` model is unused now. Keep it as a town building, or delete it (their call).
+- [ ] **Stage 1, later:** add the 2× Cash pass (cash only, Shop only, never pushed, `memory-20261116-006`). Not in
+      the build yet.
 
 ## Blocked on
-- Nothing for tonight. Stage 2 (going public) waits on the ownership note (OPEN #2) and a yes from both.
+- Nothing for the private build. Going public waits on the ownership note (OPEN #2) and a yes from both.
 
 ## Who's doing what
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-16 (Joshua's PC, Claude, Creature Clinic build + first Studio run).** Research → concept pivot: 4
+  research docs in `docs/research/`, rulings `memory-20261116-003` (own plot, daily return because it's fun, no AFK, not
+  a restaurant tycoon), `-004` (original absurd cast, no "brainrot" title at launch), `-005` (Creature Clinic, evergreen,
+  Winter Wing launch), `-006` (brother likes it; 2× Cash pass kept with fairness rules). 10 Roblox agent skills vendored
+  into `.claude/skills/`. Design and build plan written, then a 14-agent parallel build in a worktree
+  (`claude/creature-clinic`): foundation, 8 feature tasks, integration, a 3-lens review (20 findings, all fixed). 178
+  Lune specs pass, selene and StyLua clean. Merged into this branch (`a46bab5`). **First Studio run** via MCP: 10 of 12
+  checklist items pass, item 8 partly, item 11 needs 2 players. Fixed in `9b169d4`: creature bodies stuck at the
+  origin (weld captured before parenting) and a HUD resize loop. Old shop scripts (Customers, Kitchen, ShopWorld)
+  are gone; `Workspace.Shop` is untouched. Notes: `logs/playtests/2026-11-16-clinic-first-studio-run.md`.
 - **2026-11-16 (Joshua's Windows PC, Studio MCP, first run).** Installed Rokit/Rojo/selene/StyLua and the Rojo plugin.
   Added `.gitattributes` (LF), because Windows CRLF checkouts made StyLua flag every file. Fixed 3 selene warnings.
   **Built the shop in Studio via MCP** to the plan §4 contract: a 40×40 cozy pastel shop with an open front (mint
