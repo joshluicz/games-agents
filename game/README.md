@@ -80,8 +80,8 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Cure.luau` | One cure, in order: pay (with the helper's Cash/Tips and the owner's Stars boosts), cash (with `Cured` and this UTC week's `WeekCures`), badge counters, ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` |
 | `server/Visits.luau` | Hearts on the sign (once per owner per UTC day; each one sent counts for ❤️ Friendly), the owner's `OpenHelpers` toggle, the friend referral reward |
-| `server/Leaderboards.luau` | The global leaderboards ([Leaderboards](#leaderboards)): throttled OrderedDataStore writes from the server's save, cached reads every 2 minutes, DisplayName lookups, admins kept off, the `GetBoards` remote, the plaza boards' contents |
-| `server/BoardBuilder.luau` | Builds the plaza leaderboards (`Workspace.TownBoards`, the "🏆 Top Doctors" gantry west of the plaza) and draws their rows. A library `Leaderboards` uses |
+| `server/Leaderboards.luau` | The global leaderboards ([Leaderboards](#leaderboards)): throttled OrderedDataStore writes from the server's save, cached reads every 2 minutes, DisplayName lookups, admins kept off, the `GetBoards` remote, the Hall of Fame boards' contents |
+| `server/BoardBuilder.luau` | Builds the 🏆 Hall of Fame garden past the street's west end, off the main road, with the four world leaderboards in it (`Workspace.TownBoards`), and draws their rows. A library `Leaderboards` uses |
 | `server/Admin.luau` | The 🛠️ Admin panel's server side ([Admin panel](#admin-panel)): decides who is an admin (sets the `IsAdmin` player attribute), looks up `Config.AdminNames` at startup, and wires the `Admin` remote: re-checks admin on every call, validates the action and its argument, logs `[Admin] <name> <action>`, then calls the systems' own APIs. Admin-only hooks it uses: `Tutorial.finish`/`restart`, `Patients.sendNext`/`reopen`, `Book.completeAll`, `Story.makeDue`, `Daily.resetToday`, `Playtime.addToday`/`addTotal`, `Badges.maxAll` |
 
 ### Client
@@ -334,7 +334,7 @@ once per player). Replies come back as toasts.
 
 ## Leaderboards
 Global boards for every server: `server/Leaderboards.luau` (rules in `shared/Logic/Leaderboard.luau`, spec
-`tests/Leaderboard.spec.luau`), the plaza boards in `server/BoardBuilder.luau`, and the 🏆 panel in
+`tests/Leaderboard.spec.luau`), the Hall of Fame boards in `server/BoardBuilder.luau`, and the 🏆 panel in
 `client/UI/Boards.luau`. Tuning in `Config.Leaderboards`.
 
 | Board | Value (from the server's save) | OrderedDataStore (key = `tostring(UserId)`) |
@@ -376,22 +376,28 @@ Global boards for every server: `server/Leaderboards.luau` (rules in `shared/Log
   prints one `[Leaderboards] DataStores aren't available here...` line (no errors), nothing is retried, and the boards
   and the panel say "Leaderboards open when the game is live" (the panel still shows your own value).
 
-**Where the plaza boards stand.** `Workspace.TownBoards`, rebuilt at every server start: a candy-pop gantry, "🏆 Top
-Doctors", spanning the street just **west** of the plaza, at `Config.Town.Origin.X - 26` (the plaza's radius 17 + 9).
-Two white posts stand on the curbs (z = ±16.9 from the street's centre line); the four boards (🏥 ⭐ ❤️ 🏆, left to
-right as seen from the plaza) hang from a pink beam with their bottoms 7.5 studs up, so players walk under them, and
-face the plaza and the `TownSpawn` (east); the back shows the same boards for players coming from the west plots.
-The street and plaza sizes are read from the built `ClinicTown`, so the gantry follows PlotBuilder's layout. It
-clears the plots (fences at z = ±18.4), the middle plots' gates, signs and mailboxes (x within ±13), the plaza's
-benches, lamps and planters (within 17 of the centre), the street lamps (x = ±39) and the arches (the street's ends).
-**The plaza's east side is left free for the Nurse Belt.**
+**Where the boards stand: the 🏆 Hall of Fame garden, off the main road.** Joshua, 2026-11-16: "leaderboards shouldnt
+be on the main road... conveyor belt should be on the main road". So nothing of the boards sits on the street, its
+curbs, a plot, a welcome arch or the plaza: **the whole street is free for the Nurse Belt.** `Workspace.TownBoards`,
+rebuilt at every server start, is a small garden past the street's **west** end, beyond its welcome arch: its own
+grass slab 38 deep and 80 wide against the town lawn's west edge (world x = -137 to -175, z = 260 to 340, with
+`Config.Town.Origin` at (0, 0, 300)). A cream path runs on from the street's end to a "🏆 Hall of Fame" sign with a
+gold trophy on top, at (-161, 300). The four boards (🏥 ⭐ ❤️ 🏆, left to right as seen from the plaza, 10 wide and
+12 tall) stand on low white plinths in a shallow arc through the sign, two each side (centres at x ≈ -157, z ≈ 326
+and 274, and x ≈ -160, z ≈ 313 and 287), each turned to a point on the street's centre line 80 studs in front (x =
+-81), so they face back down the street to the plaza and the `TownSpawn`, ~160 studs away. Their backs show the same
+boards. Benches face the boards, low flower planters flank the path, lamps stand at the arc's ends, trees behind it.
+From the spawn the welcome arch frames the sign and the inner boards (its beam hides their top strip from there) and
+the outer boards stand just outside the arch's posts. The street's end and the lawn's edge are read from the built
+`ClinicTown`, so the garden follows PlotBuilder's layout; `GARDEN_END` in `BoardBuilder` moves it past the east end.
 
 **Testing it.**
-- Studio, API access **off**: Play. No red errors; the gantry stands west of the spawn saying "Leaderboards open when
-  the game is live"; 🏆 Top (after the tutorial) shows the same with your values.
+- Studio, API access **off**: Play. No red errors; looking west down the street from the spawn, the Hall of Fame's
+  boards stand past the welcome arch saying "Leaderboards open when the game is live"; 🏆 Top (after the tutorial)
+  shows the same with your values.
 - Studio, API access **on** (it writes the live boards from your real save): Play, cure a few. Within ~5 s your row is
-  on the plaza boards and in 🏆 ("You: #n"). After 75-150 s, or on Stop, Output shows no `[Leaderboards] Couldn't
-  write`. The next Play reads the boards back.
+  on the Hall of Fame boards and in 🏆 ("You: #n"). After 75-150 s, or on Stop, Output shows no
+  `[Leaderboards] Couldn't write`. The next Play reads the boards back.
 - Live: an admin account (JokingPuzzle, Dandlepeeps) never appears, and its bar says "🛠️ Admins aren't ranked"; a
   second, non-admin account appears after its first cure.
 - Junk: `game.ReplicatedStorage.Remotes.GetBoards:InvokeServer()` spammed from the command bar returns `nil` past 10
@@ -509,10 +515,10 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
 - [ ] 11. Hearts: a heart from a second client counts once a day, and the sign's count is still there after the owner
   rejoins. The OpenHelpers toggle works. A non-friend can't treat when it's closed.
 - [ ] 12. Rejoin keeps everything. Junk remote calls are rejected.
-- [ ] 13. Leaderboards: the 🏆 Top Doctors gantry stands west of the plaza, clear of the street lamps, signs and
-  gates, readable from the spawn and at night. 🏆 Top opens the panel: each tab shows its board, your bar shows "You:
-  #n" (or "Play to join in!"). A cure moves your number within a few seconds. Admins aren't on any board
-  ([Leaderboards](#leaderboards)).
+- [ ] 13. Leaderboards: the 🏆 Hall of Fame garden stands past the street's west end, nothing of it on the street,
+  curbs, plots, arches or plaza; its boards face the spawn down the street and are readable up close and at night.
+  🏆 Top opens the panel: each tab shows its board, your bar shows "You: #n" (or "Play to join in!"). A cure moves
+  your number within a few seconds. Admins aren't on any board ([Leaderboards](#leaderboards)).
 - [ ] 14. **Play gifts:** after the tutorial 🎁 bounces in under the wallet and its dot ring fills as you play; it
   stops when you stand still for `PlaytimeIdleSeconds`. At 2 min the dot shows and the 🎁 panel's first card shines;
   Open! pays 💰20 with flying coins. Rejoin: the time and opened gifts are kept. 🛠️ "+10 min today" (x4) unlocks the
