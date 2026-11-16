@@ -935,15 +935,36 @@ end
 -- AnchorPoint (0.5, 0), a scale width and AutomaticSize Y.
 function Hud.fitHeight(content: GuiObject, area: GuiObject)
 	local scale = scaleNamed(content, "FitScale")
+	-- Changing the scale changes content.AbsoluteSize, which fires this again: the guard and the deferred
+	-- re-check stop that loop, and tiny changes are ignored so rounding can't make it flicker.
+	local busy = false
+	local queued = false
 	local function fit()
+		if busy then
+			return
+		end
+		busy = true
 		local needed = content.AbsoluteSize.Y / math.max(scale.Scale, 0.01)
 		local available = area.AbsoluteSize.Y
 		if needed > 0 and available > 0 then
-			scale.Scale = math.clamp(available / needed, 0.6, 1)
+			local target = math.clamp(available / needed, 0.6, 1)
+			if math.abs(target - scale.Scale) > 0.01 then
+				scale.Scale = target
+			end
+		end
+		busy = false
+	end
+	local function request()
+		if not queued then
+			queued = true
+			task.defer(function()
+				queued = false
+				fit()
+			end)
 		end
 	end
-	content:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-	area:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	content:GetPropertyChangedSignal("AbsoluteSize"):Connect(request)
+	area:GetPropertyChangedSignal("AbsoluteSize"):Connect(request)
 	fit()
 end
 

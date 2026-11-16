@@ -995,7 +995,9 @@ local function spawnPatient(state: PlotState, patientId: string, regular: string
 	model:SetAttribute("Variant", variant)
 	model:SetAttribute("Night", night)
 	model:SetAttribute("State", "Arriving")
-	root.CFrame = start
+	-- PivotTo, not root.CFrame: the model isn't in Workspace yet, so its welds aren't live and the body would stay
+	-- behind at the origin (each weld then locks in that gap when the model is parented in).
+	model:PivotTo(start)
 	model:ScaleTo(p.BaseScale * 0.15) -- pops in from tiny
 	model.Parent = state.Plot.Model:FindFirstChild("Patients") or state.Plot.Model
 
