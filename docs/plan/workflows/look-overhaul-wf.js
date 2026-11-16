@@ -2,11 +2,11 @@ export const meta = {
   name: 'look-overhaul-build',
   description: 'Parallel team builds the look overhaul (relight, studs, town, real hospital, HUD rails, unified panels, tutorial beam) in an isolated worktree',
   phases: [
-    { title: 'Foundation', detail: 'Task 0: config, palette/theme tokens, world split, studs, logic + specs, stubs; commit' },
+    { title: 'Foundation', detail: 'Task 0: config, palette/theme tokens, world split, studs, logic + specs, stubs; commit', model: 'fable' },
     { title: 'Build', detail: 'T1-T9 in parallel, strict file ownership, no commits' },
-    { title: 'Integrate', detail: 'apply cross-file requests, trace flows, part budget, lint, build, commit' },
-    { title: 'Review', detail: 'systems+safety+budgets and look+UX lenses' },
-    { title: 'Fix', detail: 'verify and fix findings, commit' },
+    { title: 'Integrate', detail: 'apply cross-file requests, trace flows, part budget, lint, build, commit', model: 'fable' },
+    { title: 'Review', detail: 'systems+safety+budgets and look+UX lenses', model: 'fable' },
+    { title: 'Fix', detail: 'verify and fix findings, commit', model: 'fable' },
   ],
 }
 
@@ -61,7 +61,7 @@ const foundation = await agent(`${COMMON}
 You are TASK 0, FOUNDATION, for the look overhaul. Everyone else builds on what you commit, so be precise.
 1. Read the build plan fully (it was written while Progression v2 was still in flight: first check section A/B/G against the ACTUAL merged tree, and fix the plan text wherever the real file names, APIs or layouts differ; say so in your report).
 2. Implement exactly the Task 0 scope of section D/B: Config, Types, Remotes (incl. the player-safe TutorialReplay), Palette (old keys as aliases), Theme tokens, Data/Logic modules (Tutorial, HudZones, NextEvent, Building ...) with Lune specs, the World/Parts and World/Studs helpers (Plastic + TopSurface Studs fallback until the CureStuds MaterialVariant exists), the PlotBuilder/Hud splits into the new files with stubs carrying the exact section B APIs so everything requires and boots, Main.server/Main.client wiring, PartBudget.spec, README.
-3. Lint clean, all specs pass (old and new), rojo build OK, then git add + commit in the worktree ("Look overhaul foundation: tokens, world split, studs, logic, stubs"). Return the REPORT.`, { label: 'Task 0 foundation', phase: 'Foundation', schema: REPORT })
+3. Lint clean, all specs pass (old and new), rojo build OK, then git add + commit in the worktree ("Look overhaul foundation: tokens, world split, studs, logic, stubs"). Return the REPORT.`, { label: 'Task 0 foundation', phase: 'Foundation', schema: REPORT, model: 'fable' })
 log(`Foundation: ${foundation ? foundation.summary.slice(0, 200) : 'FAILED'}`)
 
 phase('Build')
@@ -95,7 +95,7 @@ You are the INTEGRATOR for the look overhaul. The build reports are below as JSO
 Return the REPORT (requests = anything left undone; concerns = the Studio checks for the lead).
 
 BUILD REPORTS:
-${JSON.stringify(ok, null, 1)}`, { label: 'Integrator', phase: 'Integrate', schema: REPORT })
+${JSON.stringify(ok, null, 1)}`, { label: 'Integrator', phase: 'Integrate', schema: REPORT, model: 'fable' })
 
 phase('Review')
 const LENSES = [
@@ -105,7 +105,7 @@ const LENSES = [
 const reviews = await parallel(LENSES.map(l => () => agent(`${COMMON}
 
 Review the integrated look overhaul in the worktree (commit "Look overhaul: parallel build integrated" and its foundation). ${l.prompt}
-Read the actual code; report only real, specific problems with file and line and a concrete fix. Don't edit files. Return FINDINGS.`, { label: 'review:' + l.key, phase: 'Review', schema: FINDINGS })))
+Read the actual code; report only real, specific problems with file and line and a concrete fix. Don't edit files. Return FINDINGS.`, { label: 'review:' + l.key, phase: 'Review', schema: FINDINGS, model: 'fable' })))
 const findings = reviews.filter(Boolean).flatMap(r => r.findings)
 log(`Review: ${findings.length} findings (${findings.filter(f => f.severity === 'critical' || f.severity === 'high').length} critical/high)`)
 
@@ -115,6 +115,6 @@ const fix = findings.length === 0 ? null : await agent(`${COMMON}
 You are the FIXER for the look overhaul. Verify each finding below against the code (some may be wrong or duplicates); fix every real one, keeping the contracts. Lint clean, all specs pass, rojo build OK, then commit in the worktree ("Look overhaul: review fixes"). Return the REPORT, with concerns = exactly what the lead must check live in Studio.
 
 FINDINGS:
-${JSON.stringify(findings, null, 1)}`, { label: 'Fixer', phase: 'Fix', schema: REPORT })
+${JSON.stringify(findings, null, 1)}`, { label: 'Fixer', phase: 'Fix', schema: REPORT, model: 'fable' })
 
 return { foundation, build: ok, integration, findings, fix }
