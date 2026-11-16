@@ -105,7 +105,12 @@ few seconds, glows, hops up cured → **cash + a Patient Book stamp**.
 
 ### 5.7 Regulars with stories (the storyline)
 - **Three regular patients at launch.** Each has a **5-beat story**, told in pictures, emotes and speech bubbles of
-  ≤ 6 words, with one beat per clinic day you play. Example arc: a scared little creature who won't come inside →
+  ≤ 6 words.
+- **Timing (Claude's call, after the builder check).** A "story day" is a **real calendar day (UTC)**, not the
+  10-minute clinic day. Each regular visits **at most once per calendar day** and advances one beat per visit.
+  Regulars **unlock one after another by Clinic Stars** (the first from the start, then two more), then move forward
+  in parallel. Finishing all three takes about a week or more of playing days, which is the come-back hook. The save
+  stores `{Beat, LastBeatDay}` per regular. Example arc: a scared little creature who won't come inside →
   peeks in → gets cured → brings a friend → becomes your clinic's helper or mascot.
 - **Beats wait for you.** Missing days skips nothing.
 - Finishing a regular's story unlocks something visible: a room, a helper, a decoration.
@@ -123,6 +128,10 @@ few seconds, glows, hops up cured → **cash + a Patient Book stamp**.
 ### 5.9 Friends
 - Friends join your server (invite, Party) and **work your stations**. They earn their own cash and Book stamps; the
   cures count toward *your* Clinic Stars.
+- **Who can work your clinic (Claude's call, after the builder check):** you, plus **your Roblox friends** in the
+  server. A prompt on your clinic sign switches **"Open to all helpers"** on or off (off by default), so kids who
+  aren't Roblox friends can still team up. Strangers can always visit and leave a heart, but can't touch your stations
+  or patients unless you open up.
 - **Quick Words** like "I'll do the bath!", "Bandage needed!" and "Night patients coming!" let kids coordinate with chat
   off.
 - **Visiting:** walk round other plots and leave a **heart** on their clinic sign (one per visitor per day). It's a
@@ -192,7 +201,7 @@ Keep the other agent's recent work (Counter serve prompt, sparkles, music, roof 
 2. **Slice 2, "Winter Wing" (target: before ~18 Dec):**
    - night patients;
    - the Winter Wing with 4 winter patients and the bath station;
-   - 2 regulars × 5 beats;
+   - 3 regulars × 5 beats;
    - decor slots;
    - hearts and visiting;
    - Quick Words;
@@ -200,6 +209,11 @@ Keep the other agent's recent work (Counter serve prompt, sparkles, music, roof 
    - icon and thumbnails.
 3. **Slice 3, "Go public":** gated on the ownership note and both brothers' yes. The 16+ trial, Creator Analytics, a
    fixed weekly update day.
+
+**What "in time for the holidays" means (Claude's call):** the code for Slices 1–2 is built now, by parallel agents.
+The winter build should be **private and playtested by ~7 Dec**, leaving room for the gates. Whether it goes
+**public** before ~18 Dec is the brothers' call, behind red lines 4 and 5. The smallest winter build worth shipping is
+Slice 1 + night patients + the Winter Wing + 1 regular.
 
 ## 11. Left open
 - **The brothers' call:** the game's name (OPEN #1) · the cast's names and looks (the brother) · the old keeper
