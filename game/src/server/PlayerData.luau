@@ -4,7 +4,8 @@
 -- API (build plan §B5):
 --   PlayerData.get(p): Data?            the live save. READ ONLY: change it with update()
 --   PlayerData.update(p, fn)            fn(data) mutates; marks dirty, refreshes leaderstats, then State.push(p)
---   PlayerData.waitLoaded(p): Data?     yields until loaded (nil if the player left first)
+--   PlayerData.waitLoaded(p): Data?     yields until loaded (nil if the player left first). A load always ends:
+--                                       every DataStore wait below is bounded.
 --   PlayerData.Loaded                   signal (p, data), after a load (even a failed one: data is then defaults)
 --   PlayerData.Changed                  signal (p, data), after every update (State listens to push snapshots)
 --
@@ -12,8 +13,15 @@
 --   · Writes use UpdateAsync with a session lock, so two servers never write over each other (fast rejoin,
 --     teleport). The stored record is { Data = <v2 save>, Lock = { Owner = <session id>, At = <unix> } }.
 --   · A failed load NEVER saves: the player plays on defaults, `DataOk` is false and a toast warns.
---   · Autosave every Config.AutosaveSeconds, save on leave, and save everyone in BindToClose.
+--   · A save written by a NEWER schema loads read-only (never written back down to this version).
+--   · Autosave every Config.AutosaveSeconds, save on leave, and save everyone in BindToClose. The leave-save
+--     retries with backoff, so one DataStore hiccup neither loses the last minutes nor strands the lock.
+--   · A join that finds another server's lock waits for it: quick retries for a fast rejoin, then slower ones
+--     until that lock's lease runs out (a server that died without releasing it), never a whole session on
+--     defaults while the real save sits behind a stale lock.
+--   · Dirty is only cleared when nothing changed while the write was in flight.
 --   · A first v2 load reads Config.LegacyDataStoreName once and migrates the shop-sim save.
+--   · Saved day fields later than the real UTC day are pulled back on load (Schema.reconcile's `today`).
 
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
@@ -34,20 +42,27 @@ PlayerData.Changed = Signal.new()
 
 local SESSION_ID = HttpService:GenerateGUID(false) -- game.JobId is "" in Studio, so not unique enough
 local LEASE_SECONDS = Config.AutosaveSeconds * 3 + 30 -- a lock older than this is from a server that died
-local LOCK_RETRIES = 6 -- another server still holds the lock: wait for its leave-save to release it
+local LOCK_RETRIES = 6 -- another server still holds the lock: quick tries while its leave-save releases it
 local LOCK_RETRY_SECONDS = 3
+local LOCK_SLOW_RETRY_SECONDS = 10 -- then slower tries until that lock's lease runs out
+local LOCK_MAX_WAIT = LEASE_SECONDS + 30 -- whatever the other server's clock says
 local ERROR_RETRIES = 3
 local SAVING_OFF_TOAST = "⚠️ Saving is off"
+local WAITING_TOAST = "⏳ Opening your clinic..."
 
 type Session = {
 	Data: Data,
 	CanSave: boolean, -- false after a failed load or a lost lock: never write
 	Owned: boolean, -- this server holds the lock and must release it
 	Dirty: boolean,
+	Changes: number, -- bumped by every update(): a write only clears Dirty if this didn't move meanwhile
 	LastWrite: number,
 	Saving: boolean,
-	Released: boolean,
+	Released: boolean, -- the player left: no more autosaves, the leave-save is under way
+	Final: boolean, -- the leave-save took its snapshot: later updates would be lost, so they're refused
 }
+
+type WriteResult = "Ok" | "Failed" | "LostLock" | "Skipped"
 
 local sessions: { [Player]: Session } = {}
 local pendingWrites = 0
@@ -129,6 +144,7 @@ end
 type ClaimResult = "Claimed" | "Locked" | "Error"
 
 -- Takes the session lock in one UpdateAsync, and returns the saved v2 data (nil for a new key).
+-- "Locked" returns the other lock's At (unix seconds) instead, so the caller knows when its lease runs out.
 local function claim(activeStore: DataStore, player: Player): (ClaimResult, any)
 	local status: ClaimResult = "Error"
 	local saved: any = nil
@@ -149,6 +165,7 @@ local function claim(activeStore: DataStore, player: Player): (ClaimResult, any)
 				and type(lock.At) == "number"
 				and now - lock.At < LEASE_SECONDS
 			then
+				saved = lock.At
 				return nil -- another live server owns it: cancel the write
 			end
 			record.Lock = { Owner = SESSION_ID, At = now }
@@ -185,20 +202,26 @@ local function readLegacy(player: Player): (boolean, any)
 end
 
 -- Writes the save (unless it can't), refreshes or releases the lock. Serialised per player.
-local function write(player: Player, session: Session, release: boolean)
+-- Returns "Ok", "Failed" (the request errored: safe to try again, it writes the whole save), "LostLock" or
+-- "Skipped" (nothing to do), plus the error for "Failed".
+local function write(player: Player, session: Session, release: boolean): (WriteResult, any)
 	local activeStore = store
 	if not activeStore or not session.Owned then
-		return
+		return "Skipped", nil
 	end
 	while session.Saving do
 		task.wait(0.1)
 	end
 	if not session.Owned then
-		return
+		return "Skipped", nil
 	end
 	session.Saving = true
 	pendingWrites += 1
 
+	if release then
+		session.Final = true -- from here on update() refuses: nothing after this snapshot would be saved
+	end
+	local changes = session.Changes
 	local snapshot = if session.CanSave then deepCopy(session.Data) else nil
 	local lostLock = false
 	local wroteData = false
@@ -218,17 +241,23 @@ local function write(player: Player, session: Session, release: boolean)
 		end)
 	end)
 
+	local result: WriteResult = "Ok"
 	if not ok then
 		warn("[PlayerData] Save failed for", player.UserId, err)
+		result = "Failed"
 	elseif lostLock then
 		warn("[PlayerData] Lost the save lock for", player.UserId, "- saving is off for this session")
 		session.Owned = false
 		session.CanSave = false
-		player:SetAttribute("DataOk", false)
-		Remotes.toast(player, SAVING_OFF_TOAST)
+		if player.Parent == Players then
+			player:SetAttribute("DataOk", false)
+			Remotes.toast(player, SAVING_OFF_TOAST)
+		end
+		result = "LostLock"
 	else
 		session.LastWrite = os.clock()
-		if wroteData then
+		-- An update() that ran while the request was in flight isn't in this snapshot: stay dirty for it.
+		if wroteData and session.Changes == changes then
 			session.Dirty = false
 		end
 		if release then
@@ -238,11 +267,16 @@ local function write(player: Player, session: Session, release: boolean)
 
 	session.Saving = false
 	pendingWrites -= 1
+	return result, err
 end
 
 ------------------------------------------------------------------------------------------------------------------
 -- Load and release
 ------------------------------------------------------------------------------------------------------------------
+
+local function realDay(): number
+	return os.time() // 86400
+end
 
 -- Returns (data, canSave, owned).
 local function loadFromStore(player: Player): (Data, boolean, boolean)
@@ -253,11 +287,18 @@ local function loadFromStore(player: Player): (Data, boolean, boolean)
 
 	local errors = 0
 	local locks = 0
+	local waitStarted = os.clock()
+	local toldWaiting = false
 	while true do
 		local status, result = claim(activeStore, player)
 		if status == "Claimed" then
 			if result ~= nil then
-				return Schema.reconcile(result), true, true
+				if Schema.isNewer(result) then
+					-- A newer server wrote this: play on a copy, keep the lock (so it's released), never write.
+					warn("[PlayerData] Save for", player.UserId, "is from a newer version: saving is off")
+					return Schema.reconcile(result, realDay()), false, true
+				end
+				return Schema.reconcile(result, realDay()), true, true
 			end
 			-- A new v2 key: migrate the shop-sim save once. If that read fails, play on defaults without
 			-- saving, so the v1 save is still there to migrate next time.
@@ -266,14 +307,26 @@ local function loadFromStore(player: Player): (Data, boolean, boolean)
 				warn("[PlayerData] Could not read the v1 save for", player.UserId, legacy)
 				return Schema.default(), false, true
 			end
-			return Schema.reconcile(legacy), true, true
+			return Schema.reconcile(legacy, realDay()), true, true
 		elseif status == "Locked" then
+			-- Quick tries first (the other server's leave-save is usually seconds away), then slower ones until
+			-- that lock's lease runs out: a server that died, or whose leave-save failed, can't free it sooner.
 			locks += 1
-			if locks > LOCK_RETRIES then
+			local lockAt = if type(result) == "number" then result else os.time()
+			local leaseLeft = lockAt + LEASE_SECONDS - os.time()
+			if os.clock() - waitStarted > LOCK_MAX_WAIT then
 				warn("[PlayerData] Save still locked by another server for", player.UserId)
 				return Schema.default(), false, false
 			end
-			task.wait(LOCK_RETRY_SECONDS)
+			if locks > LOCK_RETRIES and not toldWaiting then
+				toldWaiting = true
+				Remotes.toast(player, WAITING_TOAST)
+			end
+			task.wait(
+				if locks <= LOCK_RETRIES
+					then LOCK_RETRY_SECONDS
+					else math.clamp(leaseLeft + 1, 1, LOCK_SLOW_RETRY_SECONDS)
+			)
 		else
 			errors += 1
 			warn("[PlayerData] Load failed for", player.UserId, result)
@@ -294,15 +347,25 @@ local function load(player: Player)
 	end
 	makeLeaderstats(player)
 
-	local data, canSave, owned = loadFromStore(player)
+	local data: Data, canSave: boolean, owned: boolean = Schema.default(), false, false
+	local loaded, err = pcall(function()
+		data, canSave, owned = loadFromStore(player)
+	end)
+	if not loaded then
+		-- A bug, not a DataStore error: play on defaults and never save (the lock, if taken, lapses).
+		warn("[PlayerData] Load crashed for", player.UserId, err)
+		data, canSave, owned = Schema.default(), false, false
+	end
 	local session: Session = {
 		Data = data,
 		CanSave = canSave,
 		Owned = owned,
 		Dirty = canSave, -- a migrated or reconciled save gets written back in v2 shape on the next autosave
+		Changes = 0,
 		LastWrite = os.clock(),
 		Saving = false,
 		Released = false,
+		Final = false,
 	}
 
 	if player.Parent ~= Players then
@@ -330,7 +393,19 @@ local function release(player: Player)
 	session.Released = true
 	-- Let other PlayerRemoving handlers (a cure landing, a goal) finish their last update first.
 	task.wait()
-	write(player, session, true)
+	-- The last save, and the lock handed back. A failed request is retried with backoff (it writes the whole
+	-- save, so a repeat is harmless); without that, one hiccup loses everything since the last autosave and
+	-- strands the lock for a whole lease.
+	for attempt = 1, ERROR_RETRIES do
+		local result, err = write(player, session, true)
+		if result ~= "Failed" or isPermanent(err) or attempt == ERROR_RETRIES then
+			if result == "Failed" then
+				warn("[PlayerData] Gave up on the leave-save for", player.UserId)
+			end
+			break
+		end
+		task.wait(2 ^ (attempt - 1)) -- 1 s, 2 s
+	end
 	sessions[player] = nil
 end
 
@@ -346,20 +421,24 @@ end
 -- fn mutates the live data. Returns false if the player has no loaded data (not loaded yet, or gone).
 function PlayerData.update(player: Player, fn: (Data) -> ()): boolean
 	local session = sessions[player]
-	if not session or session.Released then
-		return false
+	if not session or session.Final then
+		return false -- not loaded, gone, or the leave-save already took its snapshot
 	end
 	fn(session.Data)
 	session.Dirty = true
-	pushToPlayer(player, session.Data)
+	session.Changes += 1
+	if player.Parent == Players then
+		pushToPlayer(player, session.Data)
+	end
 	PlayerData.Changed:Fire(player, session.Data)
 	return true
 end
 
+-- Waits for the load however long the DataStore takes (a lock wait can run for minutes); nil only if the player
+-- leaves first. Every wait inside the load is bounded, so this always returns.
 function PlayerData.waitLoaded(player: Player): Data?
-	local started = os.clock()
 	while not sessions[player] do
-		if player.Parent ~= Players or os.clock() - started > 60 then
+		if player.Parent ~= Players then
 			return nil
 		end
 		task.wait(0.1)

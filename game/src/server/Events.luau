@@ -8,6 +8,7 @@
 -- Starts before Plots and Daily, so it reads the day itself (the real UTC day, or a forward-set Workspace.UtcDay)
 -- instead of requiring the server Daily module.
 
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -23,8 +24,14 @@ local started = false
 
 local function today(): number
 	local real = DailyLogic.day(os.time())
-	local attribute = Workspace:GetAttribute("UtcDay")
-	if type(attribute) == "number" and attribute % 1 == 0 and attribute > real and attribute < math.huge then
+	local attribute = Workspace:GetAttribute("UtcDay") -- a forward-set day counts in Studio only (testing)
+	if
+		RunService:IsStudio()
+		and type(attribute) == "number"
+		and attribute % 1 == 0
+		and attribute > real
+		and attribute < math.huge
+	then
 		return attribute
 	end
 	return real

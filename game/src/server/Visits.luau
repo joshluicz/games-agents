@@ -4,8 +4,8 @@
 --
 -- Two prompts on every plot's Sign, on while the plot has an owner:
 --   HeartPrompt   (E / ButtonX, Audience "Visitor")  anyone but the owner leaves a heart: once per owner per UTC
---                 day (saved in the giver's HeartsGiven). The plot's Hearts attribute and the sign's
---                 "❤️ <n>" go up, the sign sparkles, and the owner gets a toast.
+--                 day (saved in the giver's HeartsGiven). The owner's saved HeartsReceived, the plot's Hearts
+--                 attribute and the sign's "❤️ <n>" go up, the sign sparkles, and the owner gets a toast.
 --   HelpersPrompt (F / ButtonY, Audience "Owner")    the owner switches OpenHelpers: off = only the owner and their
 --                 Roblox friends may work the clinic, on = anyone (Plots.canWork reads it). Off on every new owner.
 -- A ProximityPrompt shows for everyone, so each also answers the wrong person kindly ("Only the owner can
@@ -209,7 +209,13 @@ local function onHeart(plot: Types.Plot, prompts: SignPrompts, player: Player)
 	if not marked then
 		return
 	end
-	plot.Model:SetAttribute("Hearts", hearts(plot) + 1)
+	-- Saved with the owner (Data.HeartsReceived), so the sign keeps its count across sessions.
+	local total = hearts(plot) + 1
+	PlayerData.update(owner, function(d)
+		d.HeartsReceived += 1
+		total = d.HeartsReceived
+	end)
+	plot.Model:SetAttribute("Hearts", total)
 	sparkle(prompts)
 	Remotes.toast(player, "❤️ Heart sent!")
 	Remotes.toast(owner, "❤️ " .. player.DisplayName .. " loves your clinic!")

@@ -96,6 +96,8 @@ export type Data = {
 	Mailbox: { LastSeenDay: number },
 	HeartsGiven: { Day: number, Plots: { [string]: boolean } }, -- keyed by plot owner's UserId as a string
 	ReferralRewarded: boolean,
+	VisitorDay: number, -- the UTC day this clinic last cured Today's Visitor (0 = never)
+	HeartsReceived: number, -- hearts left on this clinic's sign, all time (cosmetic)
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -114,8 +116,13 @@ export type Snapshot = {
 	MailboxReady: boolean,
 	PlotIndex: number?, -- nil = no plot (all 6 taken)
 	TodaysVisitor: PatientId, -- "" until Daily sets it
+	-- extra to §B4, for the HUD chip: "Coming" (this clinic can get today's visitor), "Done" (cured today),
+	-- "None" (no plot, or no station here can treat it)
+	VisitorStatus: VisitorStatus,
 	IsWinter: boolean,
 }
+
+export type VisitorStatus = "Coming" | "Done" | "None"
 
 export type CuredInfo = {
 	PatientId: PatientId,

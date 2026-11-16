@@ -17,7 +17,10 @@ export type Room = {
 	Beds: number,
 	DecorSlots: number,
 	Wing: string, -- WingId
-	Season: string?, -- "Winter": can only be bought while Workspace.IsWinter is true (once owned, it stays)
+	-- "Winter": can only be bought while Workspace.IsWinter is true (once owned, it stays). Unused today: the
+	-- Winter Wing stays in the game all year (design §5.8, memory-20261116-005); only its Frosty variants, snow
+	-- and the winter event come and go with Workspace.IsWinter. Kept for a future seasonal room.
+	Season: string?,
 }
 
 local ENTRIES: { [RoomId]: Room } = {
@@ -64,7 +67,6 @@ local ENTRIES: { [RoomId]: Room } = {
 		Beds = 1,
 		DecorSlots = 2,
 		Wing = "Winter",
-		Season = "Winter",
 	},
 	Garden = {
 		Name = "Sunny Garden",

@@ -26,6 +26,7 @@
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -82,8 +83,9 @@ end
 function Story.today(): number
 	local computed = DailyLogic.day(os.time())
 	local attribute = Workspace:GetAttribute("UtcDay")
-	-- Daily keeps Workspace.UtcDay fresh; a forward-set UtcDay (testing) wins, a stale one never holds us back.
-	if type(attribute) == "number" and attribute > computed then
+	-- Daily keeps Workspace.UtcDay fresh; in Studio a forward-set UtcDay (testing) wins, a stale one never holds
+	-- us back. Live servers always use the real day.
+	if RunService:IsStudio() and type(attribute) == "number" and attribute > computed then
 		return attribute
 	end
 	return computed

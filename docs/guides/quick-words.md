@@ -46,7 +46,7 @@ The number after each phrase is its length in characters. Every one is under 25.
 |---|---|---|
 | Need potions | 12 | The line needs 🧪 |
 | Need plasters | 13 | The line needs 🩹 |
-| Need bubbles | 12 | The line needs 🧼 from the bath |
+| Need bubbles | 12 | The line needs 🛁 from the bath |
 | Need cocoa | 10 | The line needs ☕ |
 | Need help at the counter | 24 | Too many patients for one player |
 | Patient waiting | 15 | Someone's at the Counter |

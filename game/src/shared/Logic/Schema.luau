@@ -1,10 +1,19 @@
 --!strict
 -- Save schema v2 (build plan §B3). Pure: no Roblox services, no requires, so Lune can test it.
 --   Schema.default(): Data            a fresh save
---   Schema.reconcile(saved: any): Data  repairs anything loaded from a DataStore into a valid v2 save:
+--   Schema.reconcile(saved: any, today: number?): Data  repairs anything loaded from a DataStore into a valid
+--   v2 save:
 --     · v1 shop-sim saves { Cash, Served, Upgrades } migrate: Served -> Cured; Speed, Tray and Tips are kept
 --     · unknown fields are dropped, and bad types or non-finite numbers are replaced by defaults
+--     · with `today` (the real UTC day), every saved day field later than today is pulled back to today, so a
+--       Studio test that moved Workspace.UtcDay forward can't lock a real save out of its mailbox, goals or story
 --     · the result never shares a table with `saved`
+--   Schema.isNewer(saved: any): boolean  the save was written by a newer schema (never write it back down)
+--
+-- Fields added inside v2 (missing in older v2 saves, so they reconcile to their defaults):
+--   VisitorDay      the UTC day this clinic last cured Today's Visitor (0 = never): once per player per day,
+--                   across servers
+--   HeartsReceived  hearts other players have left on this clinic's sign, all time (cosmetic)
 
 export type BookPage = { Cured: number, Variants: { [string]: boolean } }
 export type StoryEntry = { Beat: number, LastBeatDay: number }
@@ -23,6 +32,8 @@ export type Data = {
 	Mailbox: { LastSeenDay: number },
 	HeartsGiven: { Day: number, Plots: { [string]: boolean } },
 	ReferralRewarded: boolean,
+	VisitorDay: number,
+	HeartsReceived: number,
 }
 
 local Schema = {}
@@ -50,7 +61,13 @@ function Schema.default(): Data
 		Mailbox = { LastSeenDay = 0 },
 		HeartsGiven = { Day = 0, Plots = {} },
 		ReferralRewarded = false,
+		VisitorDay = 0,
+		HeartsReceived = 0,
 	}
+end
+
+function Schema.isNewer(saved: any): boolean
+	return type(saved) == "table" and type(saved.Version) == "number" and saved.Version > Schema.VERSION
 end
 
 -- A finite number, floored and at least `min`; otherwise nil.
@@ -146,7 +163,24 @@ local function reconcileGoals(value: any): { Goal }
 	return out
 end
 
-function Schema.reconcile(saved: any): Data
+-- Pulls every saved day field that's later than `today` back to today.
+local function clampDays(data: Data, today: number)
+	local function clamp(day: number): number
+		return math.min(day, today)
+	end
+	data.VisitorDay = clamp(data.VisitorDay)
+	data.Mailbox.LastSeenDay = clamp(data.Mailbox.LastSeenDay)
+	data.Daily.LastGrantDay = clamp(data.Daily.LastGrantDay)
+	for _, goal in data.Daily.Goals do
+		goal.Day = clamp(goal.Day)
+	end
+	for _, entry in data.Story do
+		entry.LastBeatDay = clamp(entry.LastBeatDay)
+	end
+	data.HeartsGiven.Day = clamp(data.HeartsGiven.Day)
+end
+
+function Schema.reconcile(saved: any, today: number?): Data
 	local data = Schema.default()
 	if not isTable(saved) then
 		return data
@@ -192,6 +226,13 @@ function Schema.reconcile(saved: any): Data
 	end
 
 	data.ReferralRewarded = saved.ReferralRewarded == true
+	data.VisitorDay = countOr(saved.VisitorDay, 0)
+	data.HeartsReceived = countOr(saved.HeartsReceived, 0)
+
+	local realDay = count(today, 0)
+	if realDay then
+		clampDays(data, realDay)
+	end
 	return data
 end
 

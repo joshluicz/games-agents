@@ -24,6 +24,7 @@ local SIGN_TAG = "ClinicSignPrompt" -- Visits.SIGN_PROMPT_TAG (server modules ca
 local STATION_TAG = "StationPrompt" -- Stations.PROMPT_TAG
 local TREAT_NAME = "TreatPrompt" -- Patients' prompt on the Counter
 local MAKE_NAME = "MakePrompt" -- Stations.PROMPT_NAME
+local REACH_ATTRIBUTE = "FilterReach" -- set on this client only
 
 type Kind = "Sign" | "Work"
 
@@ -31,7 +32,11 @@ type Tracked = { Kind: Kind, Plot: Model, Reach: number }
 
 function PromptFilter.init(ctx: Types.Ctx)
 	local player = ctx.Player
-	local tracked: { [ProximityPrompt]: Tracked } = setmetatable({}, { __mode = "k" }) :: any
+	-- A strong table, cleaned up by hand when a prompt leaves the clinics. (Weak Instance keys are unreliable in
+	-- Roblox: an Instance's Lua wrapper can be collected while the Instance lives on, which would drop the entry
+	-- and leave that prompt stuck at whatever reach it had, even 0.)
+	local tracked: { [ProximityPrompt]: Tracked } = {}
+	local untrack: { [ProximityPrompt]: RBXScriptConnection } = {}
 	local friends: { [number]: boolean } = {}
 	local asking: { [number]: boolean } = {}
 
@@ -110,21 +115,44 @@ function PromptFilter.init(ctx: Types.Ctx)
 		end
 	end
 
-	refreshAll = function()
-		for prompt, entry in tracked do
-			if prompt.Parent then
-				apply(prompt, entry)
-			end
+	-- Gone from its plot (destroyed with a room, or streamed out): forget it. If it comes back, DescendantAdded
+	-- tracks it again from scratch.
+	local function forget(prompt: ProximityPrompt)
+		tracked[prompt] = nil
+		local connection = untrack[prompt]
+		untrack[prompt] = nil
+		if connection then
+			connection:Disconnect()
 		end
 	end
 
-	local watchedPlots: { [Model]: boolean } = setmetatable({}, { __mode = "k" }) :: any
-	local function refreshPlot(plot: Model)
+	-- Applies to every tracked prompt that passes `which`, and forgets any that left its plot (in case the
+	-- AncestryChanged clean-up didn't run, e.g. a deferred event dropped by Destroy).
+	local function refresh(which: (Tracked) -> boolean)
+		local gone: { ProximityPrompt } = {}
 		for prompt, entry in tracked do
-			if entry.Plot == plot and prompt.Parent then
+			if not prompt:IsDescendantOf(entry.Plot) then
+				table.insert(gone, prompt)
+			elseif which(entry) then
 				apply(prompt, entry)
 			end
 		end
+		for _, prompt in gone do
+			forget(prompt)
+		end
+	end
+
+	refreshAll = function()
+		refresh(function()
+			return true
+		end)
+	end
+
+	local watchedPlots: { [Model]: boolean } = {} -- the six plots live for the whole session
+	local function refreshPlot(plot: Model)
+		refresh(function(entry: Tracked)
+			return entry.Plot == plot
+		end)
 	end
 	local function watchPlot(plot: Model)
 		if watchedPlots[plot] then
@@ -150,8 +178,21 @@ function PromptFilter.init(ctx: Types.Ctx)
 		if not plot then
 			return
 		end
-		local entry: Tracked = { Kind = kind, Plot = plot, Reach = instance.MaxActivationDistance }
+		-- The server's reach, remembered on the prompt (a local attribute), so a prompt that's tracked again
+		-- after we zeroed it still gets its real reach back.
+		local reach = instance:GetAttribute(REACH_ATTRIBUTE)
+		if type(reach) ~= "number" then
+			reach = instance.MaxActivationDistance
+			instance:SetAttribute(REACH_ATTRIBUTE, reach)
+		end
+		local entry: Tracked = { Kind = kind, Plot = plot, Reach = reach :: number }
 		tracked[instance] = entry
+		local prompt = instance
+		untrack[prompt] = prompt.AncestryChanged:Connect(function()
+			if not prompt:IsDescendantOf(plot) then
+				forget(prompt)
+			end
+		end)
 		watchPlot(plot)
 		apply(instance, entry)
 	end

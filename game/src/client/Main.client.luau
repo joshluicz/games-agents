@@ -76,6 +76,7 @@ local function defaultSnapshot(): Types.Snapshot
 		MailboxReady = false,
 		PlotIndex = nil,
 		TodaysVisitor = "",
+		VisitorStatus = "None",
 		IsWinter = false,
 	}
 end

@@ -74,13 +74,13 @@ local function signLabels(plot: Plot): (TextLabel?, TextLabel?)
 		if hearts and hearts:IsA("TextLabel") then hearts else nil
 end
 
-local function setSign(plot: Plot, owner: Player?)
+local function setSign(plot: Plot, owner: Player?, hearts: number)
 	local ownerLabel, heartLabel = signLabels(plot)
 	if ownerLabel then
 		ownerLabel.Text = if owner then owner.DisplayName .. "'s Clinic" else "✨ Free clinic"
 	end
 	if heartLabel then
-		heartLabel.Text = if owner then "❤️ 0" else "" -- Visits keeps this as "❤️ <n>"
+		heartLabel.Text = if owner then "❤️ " .. hearts else "" -- Visits keeps this as "❤️ <n>"
 	end
 end
 
@@ -216,10 +216,12 @@ local function assign(player: Player, plot: Plot)
 		table.remove(waiting, index)
 	end
 
+	-- Hearts are saved with the owner (Data.HeartsReceived), so the sign keeps counting up across sessions.
+	local hearts = data.HeartsReceived
 	plot.Model:SetAttribute("OwnerUserId", player.UserId)
 	plot.Model:SetAttribute("OpenHelpers", false)
-	plot.Model:SetAttribute("Hearts", 0)
-	setSign(plot, player)
+	plot.Model:SetAttribute("Hearts", hearts)
+	setSign(plot, player, hearts)
 	player:SetAttribute("PlotIndex", plot.Index)
 
 	for _, roomId in Rooms.Order do
@@ -269,7 +271,7 @@ local function release(player: Player)
 	plot.Model:SetAttribute("OwnerUserId", 0)
 	plot.Model:SetAttribute("OpenHelpers", false)
 	plot.Model:SetAttribute("Hearts", 0)
-	setSign(plot, nil)
+	setSign(plot, nil, 0)
 	refreshPreviews(plot, nil)
 	if player.Parent == Players then
 		player:SetAttribute("PlotIndex", nil)
@@ -440,7 +442,7 @@ function Plots.start()
 		}
 		plots[index] = plot
 		byModel[model] = plot
-		setSign(plot, nil)
+		setSign(plot, nil, 0)
 	end
 
 	local townSpawn = Workspace:FindFirstChild("TownSpawn")
@@ -457,16 +459,20 @@ function Plots.start()
 				task.defer(sendHome, player, plot)
 			end
 		end)
-		task.spawn(function()
-			if PlayerData.waitLoaded(player) then
-				tryAssign(player)
-			end
-		end)
 	end
+
+	-- A plot is handed out when the save loads, however long that takes (a slow DataStore or a lock wait):
+	-- driven by the Loaded signal, so a late load still gets a clinic. tryAssign ignores repeats.
+	PlayerData.Loaded:Connect(function(player: Player)
+		tryAssign(player)
+	end)
 
 	Players.PlayerAdded:Connect(onJoin)
 	for _, player in Players:GetPlayers() do
 		onJoin(player)
+		if PlayerData.get(player) then
+			task.spawn(tryAssign, player) -- loaded before we were listening
+		end
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		release(player)

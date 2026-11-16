@@ -4,7 +4,8 @@
 -- On screen (all inside the safe area, nothing under the touch thumbstick or jump button, and the right edge's
 -- middle left free for the 🎵 and ✨ comfort buttons from Music.client and Feel/Atmosphere):
 --   top left      💰 cash · ⭐ stars with a bar to the next unlock (tap it: what's next) · ⚠️ not saving · 🏠 no clinic
---   top right     ☀️/🌙 day-night timer (×2 at night) · ⭐ Today's Visitor (tap: what it means)
+--   top right     ☀️/🌙 day-night timer (×2 at night) · ⭐ Today's Visitor (tap: what it means), only when it
+--                 can come to your clinic, ✅ once cured today (the Snapshot's VisitorStatus)
 --   bottom centre your hands (the `Carry` and `CarryMax` attributes) above the 🛒 📖 📬 🎯 buttons, each with a
 --                 dot when something waits there (a room you can buy or decor to place · new pages · mail · a goal)
 -- Everything is drawn from the Snapshot, player attributes and Workspace attributes. The client never decides
@@ -786,7 +787,7 @@ local function pill(props: { [string]: any }): Frame
 		frame.Text = ""
 		frame.AutoButtonColor = false
 	end
-	Kit.corner(frame, 23)
+	Kit.corner(frame, math.floor(frame.Size.Y.Offset / 2)) -- a full pill at any height
 	local stroke = Kit.stroke(frame, Theme.Colors.Stroke, 2.5)
 	stroke.Transparency = 0.2
 	local gradient = Instance.new("UIGradient")
@@ -1083,7 +1084,7 @@ function Hud.init(ctx: Types.Ctx)
 	wallet.Name = "Wallet"
 	wallet.BackgroundTransparency = 1
 	wallet.Position = UDim2.fromOffset(margin, margin)
-	wallet.Size = UDim2.fromOffset(210, 200) -- cash, stars, and the rare status chips under them
+	wallet.Size = UDim2.fromOffset(210, 214) -- cash, stars, and the rare status chips under them
 	wallet.Parent = gui
 	local walletList = Kit.list(wallet, Enum.FillDirection.Vertical, 8)
 	walletList.HorizontalAlignment = Enum.HorizontalAlignment.Left
@@ -1104,8 +1105,14 @@ function Hud.init(ctx: Types.Ctx)
 	targets.Cash = cashPill
 	local cash = counter(cashPill, cashText, "")
 
-	local starsPill =
-		pill({ Name = "Stars", Parent = wallet, LayoutOrder = 2, Size = UDim2.fromOffset(210, 46), Button = true })
+	-- Tappable (shows what's next), so it gets the full 56 px tap height.
+	local starsPill = pill({
+		Name = "Stars",
+		Parent = wallet,
+		LayoutOrder = 2,
+		Size = UDim2.fromOffset(210, Theme.Size.ButtonHeight),
+		Button = true,
+	})
 	iconLabel(starsPill, "⭐", UDim2.new(0, 8, 0.5, 0), 30)
 	local starsText = Kit.label({
 		Name = "Amount",
@@ -1193,11 +1200,11 @@ function Hud.init(ctx: Types.Ctx)
 		Name = "Visitor",
 		Parent = side,
 		LayoutOrder = 2,
-		Size = UDim2.fromOffset(92, 52),
+		Size = UDim2.fromOffset(92, Theme.Size.ButtonHeight),
 		Button = true,
 	})
 	visitorChip.Visible = false
-	iconLabel(visitorChip, "⭐", UDim2.new(0, 8, 0.5, 0), 26)
+	local visitorMark = iconLabel(visitorChip, "⭐", UDim2.new(0, 8, 0.5, 0), 26) -- ✅ once cured today
 	local visitorFace = Instance.new("Frame")
 	visitorFace.Name = "Face"
 	visitorFace.BackgroundTransparency = 1
@@ -1399,7 +1406,11 @@ function Hud.init(ctx: Types.Ctx)
 		Hud.pop(starsPill, 1.08)
 	end)
 	visitorChip.Activated:Connect(function()
-		ctx.toast("⭐ Today's visitor pays " .. tostring(ctx.Config.VisitorMultiplier or 3) .. "×!")
+		if ctx.State.VisitorStatus == "Done" then
+			ctx.toast("✅ Visitor cured! New one tomorrow")
+		else
+			ctx.toast("⭐ Today's visitor pays " .. tostring(ctx.Config.VisitorMultiplier or 3) .. "×!")
+		end
 		Hud.pop(visitorChip, 1.1)
 	end)
 
@@ -1474,7 +1485,10 @@ function Hud.init(ctx: Types.Ctx)
 				Hud.portrait(look).Parent = visitorFace
 			end
 		end
-		visitorChip.Visible = look ~= nil
+		-- Only for a clinic it can come to ("None": no plot, or no station here can treat it), and ✅ once cured.
+		local status = state.VisitorStatus
+		visitorMark.Text = if status == "Done" then "✅" else "⭐"
+		visitorChip.Visible = look ~= nil and (status == "Coming" or status == "Done")
 
 		if isServerState then
 			watchPlot(state)

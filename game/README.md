@@ -33,7 +33,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes`. Server helpers: `serve` (rate limit plus pcall), `allow`, `toast`, `toastAll` |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
 | `shared/Data/*.luau` | **Content**: `Ailments`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`. Keyed maps carry `.Order`, and everything is frozen |
-| `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved)` (migrates v1 shop saves) |
+| `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today), `isNewer(saved)` |
 | `shared/Logic/Pay.luau` | Cash and ⭐ for a cure |
 | `shared/Logic/Prices.luau` | Upgrade prices, hold time, tray capacity, patience |
 | `shared/Logic/Progress.luau` | Can this room be bought, and what's the next goal |
@@ -48,7 +48,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | File | Does |
 |---|---|
 | `server/Main.server.luau` | Collision groups, then every system's `start()` in order ([Boot order](#boot-order)) |
-| `server/PlayerData.luau` | Loads and saves v2 with `UpdateAsync` under a session lock, migrates `PlayerData_v1`, never saves after a failed load (`DataOk = false` plus a toast), autosaves, saves on leave and in `BindToClose`. Leaderstats `Cash` and `Stars` |
+| `server/PlayerData.luau` | Loads and saves v2 with `UpdateAsync` under a session lock (a join waits out another server's lock until its lease ends), migrates `PlayerData_v1`, never saves after a failed load or over a newer-version save (`DataOk = false` plus a toast), autosaves, saves on leave (retried with backoff) and in `BindToClose`. Leaderstats `Cash` and `Stars` |
 | `server/State.luau` | Builds each player's Snapshot, pushes it (debounced) and answers `GetState` |
 | `server/Events.luau` | Winter: `Config.Winter` dates or the `ForceWinter` Workspace attribute → `Workspace.IsWinter` |
 | `server/Plots.luau` | Assigns a plot once data loads, frees it on leave, rebuilds rooms and decor from the save, `canWork` (owner, friend or `OpenHelpers`), `unlockRoom`, `placeDecor` |
@@ -162,12 +162,14 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   - End the current day or night now: `workspace:SetAttribute("SkipPhase", true)` (twice = a whole clinic day, so
     the Day Report pops). Or shorten `Config.DaySeconds` and `Config.NightSeconds`.
   - UTC midnight: `workspace:SetAttribute("UtcDay", workspace:GetAttribute("UtcDay") + 1)`. Daily, Story and Events
-    all follow it (new visitor, a new goal, the mailbox opens). Setting it below the real day snaps back.
+    all follow it (new visitor, a new goal, the mailbox opens). Setting it below the real day snaps back. This works
+    in Studio only: live servers always use the real day.
   - Force Today's Visitor: `workspace:SetAttribute("TodaysVisitor", "CloudSheep")` (lasts until the day changes).
   - The next story day without touching `UtcDay`: set a regular's `LastBeatDay` back by 1 in the save.
-  - ⚠️ With **Studio Access to API Services** on, a forward-set `UtcDay` is written into the real save
-    (`LastGrantDay`, `Mailbox.LastSeenDay`, `HeartsGiven`, a story's `LastBeatDay`), and that account then gets no
-    new goals or mail until real time catches up. Test it on a spare account, or with API access off.
+  - With **Studio Access to API Services** on, a forward-set `UtcDay` is written into the real save
+    (`LastGrantDay`, `Mailbox.LastSeenDay`, `HeartsGiven`, `VisitorDay`, a story's `LastBeatDay`). The next load
+    pulls those days back to the real UTC day (`Schema.reconcile`), so the account isn't locked out, but it can
+    still lose that day's mail or goal. A spare account, or API access off, is still the cleanest.
 - **Feel check:** a cure gives sparkles, a pop, a chime and the NEW PAGE banner; the ✨ button turns to 💤 and the
   effects calm down; `ForceWinter` brings snow; at night there are fireflies and the lamps and lanterns glow.
 - **Junk remote calls**, from the client command bar. Each must return `false` plus a message and change nothing:
@@ -184,25 +186,27 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   shows your name.
 - [ ] 2. The first patient arrives within 60 s with an icon. The guide arrow points to the station. Hold → carry icon →
   the arrow points to the Counter → Treat → bed → cured → cash and ⭐, with sparkle and chime.
-- [ ] 3. A wrong item gives a head-shake and a hint. Patience running out means a sad puff and no penalty.
+- [ ] 3. A wrong item gives a head-shake and a hint. Making the right item with a full tray swaps the old one out
+  (🔄 toast), so the line never jams. Patience running out means a sad puff and no penalty.
 - [ ] 4. Upgrades buy and change the hold time, tray, patience and tips. The Bath Room unlocks at ⭐10 and 150 cash,
   appears in its slot, and its station works. Bath patients start arriving.
 - [ ] 5. Patient Book: the first cure gives NEW PAGE, the silhouette fills in, and completing the Starter set grants
   HeartRug.
 - [ ] 6. Decor: buy, place in a slot, and it appears. Leave and rejoin, and the same decor is there.
 - [ ] 7. Night: night patients glow, pay 2×, and the Day Report pops at night's end.
-- [ ] 8. Winter (`ForceWinter`): it snows, Frosty variants appear, the WinterWing can be bought, and its Cocoa station
-  works.
-- [ ] 9. Today's Visitor ⭐ shows up once. A daily goal fills and is claimed. The mailbox gift works once.
+- [ ] 8. The WinterWing can be bought any time of year (⭐40, 💰500) and its Cocoa station works. Winter
+  (`ForceWinter`): it snows and Frosty variants appear.
+- [ ] 9. Today's Visitor ⭐ shows up once, the HUD chip turns ✅ once it's cured, and it doesn't come again on another
+  server the same UTC day. A daily goal fills and is claimed. The mailbox gift works once.
 - [ ] 10. ShySprout appears and the bubble shows beat 1. A second cure the same UTC day doesn't advance it. Simulate
   the next day (set `LastBeatDay` back) and it advances.
-- [ ] 11. Hearts: a heart from a second client counts once a day. The OpenHelpers toggle works. A non-friend can't
-  treat when it's closed.
+- [ ] 11. Hearts: a heart from a second client counts once a day, and the sign's count is still there after the owner
+  rejoins. The OpenHelpers toggle works. A non-friend can't treat when it's closed.
 - [ ] 12. Rejoin keeps everything. Junk remote calls are rejected.
 
 **Edge cases (build plan, Review Focus):**
-- [ ] The plot owner leaves mid-cure: patients, carry visuals and prompts on that plot clean up with no errors, and
-  the plot goes to the next joiner.
+- [ ] The plot owner leaves mid-cure: patients, carry visuals and prompts on that plot clean up with no errors, a
+  helper whose patient was resting still gets the cure, and the plot goes to the next joiner (whose prompts work).
 - [ ] A 7th player joins when 6 plots are taken: no plot, a toast explains it, and they can visit, help (if
   allowed) and leave hearts.
 - [ ] The DataStore fails on load: the game plays, never saves over the real data, and a toast warns "Saving is

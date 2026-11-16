@@ -19,8 +19,13 @@
 -- tagged `StationPrompt` (CollectionService; use GetInstanceAddedSignal too, for streaming and new rooms) and
 -- carries the attributes `StationId` and `ItemId`.
 --
--- Feedback is immediate: a full tray or a locked clinic toasts when the hold BEGINS, so nobody holds for nothing.
--- Toasts are short (≤ 6 words, icon first) and the same toast is sent at most once every 1.5 s per player.
+-- A full tray never blocks the clinic. Treatments are free, so making something with a full tray swaps out the
+-- oldest item that's different ("🔄 🧪 ➜ 🩹"): a kid holding the wrong thing just makes the right one. Only a
+-- tray already full of this very item refuses ("Tray full!"), since a swap would change nothing.
+--
+-- Feedback is immediate: a refusal (a locked clinic, a tray full of this item) toasts when the hold BEGINS, so
+-- nobody holds for nothing. Toasts are short (≤ 6 words, icon first) and the same toast is sent at most once
+-- every 1.5 s per player.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -29,6 +34,7 @@ local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 local Types = require(Shared.Types)
+local ItemData = require(Shared.Data.Items)
 local StationData = require(Shared.Data.Stations)
 local Prices = require(Shared.Logic.Prices)
 local Carry = require(script.Parent.Carry)
@@ -53,6 +59,8 @@ local TOAST_COOLDOWN = 1.5
 local TRAY_FULL = "🙌 Tray full! Treat a patient."
 local NOT_YOURS = "🔒 Not your clinic!"
 local HOLD_LONGER = "✋ Hold a little longer!"
+local SWAP_ICON = "🔄"
+local SWAP_ARROW = "➜"
 
 -- Told: the refusal already toasted when this hold began (not repeated when it completes).
 type Hold = { Prompt: ProximityPrompt, Started: number, Ended: number?, Told: string? }
@@ -80,15 +88,34 @@ local function toast(player: Player, text: string)
 	Remotes.toast(player, text)
 end
 
--- Why this player can't make here right now, or nil if they can.
-local function refusal(player: Player, plot: Plot): string?
+-- The item a full tray gives up to make room for `itemId`: the oldest one that's different. nil when the tray
+-- has room, or holds nothing but `itemId` (swapping would change nothing).
+local function swapOut(player: Player, itemId: string): string?
+	if not Carry.isFull(player) then
+		return nil
+	end
+	for _, carried in Carry.items(player) do
+		if carried ~= itemId then
+			return carried
+		end
+	end
+	return nil
+end
+
+-- Why this player can't make `itemId` here right now, or nil if they can.
+local function refusal(player: Player, plot: Plot, itemId: string): string?
 	if not plot.Owner or not Plots.canWork(player, plot) then
 		return NOT_YOURS
 	end
-	if Carry.isFull(player) then
-		return TRAY_FULL
+	if Carry.isFull(player) and swapOut(player, itemId) == nil then
+		return TRAY_FULL -- full of this very item already
 	end
 	return nil
+end
+
+local function iconOf(itemId: string): string
+	local item = rawget(ItemData :: any, itemId)
+	return if item then item.Icon else "❔"
 end
 
 -- The maker is alive and standing near the station (the prompt's own range, plus some slack).
@@ -168,7 +195,7 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 	local sparkles = sparkleEmitter(part, station.Color)
 
 	prompt.PromptButtonHoldBegan:Connect(function(player: Player)
-		local why = refusal(player, plot)
+		local why = refusal(player, plot, itemId)
 		holds[player] = { Prompt = prompt, Started = os.clock(), Ended = nil, Told = why }
 		if why then
 			toast(player, why) -- say it now, not after a hold that can't work
@@ -200,16 +227,27 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 		if not isNear(player, part) then
 			return
 		end
-		local why = refusal(player, plot)
+		local why = refusal(player, plot, itemId)
 		if why then
 			if why ~= hold.Told then
 				toast(player, why)
 			end
 			return
 		end
+		-- A full tray swaps its oldest different item for this one (treatments are free, so nothing is lost).
+		local swapped = swapOut(player, itemId)
+		if swapped then
+			Carry.take(player, swapped)
+		end
 		if not Carry.add(player, itemId) then
+			if swapped then
+				Carry.add(player, swapped) -- couldn't make it after all: put the old one back
+			end
 			toast(player, TRAY_FULL)
 			return
+		end
+		if swapped then
+			toast(player, SWAP_ICON .. " " .. iconOf(swapped) .. " " .. SWAP_ARROW .. " " .. iconOf(itemId))
 		end
 
 		sparkles:Emit(14)

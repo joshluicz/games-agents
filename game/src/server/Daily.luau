@@ -1,6 +1,7 @@
 --!strict
 -- Today's Visitor, banked daily goals and the mailbox (build plan §B5, design §5.4-5.5). Server only.
 --   Daily.visitorFor(p): PatientId?   today's visitor for p's clinic: once per player per UTC day (see below)
+--   Daily.visitorStatus(p)            "Coming" | "Done" | "None": what p's HUD chip shows (State's Snapshot)
 --   Daily.onCure(p, ctx)              p is the helper: their goals move; ctx.Visitor marks the OWNER's visitor done
 --   Daily.onMake(p, itemId)           Stations calls it after a treatment is made
 --   Daily.today(): number             the current UTC day (Visits and anything else that needs "today")
@@ -9,9 +10,11 @@
 -- The day. A story/daily day is a real UTC calendar day (os.time() // 86400). Workspace.UtcDay is checked every
 -- minute and exactly at midnight, so the rollover lands mid-session within a second, without a rejoin: the
 -- visitor changes, everyone in the server gets their new goal, and the mailbox opens (State re-sends snapshots
--- when UtcDay changes). A UtcDay set FORWARD by hand (Studio testing: execute_luau
+-- when UtcDay changes). In Studio only, a UtcDay set FORWARD by hand (testing: execute_luau
 -- `workspace:SetAttribute("UtcDay", workspace:GetAttribute("UtcDay") + 1)`) is a real rollover and sticks until the
--- clock catches up; Story reads the same attribute the same way. Setting it below the real day snaps it back.
+-- clock catches up; Story and Events read the same attribute the same way. Setting it below the real day snaps it
+-- back. Live servers always use the real day, and a save that picked up a future day in a Studio test is pulled
+-- back to the real day when it loads (Schema.reconcile).
 --
 -- No streaks and no penalties (design §5.5):
 --   · one new goal per UTC day, banked up to Config.MaxBankedGoals; a full bank just waits, nothing expires
@@ -20,14 +23,17 @@
 --
 -- Today's Visitor is one day patient, the same for everyone (Logic/Daily.visitor over the evergreen day
 -- patients). visitorFor only offers it to a clinic that can treat it, and holds it for VISITOR_HOLD_SECONDS while
--- it's out; once cured it's done for the day (this server remembers, by UserId, so a rejoin can't repeat it).
--- If it leaves uncured, it comes back after the hold: missing it is never a loss.
+-- it's out. Once cured it's done for the day: the owner's save keeps the day (Data.VisitorDay), so another
+-- server or a rejoin can't hand it out again. A visitor handed out before UTC midnight and cured after it
+-- counts for the day it came, so it never uses up the new day's visitor. If it leaves uncured, it comes back
+-- after the hold: missing it is never a loss.
 --
 -- Remotes (Remotes.serve: rate limit + pcall). Every argument is untrusted:
 --   ClaimGoal(index: number)   an integer 1..#goals whose goal reached its target -> cash + Clinic Stars
 --   ClaimMailbox()             once per UTC day -> Config.MailboxGiftCash
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -55,8 +61,9 @@ local POOL = DailyGoals :: { DailyLogic.GoalDef }
 local started = false
 local currentDay = DailyLogic.day(os.time())
 local visitorPool: { string } = {}
-local visitorDone: { [number]: number } = {} -- UserId -> the day their visitor was cured
-local visitorOut: { [number]: { Day: number, Until: number } } = {} -- UserId -> visitor handed out, not yet cured
+-- UserId -> the visitor handed out to that clinic and not yet cured: the day it was handed out, and the hold.
+local visitorOut: { [number]: { Day: number, Until: number } } = {}
+local IS_STUDIO = RunService:IsStudio()
 
 ------------------------------------------------------------------------------------------------------------------
 -- Content lookups
@@ -203,27 +210,25 @@ end
 -- The day
 ------------------------------------------------------------------------------------------------------------------
 
--- The real UTC day, unless Workspace.UtcDay was set further forward (testing).
+-- The real UTC day, unless Workspace.UtcDay was set further forward in Studio (testing).
 local function resolveDay(): number
 	local real = DailyLogic.day(os.time())
 	local attribute = Workspace:GetAttribute("UtcDay")
-	if type(attribute) == "number" and attribute % 1 == 0 and attribute > real and attribute < math.huge then
+	if
+		IS_STUDIO
+		and type(attribute) == "number"
+		and attribute % 1 == 0
+		and attribute > real
+		and attribute < math.huge
+	then
 		return attribute
 	end
 	return real
 end
 
+-- (visitorOut entries from an earlier day stay until that visitor is cured or its clinic closes: onCure needs
+-- the day it was handed out, and visitorFor ignores any entry that isn't from today.)
 local function onNewDay()
-	for key, day in visitorDone do
-		if day < currentDay then
-			visitorDone[key] = nil
-		end
-	end
-	for key, out in visitorOut do
-		if out.Day < currentDay then
-			visitorOut[key] = nil
-		end
-	end
 	for _, player in Players:GetPlayers() do
 		if PlayerData.get(player) then
 			local added = grantFor(player)
@@ -268,20 +273,49 @@ function Daily.visitorFor(player: Player): string?
 	if type(visitor) ~= "string" or not patientRow(visitor) then
 		return nil
 	end
-	local userId = player.UserId
-	if visitorDone[userId] == today then
-		return nil
+	local data = PlayerData.get(player)
+	if not data or data.VisitorDay == today then
+		return nil -- cured today already (on any server: it's in the save)
 	end
+	local userId = player.UserId
 	local out = visitorOut[userId]
 	if out and out.Day == today and os.clock() < out.Until then
 		return nil
 	end
-	local data = PlayerData.get(player)
-	if not data or not canTreat(data, visitor) then
+	if not canTreat(data, visitor) then
 		return nil
 	end
 	visitorOut[userId] = { Day = today, Until = os.clock() + VISITOR_HOLD_SECONDS }
 	return visitor
+end
+
+-- "Coming" | "Done" | "None" for the HUD chip (State puts it in the Snapshot). Never hands anything out.
+function Daily.visitorStatus(player: Player): Types.VisitorStatus
+	local visitor = Workspace:GetAttribute("TodaysVisitor")
+	local data = PlayerData.get(player)
+	if type(visitor) ~= "string" or not patientRow(visitor) or not data then
+		return "None"
+	end
+	if data.VisitorDay == currentDay then
+		return "Done"
+	end
+	if type(player:GetAttribute("PlotIndex")) ~= "number" or not canTreat(data, visitor) then
+		return "None"
+	end
+	return "Coming"
+end
+
+-- Marks the owner's visitor done for the day it was handed out, if that's still today.
+local function visitorCured(owner: Player, today: number)
+	local out = visitorOut[owner.UserId]
+	visitorOut[owner.UserId] = nil
+	local handedOutOn = if out then out.Day else today
+	if handedOutOn ~= today then
+		return -- yesterday's visitor, cured after midnight: today's is still to come
+	end
+	PlayerData.update(owner, function(d)
+		d.VisitorDay = today
+	end)
 end
 
 function Daily.onCure(player: Player, ctx: Types.CureCtx)
@@ -290,8 +324,7 @@ function Daily.onCure(player: Player, ctx: Types.CureCtx)
 	end
 	local today = refreshDay()
 	if ctx.Visitor == true and isPlayer(ctx.Owner) then
-		visitorDone[ctx.Owner.UserId] = today
-		visitorOut[ctx.Owner.UserId] = nil
+		visitorCured(ctx.Owner, today)
 	end
 	progress(player, "Cure", { Night = ctx.Night == true, Wing = wingOf(ctx) })
 end
@@ -374,6 +407,11 @@ function Daily.start()
 			grantFor(player) -- loaded before we were listening
 		end
 	end
+
+	-- The clinic closes on leave and its patients go with it, so a visitor that was out is free to come again.
+	Players.PlayerRemoving:Connect(function(player: Player)
+		visitorOut[player.UserId] = nil
+	end)
 
 	Remotes.serve("ClaimGoal", claimGoal)
 	Remotes.serve("ClaimMailbox", claimMailbox)

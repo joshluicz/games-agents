@@ -3,7 +3,8 @@
 --   init(ctx)   opens on ctx.fire("Open", "Mailbox") and ctx.fire("Open", "Goals")
 -- Letter: when you join and the server says MailboxReady, an envelope drops in and opens into a thank-you
 -- letter from patients you've cured (or a welcome note) with a 🎁 gift. Claim calls ClaimMailbox; the same gift
--- whether you were away a day or ten, and no streaks. It pops by itself only once per session.
+-- whether you were away a day or ten, and no streaks. It pops by itself only once per session (for a brand-new
+-- player, after their first cure, so it never covers the first patient).
 -- Goals: up to Config.MaxBankedGoals banked goals with progress bars; a finished one gets a claim button that
 -- calls ClaimGoal(index). Goals never expire.
 -- All amounts shown are from Config and Data/DailyGoals, for display only; the server decides what you get.
@@ -21,6 +22,7 @@ local Theme = require(script.Parent.Theme)
 local Mailbox = {}
 
 local AUTO_POP_DELAY = 2 -- seconds after the save loads, so the world is on screen first
+local FIRST_CURE_DELAY = 4 -- a new player's letter: after the first cure's sparkle and NEW PAGE banner
 local MAX_THANKS = 3
 
 local function textLimit(label: TextLabel, max: number)
@@ -531,14 +533,21 @@ function Mailbox.init(ctx: Types.Ctx)
 		end
 	end)
 
-	-- Pop the letter once, the first time the server says it's ready this session.
+	-- Pop the letter once, the first time the server says it's ready this session. A brand-new player (nothing
+	-- cured yet) gets it after their first cure instead: on join their first patient and the Guide arrow arrive
+	-- at once, and a dimmed letter would cover them and block the thumbstick.
 	local popped = false
+	local waitedForCure = false
 	ctx.onState(function(state: Types.Snapshot)
 		if popped or state == initial or state.MailboxReady ~= true then
 			return
 		end
+		if (state.Cured or 0) < 1 and state.PlotIndex ~= nil then
+			waitedForCure = true -- a later snapshot with Cured >= 1 pops it (without a clinic, it pops now)
+			return
+		end
 		popped = true
-		task.delay(AUTO_POP_DELAY, function()
+		task.delay(if waitedForCure then FIRST_CURE_DELAY else AUTO_POP_DELAY, function()
 			if ctx.State.MailboxReady == true then
 				openLetter()
 			end

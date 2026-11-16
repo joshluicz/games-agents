@@ -19,7 +19,8 @@
 --      taken it rests in place at the front of the line, so the line waits: more beds = a faster clinic.
 --      After Config.RecoverSeconds: Cure.resolve(ctx), a happy spin, and it hops out of the gate.
 --   5. Cleanup. Plots.PlotReleased (the owner left) removes every patient on that plot right away, before
---      Plots clears the plot. Nothing on the plot errors, and the plot is clean for the next owner.
+--      Plots clears the plot. A patient already treated (its item spent) is cured on the spot first, so a helper
+--      never loses their work. Nothing on the plot errors, and the plot is clean for the next owner.
 --
 -- Movement: no Humanoids, no physics. A creature is one anchored Root with its parts welded on
 -- (CreatureBuilder). Hops are tweens: TweenService:GetValue easing, stepped on one Heartbeat connection that
@@ -667,12 +668,10 @@ end
 -- A patient's visit (runs on the patient's own thread)
 ------------------------------------------------------------------------------------------------------------------
 
-local function resolveCure(p: Patient)
-	local state = p.Plot
-	local owner = state.Owner
-	if not alive(p) or owner.Parent ~= Players then
-		return
-	end
+-- Hands the cure to Cure.resolve on its own thread. The helper is whoever treated it, or the owner if they've
+-- left; Cure.resolve skips whichever of the two is gone.
+local function payCure(p: Patient)
+	local owner = p.Plot.Owner
 	local helper = owner
 	local treatedBy = p.Helper
 	if treatedBy and treatedBy.Parent == Players then
@@ -696,6 +695,24 @@ local function resolveCure(p: Patient)
 			report("Cure.resolve", err)
 		end
 	end)
+end
+
+local function resolveCure(p: Patient)
+	if not alive(p) or p.Plot.Owner.Parent ~= Players then
+		return
+	end
+	payCure(p)
+end
+
+-- The clinic is closing (its owner left) while this patient was treated and resting: its treatment was already
+-- spent, so the cure lands now instead of being lost. A helper still in the server gets their cash, Book stamp
+-- and goal progress; the owner's part lands too while their save is still open.
+local function settleEarly(p: Patient)
+	if p.State ~= "Treated" and p.State ~= "Recovering" then
+		return
+	end
+	p.State = "Cured"
+	payCure(p)
 end
 
 local function leave(p: Patient)
@@ -1328,6 +1345,10 @@ deactivate = function(plot: Plot)
 		table.insert(everyone, p)
 	end
 	for _, p in everyone do
+		local ok, err = pcall(settleEarly, p)
+		if not ok then
+			report("settle a cure early", err)
+		end
 		removePatient(p)
 	end
 	table.clear(state.Queue)

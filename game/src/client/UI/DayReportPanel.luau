@@ -1,7 +1,8 @@
 --!strict
 -- DayReportPanel (build plan Task 6): the end-of-day card, popped when the server sends DayReport (at night's
 -- end). A big count of patients cured, ⭐ gained, the new Book pages as faces, and the one clear "next goal"
--- with a 🛒 button that opens the Shop on it. It closes by itself after AUTO_CLOSE seconds.
+-- with a bar showing how close it is (⭐ toward its stars, then 💰 toward its price) and a 🛒 button that opens
+-- the Shop on it. It closes by itself after AUTO_CLOSE seconds.
 --   init(ctx)   listens to the DayReport remote
 -- It doesn't dim the screen or grab gamepad focus: it arrives on its own while you play, so it never blocks you.
 -- A day with nothing cured shows nothing (no "you did nothing" screen).
@@ -51,6 +52,28 @@ local function clean(report: any): Types.DayReportInfo?
 			Icon = if type(nextGoal.Icon) == "string" then nextGoal.Icon else "",
 		},
 	}
+end
+
+-- The next goal's bar: Clinic Stars toward a room's StarsNeeded, then cash toward its price (or an upgrade's next
+-- price). Returns which it measures ("Stars" | "Cash") and how full it is, 0..1. Display only.
+local function progressTo(state: Types.Snapshot, room: any, upgrade: any, id: string): (string, number)
+	local stars = state.Stars or 0
+	local cash = state.Cash or 0
+	local function ratio(have: number, need: number): number
+		return if need > 0 then math.clamp(have / need, 0, 1) else 1
+	end
+	if room then
+		if stars < room.StarsNeeded then
+			return "Stars", ratio(stars, room.StarsNeeded)
+		end
+		return "Cash", ratio(cash, room.Price)
+	end
+	if upgrade then
+		local level = (state.Upgrades and state.Upgrades[id]) or 0
+		local price = upgrade.Prices[level + 1]
+		return "Cash", if type(price) == "number" then ratio(cash, price) else 1
+	end
+	return "Stars", 1
 end
 
 function DayReportPanel.init(ctx: Types.Ctx)
@@ -163,12 +186,38 @@ function DayReportPanel.init(ctx: Types.Ctx)
 		Text = "",
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 112, 0.5, 0),
-		Size = UDim2.new(1, -112 - 84, 0, 30),
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 112, 0.5, 2),
+		Size = UDim2.new(1, -112 - 84, 0, 26),
 		Parent = nextCard,
 	})
 	textLimit(nextName, 22)
+	-- How close you are: ⭐ toward the room's stars first, then 💰 toward its price (design §5.4).
+	local nextTrack = Instance.new("Frame")
+	nextTrack.Name = "Progress"
+	nextTrack.AnchorPoint = Vector2.new(0, 0)
+	nextTrack.Position = UDim2.new(0, 140, 0.5, 8)
+	nextTrack.Size = UDim2.new(1, -140 - 84, 0, 14)
+	nextTrack.BackgroundColor3 = Theme.Colors.Quiet
+	nextTrack.BorderSizePixel = 0
+	Kit.corner(nextTrack, 7)
+	nextTrack.Parent = nextCard
+	local nextFill = Instance.new("Frame")
+	nextFill.Name = "Fill"
+	nextFill.Size = UDim2.fromScale(0, 1)
+	nextFill.BackgroundColor3 = Theme.Colors.Star
+	nextFill.BorderSizePixel = 0
+	Kit.corner(nextFill, 7)
+	nextFill.Parent = nextTrack
+	local nextMeter = Kit.label({
+		Name = "Meter",
+		Text = "⭐",
+		TextScaled = true,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 112, 0.5, 15),
+		Size = UDim2.fromOffset(22, 22),
+		Parent = nextCard,
+	})
 	local goButton = Kit.button({
 		Name = "Go",
 		Kind = "Primary",
@@ -260,6 +309,10 @@ function DayReportPanel.init(ctx: Types.Ctx)
 			nextIcon.Text = if nextGoal.Icon ~= "" then nextGoal.Icon elseif thing then thing.Icon else "🎯"
 			nextName.Text = if thing then thing.Name else ""
 			shopTab = if room then "Rooms" else "Upgrades"
+			local meter, ratio = progressTo(ctx.State, room, upgrade, nextGoal.Id)
+			nextMeter.Text = if meter == "Stars" then "⭐" else "💰"
+			nextFill.BackgroundColor3 = if meter == "Stars" then Theme.Colors.Star else Theme.Colors.Cash
+			nextFill.Size = UDim2.fromScale(ratio, 1)
 		end
 
 		modal.open()

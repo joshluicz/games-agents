@@ -16,6 +16,7 @@ local Schema = require(Shared.Logic.Schema)
 local DailyLogic = require(Shared.Logic.Daily)
 local Types = require(Shared.Types)
 local PlayerData = require(script.Parent.PlayerData)
+local Daily = require(script.Parent.Daily)
 
 local State = {}
 
@@ -42,6 +43,12 @@ local function today(): number
 	return DailyLogic.day(os.time())
 end
 
+-- Whether today's visitor can still come to this player's clinic (the HUD hides the chip for "None").
+local function visitorStatus(player: Player): Types.VisitorStatus
+	local ok, status = pcall(Daily.visitorStatus, player)
+	return if ok and (status == "Coming" or status == "Done") then status else "None"
+end
+
 function State.snapshot(player: Player): Types.Snapshot
 	local data = PlayerData.get(player) or Schema.default()
 	local plotIndex = player:GetAttribute("PlotIndex")
@@ -59,6 +66,7 @@ function State.snapshot(player: Player): Types.Snapshot
 		MailboxReady = DailyLogic.mailboxReady(data.Mailbox.LastSeenDay, today()),
 		PlotIndex = if type(plotIndex) == "number" then plotIndex else nil,
 		TodaysVisitor = if type(visitor) == "string" then visitor else "",
+		VisitorStatus = visitorStatus(player),
 		IsWinter = Workspace:GetAttribute("IsWinter") == true,
 	}
 end
@@ -108,7 +116,7 @@ function State.start()
 		if not Remotes.allow(player, "GetState") then
 			return nil
 		end
-		PlayerData.waitLoaded(player) -- bounded: returns nil if the player leaves or after a minute
+		PlayerData.waitLoaded(player) -- however long the load takes; nil if the player leaves first
 		return State.snapshot(player)
 	end
 end

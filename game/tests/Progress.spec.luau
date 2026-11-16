@@ -19,8 +19,20 @@ local function save(stars: number, cash: number, rooms: { string }?): Schema.Dat
 	return data
 end
 
-local ALL_BUT_WINTER = { "BathRoom", "Ward", "Garden" }
 local ALL_ROOMS = { "BathRoom", "Ward", "WinterWing", "Garden" }
+
+-- The Winter Wing stays all year (design §5.8), so the season rule is tested on a made-up seasonal room.
+local SNOW_HUT = { Price = 500, StarsNeeded = 40, Season = "Winter" }
+local function roomsWithSnowHut(): any
+	return {
+		Order = { "Stand", "BathRoom", "Ward", "SnowHut", "Garden" },
+		Stand = Rooms.Stand,
+		BathRoom = Rooms.BathRoom,
+		Ward = Rooms.Ward,
+		SnowHut = SNOW_HUT,
+		Garden = Rooms.Garden,
+	}
+end
 
 T.describe("Progress.canBuyRoom", function()
 	test("needs the stars first: Need ⭐10 at 5 stars", function()
@@ -47,17 +59,30 @@ T.describe("Progress.canBuyRoom", function()
 		expect(message).toBe("Need 💰150")
 	end)
 
-	test("a winter room is only for sale in winter", function()
+	test("the Winter Wing is for sale all year", function()
 		local data = save(40, 500)
-		local ok, message = Progress.canBuyRoom(data, Rooms.WinterWing, "WinterWing", false)
-		expect(ok).toBe(false)
-		expect(message).toBe("❄️ Winter only!")
-		expect((Progress.canBuyRoom(data, Rooms.WinterWing, "WinterWing"))).toBe(false)
+		expect((Progress.canBuyRoom(data, Rooms.WinterWing, "WinterWing", false))).toBe(true)
+		expect((Progress.canBuyRoom(data, Rooms.WinterWing, "WinterWing"))).toBe(true)
 		expect((Progress.canBuyRoom(data, Rooms.WinterWing, "WinterWing", true))).toBe(true)
 	end)
 
-	test("in winter, a winter room still needs its stars", function()
-		local ok, message = Progress.canBuyRoom(save(39, 500), Rooms.WinterWing, "WinterWing", true)
+	test("the Winter Wing still needs its stars", function()
+		local ok, message = Progress.canBuyRoom(save(39, 500), Rooms.WinterWing, "WinterWing")
+		expect(ok).toBe(false)
+		expect(message).toBe("Need ⭐40")
+	end)
+
+	test("a seasonal room is only for sale in its season", function()
+		local data = save(40, 500)
+		local ok, message = Progress.canBuyRoom(data, SNOW_HUT, "SnowHut", false)
+		expect(ok).toBe(false)
+		expect(message).toBe("❄️ Winter only!")
+		expect((Progress.canBuyRoom(data, SNOW_HUT, "SnowHut"))).toBe(false)
+		expect((Progress.canBuyRoom(data, SNOW_HUT, "SnowHut", true))).toBe(true)
+	end)
+
+	test("in season, a seasonal room still needs its stars", function()
+		local ok, message = Progress.canBuyRoom(save(39, 500), SNOW_HUT, "SnowHut", true)
 		expect(ok).toBe(false)
 		expect(message).toBe("Need ⭐40")
 	end)
@@ -78,10 +103,17 @@ T.describe("Progress.nextGoal", function()
 		expect(Progress.nextGoal(save(12, 0, { "BathRoom" }), Rooms, Upgrades)).toEqual({ Kind = "Room", Id = "Ward" })
 	end)
 
-	test("skips the winter room out of season", function()
+	test("aims at the Winter Wing in any season", function()
 		local data = save(50, 0, { "BathRoom", "Ward" })
-		expect(Progress.nextGoal(data, Rooms, Upgrades)).toEqual({ Kind = "Room", Id = "Garden" })
+		expect(Progress.nextGoal(data, Rooms, Upgrades)).toEqual({ Kind = "Room", Id = "WinterWing" })
 		expect(Progress.nextGoal(data, Rooms, Upgrades, true)).toEqual({ Kind = "Room", Id = "WinterWing" })
+	end)
+
+	test("skips a seasonal room out of season", function()
+		local data = save(50, 0, { "BathRoom", "Ward" })
+		local rooms = roomsWithSnowHut()
+		expect(Progress.nextGoal(data, rooms, Upgrades)).toEqual({ Kind = "Room", Id = "Garden" })
+		expect(Progress.nextGoal(data, rooms, Upgrades, true)).toEqual({ Kind = "Room", Id = "SnowHut" })
 	end)
 
 	test("with every room owned, aims at the cheapest upgrade", function()
@@ -91,9 +123,9 @@ T.describe("Progress.nextGoal", function()
 		expect(Progress.nextGoal(data, Rooms, Upgrades)).toEqual({ Kind = "Upgrade", Id = "Chairs" })
 	end)
 
-	test("out of winter, an unowned winter room doesn't block the upgrades", function()
-		local data = save(99, 0, ALL_BUT_WINTER)
-		expect(Progress.nextGoal(data, Rooms, Upgrades).Kind).toBe("Upgrade")
+	test("out of season, an unowned seasonal room doesn't block the upgrades", function()
+		local data = save(99, 0, { "BathRoom", "Ward", "Garden" })
+		expect(Progress.nextGoal(data, roomsWithSnowHut(), Upgrades).Kind).toBe("Upgrade")
 	end)
 
 	test("is None when everything is owned and maxed", function()

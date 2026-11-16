@@ -12,7 +12,7 @@ export type Item = {
 local ENTRIES: { [ItemId]: Item } = {
 	Potion = { Name = "Potion", Icon = "🧪", Station = "Remedy" },
 	Plaster = { Name = "Plaster", Icon = "🩹", Station = "Plaster" },
-	Bubbles = { Name = "Bubbles", Icon = "🧼", Station = "Bath" },
+	Bubbles = { Name = "Bubbles", Icon = "🛁", Station = "Bath" }, -- the Warm Bath's own icon: one picture per treatment
 	Cocoa = { Name = "Cocoa", Icon = "☕", Station = "Cocoa" },
 }
 
