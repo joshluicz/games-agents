@@ -30,9 +30,13 @@
 --   · The undo (step 12) is explicit: Nurses.give(seller, .., true) uses the token of THIS call's take only, and
 --     Nurses.endUndo ends it before buy returns, so another sale landing in the same frame is never taken for one.
 --   · Then PlayerData.saveNow(seller) and, only once that write landed, saveNow(buyer). PlayerData.writeAfter(seller,
---     buyer, Pure.leaveOut(nurse, price)) leaves the sale out of every buyer write (autosave, leave-save, a rebirth's)
---     until the seller's write has landed, so no write order, crash or failed seller save can put the nurse in two
---     saves: a crash can lose a sale, never duplicate one.
+--     buyer, Pure.leaveOut(nurse, price, copies), nurse) leaves the sale out of every buyer write (autosave,
+--     leave-save, a rebirth's) until the seller's write has landed, so no write order, crash or failed seller save can
+--     put the nurse in two saves: a crash can lose a sale, never duplicate one. A buyer who leaves first has the
+--     seller's write run before its own last one (PlayerData's landSellers). leaveOut only takes back what is still
+--     there: nothing once the buyer sold the nurse on to the Agency or rebirthed, and never a copy hired since.
+--   · ListNurse and BuyListing answer only within Config.KioskReach studs of the kiosk's prompt part, found in the
+--     built model at call time (0 = off, as shipped: see Config).
 --   · The price the client sends is only ever compared with the listing's (never used), and every argument is
 --     type-checked first. Every rejection changes nothing (a stale or vanished listing is only tidied away).
 --   · A seller who leaves takes their listings with them (PlayerRemoving, before their leave-save writes). A seller
@@ -73,6 +77,7 @@ local PROMPT_NAME = "Prompt"
 local KIOSK_ATTRIBUTE = "Kiosk" -- on the prompt: the client opens the panel when a prompt with "Market" fires
 local FALLBACK_GROUND_TOP = 0.5 -- PlotBuilder's street top above Config.Town.Origin.Y (if ClinicTown is missing)
 local STALE = "Price changed! Look again"
+local FAR = "🚶 Come closer!" -- further than Config.KioskReach from the kiosk
 local RELIST = "🏷️ It grew! List it again" -- a copy raised a listed nurse's lowest price: the listing ended
 
 ------------------------------------------------------------------------------------------------------------------
@@ -157,17 +162,51 @@ end
 
 -- What PlayerData.writeAfter(seller, buyer, ..) applies to a COPY of the buyer's save while the seller's write
 -- hasn't landed: the sale taken back out (the nurse goes, the price comes back), so the buyer's stored save can never
--- hold the nurse while the seller's stored save still does.
-function Pure.leaveOut(nurseId: string, price: number): (any) -> ()
+-- hold the nurse while the seller's stored save still does. It only takes back what is still there (`copies` = the
+-- Copies that were bought; nil = not checked):
+--   · the nurse is gone (sold to the Agency, a rebirth): nothing changes. A refund now would be cash from nowhere
+--     (the Agency already paid for it, or the rebirth already reset the cash);
+--   · fewer Copies than were bought: it left and a new one was hired since. Not this sale's: nothing changes;
+--   · more Copies than were bought (a belt or Agency copy came since): only the bought Copies go and the price comes
+--     back. The copy the buyer paid for elsewhere stays, and the bought ones are still never in two saves.
+function Pure.leaveOut(nurseId: string, price: number, copies: number?): (any) -> ()
 	return function(snapshot: any)
-		if type(snapshot) ~= "table" then
+		if type(snapshot) ~= "table" or type(snapshot.Nurses) ~= "table" then
 			return
 		end
-		if type(snapshot.Nurses) == "table" then
+		local entry = snapshot.Nurses[nurseId]
+		if type(entry) ~= "table" then
+			return
+		end
+		local has = entry.Copies
+		if type(copies) == "number" and type(has) == "number" and has ~= copies then
+			if has < copies then
+				return
+			end
+			entry.Copies = has - copies
+		else
 			snapshot.Nurses[nurseId] = nil
 		end
 		snapshot.Cash = (if type(snapshot.Cash) == "number" then snapshot.Cash else 0) + price
 	end
+end
+
+-- Within `reach` studs: a and b are positions (anything with X, Y and Z). Junk is never near.
+function Pure.near(a: any, b: any, reach: number): boolean
+	local function axis(value: any): boolean
+		return type(value) == "number" and value == value
+	end
+	local function spot(value: any): boolean
+		if type(value) ~= "table" and type(value) ~= "userdata" and type(value) ~= "vector" then
+			return false
+		end
+		return axis(value.X) and axis(value.Y) and axis(value.Z)
+	end
+	if not spot(a) or not spot(b) or not axis(reach) then
+		return false
+	end
+	local dx, dy, dz = a.X - b.X, a.Y - b.Y, a.Z - b.Z
+	return dx * dx + dy * dy + dz * dz <= reach * reach
 end
 
 -- A clean copy of a save's nurse entry: what moves to the buyer (its Job resets there).
@@ -493,7 +532,7 @@ function Market.buy(buyer: Player, id: any, price: any): (boolean, string)
 	-- 13. Seller first, then the buyer, and the buyer only once the seller's write landed. writeAfter also leaves this
 	-- sale out of every buyer write until the seller's write has landed (the nurse and the price), so no write order,
 	-- crash or failed seller save can put the nurse in both saves.
-	pcall(PlayerData.writeAfter, seller, buyer, Pure.leaveOut(nurseId, price))
+	pcall(PlayerData.writeAfter, seller, buyer, Pure.leaveOut(nurseId, price, entry.Copies), nurseId)
 	task.spawn(function()
 		local ok1, sellerSaved = pcall(PlayerData.saveNow, seller)
 		if ok1 and sellerSaved then
@@ -639,6 +678,48 @@ local function buildKiosk()
 end
 
 ------------------------------------------------------------------------------------------------------------------
+-- Standing at the kiosk (Config.KioskReach; 0 = off). The kiosk is found in the world at call time, wherever it was
+-- built or moved to: the part that holds its prompt, else the model's pivot.
+------------------------------------------------------------------------------------------------------------------
+
+local function kioskSpot(): Vector3?
+	local model = Workspace:FindFirstChild(MODEL_NAME)
+	if not model then
+		return nil
+	end
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("ProximityPrompt") then
+			local holder = descendant.Parent
+			if holder and holder:IsA("BasePart") then
+				return holder.Position
+			elseif holder and holder:IsA("Attachment") then
+				return holder.WorldPosition
+			end
+		end
+	end
+	return if model:IsA("PVInstance") then model:GetPivot().Position else nil
+end
+
+-- True when the check is off, when there is no kiosk to stand at, or when the player's HumanoidRootPart is within
+-- Config.KioskReach studs of it. The server's own positions only: nothing from the client is read.
+local function nearKiosk(player: Player): boolean
+	local reach = (Config :: any).KioskReach
+	if type(reach) ~= "number" or reach <= 0 then
+		return true
+	end
+	local spot = kioskSpot()
+	if not spot then
+		return true
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (root and root:IsA("BasePart")) then
+		return false
+	end
+	return Pure.near(root.Position, spot, reach)
+end
+
+------------------------------------------------------------------------------------------------------------------
 -- Start
 ------------------------------------------------------------------------------------------------------------------
 
@@ -647,12 +728,18 @@ function Market.start()
 		return true, "", Market.view()
 	end)
 	Remotes.serve("ListNurse", function(player: Player, nurseId: any, price: any)
+		if not nearKiosk(player) then
+			return false, FAR
+		end
 		return Market.list(player, nurseId, price)
 	end)
 	Remotes.serve("Unlist", function(player: Player, id: any)
 		return Market.unlist(player, id)
 	end)
 	Remotes.serve("BuyListing", function(player: Player, id: any, price: any)
+		if not nearKiosk(player) then
+			return false, FAR
+		end
 		return Market.buy(player, id, price)
 	end)
 

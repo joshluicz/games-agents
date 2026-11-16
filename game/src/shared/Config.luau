@@ -296,6 +296,12 @@ Config.Market = {
 	Offset = Vector3.new(-13, 0, 12),
 }
 
+-- How far (studs, HumanoidRootPart to the kiosk's prompt part) AgencyBuy, SellNurse, ListNurse and BuyListing answer
+-- from; further away they say "🚶 Come closer!". 0 = off, and it ships OFF: the 👩‍⚕️ panel's 🏢 Agency / 🏷️ Market
+-- buttons and a Team card's Sell / List open both panels from anywhere, so a number here breaks those until the
+-- panels are kiosk-only (15 is the number then: the prompts reach 10).
+Config.KioskReach = 0
+
 -- Hospital v2 (design §6)
 Config.Lift = { RideSeconds = 2, CarDistance = 6, Cooldown = 1, EscortWait = 6 }
 Config.AE = {

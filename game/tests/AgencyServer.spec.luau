@@ -464,6 +464,27 @@ T.describe("Agency.Pure: SellNurse's checks", function()
 	end)
 end)
 
+T.describe("Agency.Pure: the kiosk check", function()
+	test("near: within the reach in studs; junk is never near; the reply is 6 words or fewer", function()
+		local kioskAt = { X = 11, Y = 2, Z = 12 }
+		expect(AP.near({ X = 11, Y = 3, Z = 12 }, kioskAt, 15)).toBe(true)
+		expect(AP.near({ X = 26, Y = 2, Z = 12 }, kioskAt, 15)).toBe(true) -- exactly 15
+		expect(AP.near({ X = 26.1, Y = 2, Z = 12 }, kioskAt, 15)).toBe(false)
+		expect(AP.near({ X = 11, Y = 2, Z = -200 }, kioskAt, 15)).toBe(false)
+		for _, junk in { 0, "here", true, {}, { X = 0 / 0, Y = 0, Z = 0 }, { X = 1, Y = 2 } } do
+			expect(AP.near(junk, kioskAt, 15)).toBe(false)
+			expect(AP.near(kioskAt, junk, 15)).toBe(false)
+		end
+		expect(AP.near(nil, kioskAt, 15)).toBe(false)
+		expect(AP.MSG.Far).toBe("🚶 Come closer!")
+		expect(words(AP.MSG.Far) <= 6).toBe(true)
+	end)
+
+	test("it ships off: the 👩‍⚕️ panel opens the Agency and the Market from anywhere", function()
+		expect(Config.KioskReach).toBe(0)
+	end)
+end)
+
 T.describe("Agency: the odds shown are the odds rolled", function()
 	test("20,000 stocks of 4 land on 70 / 26 / 4 and never Legendary+", function()
 		local counts = { Common = 0, Rare = 0, Epic = 0 }

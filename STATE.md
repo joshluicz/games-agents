@@ -20,18 +20,18 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 **Live and PUBLIC (16+) since 2026-11-16 (Joshua):** the tutorial build + player-sized patients, admin panel, Throw away
 (`af773f8`). 60-day window for 250 engaged 16+ plays has started. Marketing push **with the depth update** (Update 1).
 - [x] **Joshua:** published Update 1 (2026-11-16). His verdict: "pretty shit". That feedback became the look overhaul.
-- [ ] **Claude, now:** Progression v2 is built in `.worktrees/progression` (branch `claude/progression-v2`). The
-      integration is committed (`fd80d59`); the review fixer is running. Then merge it here, playtest in Studio with
-      FreshSave, and commit.
-- [ ] **Claude, next:** the look overhaul (`-001` to `-004`, plan `docs/plan/2026-11-17-look-overhaul-build-plan.md`):
+- [x] **Claude:** Progression v2 merged (`c9e4d1c`, 1000 specs). The Studio run checked its systems through remotes
+      (`logs/playtests/2026-11-17-progression-v2-studio.md`). Not published: it ships together with the overhaul.
+- [ ] **Claude:** the visual pass of v2 needs a Studio run with the screen on: lift, wards, triage, BranchPanel.
+- [ ] **Claude, running:** the look overhaul workflow (`.worktrees/look`, branch `claude/look-overhaul`), with Fable
+      on the decision agents. Plan `docs/plan/2026-11-17-look-overhaul-build-plan.md` (`-001` to `-004`):
       - relight, studs, the belt in the road's centre;
       - a real multi-storey hospital with full wards;
       - HUD side rails, a navy unified modal;
       - the tutorial floor beam with Skip and Replay;
       - blocky creatures.
 
-      The workflow script is ready (`docs/plan/workflows/look-overhaul-wf.js`). It runs in `.worktrees/look`, branched from
-      this branch after v2 merges.
+      The workflow script is `docs/plan/workflows/look-overhaul-wf.js`.
 - [ ] **Joshua:** Performance Stats (FPS, ping) on PC + phone from the live game, for the lag.
 - [ ] **Brother:** play as a new player and with 🛠️ Admin; notes into `logs/playtests/`.
 - [ ] **Joshua:** Creator Hub: maturity questionnaire done? New icon + thumbnails (`docs/launch/images/`).
