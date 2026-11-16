@@ -9,7 +9,19 @@
 --   ctx.onState(fn)   calls fn(ctx.State) now, then on every new snapshot; returns a disconnect function
 --   ctx.toast(text)   a local toast, shown the same way as server toasts
 --   ctx.on(event, fn) / ctx.fire(event, ...)   a tiny client bus between modules; on() returns a disconnect
--- Bus events used so far: "Toast" (text) - every toast, server or local; the Toasts module shows them.
+-- Bus events:
+--   "Toast" (text)                             every toast, server or local; UI.Toasts shows them
+--   "Open" (name, tab?)                        name = "Shop" | "Book" | "Mailbox" | "Goals"; Shop tab = "Upgrades" |
+--                                              "Rooms" | "Decor" (Hud buttons, DayReportPanel's Go button)
+--   "ModalOpened" (name) · "ModalClosed" (name)   a panel opened or closed (Hud.modal)
+--   "BookNew" (count)                          unseen new Book pages, for the 📖 dot (BookPanel -> Hud)
+--   "Purchased" (kind, id)                     a Purchase the server said yes to (Shop)
+--   "DecorPlaced" (slotKey, decorId?)          a PlaceDecor the server said yes to (Shop; nil = put away)
+--   "Claimed" ("Mailbox" | "Goal", goalId?)    a claim the server said yes to (Mailbox)
+--   "Sound" (name, volumeScale?)               plays a Feel/Sounds cue
+--   "SetReduceEffects" (on) · "SetMusicMuted" (on)   the comfort switches (Feel/Atmosphere, Music.client)
+-- Client-only LocalPlayer attributes (set here, never by the server, never replicated): ReduceEffects (the ✨/💤
+-- calm toggle; Kit.reducedMotion() honours it) and MusicMuted.
 -- Module order: UI.Toasts first, then the rest of UI, then Feel. Theme and Kit are libraries, not inited.
 
 local Players = game:GetService("Players")
@@ -27,7 +39,7 @@ local Signal = require(Shared:WaitForChild("Signal"))
 local Types = require(Shared:WaitForChild("Types"))
 local Schema = require(Shared:WaitForChild("Logic"):WaitForChild("Schema"))
 
-local UI_MODULES = { "Toasts", "Hud", "Shop", "BookPanel", "DayReportPanel", "Mailbox", "Guide" }
+local UI_MODULES = { "Toasts", "Hud", "Shop", "BookPanel", "DayReportPanel", "Mailbox", "Guide", "PromptFilter" }
 local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere" }
 local DATA_NAMES = {
 	"Ailments",

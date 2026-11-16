@@ -47,6 +47,15 @@ local byModel: { [Model]: Plot } = {}
 local waiting: { Player } = {}
 local friends: { [Player]: { [Player]: boolean } } = {}
 
+-- rawget: Data maps answer `.Order` through their metatable, so a plain index would accept the id "Order".
+local function knownRoom(id: any): boolean
+	return type(id) == "string" and type(rawget(Rooms :: any, id)) == "table"
+end
+
+local function knownDecor(id: any): boolean
+	return type(id) == "string" and type(rawget(Decor :: any, id)) == "table"
+end
+
 local function findPart(model: Model, name: string): BasePart
 	local found = model:FindFirstChild(name)
 	assert(found and found:IsA("BasePart"), model.Name .. " is missing a Part named " .. name)
@@ -107,7 +116,7 @@ function Plots.decorSlot(plot: Plot, slotKey: string): BasePart?
 		return nil
 	end
 	local roomId, n = string.match(slotKey, "^(%w+):(%d+)$")
-	if not roomId or not Rooms[roomId] then
+	if not roomId or not knownRoom(roomId) then
 		return nil
 	end
 	local roomsFolder = plot.Model:FindFirstChild("Rooms")
@@ -133,7 +142,7 @@ end
 
 local function showDecor(plot: Plot, slotKey: string, decorId: string)
 	local slot = Plots.decorSlot(plot, slotKey)
-	if not slot or not Decor[decorId] then
+	if not slot or not knownDecor(decorId) then
 		return
 	end
 	removeDecorModel(plot, slotKey)
@@ -340,16 +349,19 @@ function Plots.canWork(player: Player, plot: Plot): boolean
 end
 
 function Plots.unlockRoom(owner: Player, roomId: string): boolean
-	if type(roomId) ~= "string" or not Rooms[roomId] then
+	if not knownRoom(roomId) then
 		return false
 	end
 	local data = PlayerData.get(owner)
 	if not data or data.Rooms[roomId] then
 		return false
 	end
-	PlayerData.update(owner, function(d)
+	local saved = PlayerData.update(owner, function(d)
 		d.Rooms[roomId] = true
 	end)
+	if not saved then
+		return false -- the owner's save is closing (they're leaving): nothing changed
+	end
 	local plot = byPlayer[owner]
 	if plot then
 		addRoom(plot, roomId)
@@ -360,7 +372,7 @@ function Plots.unlockRoom(owner: Player, roomId: string): boolean
 end
 
 function Plots.placeDecor(owner: Player, slotKey: string, decorId: string?): boolean
-	if type(slotKey) ~= "string" or (decorId ~= nil and (type(decorId) ~= "string" or not Decor[decorId])) then
+	if type(slotKey) ~= "string" or (decorId ~= nil and not knownDecor(decorId)) then
 		return false
 	end
 	local data = PlayerData.get(owner)
@@ -374,7 +386,7 @@ function Plots.placeDecor(owner: Player, slotKey: string, decorId: string?): boo
 
 	-- Each decor item exists once: placing it somewhere new moves it.
 	local movedFrom: { string } = {}
-	PlayerData.update(owner, function(d)
+	local saved = PlayerData.update(owner, function(d)
 		if decorId then
 			for key, placed in d.Decor.Placed do
 				if placed == decorId and key ~= slotKey then
@@ -385,6 +397,9 @@ function Plots.placeDecor(owner: Player, slotKey: string, decorId: string?): boo
 		end
 		d.Decor.Placed[slotKey] = decorId
 	end)
+	if not saved then
+		return false
+	end
 
 	for _, key in movedFrom do
 		removeDecorModel(plot, key)

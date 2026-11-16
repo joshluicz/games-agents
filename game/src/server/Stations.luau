@@ -1,10 +1,279 @@
 --!strict
--- STUB (Task 0). Owned by Task 2: replace with the real stations (build plan §B5).
--- The real one puts a hold-to-make prompt on every Station_* of every placed room (Plots.observeRooms),
--- checks the hold time on the server, enforces Plots.canWork, then Carry.add and Daily.onMake.
+-- Hold-to-make treatment stations (build plan §B5, Task 2). Server only.
+--
+-- Every `Station_<StationId>` part in every placed room (Plots.observeRooms: the Stand at boot, bought rooms
+-- later) gets a ProximityPrompt `MakePrompt`: ActionText "Make", ObjectText the station's icon. Holding it puts
+-- that station's item (Data/Stations .Item) in your tray (Carry.add), with a sparkle burst, and tells
+-- Daily.onMake. Only people who may work the clinic (Plots.canWork) can make, and only while it has an owner:
+-- a free plot's prompts are switched off.
+--
+-- Hold time, checked on the server (the old Kitchen pattern). A prompt's hold runs on the client, so the server
+-- times it itself: PromptButtonHoldBegan starts a hold (one at a time per player), and Triggered only counts
+-- when at least Prices.makeSeconds(<the maker's Faster Hands level>) has passed, less a small lag allowance.
+-- A trigger with no hold, a hold on another prompt, a hold that's too short or stale, or a maker who's too far
+-- away is ignored. Speed is the MAKER's own upgrade, so a friend helping keeps their own hands.
+--
+-- Hold time on screen. A server-set HoldDuration replicates to everyone, but each player's Speed differs. So the
+-- server sets the SLOWEST time (Speed 0), which is never too short for anyone, and never changes it. Each client
+-- shortens its own copy to Prices.makeSeconds(State.Upgrades.Speed) (Task 6). To find them, every MakePrompt is
+-- tagged `StationPrompt` (CollectionService; use GetInstanceAddedSignal too, for streaming and new rooms) and
+-- carries the attributes `StationId` and `ItemId`.
+--
+-- Feedback is immediate: a full tray or a locked clinic toasts when the hold BEGINS, so nobody holds for nothing.
+-- Toasts are short (≤ 6 words, icon first) and the same toast is sent at most once every 1.5 s per player.
+
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+
+local Shared = game:GetService("ReplicatedStorage").Shared
+local Config = require(Shared.Config)
+local Remotes = require(Shared.Remotes)
+local Types = require(Shared.Types)
+local StationData = require(Shared.Data.Stations)
+local Prices = require(Shared.Logic.Prices)
+local Carry = require(script.Parent.Carry)
+local Daily = require(script.Parent.Daily)
+local Economy = require(script.Parent.Economy)
+local Plots = require(script.Parent.Plots)
+
+type Plot = Types.Plot
 
 local Stations = {}
 
-function Stations.start() end
+Stations.PROMPT_NAME = "MakePrompt"
+Stations.PROMPT_TAG = "StationPrompt"
+
+local ACTION_TEXT = "Make"
+local ACTIVATION_DISTANCE = 10
+local DISTANCE_SLACK = 8 -- studs of movement and lag allowed beyond the activation distance
+local LAG_ALLOWANCE = 0.25 -- seconds: hold begin/trigger can arrive this much closer together than the hold time
+local STALE_AFTER = 8 -- seconds past the hold time: a hold this old is not a real hold
+local TOAST_COOLDOWN = 1.5
+
+local TRAY_FULL = "🙌 Tray full! Treat a patient."
+local NOT_YOURS = "🔒 Not your clinic!"
+local HOLD_LONGER = "✋ Hold a little longer!"
+
+-- Told: the refusal already toasted when this hold began (not repeated when it completes).
+type Hold = { Prompt: ProximityPrompt, Started: number, Ended: number?, Told: string? }
+
+local holds: { [Player]: Hold } = {}
+local lastToast: { [Player]: { [string]: number } } = {}
+local prompts: { [ProximityPrompt]: Plot } = {}
+local wired: { [BasePart]: boolean } = {}
+
+------------------------------------------------------------------------------------------------------------------
+-- Helpers
+------------------------------------------------------------------------------------------------------------------
+
+local function toast(player: Player, text: string)
+	local now = os.clock()
+	local sent = lastToast[player]
+	if not sent then
+		sent = {}
+		lastToast[player] = sent
+	end
+	if sent[text] and now - sent[text] < TOAST_COOLDOWN then
+		return
+	end
+	sent[text] = now
+	Remotes.toast(player, text)
+end
+
+-- Why this player can't make here right now, or nil if they can.
+local function refusal(player: Player, plot: Plot): string?
+	if not plot.Owner or not Plots.canWork(player, plot) then
+		return NOT_YOURS
+	end
+	if Carry.isFull(player) then
+		return TRAY_FULL
+	end
+	return nil
+end
+
+-- The maker is alive and standing near the station (the prompt's own range, plus some slack).
+local function isNear(player: Player, part: BasePart): boolean
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not (root and root:IsA("BasePart") and humanoid and humanoid.Health > 0) then
+		return false
+	end
+	return (root.Position - part.Position).Magnitude <= ACTIVATION_DISTANCE + DISTANCE_SLACK
+end
+
+local function makeSeconds(player: Player): number
+	return Prices.makeSeconds(Economy.level(player, "Speed"), Config)
+end
+
+-- A Station_<id> is a Part by contract; a kit might use a Model, so fall back to its main part.
+local function stationPart(instance: Instance): BasePart?
+	if instance:IsA("BasePart") then
+		return instance
+	end
+	if instance:IsA("Model") then
+		return instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
+	end
+	return nil
+end
+
+local function sparkleEmitter(part: BasePart, color: Color3): ParticleEmitter
+	local sparkles = Instance.new("ParticleEmitter")
+	sparkles.Name = "MakeSparkles"
+	sparkles.Enabled = false
+	sparkles.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.35), Color3.fromRGB(255, 236, 150))
+	sparkles.LightEmission = 0.6
+	sparkles.LightInfluence = 0
+	sparkles.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(0.6, 0.35),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	sparkles.Transparency = NumberSequence.new(0, 0.3)
+	sparkles.Lifetime = NumberRange.new(0.5, 0.9)
+	sparkles.Speed = NumberRange.new(4, 8)
+	sparkles.SpreadAngle = Vector2.new(60, 60)
+	sparkles.Acceleration = Vector3.new(0, -6, 0)
+	sparkles.Rotation = NumberRange.new(0, 360)
+	sparkles.RotSpeed = NumberRange.new(-90, 90)
+	sparkles.EmissionDirection = Enum.NormalId.Top
+	sparkles.Parent = part
+	return sparkles
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Wiring one station
+------------------------------------------------------------------------------------------------------------------
+
+local function wireStation(plot: Plot, part: BasePart, stationId: string)
+	local station = StationData[stationId]
+	if not station or wired[part] then
+		return
+	end
+	wired[part] = true
+	local itemId = station.Item
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = Stations.PROMPT_NAME
+	prompt.ActionText = ACTION_TEXT
+	prompt.ObjectText = station.Icon
+	prompt.HoldDuration = Prices.makeSeconds(0, Config) -- the slowest; clients shorten their own copy
+	prompt.MaxActivationDistance = ACTIVATION_DISTANCE
+	prompt.RequiresLineOfSight = false
+	prompt.Enabled = plot.Owner ~= nil
+	prompt:SetAttribute("StationId", stationId)
+	prompt:SetAttribute("ItemId", itemId)
+	CollectionService:AddTag(prompt, Stations.PROMPT_TAG)
+
+	local sparkles = sparkleEmitter(part, station.Color)
+
+	prompt.PromptButtonHoldBegan:Connect(function(player: Player)
+		local why = refusal(player, plot)
+		holds[player] = { Prompt = prompt, Started = os.clock(), Ended = nil, Told = why }
+		if why then
+			toast(player, why) -- say it now, not after a hold that can't work
+		end
+	end)
+
+	prompt.PromptButtonHoldEnded:Connect(function(player: Player)
+		local hold = holds[player]
+		if hold and hold.Prompt == prompt and not hold.Ended then
+			hold.Ended = os.clock()
+		end
+	end)
+
+	prompt.Triggered:Connect(function(player: Player)
+		local hold = holds[player]
+		holds[player] = nil
+		if not hold or hold.Prompt ~= prompt then
+			return -- no hold on THIS prompt: a spoofed or overlapping trigger
+		end
+		local now = os.clock()
+		local needed = makeSeconds(player)
+		if now - hold.Started > needed + STALE_AFTER then
+			return
+		end
+		if (hold.Ended or now) - hold.Started + LAG_ALLOWANCE < needed then
+			toast(player, HOLD_LONGER)
+			return
+		end
+		if not isNear(player, part) then
+			return
+		end
+		local why = refusal(player, plot)
+		if why then
+			if why ~= hold.Told then
+				toast(player, why)
+			end
+			return
+		end
+		if not Carry.add(player, itemId) then
+			toast(player, TRAY_FULL)
+			return
+		end
+
+		sparkles:Emit(14)
+		local ok, err = pcall(Daily.onMake, player, itemId)
+		if not ok then
+			warn("[Stations] Daily.onMake failed:", err)
+		end
+	end)
+
+	prompt.Destroying:Once(function()
+		prompts[prompt] = nil
+		wired[part] = nil
+	end)
+	prompts[prompt] = plot
+	prompt.Parent = part -- parent last: it replicates once, fully set up
+end
+
+local function wireRoom(plot: Plot, roomModel: Model)
+	for _, descendant in roomModel:GetDescendants() do
+		local stationId = string.match(descendant.Name, "^Station_(%w+)$")
+		if stationId then
+			if not StationData[stationId] then
+				warn("[Stations] Unknown station", descendant:GetFullName())
+				continue
+			end
+			local part = stationPart(descendant)
+			if part then
+				wireStation(plot, part, stationId)
+			else
+				warn("[Stations] No part to hold the prompt in", descendant:GetFullName())
+			end
+		end
+	end
+end
+
+local function setPlotOpen(plot: Plot, open: boolean)
+	for prompt, owner in prompts do
+		if owner == plot then
+			prompt.Enabled = open
+		end
+	end
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Start
+------------------------------------------------------------------------------------------------------------------
+
+function Stations.start()
+	Plots.observeRooms(function(plot: Plot, _roomId: string, roomModel: Model)
+		wireRoom(plot, roomModel)
+	end)
+
+	-- PlotReleased runs before the plot is cleared; the Stand stays, so switch its prompts off.
+	Plots.PlotReleased:Connect(function(_player: Player, plot: Plot)
+		setPlotOpen(plot, false)
+	end)
+	Plots.PlotAssigned:Connect(function(_player: Player, plot: Plot)
+		setPlotOpen(plot, true)
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		holds[player] = nil
+		lastToast[player] = nil
+	end)
+end
 
 return Stations

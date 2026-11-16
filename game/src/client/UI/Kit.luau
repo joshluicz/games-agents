@@ -57,7 +57,13 @@ local function finish<T>(instance: T, props: Props?): T
 	return instance
 end
 
+-- The device's Reduced Motion setting, or the in-game ✨/💤 calm toggle (Feel/Atmosphere sets the client-only
+-- LocalPlayer attribute ReduceEffects).
 function Kit.reducedMotion(): boolean
+	local player = Players.LocalPlayer
+	if player and player:GetAttribute("ReduceEffects") == true then
+		return true
+	end
 	local ok, reduced = pcall(function()
 		return GuiService.ReducedMotionEnabled
 	end)

@@ -25,6 +25,9 @@ Config.MaxQueue = 4 -- patients waiting at one clinic at once
 Config.QueueSpacing = 4 -- studs between patients in the queue
 Config.SpawnEverySeconds = 7
 Config.RecoverSeconds = 4 -- time in bed (or in place) before the cure lands
+Config.QueuePatienceRate = 0.5 -- patience drains at this speed behind the front of the line (1 = full speed)
+Config.GuestPatienceMultiplier = 1.5 -- regulars and Today's Visitor wait this much longer
+Config.FirstPatientSeconds = 2 -- the first patient arrives this soon after you get your clinic
 
 -- Making treatments at a station (Logic/Prices.makeSeconds)
 Config.BaseMakeSeconds = 2

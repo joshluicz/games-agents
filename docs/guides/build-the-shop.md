@@ -1,5 +1,8 @@
 # Build the shop: a step-by-step guide for the builder
 
+> **Superseded by [`build-the-clinic.md`](build-the-clinic.md) (2026-11-16).** The game is now Creature Clinic. Your
+> old shop stays in the place untouched; build the new rooms, creatures and decorations from the clinic guide.
+
 You're building the place where the whole game happens. You don't need to know how to build: **Roblox Studio has an AI
 helper called Assistant**, and you'll tell it what to make. Joshua's code does the customers, cash and upgrades. Your
 job is to make the shop look amazing.

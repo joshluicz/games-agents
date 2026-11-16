@@ -675,6 +675,36 @@ local function anchorAll(model: Model)
 	end
 end
 
+-- Kit models are cloned into Workspace, where a Script hidden inside (a free model's, say) would run. They're
+-- scenery only, so every script is removed.
+local function scrubScripts(model: Instance, source: string)
+	local removed = 0
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("LuaSourceContainer") then
+			descendant:Destroy()
+			removed += 1
+		end
+	end
+	if removed > 0 then
+		warn("[PlotBuilder] Removed " .. removed .. " script(s) from " .. source .. " (kit models are scenery only)")
+	end
+end
+
+-- The part a station's icon badge floats over, and how far its top is above that part's centre.
+local function stationAdornee(station: Instance): (BasePart?, number)
+	if station:IsA("BasePart") then
+		return station, station.Size.Y / 2
+	end
+	if station:IsA("Model") then
+		local found = station.PrimaryPart or station:FindFirstChildWhichIsA("BasePart", true)
+		if found then
+			local box, size = station:GetBoundingBox()
+			return found, (box.Position.Y + size.Y / 2) - found.Position.Y
+		end
+	end
+	return nil, 0
+end
+
 local function kitRoom(roomId: string): Model?
 	local kit = ServerStorage:FindFirstChild("ClinicKit")
 	local template = kit and kit:FindFirstChild(roomId)
@@ -690,12 +720,21 @@ local function kitRoom(roomId: string): Model?
 	end
 	model.PrimaryPart = floor
 	model.Name = "Room_" .. roomId
+	scrubScripts(model, "ClinicKit." .. roomId)
 	anchorAll(model)
 
 	local room = Rooms[roomId]
 	for _, stationId in room.Stations do
-		if not model:FindFirstChild("Station_" .. stationId, true) then
+		local station = model:FindFirstChild("Station_" .. stationId, true)
+		if not station then
 			warn("[PlotBuilder] ClinicKit." .. roomId .. " is missing Station_" .. stationId)
+		elseif not station:FindFirstChild("IconGui", true) then
+			-- Placeholder stations carry their icon badge; give the brother's the same one.
+			local adornee, top = stationAdornee(station)
+			local data = Stations[stationId]
+			if adornee and data then
+				iconBadge(adornee, "IconGui", data.Icon, data.Color, 2.6, top + 2.1)
+			end
 		end
 	end
 	for i = 1, room.Beds do
@@ -998,6 +1037,7 @@ local function kitPlot(index: number, cf: CFrame): Model?
 
 	local model = template:Clone()
 	model.Name = "Plot_" .. index
+	scrubScripts(model, "ClinicKit.Plot (Plot_" .. index .. ")")
 	anchorAll(model)
 	for _, name in { "Rooms", "Patients", "Decor" } do
 		if not model:FindFirstChild(name) then
