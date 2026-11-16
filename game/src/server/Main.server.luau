@@ -50,6 +50,7 @@ local START_ORDER = {
 	"Story",
 	"Daily",
 	"DayReport",
+	"Tutorial", -- before Stations and Patients: the quiet toasts and its listeners are set before patients come
 	"Stations",
 	"Patients",
 	"Visits",

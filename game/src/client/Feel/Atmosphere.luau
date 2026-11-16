@@ -5,12 +5,12 @@
 --   Decor sway placed decor with a DecorBuilder.BOB_TAG sub-model (balloons, lanterns, the duck, the mascot) sways
 --              gently, here on each client, so nothing moves on the server or replicates per frame
 --   Day/night  a soft little tune when night falls and when morning comes
---   Toggle     a ✨ button (right edge, half way down) switches calm effects on and off
 --
 -- Comfort settings are player attributes set on THIS client only (they never replicate; the server never sets them):
 --   ReduceEffects: boolean   true = calm effects. Starts from the device's Reduced Motion setting. Every Feel module
---                            reads it; UI modules may honour it too.
---   MusicMuted: boolean      owned by Music.client (its 🎵 button sits just left of the ✨ one)
+--                            reads it; UI modules may honour it too. The ✨/💤 switch in the HUD's ⚙️ settings panel
+--                            flips it (UI/Hud; it was a ✨ button of its own here before the first-session declutter)
+--   MusicMuted: boolean      owned by Music.client (the 🎵/🔇 switch is in the same ⚙️ panel)
 -- Other modules can switch them over the bus: ctx.fire("SetReduceEffects", on) / ctx.fire("SetMusicMuted", on).
 -- Roblox has no client-side storage, so both reset when you rejoin.
 
@@ -25,7 +25,6 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local UI = script.Parent.Parent:WaitForChild("UI")
-local Theme = require(UI:WaitForChild("Theme"))
 local Kit = require(UI:WaitForChild("Kit"))
 
 local Atmosphere = {}
@@ -46,10 +45,6 @@ local FIREFLIES = {
 	Area = Vector3.new(70, 7, 70), -- around your character, from the ground up
 }
 local SWAY_DISTANCE = 140 -- decor further than this from the camera rests still
-local TOGGLE_SIZE = 60
--- The comfort pair (🎵 ✨) sits side by side on the right edge, half way down: clear of the Hud's top-right chips
--- and above the phone jump button. Music.client uses the same numbers.
-local TOGGLE_Y = 0.5
 
 local player = Players.LocalPlayer
 local ctx: Types.Ctx
@@ -297,42 +292,6 @@ local function watchDecor()
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The calm-effects toggle (✨ = full effects, 💤 = calm)
-------------------------------------------------------------------------------------------------------------------
-
-local function makeToggle()
-	local gui = Kit.screen("EffectsToggle", Theme.DisplayOrder.Hud)
-	local button = Kit.iconButton({
-		Name = "Effects",
-		Icon = "✨",
-		Kind = "Cyan",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -Theme.Size.Margin, TOGGLE_Y, 0),
-		Size = UDim2.fromOffset(TOGGLE_SIZE, TOGGLE_SIZE),
-		Parent = gui,
-	})
-	local icon = button:FindFirstChild("Icon") :: TextLabel?
-	-- Candy cyan with full effects; the Quiet fill while calm.
-	local kitColor = button:GetAttribute("KitColor")
-	local onColor: Color3 = if typeof(kitColor) == "Color3" then kitColor else Theme.Colors.Cyan
-	local function show()
-		local quiet = calm()
-		if icon then
-			icon.Text = if quiet then "💤" else "✨"
-		end
-		button.BackgroundColor3 = if quiet then Theme.Colors.Quiet else onColor
-		button:SetAttribute("KitColor", button.BackgroundColor3)
-	end
-	button.Activated:Connect(function()
-		local quiet = not calm()
-		setCalm(quiet)
-		ctx.toast(if quiet then "💤 Calm effects" else "✨ Full effects")
-	end)
-	player:GetAttributeChangedSignal("ReduceEffects"):Connect(show)
-	show()
-end
-
-------------------------------------------------------------------------------------------------------------------
 
 function Atmosphere.init(context: Types.Ctx)
 	ctx = context
@@ -378,8 +337,6 @@ function Atmosphere.init(context: Types.Ctx)
 		followCamera()
 		sway(os.clock())
 	end)
-
-	makeToggle()
 end
 
 return Atmosphere

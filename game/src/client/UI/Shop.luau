@@ -1,6 +1,8 @@
 --!strict
 -- Shop (build plan Task 6): spend cash on ⚡ Upgrades, 🏠 Rooms and 🌸 Decor, and place decor in your rooms.
 --   init(ctx)   opens on ctx.fire("Open", "Shop", tab?) with tab "Upgrades" | "Rooms" | "Decor"
+--   Shop.upgradeButton(upgradeId): TextButton?   that upgrade row's buy button (UI/Tutorial points at it)
+--   Shop.tabButton(tabId): TextButton?           a tab ("Upgrades" | "Rooms" | "Decor")
 -- Every price, lock and level shown here is read from the Snapshot and Shared/Data, for display only. Buying calls
 -- Purchase(kind, id) and placing calls PlaceDecor(slotKey, decorId?); the server checks everything and answers
 -- (ok, message), which is shown as a toast. Nothing changes on screen until the server's next Snapshot.
@@ -361,6 +363,17 @@ local function usesDirectionalFocus(): boolean
 	return preferred == Enum.PreferredInput.Gamepad or preferred == Enum.PreferredInput.MicroGamepad
 end
 
+local upgradeButtons: { [string]: TextButton } = {}
+local tabs: { [string]: TextButton } = {}
+
+function Shop.upgradeButton(upgradeId: string): TextButton?
+	return upgradeButtons[upgradeId]
+end
+
+function Shop.tabButton(tabId: string): TextButton?
+	return tabs[tabId]
+end
+
 function Shop.init(ctx: Types.Ctx)
 	local data = ctx.Data :: any
 	local modal = Hud.modal(ctx, {
@@ -424,6 +437,7 @@ function Shop.init(ctx: Types.Ctx)
 			selectTab(tab.Id)
 		end)
 		tabButtons[tab.Id] = button
+		tabs[tab.Id] = button
 		tabColors[tab.Id] = tab.Color
 		pages[tab.Id] = page(pagesArea, tab.Id)
 	end
@@ -489,6 +503,7 @@ function Shop.init(ctx: Types.Ctx)
 			end
 		end)
 		upgradeRows[upgradeId] = row
+		upgradeButtons[upgradeId] = row.Buy
 	end
 
 	local function refreshUpgrades(state: Types.Snapshot)

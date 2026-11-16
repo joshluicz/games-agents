@@ -5,7 +5,8 @@
 -- the Shop on it. It closes by itself after AUTO_CLOSE seconds.
 --   init(ctx)   listens to the DayReport remote
 -- It doesn't dim the screen or grab gamepad focus: it arrives on its own while you play, so it never blocks you.
--- A day with nothing cured shows nothing (no "you did nothing" screen).
+-- A day with nothing cured shows nothing (no "you did nothing" screen), and neither does a day that ends while
+-- you're in the first-session tutorial (the server doesn't send one then either: Server/DayReport).
 -- Look (candy pop, memory-20261116-007): an orange header; the count is big gold outlined display text on turning
 -- rays and springs when it lands; candy chips for ⭐ and 📖; new faces in outlined bubbles that pop in one by one.
 
@@ -15,6 +16,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
+local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
@@ -417,6 +419,9 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	end)
 
 	ctx.Remotes.DayReport.OnClientEvent:Connect(function(raw: any)
+		if TutorialLogic.active(ctx.State.Tutorial) then
+			return -- the first-session tutorial stays quiet
+		end
 		local report = clean(raw)
 		if report and (report.Cured > 0 or #report.NewPages > 0 or report.StarsGained > 0) then
 			show(report)

@@ -9,11 +9,15 @@
 --       Studio test that moved Workspace.UtcDay forward can't lock a real save out of its mailbox, goals or story
 --     · the result never shares a table with `saved`
 --   Schema.isNewer(saved: any): boolean  the save was written by a newer schema (never write it back down)
+--   Schema.TUTORIAL_FIRST / TUTORIAL_DONE   the Tutorial values for the welcome and for done
 --
 -- Fields added inside v2 (missing in older v2 saves, so they reconcile to their defaults):
 --   VisitorDay      the UTC day this clinic last cured Today's Visitor (0 = never): once per player per day,
 --                   across servers
 --   HeartsReceived  hearts other players have left on this clinic's sign, all time (cosmetic)
+--   Tutorial        the first-session tutorial step (Logic/Tutorial: 1 = the welcome .. 9 = done). A save without
+--                   it is migrated: any cure (Cured > 0, a v1 "Served" included) means an existing player, so done;
+--                   anyone else starts at the welcome. A fresh save starts at the welcome.
 
 export type BookPage = { Cured: number, Variants: { [string]: boolean } }
 export type StoryEntry = { Beat: number, LastBeatDay: number }
@@ -34,6 +38,7 @@ export type Data = {
 	ReferralRewarded: boolean,
 	VisitorDay: number,
 	HeartsReceived: number,
+	Tutorial: number,
 }
 
 local Schema = {}
@@ -41,6 +46,9 @@ local Schema = {}
 Schema.VERSION = 2
 Schema.UPGRADES = table.freeze({ "Speed", "Tray", "Chairs", "Tips" })
 Schema.MAX_GOALS = 10 -- a safety cap on banked goals in a save; the real cap is Config.MaxBankedGoals
+-- Logic/Tutorial's WELCOME and DONE, repeated because Schema has no requires (Tutorial.spec checks they match).
+Schema.TUTORIAL_FIRST = 1
+Schema.TUTORIAL_DONE = 9
 
 function Schema.default(): Data
 	local upgrades: { [string]: number } = {}
@@ -63,6 +71,7 @@ function Schema.default(): Data
 		ReferralRewarded = false,
 		VisitorDay = 0,
 		HeartsReceived = 0,
+		Tutorial = Schema.TUTORIAL_FIRST,
 	}
 end
 
@@ -228,6 +237,20 @@ function Schema.reconcile(saved: any, today: number?): Data
 	data.ReferralRewarded = saved.ReferralRewarded == true
 	data.VisitorDay = countOr(saved.VisitorDay, 0)
 	data.HeartsReceived = countOr(saved.HeartsReceived, 0)
+
+	-- The tutorial step. A save from before the tutorial existed has none: a player with any cure already knows
+	-- the game (done), anyone else starts at the welcome.
+	local tutorial = saved.Tutorial
+	if
+		type(tutorial) == "number"
+		and tutorial % 1 == 0
+		and tutorial >= Schema.TUTORIAL_FIRST
+		and tutorial <= Schema.TUTORIAL_DONE
+	then
+		data.Tutorial = tutorial
+	else
+		data.Tutorial = if data.Cured > 0 then Schema.TUTORIAL_DONE else Schema.TUTORIAL_FIRST
+	end
 
 	local realDay = count(today, 0)
 	if realDay then

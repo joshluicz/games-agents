@@ -95,9 +95,28 @@ local function refreshPreviews(plot: Plot, data: Types.Data?)
 	end
 end
 
+-- Where the owner stands on joining and respawning: in front of the Counter on the patients' side, beside the line
+-- (not on it), facing the clinic, so the first view shows the Stand, its stations and the patients. Worked out from
+-- the Counter, QueueStart and PatientSpawn markers, so a kit plot gets the same spot: HOME_OUT studs further out
+-- than the front of the line, HOME_SIDE studs to the side the patients arrive from (the exit route is the other).
+local HOME_OUT = 4
+local HOME_SIDE = 6.5
+local HOME_HEIGHT = 3.5 -- the HumanoidRootPart above the ground
+
 local function homeCFrame(plot: Plot): CFrame
-	-- On the Stand floor, behind the counter, facing the street (and the queue).
-	return plot.Model:GetPivot() * CFrame.new(0, 3.5, -9)
+	local pivot = plot.Model:GetPivot()
+	local counter = pivot:PointToObjectSpace(plot.Counter.Position)
+	local queue = pivot:PointToObjectSpace(plot.QueueStart.Position)
+	local arrive = pivot:PointToObjectSpace(plot.Spawn.Position)
+	local out = Vector3.new(queue.X - counter.X, 0, queue.Z - counter.Z)
+	out = if out.Magnitude > 0.1 then out.Unit else Vector3.new(0, 0, -1)
+	local side = Vector3.new(-out.Z, 0, out.X)
+	if side:Dot(Vector3.new(arrive.X - queue.X, 0, arrive.Z - queue.Z)) < 0 then
+		side = -side
+	end
+	local spot = Vector3.new(queue.X, HOME_HEIGHT, queue.Z) + out * HOME_OUT + side * HOME_SIDE
+	local look = Vector3.new(counter.X, HOME_HEIGHT, counter.Z)
+	return pivot * CFrame.lookAt(spot, look)
 end
 
 local function sendHome(player: Player, plot: Plot)
@@ -234,7 +253,7 @@ local function assign(player: Player, plot: Plot)
 
 	Plots.PlotAssigned:Fire(player, plot)
 	sendHome(player, plot)
-	Remotes.toast(player, "🏥 This is your clinic!")
+	Remotes.news(player, "🏥 This is your clinic!") -- a new player's tutorial welcomes them instead
 end
 
 local function tryAssign(player: Player)

@@ -98,6 +98,7 @@ export type Data = {
 	ReferralRewarded: boolean,
 	VisitorDay: number, -- the UTC day this clinic last cured Today's Visitor (0 = never)
 	HeartsReceived: number, -- hearts left on this clinic's sign, all time (cosmetic)
+	Tutorial: number, -- the first-session tutorial step (Logic/Tutorial): 1 = the welcome .. 8, 9 = done
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -120,6 +121,10 @@ export type Snapshot = {
 	-- "None" (no plot, or no station here can treat it)
 	VisitorStatus: VisitorStatus,
 	IsWinter: boolean,
+	-- The first-session tutorial (Server/Tutorial): the step (Logic/Tutorial, 9 = done). The client's default
+	-- snapshot says 0 = not known yet, so the HUD stays calm until the server answers.
+	Tutorial: number,
+	TutorialCures: number, -- step 6 only: cures so far of the 2 more (0..2)
 }
 
 export type VisitorStatus = "Coming" | "Done" | "None"

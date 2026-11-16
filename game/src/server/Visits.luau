@@ -218,7 +218,7 @@ local function onHeart(plot: Types.Plot, prompts: SignPrompts, player: Player)
 	plot.Model:SetAttribute("Hearts", total)
 	sparkle(prompts)
 	Remotes.toast(player, "❤️ Heart sent!")
-	Remotes.toast(owner, "❤️ " .. player.DisplayName .. " loves your clinic!")
+	Remotes.news(owner, "❤️ " .. player.DisplayName .. " loves your clinic!")
 end
 
 local function onHelpers(plot: Types.Plot, prompts: SignPrompts, player: Player)
@@ -309,11 +309,11 @@ local function checkReferral(player: Player)
 	end)
 	local icon = (Decor :: any)[decorId].Icon -- the same icon the Shop and the Book show
 	if isNew then
-		Remotes.toast(player, icon .. " Friend Bench! Thanks for coming!")
+		Remotes.news(player, icon .. " Friend Bench! Thanks for coming!")
 	end
 	local referrer = Players:GetPlayerByUserId(referrerId)
 	if referrer and giveDecor(referrer, decorId) then
-		Remotes.toast(referrer, icon .. " Friend Bench! Thanks for inviting!")
+		Remotes.news(referrer, icon .. " Friend Bench! Thanks for inviting!")
 	end
 end
 

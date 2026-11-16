@@ -20,9 +20,12 @@
 --   "Claimed" ("Mailbox" | "Goal", goalId?)    a claim the server said yes to (Mailbox)
 --   "Sound" (name, volumeScale?)               plays a Feel/Sounds cue
 --   "SetReduceEffects" (on) · "SetMusicMuted" (on)   the comfort switches (Feel/Atmosphere, Music.client)
--- Client-only LocalPlayer attributes (set here, never by the server, never replicated): ReduceEffects (the ✨/💤
--- calm toggle; Kit.reducedMotion() honours it) and MusicMuted.
--- Module order: UI.Toasts first, then the rest of UI, then Feel. Theme and Kit are libraries, not inited.
+-- Client-only LocalPlayer attributes (set on this client, never by the server, never replicated): ReduceEffects
+-- (the ✨/💤 calm-effects switch in the Hud's ⚙️ panel; Kit.reducedMotion() honours it) and MusicMuted (🎵/🔇).
+-- The first snapshot: until the server's arrives, ctx.State is a default one with Tutorial = 0 ("not known yet"),
+-- so the HUD starts calm (only 💰) and no tutorial card shows.
+-- Module order: UI.Toasts first, then the rest of UI (UI.Tutorial last), then Feel. Theme and Kit are libraries,
+-- not inited.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -32,6 +35,12 @@ if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
 
+-- Roblox's own People list opens top-right on computers and covers the HUD's timer and visitor chips. The HUD
+-- already shows cash and stars, so hide it (players still see who's here via Roblox's menu).
+pcall(function()
+	game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+end)
+
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config")) :: any
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -39,7 +48,8 @@ local Signal = require(Shared:WaitForChild("Signal"))
 local Types = require(Shared:WaitForChild("Types"))
 local Schema = require(Shared:WaitForChild("Logic"):WaitForChild("Schema"))
 
-local UI_MODULES = { "Toasts", "Hud", "Shop", "BookPanel", "DayReportPanel", "Mailbox", "Guide", "PromptFilter" }
+local UI_MODULES =
+	{ "Toasts", "Hud", "Shop", "BookPanel", "DayReportPanel", "Mailbox", "Guide", "PromptFilter", "Tutorial" }
 local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere" }
 local DATA_NAMES = {
 	"Ailments",
@@ -78,6 +88,8 @@ local function defaultSnapshot(): Types.Snapshot
 		TodaysVisitor = "",
 		VisitorStatus = "None",
 		IsWinter = false,
+		Tutorial = 0, -- not known yet (Logic/Tutorial: 1..8 = in the tutorial, 9 = done)
+		TutorialCures = 0,
 	}
 end
 

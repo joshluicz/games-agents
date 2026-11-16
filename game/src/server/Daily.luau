@@ -202,7 +202,7 @@ local function progress(player: Player, kind: string, event: DailyLogic.EventCtx
 		d.Daily = nextDaily
 	end)
 	if DailyLogic.readyCount(nextDaily, POOL) > readyBefore then
-		Remotes.toast(player, "🎯 Goal done! Claim it!")
+		Remotes.news(player, "🎯 Goal done! Claim it!")
 	end
 end
 
@@ -232,7 +232,7 @@ local function onNewDay()
 	for _, player in Players:GetPlayers() do
 		if PlayerData.get(player) then
 			local added = grantFor(player)
-			Remotes.toast(player, if added > 0 then "🌅 New day! Mail and a goal!" else "🌅 New day! Mail is here!")
+			Remotes.news(player, if added > 0 then "🌅 New day! Mail and a goal!" else "🌅 New day! Mail is here!")
 		end
 	end
 end

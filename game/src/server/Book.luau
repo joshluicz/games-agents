@@ -57,7 +57,7 @@ local function celebrateSet(player: Player, decorId: string)
 	local wingId = wingOfReward[decorId]
 	local wingIcon = if wingId then Wings[wingId].Icon else "📖"
 	-- e.g. "🌳 Set complete! ❤️ Heart Rug" (on-screen words stay at 6 or fewer)
-	Remotes.toast(player, string.format("%s Set complete! %s %s", wingIcon, decor.Icon, decor.Name))
+	Remotes.news(player, string.format("%s Set complete! %s %s", wingIcon, decor.Icon, decor.Name))
 	Book.placeReward(player, decorId)
 end
 

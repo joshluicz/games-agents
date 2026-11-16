@@ -22,10 +22,18 @@
 --   · Dirty is only cleared when nothing changed while the write was in flight.
 --   · A first v2 load reads Config.LegacyDataStoreName once and migrates the shop-sim save.
 --   · Saved day fields later than the real UTC day are pulled back on load (Schema.reconcile's `today`).
+--
+-- Studio test switch: Workspace attribute FreshSave = true (set it before Play; Studio only, a live server
+-- ignores it). Every player who joins then gets a blank save (Schema.default(), so the first-session tutorial
+-- starts) that lives in memory only: the DataStore is never read or written and no lock is taken, so the real
+-- save is untouched. DataOk is false (nothing is saved) and the player also gets the attribute FreshSave = true,
+-- so the HUD skips its "Not saving" warning and the screen looks like a real first visit. Output says so.
 
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
@@ -49,6 +57,7 @@ local LOCK_MAX_WAIT = LEASE_SECONDS + 30 -- whatever the other server's clock sa
 local ERROR_RETRIES = 3
 local SAVING_OFF_TOAST = "⚠️ Saving is off"
 local WAITING_TOAST = "⏳ Opening your clinic..."
+local FRESH_SAVE = "FreshSave" -- the Workspace attribute (Studio test switch) and the player attribute it sets
 
 type Session = {
 	Data: Data,
@@ -341,6 +350,11 @@ local function loadFromStore(player: Player): (Data, boolean, boolean)
 	end
 end
 
+-- The Studio-only FreshSave switch (see the header). Read at each join, so it can change between Plays.
+local function freshSave(): boolean
+	return RunService:IsStudio() and Workspace:GetAttribute(FRESH_SAVE) == true
+end
+
 local function load(player: Player)
 	if sessions[player] then
 		return
@@ -348,13 +362,19 @@ local function load(player: Player)
 	makeLeaderstats(player)
 
 	local data: Data, canSave: boolean, owned: boolean = Schema.default(), false, false
-	local loaded, err = pcall(function()
-		data, canSave, owned = loadFromStore(player)
-	end)
-	if not loaded then
-		-- A bug, not a DataStore error: play on defaults and never save (the lock, if taken, lapses).
-		warn("[PlayerData] Load crashed for", player.UserId, err)
-		data, canSave, owned = Schema.default(), false, false
+	local fresh = freshSave()
+	if fresh then
+		warn("[PlayerData] FreshSave is on (Studio only): " .. player.Name .. " plays a blank save that is never saved")
+		task.wait() -- a real load always yields: let every system start first, as it would live
+	else
+		local loaded, err = pcall(function()
+			data, canSave, owned = loadFromStore(player)
+		end)
+		if not loaded then
+			-- A bug, not a DataStore error: play on defaults and never save (the lock, if taken, lapses).
+			warn("[PlayerData] Load crashed for", player.UserId, err)
+			data, canSave, owned = Schema.default(), false, false
+		end
 	end
 	local session: Session = {
 		Data = data,
@@ -377,8 +397,9 @@ local function load(player: Player)
 
 	sessions[player] = session
 	player:SetAttribute("DataOk", canSave)
+	player:SetAttribute(FRESH_SAVE, if fresh then true else nil)
 	pushToPlayer(player, data)
-	if not canSave then
+	if not canSave and not fresh then
 		Remotes.toast(player, SAVING_OFF_TOAST)
 	end
 	PlayerData.Loaded:Fire(player, data)

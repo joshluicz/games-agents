@@ -8,7 +8,8 @@
 --                                              DayReport { Cured, NewPages, StarsGained, Next } and starts a new day
 --
 -- A player who joined moments ago and hasn't cured anything yet gets no report (an empty pop-up 10 seconds after
--- joining is noise). Everyone else gets one, even on a quiet day: it still points at the next goal.
+-- joining is noise), and neither does a player in the first-session tutorial (it stays quiet: their counter is
+-- cleared with everyone's). Everyone else gets one, even on a quiet day: it still points at the next goal.
 -- Counters live in memory only: they're a summary of this session's clinic day, not progress.
 
 local Players = game:GetService("Players")
@@ -16,6 +17,7 @@ local Players = game:GetService("Players")
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Remotes = require(Shared.Remotes)
 local Types = require(Shared.Types)
+local TutorialLogic = require(Shared.Logic.Tutorial)
 local PlayerData = require(script.Parent.PlayerData)
 local Progress = require(script.Parent.Progress)
 
@@ -89,7 +91,8 @@ function DayReport.flush()
 		local counter = counters[player]
 		local cured = if counter then counter.Cured else 0
 		local newcomer = now - (joinedAt[player] or 0) < QUIET_NEWCOMER_SECONDS
-		if PlayerData.get(player) and (cured > 0 or not newcomer) then
+		local data = PlayerData.get(player)
+		if data and not TutorialLogic.active(data.Tutorial) and (cured > 0 or not newcomer) then
 			local report: Types.DayReportInfo = {
 				Cured = cured,
 				NewPages = if counter then table.clone(counter.NewPages) else {},

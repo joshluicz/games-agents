@@ -8,7 +8,11 @@
 --      the front patient waits and you don't carry its treatment  -> the matching Station_* (its icon, its colour)
 --      you carry the right item                                    -> the Counter (the patient's ailment icon)
 --    Only on your own plot. It is all local (a client-only Part, Beam and BillboardGui), survives respawn, and
---    removes itself for good once you reach the goal.
+--    removes itself for good once you reach the goal. A player in the first-session tutorial keeps it through
+--    the tutorial's step 6 (Snapshot.Tutorial) instead, and UI/Tutorial steers it (Guide.setSteer):
+--      Guide.setSteer(fn?)   fn(plot) returns nil (the usual arrow: station, then Counter), false (no arrow now),
+--                            or { Part: BasePart, Icon: string, Color: Color3, Height: number? } (point there;
+--                            Height = the world Y of the pin's foot, default just above the part)
 -- 2. Station hold time. Every station prompt's HoldDuration is set locally from
 --    Logic/Prices.makeSeconds(Snapshot.Upgrades.Speed), so the ring matches your Faster Hands level. The server
 --    sets the slowest time (Speed 0) and times each hold against the MAKER's own level (Stations), so this only
@@ -29,11 +33,19 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local Prices = require(Shared:WaitForChild("Logic"):WaitForChild("Prices"))
+local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
 local Guide = {}
+
+export type Steer = { Part: BasePart, Icon: string, Color: Color3, Height: number? }
+local steerFn: ((plot: Instance) -> any)? = nil
+
+function Guide.setSteer(fn: ((plot: Instance) -> any)?)
+	steerFn = fn
+end
 
 local GUIDE_UNTIL_CURED = 3
 local STEP_SECONDS = 0.2
@@ -196,14 +208,21 @@ end
 local function startArrow(ctx: Types.Ctx)
 	local data = ctx.Data :: any
 	local player = ctx.Player
-	local initial = ctx.State
 
 	local function done(): boolean
+		local state = ctx.State
+		local step = state.Tutorial
+		if type(step) == "number" and step <= 0 then
+			return false -- the client's default snapshot: the server's says whether the tutorial needs the arrow
+		end
+		if TutorialLogic.active(step) then
+			return step >= TutorialLogic.SHOP -- the tutorial uses it through step 6
+		end
 		local attribute = player:GetAttribute("Cured")
 		if type(attribute) == "number" and attribute >= GUIDE_UNTIL_CURED then
 			return true
 		end
-		return ctx.State ~= initial and (ctx.State.Cured or 0) >= GUIDE_UNTIL_CURED
+		return (state.Cured or 0) >= GUIDE_UNTIL_CURED
 	end
 	if done() then
 		return
@@ -373,9 +392,10 @@ local function startArrow(ctx: Types.Ctx)
 		shownKey = ""
 	end
 
-	local function show(part: BasePart, iconText: string, color: Color3)
+	local function show(part: BasePart, iconText: string, color: Color3, height: number?)
 		local key = part:GetFullName() .. iconText
-		marker.CFrame = CFrame.new(part.Position + Vector3.new(0, part.Size.Y / 2 + 0.3, 0))
+		local position = part.Position
+		marker.CFrame = CFrame.new(position.X, height or (position.Y + part.Size.Y / 2 + 0.3), position.Z)
 		if key ~= shownKey then
 			shownKey = key
 			icon.Text = iconText
@@ -404,6 +424,28 @@ local function startArrow(ctx: Types.Ctx)
 		if not plot then
 			hide()
 			return
+		end
+		-- The tutorial's say first: no arrow right now, or a target of its own.
+		local steer = steerFn
+		if steer then
+			local steerOk, wanted = pcall(steer, plot)
+			if steerOk and wanted == false then
+				hide()
+				return
+			elseif steerOk and type(wanted) == "table" then
+				local part = wanted.Part
+				if typeof(part) == "Instance" and part:IsA("BasePart") then
+					show(
+						part,
+						if type(wanted.Icon) == "string" then wanted.Icon else "👀",
+						if typeof(wanted.Color) == "Color3" then wanted.Color else Theme.Colors.Primary,
+						if type(wanted.Height) == "number" then wanted.Height else nil
+					)
+				else
+					hide()
+				end
+				return
+			end
 		end
 		-- What the front patient needs. Patients publishes it on the plot (FrontStation, "" when nobody waits);
 		-- the patient models are the fallback.

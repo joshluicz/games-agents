@@ -357,6 +357,12 @@ local function disc(parent: Instance, name: string, scale: number, color: Color3
 	return f
 end
 
+-- Billboards sized in studs shrink with distance like real objects, but never grow past their size at this many
+-- studs (BillboardGui.DistanceLowerLimit): standing next to a station, its icon stays a small part of the screen
+-- (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A2).
+local ICON_NEAR_STUDS = 14
+local PREVIEW_NEAR_STUDS = 18
+
 -- A round icon badge floating above a part (station icons): a white disc with a thick ink outline inside a candy
 -- ring. Drawn as nested circles rather than UIStrokes, so the outline keeps its weight at any distance.
 local function iconBadge(adornee: BasePart, name: string, icon: string, ring: Color3, studs: number, height: number)
@@ -366,6 +372,7 @@ local function iconBadge(adornee: BasePart, name: string, icon: string, ring: Co
 	gui.StudsOffsetWorldSpace = Vector3.new(0, height, 0)
 	gui.LightInfluence = 0
 	gui.MaxDistance = 80
+	gui.DistanceLowerLimit = ICON_NEAR_STUDS
 
 	disc(gui, "Outline", 1, Palette.Outline, 1)
 	disc(gui, "Ring", 0.86, ring, 2)
@@ -803,12 +810,17 @@ local function kitRoom(roomId: string): Model?
 		local station = model:FindFirstChild("Station_" .. stationId, true)
 		if not station then
 			warn("[PlotBuilder] ClinicKit." .. roomId .. " is missing Station_" .. stationId)
-		elseif not station:FindFirstChild("IconGui", true) then
-			-- Placeholder stations carry their icon badge; give the brother's the same one.
-			local adornee, top = stationAdornee(station)
-			local data = Stations[stationId]
-			if adornee and data then
-				iconBadge(adornee, "IconGui", data.Icon, data.Color, 2.6, top + 2.1)
+		else
+			local kitIcon = station:FindFirstChild("IconGui", true)
+			if not kitIcon then
+				-- Placeholder stations carry their icon badge; give the brother's the same one.
+				local adornee, top = stationAdornee(station)
+				local data = Stations[stationId]
+				if adornee and data then
+					iconBadge(adornee, "IconGui", data.Icon, data.Color, 2.6, top + 2.1)
+				end
+			elseif kitIcon:IsA("BillboardGui") and kitIcon.DistanceLowerLimit <= 0 then
+				kitIcon.DistanceLowerLimit = ICON_NEAR_STUDS -- the brother's own icon gets the same cap
 			end
 		end
 	end
@@ -918,6 +930,7 @@ function PlotBuilder.setPreview(plotModel: Model, slotId: string, roomId: string
 	gui.Size = UDim2.fromScale(6, 4)
 	gui.LightInfluence = 0
 	gui.MaxDistance = 90
+	gui.DistanceLowerLimit = PREVIEW_NEAR_STUDS
 	local outline = Instance.new("Frame")
 	outline.Name = "Outline"
 	outline.Size = UDim2.fromScale(1, 1)

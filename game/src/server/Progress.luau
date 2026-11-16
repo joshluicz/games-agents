@@ -107,9 +107,9 @@ local function onChanged(player: Player, data: Types.Data)
 				local name = room.Icon .. " " .. room.Name
 				if cash >= room.Price then
 					markReady(player, roomId)
-					Remotes.toast(player, "🔓 " .. name .. "! Buy in 🛒")
+					Remotes.news(player, "🔓 " .. name .. "! Buy in 🛒")
 				else
-					Remotes.toast(player, "⭐ " .. name .. "! Save " .. ProgressLogic.CASH_ICON .. room.Price)
+					Remotes.news(player, "⭐ " .. name .. "! Save " .. ProgressLogic.CASH_ICON .. room.Price)
 				end
 			end
 		end
@@ -129,7 +129,7 @@ local function onChanged(player: Player, data: Types.Data)
 				and cash >= room.Price
 			then
 				markReady(player, roomId)
-				Remotes.toast(player, "🛒 " .. room.Icon .. " " .. room.Name .. " ready!")
+				Remotes.news(player, "🛒 " .. room.Icon .. " " .. room.Name .. " ready!")
 			end
 		end
 	end

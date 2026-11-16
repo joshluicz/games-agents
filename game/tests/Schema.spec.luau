@@ -19,6 +19,11 @@ T.describe("Schema.default", function()
 		expect(Schema.default().Upgrades).toEqual({ Speed = 0, Tray = 0, Chairs = 0, Tips = 0 })
 	end)
 
+	test("starts the tutorial at the welcome", function()
+		expect(Schema.default().Tutorial).toBe(Schema.TUTORIAL_FIRST)
+		expect(Schema.default().Tutorial).toBe(1)
+	end)
+
 	test("returns a fresh table each time", function()
 		local a = Schema.default()
 		a.Cash = 99
@@ -126,6 +131,33 @@ T.describe("Schema.reconcile", function()
 		expect(Schema.isNewer({ Version = Schema.VERSION })).toBe(false)
 		expect(Schema.isNewer({ Cash = 5 })).toBe(false)
 		expect(Schema.isNewer("junk")).toBe(false)
+	end)
+
+	test("marks an existing player with a cure as done with the tutorial", function()
+		expect(Schema.reconcile({ Version = 2, Cash = 5, Cured = 1 }).Tutorial).toBe(Schema.TUTORIAL_DONE)
+		expect(Schema.reconcile({ Version = 2, Cured = 250 }).Tutorial).toBe(Schema.TUTORIAL_DONE)
+	end)
+
+	test("migrates a v1 shop save with serves as done with the tutorial", function()
+		expect(Schema.reconcile({ Cash = 50, Served = 7 }).Tutorial).toBe(Schema.TUTORIAL_DONE)
+	end)
+
+	test("starts the tutorial for an old save without a cure", function()
+		expect(Schema.reconcile({ Version = 2, Cash = 25, Cured = 0 }).Tutorial).toBe(Schema.TUTORIAL_FIRST)
+		expect(Schema.reconcile({ Cash = 10, Served = 0 }).Tutorial).toBe(Schema.TUTORIAL_FIRST)
+	end)
+
+	test("keeps a saved tutorial step", function()
+		expect(Schema.reconcile({ Version = 2, Cured = 1, Tutorial = 6 }).Tutorial).toBe(6)
+		expect(Schema.reconcile({ Version = 2, Cured = 0, Tutorial = 3 }).Tutorial).toBe(3)
+		expect(Schema.reconcile({ Version = 2, Cured = 0, Tutorial = 9 }).Tutorial).toBe(9)
+	end)
+
+	test("replaces a bad tutorial step by the migration rule", function()
+		for _, bad in { 0, 10, 2.5, -1, 0 / 0, math.huge, "3", true } :: { any } do
+			expect(Schema.reconcile({ Version = 2, Cured = 0, Tutorial = bad }).Tutorial).toBe(1)
+			expect(Schema.reconcile({ Version = 2, Cured = 4, Tutorial = bad }).Tutorial).toBe(9)
+		end
 	end)
 
 	test("always owns the Stand", function()

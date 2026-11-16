@@ -15,6 +15,8 @@
 --   8. the Cured remote           to the helper, and to the owner if different. Each payload says what THAT
 --                                 player got: the owner of a friend's cure sees Cash 0, a helper on someone
 --                                 else's plot sees Stars 0, and NewPage is the helper's.
+--   9. Tutorial.onCured(owner)    a cure at the owner's clinic moves their first-session tutorial on (if they're in
+--                                 it), after everything above has landed
 -- Either player may have left while the patient recovered: their part is skipped and the other still lands.
 -- Returns what the cure paid ({ Cash, Stars, NewPage }) or nil when the ctx was rejected.
 
@@ -35,6 +37,7 @@ local Book = require(script.Parent.Book)
 local Daily = require(script.Parent.Daily)
 local Story = require(script.Parent.Story)
 local DayReport = require(script.Parent.DayReport)
+local Tutorial = require(script.Parent.Tutorial)
 
 export type Result = { Cash: number, Stars: number, NewPage: boolean }
 
@@ -169,6 +172,11 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 	end
 	if ownerHere and not sameHelper then
 		Remotes.Cured:FireClient(owner, info(0, reward.Stars, false))
+	end
+
+	-- 9. The owner's first-session tutorial
+	if ownerHere then
+		safely("Tutorial.onCured", Tutorial.onCured, owner)
 	end
 
 	return { Cash = reward.Cash, Stars = reward.Stars, NewPage = newPage }

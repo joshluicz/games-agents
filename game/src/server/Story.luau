@@ -200,12 +200,12 @@ end
 local function finishStory(owner: Player, regularId: string, regular: Types.Regular, granted: boolean)
 	if granted then
 		-- e.g. "🎉 Story done! 🌱 Sprout Mascot" (on-screen words stay at 6 or fewer)
-		Remotes.toast(owner, "🎉 Story done! " .. rewardLabel(regular))
+		Remotes.news(owner, "🎉 Story done! " .. rewardLabel(regular))
 		if regular.RewardKind ~= "Room" then
 			Book.placeReward(owner, regular.Reward)
 		end
 	else
-		Remotes.toast(owner, "🎉 " .. regular.Name .. "'s story done!")
+		Remotes.news(owner, "🎉 " .. regular.Name .. "'s story done!")
 	end
 	if regularId == SIGN_GLOW_REGULAR then
 		local plot = Plots.getPlot(owner)
@@ -250,7 +250,7 @@ local function announceUnlocks(player: Player, data: Types.Data)
 	for index = before + 1, #unlocked do
 		local regular = regularOf(unlocked[index])
 		if regular then
-			Remotes.toast(player, "💌 " .. regular.Name .. " wants to visit!")
+			Remotes.news(player, "💌 " .. regular.Name .. " wants to visit!")
 		end
 	end
 end

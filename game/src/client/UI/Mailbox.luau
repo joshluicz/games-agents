@@ -3,8 +3,9 @@
 --   init(ctx)   opens on ctx.fire("Open", "Mailbox") and ctx.fire("Open", "Goals")
 -- Letter: when you join and the server says MailboxReady, an envelope drops in and opens into a thank-you
 -- letter from patients you've cured (or a welcome note) with a 🎁 gift. Claim calls ClaimMailbox; the same gift
--- whether you were away a day or ten, and no streaks. It pops by itself only once per session (for a brand-new
--- player, after their first cure, so it never covers the first patient).
+-- whether you were away a day or ten, and no streaks. It pops by itself only once per session, never over an open
+-- panel. A player in the first-session tutorial gets it when the tutorial ends (the tutorial is quiet: design
+-- §A6), and a brand-new player without the tutorial after their first cure, so it never covers the first patient.
 -- Goals: up to Config.MaxBankedGoals banked goals with progress bars; a finished one gets a claim button that
 -- calls ClaimGoal(index). Goals never expire.
 -- All amounts shown are from Config and Data/DailyGoals, for display only; the server decides what you get.
@@ -19,6 +20,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
+local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
@@ -616,21 +618,30 @@ function Mailbox.init(ctx: Types.Ctx)
 		end
 	end)
 
-	-- Pop the letter once, the first time the server says it's ready this session. A brand-new player (nothing
-	-- cured yet) gets it after their first cure instead: on join their first patient and the Guide arrow arrive
-	-- at once, and a dimmed letter would cover them and block the thumbstick.
+	-- Pop the letter once, the first time the server says it's ready this session. A player in the first-session
+	-- tutorial gets it when the tutorial ends (its last step points at the 📖, so the letter comes after). A
+	-- brand-new player without the tutorial (nothing cured yet) gets it after their first cure: on join their first
+	-- patient and the Guide arrow arrive at once, and a dimmed letter would cover them and block the thumbstick.
 	local popped = false
-	local waitedForCure = false
+	local waited = false
 	ctx.onState(function(state: Types.Snapshot)
 		if popped or state == initial or state.MailboxReady ~= true then
 			return
 		end
+		if TutorialLogic.active(state.Tutorial) then
+			waited = true -- a later snapshot with the tutorial done pops it
+			return
+		end
 		if (state.Cured or 0) < 1 and state.PlotIndex ~= nil then
-			waitedForCure = true -- a later snapshot with Cured >= 1 pops it (without a clinic, it pops now)
+			waited = true -- a later snapshot with Cured >= 1 pops it (without a clinic, it pops now)
 			return
 		end
 		popped = true
-		task.delay(if waitedForCure then FIRST_CURE_DELAY else AUTO_POP_DELAY, function()
+		task.delay(if waited then FIRST_CURE_DELAY else AUTO_POP_DELAY, function()
+			-- Never over an open panel or popup (the 📖 Book, say): it waits until they close it.
+			while Hud.isOpen() do
+				task.wait(0.5)
+			end
 			if ctx.State.MailboxReady == true then
 				openLetter()
 			end

@@ -1,13 +1,20 @@
 --!strict
 -- Hud (build plan Task 6): the always-on screen, plus the shared UI pieces the other panels build on.
 --
--- On screen (all inside the safe area, nothing under the touch thumbstick or jump button, and the right edge's
--- middle left free for the 🎵 and ✨ comfort buttons from Music.client and Feel/Atmosphere):
+-- On screen (all inside the safe area, nothing under the touch thumbstick or jump button):
 --   top left      💰 cash · ⭐ stars with a bar to the next unlock (tap it: what's next) · ⚠️ not saving · 🏠 no clinic
 --   top right     ☀️/🌙 day-night timer (×2 at night) · ⭐ Today's Visitor (tap: what it means), only when it
 --                 can come to your clinic, ✅ once cured today (the Snapshot's VisitorStatus)
---   bottom centre your hands (the `Carry` and `CarryMax` attributes) above the 🛒 📖 📬 🎯 buttons, each with a
---                 dot when something waits there (a room you can buy or decor to place · new pages · mail · a goal)
+--   right middle  ⚙️ settings: a small panel with the comfort switches 🎵 music and ✨ calm effects (the client-only
+--                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion)
+--   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty) above
+--                 the 🛒 📖 📬 🎯 buttons, each with a dot when something waits there (a room you can buy or decor to
+--                 place · new pages · mail · a goal)
+-- It reveals itself to a new player (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A3),
+-- driven by the Snapshot's Tutorial step: at first only 💰; ⭐ after the first cure; 🛒 at the shop step and 📖 at
+-- the Book step (its pointer needs it), each with a bounce; 📬 🎯, the clock and the visitor chip when the tutorial
+-- ends. A player who's done sees everything at once, as before. Until the first snapshot arrives (Tutorial 0, "not
+-- known yet") it stays at 💰 only. ⚙️, ⚠️ and 🏠 always show when they apply.
 -- Everything is drawn from the Snapshot, player attributes and Workspace attributes. The client never decides
 -- anything: buttons only open panels, and panels only ask the server.
 --
@@ -32,6 +39,9 @@
 --   Hud.calm(): boolean                Reduced Motion, or the ✨ calm toggle (ReduceEffects): skip the motion
 --   Hud.sound(name, volume?)           a Feel/Sounds cue over the bus
 --   Hud.format(n): string              1,234 · 1.2M past a million
+--   Hud.target(name): GuiObject?       a HUD piece by name ("Cash", "Stars", "Shop", "Book", "Mailbox", "Goals",
+--                                      "Settings", "Hands"), for pointers (UI/Tutorial) and flying icons
+--   Hud.isOpen(name?): boolean         a modal is open (that one, or any)
 --
 -- Client bus (ctx.on / ctx.fire):
 --   listens  "BookNew" (count)                      BookPanel: unseen new pages, for the 📖 dot
@@ -52,6 +62,7 @@ local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local PatientsData = require(Shared:WaitForChild("Data"):WaitForChild("Patients")) :: any
 local RegularsData = require(Shared:WaitForChild("Data"):WaitForChild("Regulars")) :: any
+local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -206,6 +217,15 @@ end
 
 local CLOSE_ACTION = "ClinicCloseModal"
 local stack: { Modal } = {}
+
+function Hud.isOpen(name: string?): boolean
+	for _, modal in stack do
+		if name == nil or modal.Name == name then
+			return true
+		end
+	end
+	return false
+end
 
 local function firstButton(root: Instance): GuiObject?
 	for _, descendant in root:GetDescendants() do
@@ -725,6 +745,10 @@ end
 
 local fxGui: ScreenGui? = nil
 local targets: { [string]: GuiObject } = {}
+
+function Hud.target(name: string): GuiObject?
+	return targets[name]
+end
 
 local function fxLayer(): ScreenGui
 	local layer = fxGui
@@ -1326,7 +1350,7 @@ function Hud.init(ctx: Types.Ctx)
 	visitorFace.Parent = faceDisc
 	local shownVisitor = ""
 
-	-- Rare status chips sit under the wallet: the right edge's middle belongs to the 🎵 and ✨ buttons (Feel).
+	-- Rare status chips sit under the wallet: the right edge's middle belongs to the ⚙️ settings button.
 	local function chip(name: string, text: string, color: Color3, order: number): Frame
 		local frame = pill({
 			Name = name,
@@ -1402,14 +1426,18 @@ function Hud.init(ctx: Types.Ctx)
 		badge(button)
 		button.Activated:Connect(function()
 			if name == "Shop" then
-				ctx.fire("Open", name, shopTab)
+				-- The tutorial's shop step points at the cheapest upgrade, so it opens on Upgrades.
+				local tutorial = TutorialLogic.active(ctx.State.Tutorial)
+				ctx.fire("Open", name, if tutorial then "Upgrades" else shopTab)
 			else
 				ctx.fire("Open", name)
 			end
 		end)
 		buttons[name] = button
 	end
+	targets.Shop = buttons.Shop
 	targets.Book = buttons.Book
+	targets.Mailbox = buttons.Mailbox
 	targets.Goals = buttons.Goals
 
 	local hands = Instance.new("Frame")
@@ -1419,10 +1447,13 @@ function Hud.init(ctx: Types.Ctx)
 	hands.Position = UDim2.new(0.5, 0, 1, -(margin + size + 10))
 	hands.Size = UDim2.fromOffset(0, 50)
 	hands.AutomaticSize = Enum.AutomaticSize.X
+	hands.Visible = false
 	hands.Parent = gui
 	Kit.list(hands, Enum.FillDirection.Horizontal, 6)
+	targets.Hands = hands
 
-	-- Each hand: a candy tile in the colour of the station that made what's in it, or a see-through empty slot.
+	-- Each hand: a candy tile in the colour of the station that made what's in it. Only what you hold shows: empty
+	-- hands draw nothing (first-session declutter, design §A5).
 	local slots: { Frame } = {}
 	local lastItems: { string } = {}
 	local function slot(index: number): Frame
@@ -1450,8 +1481,8 @@ function Hud.init(ctx: Types.Ctx)
 
 	local function renderHands()
 		local items = splitCarry(player:GetAttribute("Carry"))
-		local max = player:GetAttribute("CarryMax")
-		local count = math.clamp(math.max(if type(max) == "number" then max else 1, #items), 1, 8)
+		local count = math.min(#items, 8)
+		hands.Visible = count > 0
 		while #slots < count do
 			table.insert(slots, slot(#slots + 1))
 		end
@@ -1487,8 +1518,90 @@ function Hud.init(ctx: Types.Ctx)
 		lastItems = items
 	end
 	player:GetAttributeChangedSignal("Carry"):Connect(renderHands)
-	player:GetAttributeChangedSignal("CarryMax"):Connect(renderHands)
 	renderHands()
+
+	-- The hands sit just above the big buttons, or at the bottom while none of them shows yet (a new player).
+	local function placeHands()
+		local anyButton = false
+		for _, button in buttons do
+			anyButton = anyButton or button.Visible
+		end
+		hands.Position = UDim2.new(0.5, 0, 1, -(if anyButton then margin + size + 10 else margin))
+	end
+
+	--------------------------------------------------------------------------------------------------------------
+	-- Right edge, half way down: ⚙️ settings, a small panel with the two comfort switches (what used to be the 🎵 and
+	-- ✨ buttons). Music.client follows MusicMuted and Feel/Atmosphere follows ReduceEffects, as before.
+	--------------------------------------------------------------------------------------------------------------
+	local settingsButton = Kit.iconButton({
+		Name = "Settings",
+		Icon = "⚙️",
+		Kind = "Quiet",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -margin, 0.5, 0),
+		Size = UDim2.fromOffset(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight),
+		Parent = gui,
+	})
+	targets.Settings = settingsButton
+	local settings = Hud.modal(ctx, {
+		Name = "Settings",
+		Title = "⚙️ Settings",
+		Accent = Theme.Colors.Cyan,
+		MaxSize = Vector2.new(380, 280),
+	})
+	local switches = Instance.new("Frame")
+	switches.Name = "Switches"
+	switches.BackgroundTransparency = 1
+	switches.Size = UDim2.fromScale(1, 1)
+	switches.Parent = settings.Body
+	local switchList = Kit.list(switches, Enum.FillDirection.Vertical, gap)
+	switchList.VerticalAlignment = Enum.VerticalAlignment.Top
+	local function switch(name: string, kind: string, order: number): TextButton
+		local button = Kit.button({
+			Name = name,
+			Kind = kind,
+			TextSize = Theme.TextSize.Body,
+			LayoutOrder = order,
+			Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight + 8),
+			Parent = switches,
+		})
+		return button
+	end
+	local musicSwitch = switch("Music", "Pink", 1)
+	local effectsSwitch = switch("Effects", "Cyan", 2)
+	settings.Focus = musicSwitch
+	local function paintSwitch(button: TextButton, on: boolean, color: Color3)
+		local switchFill = if on then Kit.lighten(color, 0.08) else Theme.Colors.Quiet
+		button.BackgroundColor3 = switchFill
+		button:SetAttribute("KitColor", switchFill)
+	end
+	local function calmOn(): boolean
+		local value = player:GetAttribute("ReduceEffects")
+		return if value == nil then Kit.reducedMotion() else value == true
+	end
+	local function renderSettings()
+		local muted = player:GetAttribute("MusicMuted") == true
+		musicSwitch.Text = if muted then "🔇 Music off" else "🎵 Music on"
+		paintSwitch(musicSwitch, not muted, Theme.Colors.Pink)
+		local calmNow = calmOn()
+		effectsSwitch.Text = if calmNow then "💤 Calm effects" else "✨ Full effects"
+		paintSwitch(effectsSwitch, not calmNow, Theme.Colors.Cyan)
+	end
+	musicSwitch.Activated:Connect(function()
+		player:SetAttribute("MusicMuted", player:GetAttribute("MusicMuted") ~= true)
+		Hud.pop(musicSwitch, 1.06)
+	end)
+	effectsSwitch.Activated:Connect(function()
+		player:SetAttribute("ReduceEffects", not calmOn())
+		Hud.pop(effectsSwitch, 1.06)
+	end)
+	player:GetAttributeChangedSignal("MusicMuted"):Connect(renderSettings)
+	player:GetAttributeChangedSignal("ReduceEffects"):Connect(renderSettings)
+	renderSettings()
+	settingsButton.Activated:Connect(function()
+		renderSettings()
+		settings.toggle()
+	end)
 
 	-- Small screens: scale the bottom cluster down a touch, never below the 56 px tap target.
 	local bottomScale = Instance.new("UIScale")
@@ -1533,10 +1646,12 @@ function Hud.init(ctx: Types.Ctx)
 		end
 	end)
 
+	-- (Not shown for the Studio FreshSave test switch, so the screen looks like a real first visit.)
 	local function renderSaving()
-		savingChip.Visible = player:GetAttribute("DataOk") == false
+		savingChip.Visible = player:GetAttribute("DataOk") == false and player:GetAttribute("FreshSave") ~= true
 	end
 	player:GetAttributeChangedSignal("DataOk"):Connect(renderSaving)
+	player:GetAttributeChangedSignal("FreshSave"):Connect(renderSaving)
 	renderSaving()
 
 	starsPill.Activated:Connect(function()
@@ -1574,6 +1689,60 @@ function Hud.init(ctx: Types.Ctx)
 		end)
 	end
 
+	--------------------------------------------------------------------------------------------------------------
+	-- The reveal: a new player's HUD grows with their tutorial step (see the header)
+	--------------------------------------------------------------------------------------------------------------
+	-- (📖 comes at the tutorial's Book step rather than at its end: that step's pointer needs the button there.)
+	type Reveal = { Stars: boolean, Shop: boolean, Book: boolean, Rest: boolean }
+	local curedSeen = false -- a cure landed this session: ⭐ shows with it, not a moment later with the snapshot
+	local function revealFor(state: Types.Snapshot): Reveal
+		local step: any = state.Tutorial
+		if type(step) ~= "number" then
+			step = TutorialLogic.DONE -- a snapshot without the field: no tutorial
+		end
+		if TutorialLogic.isDone(step) then
+			return { Stars = true, Shop = true, Book = true, Rest = true }
+		elseif not TutorialLogic.active(step) then
+			return { Stars = false, Shop = false, Book = false, Rest = false } -- 0: not known yet
+		end
+		return {
+			Stars = step >= TutorialLogic.MORE or (step >= TutorialLogic.REST and curedSeen),
+			Shop = step >= TutorialLogic.SHOP,
+			Book = step >= TutorialLogic.BOOK,
+			Rest = false,
+		}
+	end
+	-- Shows or hides one piece; one that appears mid-session pops in (Hud.pop honours Hud.calm()).
+	local function showPiece(piece: GuiObject, on: boolean, animate: boolean, bounce: number): boolean
+		if piece.Visible == on then
+			return false
+		end
+		piece.Visible = on
+		if on and animate then
+			Hud.pop(piece, bounce)
+		end
+		return on
+	end
+	local function applyReveal(state: Types.Snapshot, animate: boolean)
+		local reveal = revealFor(state)
+		local appeared = showPiece(starsPill, reveal.Stars, animate, 1.25)
+		appeared = showPiece(buttons.Shop, reveal.Shop, animate, 1.45) or appeared -- the shop step's bounce
+		appeared = showPiece(buttons.Book, reveal.Book, animate, 1.45) or appeared -- the Book step's
+		for _, name in { "Mailbox", "Goals" } do
+			appeared = showPiece(buttons[name], reveal.Rest, animate, 1.3) or appeared
+		end
+		appeared = showPiece(side, reveal.Rest, animate, 1.12) or appeared
+		placeHands()
+		if appeared and animate then
+			Hud.sound("Pop")
+		end
+	end
+	applyReveal(initial, false)
+	ctx.Remotes.Cured.OnClientEvent:Connect(function()
+		curedSeen = true
+		applyReveal(ctx.State, true)
+	end)
+
 	local loaded = false
 	local mailWasReady = false
 	local goalsWereReady = false
@@ -1583,6 +1752,7 @@ function Hud.init(ctx: Types.Ctx)
 		if isServerState then
 			loaded = true
 		end
+		applyReveal(state, animate)
 
 		cash.set(state.Cash or 0, animate)
 		stars.set(state.Stars or 0, animate)

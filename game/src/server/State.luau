@@ -3,9 +3,11 @@
 --   State.push(p)          debounced 0.2 s: builds the Snapshot and fires the State remote to that player
 --   State.snapshot(p)      the Snapshot now (a copy; defaults if the player's data isn't loaded)
 --   wires GetState         answers with the Snapshot, after waiting for the data to load (nil when rate-limited)
--- It pushes on its own when: the player's data changes (PlayerData.Changed), their PlotIndex changes, or the
--- Workspace's UtcDay, TodaysVisitor or IsWinter changes. Other modules only call push() for state that lives
--- outside the save.
+-- It pushes on its own when: the player's data changes (PlayerData.Changed), their PlotIndex or TutorialCures
+-- attribute changes, or the Workspace's UtcDay, TodaysVisitor or IsWinter changes. Other modules only call push()
+-- for state that lives outside the save.
+-- Tutorial is the saved step (Data.Tutorial); TutorialCures is Server/Tutorial's step-6 count, kept on the player
+-- as an attribute (it isn't saved: a rejoin in step 6 counts 2 more from 0).
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -53,6 +55,7 @@ function State.snapshot(player: Player): Types.Snapshot
 	local data = PlayerData.get(player) or Schema.default()
 	local plotIndex = player:GetAttribute("PlotIndex")
 	local visitor = Workspace:GetAttribute("TodaysVisitor")
+	local tutorialCures = player:GetAttribute("TutorialCures")
 	return {
 		Upgrades = deepCopy(data.Upgrades),
 		Rooms = deepCopy(data.Rooms),
@@ -68,6 +71,8 @@ function State.snapshot(player: Player): Types.Snapshot
 		TodaysVisitor = if type(visitor) == "string" then visitor else "",
 		VisitorStatus = visitorStatus(player),
 		IsWinter = Workspace:GetAttribute("IsWinter") == true,
+		Tutorial = data.Tutorial,
+		TutorialCures = if type(tutorialCures) == "number" then tutorialCures else 0,
 	}
 end
 
@@ -96,9 +101,11 @@ function State.start()
 	end)
 
 	local function watch(player: Player)
-		player:GetAttributeChangedSignal("PlotIndex"):Connect(function()
-			State.push(player)
-		end)
+		for _, attribute in { "PlotIndex", "TutorialCures" } do
+			player:GetAttributeChangedSignal(attribute):Connect(function()
+				State.push(player)
+			end)
+		end
 	end
 	Players.PlayerAdded:Connect(watch)
 	for _, player in Players:GetPlayers() do

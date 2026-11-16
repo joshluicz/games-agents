@@ -22,6 +22,15 @@
 --      Plots clears the plot. A patient already treated (its item spent) is cured on the spot first, so a helper
 --      never loses their work. Nothing on the plot errors, and the plot is clean for the next owner.
 --
+-- The first-session tutorial (Server/Tutorial, by the OWNER's step). Nothing here changes for an owner who's done.
+--   · Who comes (Tutorial.spawnPlan): nobody during the welcome; then one easy first patient (a Starter patient
+--     needing the 🧪 Remedy); then one Starter patient needing 🩹; then the usual pool. Never a regular or Today's
+--     Visitor until the tutorial is done. No variants on the two tutorial patients.
+--   · One at a time in line through step 6 (Tutorial.queueCap). A spawn that's held back doesn't use up the timer,
+--     so the first patient comes the moment step 2 starts.
+--   · Patience never runs out in steps 1-6 (Tutorial.calm): the ring stays full.
+--   · Hooks: Tutorial.onFrontArrived when a patient reaches the front of the line, Tutorial.onTreated on a treat.
+--
 -- Movement: no Humanoids, no physics. A creature is one anchored Root with its parts welded on
 -- (CreatureBuilder). Hops are tweens: TweenService:GetValue easing, stepped on one Heartbeat connection that
 -- writes Root.CFrame (one replicated CFrame per moving creature; nothing while they stand still). Each patient
@@ -59,6 +68,7 @@ local Daily = require(script.Parent.Daily)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
 local Story = require(script.Parent.Story)
+local Tutorial = require(script.Parent.Tutorial)
 
 type Plot = Types.Plot
 type Badge = CreatureBuilder.Badge
@@ -80,6 +90,9 @@ local REFILL_SECONDS = 2 -- a freed place in line is refilled no sooner than thi
 local NIGHT_WEIGHT = 3 -- night patients are this much likelier at night
 local NEW_PAGE_WEIGHT = 2.5 -- patients not yet in the owner's Book are likelier
 local REPEAT_WEIGHT = 0.35 -- the same patient twice in a row is less likely
+-- The tutorial's two patients: a Starter-wing day patient whose ailment this station treats.
+local TUTORIAL_STATION: { [string]: string } = { First = "Remedy", Second = "Plaster" }
+local TUTORIAL_WING = "Starter"
 
 local PROMPT_DISTANCE = 10
 local DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
@@ -154,6 +167,7 @@ type PlotState = {
 	LastPatient: string?,
 	FrontItem: string,
 	Loop: thread?,
+	SecondSpawned: boolean, -- the tutorial's 🩹 patient came this session
 }
 
 type Patient = {
@@ -237,6 +251,26 @@ local function giveBack(player: Player, itemId: string)
 	if not ok then
 		report("Carry.add", err)
 	end
+end
+
+-- Calls a Server/Tutorial hook; a tutorial bug never breaks a patient.
+local function tutorialHook(name: string, ...: any)
+	local fn = (Tutorial :: any)[name]
+	local ok, err = pcall(fn, ...)
+	if not ok then
+		report("Tutorial." .. name, err)
+	end
+end
+
+-- Asks Server/Tutorial something; on a tutorial bug the answer is `fallback` (the normal game).
+local function tutorialAsk(name: string, fallback: any, ...: any): any
+	local fn = (Tutorial :: any)[name]
+	local ok, answer = pcall(fn, ...)
+	if not ok then
+		report("Tutorial." .. name, answer)
+		return fallback
+	end
+	return answer
 end
 
 local function cancel(thread: thread?)
@@ -847,6 +881,9 @@ local function waitInLine(p: Patient): boolean
 				p.Arrived = true
 				setState(p, "Waiting")
 				refreshFront(state)
+				if state.Queue[1] == p then
+					tutorialHook("onFrontArrived", state.Owner)
+				end
 			end
 			local now = os.clock()
 			if now >= p.NextIdle then
@@ -1022,7 +1059,31 @@ local function hasGuest(state: PlotState, regular: string?, visitor: boolean): b
 	return false
 end
 
-local function trySpawn(state: PlotState)
+-- The tutorial's patient for `plan` ("First" | "Second"): a Starter-wing day patient whose ailment the plan's
+-- station treats, when that station is on the plot. A new Book page first. nil = there's none here.
+local function tutorialPatient(plan: string, stations: { [string]: boolean }, data: Types.Data): string?
+	local stationId = TUTORIAL_STATION[plan]
+	if not stationId or not stations[stationId] then
+		return nil
+	end
+	local fresh: { string }, seen: { string } = {}, {}
+	for _, patientId in PatientsData.Order do
+		local entry = PatientsData[patientId]
+		local ailment = AilmentsData[entry.Ailment]
+		if entry.Wing == TUTORIAL_WING and not entry.Night and ailment and ailment.Station == stationId then
+			local page = data.Book[patientId]
+			table.insert(if page and page.Cured > 0 then seen else fresh, patientId)
+		end
+	end
+	local pick = if #fresh > 0 then fresh else seen
+	if #pick == 0 then
+		return nil
+	end
+	return pick[rng:NextInteger(1, #pick)]
+end
+
+-- `plan` is the owner's Tutorial.spawnPlan: "First" | "Second" | "Any" | "Normal" (never "Wait" here).
+local function trySpawn(state: PlotState, plan: string)
 	local owner = state.Owner
 	local data = PlayerData.get(owner)
 	if not data then
@@ -1030,6 +1091,19 @@ local function trySpawn(state: PlotState)
 	end
 	local stations = stationsOnPlot(state.Plot)
 	local isNight = Workspace:GetAttribute("IsNight") == true
+
+	-- 0. The tutorial's own two patients (no variant: nothing to explain yet).
+	if plan == "First" or plan == "Second" then
+		local patientId = tutorialPatient(plan, stations, data)
+		if plan == "Second" then
+			state.SecondSpawned = true -- (a clinic without the 🩹 station skips it: the usual pool, below)
+		end
+		if patientId then
+			spawnPatient(state, patientId, nil, false, nil)
+			return
+		end
+	end
+	local guests = plan == "Normal" -- regulars and Today's Visitor wait until the tutorial is done
 
 	local function treatable(ailmentId: string): boolean
 		local ailment = AilmentsData[ailmentId]
@@ -1049,7 +1123,7 @@ local function trySpawn(state: PlotState)
 	-- 1. A regular whose story beat is due (never the very first patient: that one teaches the loop). Story
 	--    reserves whoever it names, so it's only asked when there's room in line, and whoever it names comes.
 	--    Story also keeps one regular per plot and the gap between them.
-	if state.Spawned >= 1 then
+	if guests and state.Spawned >= 1 then
 		local ok, regular = pcall(Story.dueRegular, owner)
 		if not ok then
 			report("Story.dueRegular", regular)
@@ -1065,7 +1139,7 @@ local function trySpawn(state: PlotState)
 	end
 
 	-- 2. Today's Visitor. Only asked for when it can be treated here, so it's never handed out and wasted.
-	if state.Spawned >= 2 and not hasGuest(state, nil, true) then
+	if guests and state.Spawned >= 2 and not hasGuest(state, nil, true) then
 		local todays = Workspace:GetAttribute("TodaysVisitor")
 		if type(todays) == "string" and todays ~= "" and eligible(todays) then
 			local ok, visitor = pcall(Daily.visitorFor, owner)
@@ -1132,6 +1206,9 @@ local function makeSad(state: PlotState, p: Patient)
 end
 
 local function tickPatience(state: PlotState, dt: number)
+	if tutorialAsk("calm", false, state.Owner) then
+		return -- the tutorial's steps 1-6: nobody runs out of patience, so the ring stays full
+	end
 	local outOfPatience: { Patient } = {}
 	for index, p in state.Queue do
 		if p.State == "Queue" and p.Arrived and not p.Claimed then
@@ -1151,9 +1228,15 @@ end
 
 local function tick(state: PlotState, now: number, dt: number)
 	tickPatience(state, dt)
-	if now >= state.NextSpawn and #state.Queue < Config.MaxQueue then
-		state.NextSpawn = now + Config.SpawnEverySeconds * rng:NextNumber(0.85, 1.15)
-		trySpawn(state)
+	local cap = tutorialAsk("queueCap", nil, state.Owner)
+	local maxQueue = if type(cap) == "number" then math.min(cap, Config.MaxQueue) else Config.MaxQueue
+	if now >= state.NextSpawn and #state.Queue < maxQueue then
+		local plan = tutorialAsk("spawnPlan", "Normal", state.Owner, next(state.All) == nil, state.SecondSpawned)
+		-- A spawn the tutorial holds back keeps its turn, so the patient comes the moment the tutorial is ready.
+		if plan ~= "Wait" then
+			state.NextSpawn = now + Config.SpawnEverySeconds * rng:NextNumber(0.85, 1.15)
+			trySpawn(state, if type(plan) == "string" then plan else "Normal")
+		end
 	end
 	refreshFront(state)
 end
@@ -1211,6 +1294,7 @@ local function beginTreatment(state: PlotState, p: Patient, helper: Player)
 	showRing(p, 0, RING_HEAL)
 	CreatureBuilder.setMood(p.Model, "Happy")
 	refreshFront(state)
+	tutorialHook("onTreated", state.Owner)
 end
 
 local function onTreat(plot: Plot, player: Player)
@@ -1323,6 +1407,7 @@ local function activate(owner: Player, plot: Plot)
 		LastPatient = nil,
 		FrontItem = "",
 		Loop = nil,
+		SecondSpawned = false,
 	}
 	active[plot] = state
 	plot.Model:SetAttribute("FrontItem", "")

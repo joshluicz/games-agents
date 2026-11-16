@@ -22,6 +22,9 @@
 --   Root.IconAnchor (Attachment above the head) holds the BillboardGuis IconGui and BubbleGui. The badge is
 --   chunky and outlined like the top games' billboards: a dark rim, the patience ring, the station's candy ring
 --   and a white disc with the ailment, plus corner chips (what it needs, Today's Visitor ⭐, the variant).
+--   Both are sized in studs, so they shrink with distance like real objects, but never grow past their size at
+--   NEAR_STUDS (BillboardGui.DistanceLowerLimit): standing right next to a patient, its badge stays a small part
+--   of the screen (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A2).
 --   Root.FX (Attachment at the body's middle) holds the lights and particle emitters.
 --   Model:GetScale() is the creature's own size (Look.Scale); Patients scales relative to it.
 -- Rated Minimal: soft, round and friendly. Nothing sharp, scary or gross.
@@ -122,6 +125,8 @@ local CONFETTI = { Candy.Pink, Candy.Yellow, Candy.Cyan, Candy.Lime, Candy.Purpl
 -- the outlines stay inside the gui.
 local BADGE_STUDS = 3.8
 local BADGE_FACE = 0.8
+-- Closer than this, the badge and the speech bubble stop growing on screen (about a fifth of its height at most).
+local NEAR_STUDS = 16
 
 -- Big parts keep their own colour on a Sparkly creature; the small bits (ears, tops, wings, tails) go rainbow.
 local BIG_PARTS = { Body = true, Head = true, Belly = true, BellyTop = true, Crust = true }
@@ -923,6 +928,7 @@ local function makeBadge(
 	gui.StudsOffsetWorldSpace = Vector3.new(0, 1.6, 0)
 	gui.LightInfluence = 0
 	gui.MaxDistance = 75
+	gui.DistanceLowerLimit = NEAR_STUDS
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 	-- From the outside in: a thick dark rim, the patience ring, the station's candy ring, then a white disc with the
@@ -954,6 +960,7 @@ local function makeBadge(
 	bubble.StudsOffsetWorldSpace = Vector3.new(0, 4.6, 0)
 	bubble.LightInfluence = 0
 	bubble.MaxDistance = 60
+	bubble.DistanceLowerLimit = NEAR_STUDS
 	bubble.Enabled = false
 	bubble.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	local shadow = Instance.new("Frame")

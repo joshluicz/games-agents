@@ -5,11 +5,16 @@
 -- Server -> client events:  Toast(text) · State(snapshot) · Cured(info) · DayReport(report)
 -- Client -> server functions (each returns ok: boolean, message: string, except GetState):
 --   Purchase(kind, id) · PlaceDecor(slotKey, decorId?) · ClaimGoal(index) · ClaimMailbox() · GetState() -> Snapshot
+--   TutorialAck()   the welcome card was tapped (or shown 4 s). Server/Tutorial: it only ever moves step 1 -> 2
 --
 -- Server helpers (call only on the server):
 --   Remotes.serve(name, handler)  wires a RemoteFunction with the rate limit and error safety built in
 --   Remotes.allow(player, name)   the per-player, per-remote rate limit (Config.RemoteRatePerSecond)
---   Remotes.toast(player, text) / Remotes.toastAll(text)
+--   Remotes.toast(player, text)   always shown: a reply to what the player did, or a warning
+--   Remotes.news(player, text)    ambient news (a goal done, a new day, a room unlocked...): held back while the
+--                                 player is quiet (Server/Tutorial: the first-session tutorial is running)
+--   Remotes.toastAll(text)        news for everyone in the server, skipping quiet players
+--   Remotes.setQuiet(fn) / Remotes.isQuiet(player)   who is quiet right now (Server/Tutorial sets fn)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,7 +24,7 @@ local Config = require(script.Parent.Config)
 
 local FOLDER_NAME = "Remotes"
 local EVENTS = { "Toast", "State", "Cured", "DayReport" }
-local FUNCTIONS = { "Purchase", "PlaceDecor", "ClaimGoal", "ClaimMailbox", "GetState" }
+local FUNCTIONS = { "Purchase", "PlaceDecor", "ClaimGoal", "ClaimMailbox", "GetState", "TutorialAck" }
 
 local IS_SERVER = RunService:IsServer()
 
@@ -63,6 +68,7 @@ local Remotes = {
 	ClaimGoal = folder:WaitForChild("ClaimGoal") :: RemoteFunction,
 	ClaimMailbox = folder:WaitForChild("ClaimMailbox") :: RemoteFunction,
 	GetState = folder:WaitForChild("GetState") :: RemoteFunction,
+	TutorialAck = folder:WaitForChild("TutorialAck") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.
@@ -132,9 +138,37 @@ function Remotes.toast(player: Player, text: string)
 	end
 end
 
+-- Quiet players (the first-session tutorial) only get toasts that help them right now: replies and warnings.
+local quietCheck: ((Player) -> boolean)? = nil
+
+function Remotes.setQuiet(fn: ((Player) -> boolean)?)
+	assertServer("setQuiet")
+	quietCheck = fn
+end
+
+function Remotes.isQuiet(player: Player): boolean
+	local check = quietCheck
+	if not check then
+		return false
+	end
+	local ok, quiet = pcall(check, player)
+	return ok and quiet == true
+end
+
+function Remotes.news(player: Player, text: string)
+	assertServer("news")
+	if not Remotes.isQuiet(player) then
+		Remotes.toast(player, text)
+	end
+end
+
 function Remotes.toastAll(text: string)
 	assertServer("toastAll")
-	Remotes.Toast:FireAllClients(text)
+	for _, player in Players:GetPlayers() do
+		if not Remotes.isQuiet(player) then
+			Remotes.Toast:FireClient(player, text)
+		end
+	end
 end
 
 if IS_SERVER then

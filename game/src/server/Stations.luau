@@ -26,6 +26,9 @@
 -- Feedback is immediate: a refusal (a locked clinic, a tray full of this item) toasts when the hold BEGINS, so
 -- nobody holds for nothing. Toasts are short (≤ 6 words, icon first) and the same toast is sent at most once
 -- every 1.5 s per player.
+--
+-- After every make, Tutorial.onMade(player, itemId, plot): the first-session tutorial moves on when a new
+-- player makes what their first patient needs at their own clinic.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -42,6 +45,7 @@ local Carry = require(script.Parent.Carry)
 local Daily = require(script.Parent.Daily)
 local Economy = require(script.Parent.Economy)
 local Plots = require(script.Parent.Plots)
+local Tutorial = require(script.Parent.Tutorial)
 
 type Plot = Types.Plot
 
@@ -266,6 +270,10 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 		local ok, err = pcall(Daily.onMake, player, itemId)
 		if not ok then
 			warn("[Stations] Daily.onMake failed:", err)
+		end
+		local tutorialOk, tutorialErr = pcall(Tutorial.onMade, player, itemId, plot)
+		if not tutorialOk then
+			warn("[Stations] Tutorial.onMade failed:", tutorialErr)
 		end
 	end)
 
