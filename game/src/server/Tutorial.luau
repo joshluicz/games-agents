@@ -139,6 +139,22 @@ function Pure.gift(to: any, gifted: any, replay: boolean?): (boolean, boolean)
 	return due, gifted == true or due or replay == true or to == Logic.DONE
 end
 
+-- A rejoin in the middle of a replay: the session attribute is gone, so the save has to say it. TutorialGift is only
+-- true before SHOP on a replay (or an admin restart of an old save), never on a first run. Steps SHOP and BOOK can't
+-- be told apart from a first run (the gift was given there too), so they stay a first run.
+function Pure.rejoinReplay(step: any, gifted: any): boolean
+	return Logic.active(step) and gifted == true and step ~= Logic.WELCOME and step < Logic.SHOP
+end
+
+-- Step SHOP only moves on from a purchase. True when there may be nothing to buy (every upgrade maxed, or the
+-- cheapest one costs more than they hold: a replay has no gift), so the step moves on by itself after a beat.
+function Pure.shopStuck(cash: any, cheapest: number?): boolean
+	if cheapest == nil then
+		return true
+	end
+	return type(cash) ~= "number" or cash < cheapest
+end
+
 -- The funnel step to log for a move (a card number), or nil: first runs only, and only when the card changes (or
 -- the welcome ends: card 1 is logged as the first patient comes).
 function Pure.funnel(from: any, to: any, replay: boolean?): number?
@@ -171,6 +187,7 @@ end
 
 local GIFT_TOAST = "🎁 A gift to get you started!"
 local REPLAY_COOLDOWN = (Config :: any).Tutorial.ReplayCooldown :: number
+local SHOP_STUCK_SECONDS = (Config :: any).Tutorial.ShopStuckSeconds :: number
 
 local cures: { [Player]: number } = {} -- step 6: cures on their clinic so far
 local tokens: { [Player]: number } = {} -- bumps on every step change, so a timer from an older step does nothing
@@ -301,6 +318,13 @@ local function enter(player: Player, step: number)
 	elseif step == Logic.MORE then
 		if cures[player] == nil then
 			setCures(player, 0)
+		end
+	elseif step == Logic.SHOP then
+		-- A first run was just topped up to the cheapest upgrade, so this never fires there. A replay (no gift) or
+		-- an old save may have nothing it can buy: move on after a beat, so the tutorial always ends.
+		local data = PlayerData.get(player)
+		if data and Pure.shopStuck(data.Cash, cheapestUpgrade(data)) then
+			later(player, SHOP_STUCK_SECONDS, Logic.SHOP, "Purchased")
 		end
 	elseif step == Logic.BOOK then
 		if plot then
@@ -443,6 +467,10 @@ local function resume(player: Player)
 		PlayerData.update(player, function(d)
 			d.Tutorial = step
 		end)
+	end
+	-- They left in the middle of a replay: it is still a replay (full HUD, no funnel log).
+	if player.Parent == Players and Pure.rejoinReplay(step, data.TutorialGift) then
+		player:SetAttribute(Tutorial.REPLAY_ATTRIBUTE, true)
 	end
 end
 

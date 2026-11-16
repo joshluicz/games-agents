@@ -104,6 +104,39 @@ T.describe("HudZones.layout", function()
 		end
 	)
 
+	test(
+		"a short phone (safe height under 360): the gap squeezes, then plates move to More; corners stay clear",
+		function()
+			-- 812 x 354: an inset phone. Three still fit with a smaller gap.
+			local inset = HudZones.layout(812, 354)
+			expect(inset.Left).toEqual({ "Shop", "Nurses", "Book" })
+			expect(inset.Right).toEqual({ "Gifts", "Goals", "Mailbox" })
+			expect(inset.Gap).toBe(5)
+			-- 568 x 320: only two fit; the third of each rail goes into More.
+			local small = HudZones.layout(568, 320)
+			expect(small.Left).toEqual({ "Shop", "Nurses" })
+			expect(small.Right).toEqual({ "Gifts", "Goals" })
+			expect(small.More).toEqual({ "Book", "Badges", "Boards", "Mailbox" })
+			expect(small.Button).toBe(56)
+			for _, size in { { 812, 354 }, { 568, 320 }, { 480, 300 }, { 640, 348 }, { 640, 347 }, { 568, 260 } } do
+				local w, h = size[1], size[2]
+				local layout = HudZones.layout(w, h)
+				expect(#layout.Left >= 1 and #layout.Right >= 1).toBe(true)
+				expect(#layout.Left + #layout.Right + #layout.More).toBe(8)
+				expect(layout.Gap >= HudZones.RAIL_GAP_MIN).toBe(true)
+				for side, list in { Left = layout.Left, Right = layout.Right } do
+					for index in list do
+						local rect = HudZones.railRect(layout, side, index, w)
+						if #list > 1 or h >= 240 then
+							expect(rect.Y1 <= h - HudZones.CORNER_CLEAR).toBe(true)
+						end
+						expect(rect.Y0 >= layout.Band.Top).toBe(true)
+					end
+				end
+			end
+		end
+	)
+
 	test("the phone band: top bar + 8 down to 110 above the bottom (184 px at 360)", function()
 		local layout = HudZones.layout(800, 360)
 		expect(layout.Band.Top).toBe(58 + 8)

@@ -1670,6 +1670,7 @@ function BeltView.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- 🔭 Belt Scout: the next arrival's rarity over the nurse house (perk owners only; the server only tells them)
 	--------------------------------------------------------------------------------------------------------------
+	local SCOUT_STUDS = Vector2.new(9, 2.2) -- the floating line's size in the world
 	local scoutInfo: any = nil
 	local scoutGui: BillboardGui? = nil
 	local scoutLabel: TextLabel? = nil
@@ -1692,33 +1693,24 @@ function BeltView.init(ctx: Types.Ctx)
 			local made = Instance.new("BillboardGui")
 			made.Name = "BeltScoutChip"
 			made.Adornee = anchor
-			made.AlwaysOnTop = true
+			-- A world sign like the others (ux audit E1): floating outlined text sized in studs, hidden behind
+			-- walls, no fill. Never a HUD-looking chip drawn through the world.
+			made.AlwaysOnTop = false
 			made.LightInfluence = 0
 			made.MaxDistance = INFO_MAX_DISTANCE
 			made.ResetOnSpawn = false
-			made.Size = UDim2.fromOffset(200, 48)
+			made.Size = UDim2.fromScale(SCOUT_STUDS.X, SCOUT_STUDS.Y)
 			made.StudsOffsetWorldSpace = Vector3.new(0, 11, 0) -- over the nurse house's roof
 			local chip = Kit.label({
 				Name = "Next",
 				Text = "",
 				TextScaled = true,
-				Outlined = true,
-				BackgroundColor3 = Theme.Colors.Purple,
-				BackgroundTransparency = 0,
+				Outlined = true, -- white display text with the dark stroke
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.new(1, -8, 1, -8),
+				Size = UDim2.fromScale(1, 1),
 				Parent = made,
 			})
-			Kit.corner(chip, Theme.Radius.Medium)
-			Kit.textLimit(chip, 26)
-			Kit.stroke(chip, Theme.Colors.Outline, Theme.Size.Stroke)
-			local pad = Instance.new("UIPadding")
-			pad.PaddingLeft = UDim.new(0, 10)
-			pad.PaddingRight = UDim.new(0, 10)
-			pad.PaddingTop = UDim.new(0, 6)
-			pad.PaddingBottom = UDim.new(0, 6)
-			pad.Parent = chip
 			made.Parent = playerGui
 			scoutGui = made
 			scoutLabel = chip
@@ -1727,7 +1719,8 @@ function BeltView.init(ctx: Types.Ctx)
 		local label = scoutLabel
 		if label and label.Text ~= text then
 			label.Text = text :: string
-			label.BackgroundColor3 = hexColor(rarityInfo(scoutInfo.Rarity).Color, Theme.Colors.Purple)
+			-- The rarity's colour on the words themselves (lightened, so it reads on the dark stroke).
+			label.TextColor3 = Kit.lighten(hexColor(rarityInfo(scoutInfo.Rarity).Color, Theme.Colors.Purple), 0.45)
 			Hud.pop(label, 1.15) -- still with calm effects (Hud.pop checks)
 		end
 		if gui then

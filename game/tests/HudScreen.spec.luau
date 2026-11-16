@@ -121,7 +121,7 @@ T.describe("Hud (pure): Status words", function()
 		expect(Pure.dayLine(false, 207, 2)).toBe("☀️ Night in 3:27")
 		expect(Pure.dayLine(true, 128, 2)).toBe("🌙 ×2 · 2:08 left")
 		expect(Pure.dayLine(true, 128, 1)).toBe("🌙 2:08 left")
-		expect(Pure.dayLine(false, 207, 2, true)).toBe("🌙 in 3:27")
+		expect(Pure.dayLine(false, 207, 2, true)).toBe("☀️ 🌙 in 3:27") -- the sun first: a moon alone reads as night
 		expect(Pure.dayLine(true, 128, 2, true)).toBe("🌙 ×2 · 2:08")
 		expect(Pure.dayLine(false, -5, 2)).toBe("☀️ Night in 0:00")
 		expect(Pure.dayLine(false, nil, 2)).toBe("") -- not known yet: the row hides

@@ -741,6 +741,20 @@ local function build(ctx: Types.Ctx): View
 		end,
 	})
 	modal.Gui.DisplayOrder = DISPLAY_ORDER -- over panels and pop-ups, under cure pops and toasts
+	-- The tutorial's slim Now strip stays readable (look build plan §B7): while Hud lifts it over this card's
+	-- shade, the card keeps clear of it (it centres in the room under the strip).
+	local function clearNow()
+		local free = 0
+		if Hud.nowLifted() then
+			local edge = Hud.nowEdge()
+			if edge > 0 then
+				free = math.max(0, edge + Theme.Space.Gap - modal.Gui.AbsolutePosition.Y)
+			end
+		end
+		modal.setTop(free)
+	end
+	Hud.NowMoved:Connect(clearNow)
+	modal.Gui:GetPropertyChangedSignal("AbsolutePosition"):Connect(clearNow)
 	new("UIAspectRatioConstraint", { AspectRatio = 1.05, Parent = modal.Root })
 	local body = modal.Body
 

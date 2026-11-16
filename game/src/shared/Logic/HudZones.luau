@@ -8,6 +8,9 @@
 --     revealed yet leaves its slot empty: nothing ever jumps to a new place.
 --   · Phones (a safe height under PHONE_BREAK) get exactly 3 a side at 56 px with no captions: 🛒 👩‍⚕️ 📖 on the
 --     left, 🎁 🎯 📬 on the right. 🏅 Badges and 🏆 Top go into ⚙️ More, and the wallet moves into the top-bar row.
+--     A phone whose safe height is under 360 (a bottom inset, or a very small phone) can't fit 3 x 56 + 2 x 8 above
+--     the corners: the gap shrinks first (down to RAIL_GAP_MIN), and under that only the plates that fit stay on
+--     each rail; the rest (📖, 📬, then 👩‍⚕️, 🎯) go into ⚙️ More too. The corners always win.
 --   · Desktop and tablet put the wallet top-left, above the left rail. The left rail shows as many of its 5 as fit
 --     at >= 56 px (<= 72) with captions, at least 3; the rest go into ⚙️ More. The right rail always shows 3.
 --   · The rail band runs from the top bar + 8 (plus the wallet and a gap on desktop) down to CORNER_CLEAR above the
@@ -38,7 +41,7 @@ export type Layout = {
 	WalletInTopbar: boolean,
 	Left: { Piece }, -- the left rail, top to bottom
 	Right: { Piece },
-	More: { Piece }, -- moved into ⚙️ More
+	More: { Piece }, -- moved into ⚙️ More (the left rail's first, then the right rail's on a very short phone)
 	Band: { Top: number, Bottom: number }, -- the rails' band, px from the screen top
 	RailTop: number, -- the first slot's top (the left rail's column centred in the band)
 	Margin: number, -- from the screen edge
@@ -53,6 +56,7 @@ HudZones.RAIL_BUTTON = 72 -- desktop and tablet, at most
 HudZones.RAIL_BUTTON_MIN = 56 -- the tap minimum, and the phone's size
 HudZones.RAIL_GAP = 10
 HudZones.RAIL_GAP_PHONE = 8
+HudZones.RAIL_GAP_MIN = 4 -- a short phone squeezes the gap to this before a plate leaves the rail
 HudZones.CORNER_CLEAR = 110 -- kept free above the bottom edge (measure it in the Device Simulator)
 HudZones.TOPBAR = 58 -- the fallback; read GuiService.TopbarInset
 HudZones.WALLET_HEIGHT = 112 -- desktop: 💰 and ⭐ stacked
@@ -127,9 +131,24 @@ function HudZones.layout(safeW: number, safeH: number, topbar: number?): Layout
 		end
 	end
 
-	local left: { Piece }, more: { Piece } = {}, {}
+	local rightCount = #HudZones.ORDER.RightRail
+	if phone and room < count * button + (count - 1) * gap then
+		-- A short phone: squeeze the gap, and if three still don't fit, keep only the plates that do.
+		local squeezed = math.floor((room - count * button) / (count - 1))
+		if squeezed >= HudZones.RAIL_GAP_MIN then
+			gap = squeezed
+		else
+			count = math.clamp(math.floor((room + gap) / (button + gap)), 1, HudZones.MIN_RAIL)
+			rightCount = math.min(rightCount, count)
+		end
+	end
+
+	local left: { Piece }, right: { Piece }, more: { Piece } = {}, {}, {}
 	for index, piece in order do
 		table.insert(if index <= count then left else more, piece)
+	end
+	for index, piece in HudZones.ORDER.RightRail do
+		table.insert(if index <= rightCount then right else more, piece)
 	end
 	local railHeight = count * button + (count - 1) * gap
 	local statusWidth = if phone then HudZones.STATUS_WIDTH_PHONE else HudZones.STATUS_WIDTH
@@ -140,7 +159,7 @@ function HudZones.layout(safeW: number, safeH: number, topbar: number?): Layout
 		Captions = not phone,
 		WalletInTopbar = phone,
 		Left = left,
-		Right = table.clone(HudZones.ORDER.RightRail),
+		Right = right,
 		More = more,
 		Band = { Top = bandTop, Bottom = bandBottom },
 		RailTop = bandTop + math.max(0, math.floor((room - railHeight) / 2)),

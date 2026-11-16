@@ -19,6 +19,8 @@
 --                                        plain Frame that takes no input (the thumbstick still works under it). A
 --                                        "Game" modal stays up when a Panel opens (the Panel opens under it)
 --   modal.setTitle(text)                 changes the header's title (the mini-game's game name)
+--   modal.setTop(px)                     keeps the top `px` of the modal's screen free (the mini-game leaves room for
+--                                        the tutorial's slim Now strip): the card centres in what is left. 0 = off
 --   modal.Header · modal.Title · modal.Meta   the header band, its title label and the meta chip (for a caller's own
 --                                        chip in the header, or a count-up on the meta)
 --   Modal.isOpen(name?): boolean         a modal is open (that one, or any)
@@ -96,6 +98,7 @@ export type Modal = {
 	isOpen: () -> boolean,
 	setMeta: (text: string?) -> (),
 	setTitle: (text: string) -> (),
+	setTop: (px: number) -> (),
 }
 export type TabSpec = { Id: string, Icon: string, Caption: string, Stripe: Color3? }
 export type Tabs = { select: (id: string) -> (), Column: Frame, Content: Frame, Buttons: { [string]: TextButton } }
@@ -461,6 +464,26 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 	} :: Modal
 	local entry: Entry = { Modal = modal, Closable = closable, AutoFocus = autoFocus }
 
+	-- The card's resting place: the middle of the screen, or of what is left under a kept-free top (setTop).
+	local topFree = 0
+	local slideTween: Tween? = nil
+	local function rest(): UDim2
+		return UDim2.new(0.5, 0, 0.5, topFree / 2)
+	end
+	function modal.setTop(px: number)
+		local free = if type(px) == "number" and px == px and px > 0 then math.floor(px) else 0
+		if free == topFree then
+			return
+		end
+		topFree = free
+		if slideTween then
+			slideTween:Cancel()
+			slideTween = nil
+		end
+		root.Size = UDim2.new(share.X, 0, share.Y, -math.floor(free * share.Y))
+		root.Position = rest()
+	end
+
 	function modal.setMeta(text: string?)
 		local shown = type(text) == "string" and text ~= ""
 		meta.Text = if shown then text :: string else ""
@@ -528,11 +551,18 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		fadeDim(Theme.Transparency.Dim)
 		Kit.popIn(root)
 		-- ... and slides up into place as it pops (calm: just there).
+		if slideTween then
+			slideTween:Cancel()
+			slideTween = nil
+		end
 		if Kit.reducedMotion() then
-			root.Position = UDim2.fromScale(0.5, 0.5)
+			root.Position = rest()
 		else
-			root.Position = UDim2.new(0.5, 0, 0.5, SLIDE_FROM)
-			TweenService:Create(root, Theme.Tween.Slide, { Position = UDim2.fromScale(0.5, 0.5) }):Play()
+			local to = rest()
+			root.Position = to + UDim2.fromOffset(0, SLIDE_FROM)
+			local tween = TweenService:Create(root, Theme.Tween.Slide, { Position = to })
+			slideTween = tween
+			tween:Play()
 		end
 		syncCloseBinding()
 		if autoFocus then

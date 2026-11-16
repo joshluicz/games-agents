@@ -1020,7 +1020,8 @@ local function setBeams(on: boolean)
 	end
 end
 
--- Works the route out again (in its own thread: pathfinding yields). Only the newest request lands.
+-- Works the route out again (in its own thread: pathfinding yields). One at a time; it lands unless the target
+-- changed meanwhile.
 local function refreshRoute(from: Vector3)
 	local current = spec
 	if routing or not current then
@@ -1036,8 +1037,11 @@ local function refreshRoute(from: Vector3)
 				return
 			end
 			local knees = pathKnees(from, goal or base, params)
-			if spec ~= current then
-				return -- re-pointed while the path was being worked out
+			-- Re-pointed while the path was being worked out? Compare the TARGET, never the table: UI/Guide hands
+			-- show() a new spec table every step (5 a second), and the route for the same target is still right.
+			local live = spec
+			if not live or live.Target ~= current.Target or live.Beam == false then
+				return
 			end
 			if not knees then
 				knees = counterKnees(current.Target, from, base, params)

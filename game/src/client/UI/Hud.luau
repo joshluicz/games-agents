@@ -61,7 +61,11 @@
 --                                      owns its card: Hud only parents, shows and hides it
 --   Hud.nowBottom(): number            px from the screen top (the device-safe top, the top-bar row included) to the
 --                                      Now card's bottom; 0 while no card shows
---   Hud.NowMoved: Signal (bottom)      fires whenever nowBottom changes (UI/Toasts follows it)
+--   Hud.NowMoved: Signal (bottom)      fires whenever nowBottom changes (UI/Toasts follows it), and on liftNow
+--   Hud.liftNow(on)                    draws the Now slot over the mini-game's shade and card (UI/Tutorial, for its
+--                                      slim strip while a "Game" modal is open); off = back on the HUD's layer
+--   Hud.nowLifted(): boolean · Hud.nowEdge(): number   lifted right now · the Now card's bottom in screen px
+--                                      (AbsolutePosition's space; 0 while no card shows): UI/MiniGames keeps clear
 --   Hud.topbar(): number               the Roblox top-bar row's height (GuiService.TopbarInset; HudZones.TOPBAR when
 --                                      it can't be read)
 --   Hud.Pure                           the zone rules in numbers and words (tests/HudScreen.spec loads the PURE block)
@@ -173,7 +177,15 @@ Pure.RAIL = table.freeze({
 	Mailbox = table.freeze({ Icon = "📭", Caption = "Mail" }),
 })
 -- The rows ⚙️ More shows for a rail piece that's off the rail.
-Pure.MORE = table.freeze({ Badges = "🏅 Badges", Boards = "🏆 Top" })
+-- (Nurses, Book, Goals and Mail only leave the rail on a phone under 348 px of safe height: HudZones.layout.)
+Pure.MORE = table.freeze({
+	Badges = "🏅 Badges",
+	Boards = "🏆 Top",
+	Nurses = "👩‍⚕️ Nurses",
+	Book = "📖 Book",
+	Goals = "🎯 Goals",
+	Mailbox = "📬 Mail",
+})
 -- The order the rest of the HUD pops in at DONE (the left rail, the right rail, then Status).
 Pure.REVEAL_ORDER =
 	table.freeze({ "Shop", "Nurses", "Book", "Badges", "Boards", "Gifts", "Goals", "Mailbox", "Status" })
@@ -223,7 +235,7 @@ function Pure.dayLine(night: boolean, left: any, pay: any, compact: boolean?): s
 		local times = if finite(pay) and pay > 1 then "×" .. tostring(pay) .. " · " else ""
 		return "🌙 " .. times .. time .. (if compact then "" else " left")
 	end
-	return if compact then "🌙 in " .. time else "☀️ Night in " .. time
+	return if compact then "☀️ 🌙 in " .. time else "☀️ Night in " .. time
 end
 
 -- The candidates for the free-event chip: Golden Hour (Workspace GoldenStartsAt / GoldenHour, NurseBelt) while it's
@@ -536,6 +548,23 @@ function Hud.nowBottom(): number
 	return math.max(0, math.floor(card.AbsolutePosition.Y + card.AbsoluteSize.Y - origin + 0.5))
 end
 
+-- The Now card's bottom in AbsolutePosition's space (for a ScreenGui with other insets); 0 while no card shows.
+function Hud.nowEdge(): number
+	local card = nowShown
+	if Hud.nowBottom() <= 0 or not card then
+		return 0
+	end
+	return math.floor(card.AbsolutePosition.Y + card.AbsoluteSize.Y + 0.5)
+end
+
+-- One over the mini-game's card (UI/MiniGames: Popup + 5), under cure pops, celebrations and toasts.
+local NOW_LIFTED = Theme.DisplayOrder.Popup + 6
+local nowLifted = false
+
+function Hud.nowLifted(): boolean
+	return nowLifted
+end
+
 local function nowChanged()
 	local bottom = Hud.nowBottom()
 	if bottom ~= lastNowBottom then
@@ -563,6 +592,19 @@ local function nowFrame(): Frame
 	slot:GetPropertyChangedSignal("Visible"):Connect(nowChanged)
 	nowSlot = slot
 	return slot
+end
+
+function Hud.liftNow(on: boolean)
+	local lift = on == true
+	if lift == nowLifted then
+		return
+	end
+	nowLifted = lift
+	local screen = nowFrame():FindFirstAncestorOfClass("ScreenGui")
+	if screen then
+		screen.DisplayOrder = if lift then NOW_LIFTED else Theme.DisplayOrder.Hud
+	end
+	Hud.NowMoved:Fire(Hud.nowBottom())
 end
 
 local function syncNow()
@@ -2417,8 +2459,10 @@ function Hud.init(ctx: Types.Ctx)
 		place(leftZone, "Left", HudZones.ORDER.LeftRail, #layout.Left)
 		place(rightZone, "Right", HudZones.ORDER.RightRail, #layout.Right)
 		-- A piece in ⚙️ More: flying icons and pointers for it land on ⚙️.
-		for _, name in HudZones.ORDER.LeftRail do
-			targets[name] = if table.find(layout.More, name) then settingsButton else buttons[name]
+		for _, order in { HudZones.ORDER.LeftRail, HudZones.ORDER.RightRail } do
+			for _, name in order do
+				targets[name] = if table.find(layout.More, name) then settingsButton else buttons[name]
+			end
 		end
 		for name in Pure.RAIL do
 			applyPiece(name)

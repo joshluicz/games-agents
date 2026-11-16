@@ -1384,7 +1384,11 @@ function NurseBelt.start()
 	end
 	local model = kitBelt(frame) or placeholderBelt(frame)
 	-- TownSpawn (the plaza's middle): the sign and the riders turn to it.
-	local spawnAt = town + Config.Town.SpawnOffset
+	-- The real TownSpawn when the place has one (like Market and Agency), else where TownBuilder puts it.
+	local townSpawn = Workspace:FindFirstChild("TownSpawn")
+	local spawnAt = if townSpawn and townSpawn:IsA("BasePart")
+		then Vector3.new(townSpawn.Position.X, town.Y, townSpawn.Position.Z)
+		else town + Config.Town.SpawnOffset
 	if not model:FindFirstChild("Sign") then
 		-- The placeholder's odds sign: at the plaza's west end (Config.Belt.SignOffset), facing TownSpawn.
 		local offset = (Config.Belt :: any).SignOffset

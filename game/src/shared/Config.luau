@@ -368,6 +368,7 @@ Config.Tutorial = {
 	FirstCureHold = 2.5, -- CURED! holds this long
 	ArrowsUntilCures = 3, -- the Guide keeps beam + glow + pin until this many cures (after Skip too)
 	ReplayCooldown = 30, -- seconds per player between TutorialReplay calls
+	ShopStuckSeconds = 6, -- card 7 moves on by itself after this when there is nothing they can buy
 }
 
 -- Game passes. 0 = not created. Nothing paid exists in this build (plan: Global Constraints), and the

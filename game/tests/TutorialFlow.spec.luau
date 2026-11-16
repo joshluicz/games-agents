@@ -502,6 +502,74 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 	end)
 end)
 
+T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, phone words", function()
+	test("a rejoin at steps 2-6 with the gift already given is still a replay", function()
+		for _, step in { PATIENT, MAKE, TREAT, REST, MORE } do
+			expect(Server.rejoinReplay(step, true)).toBe(true)
+			expect(Server.rejoinReplay(step, false)).toBe(false) -- a first run: the gift comes at SHOP
+			expect(Server.rejoinReplay(step, nil)).toBe(false)
+		end
+		-- the welcome card is a first run (or an admin restart); SHOP and BOOK can't be told apart; DONE is no run
+		for _, step in { WELCOME, SHOP, BOOK, DONE } do
+			expect(Server.rejoinReplay(step, true)).toBe(false)
+		end
+		expect(Server.rejoinReplay(nil, true)).toBe(false)
+		expect(Server.rejoinReplay("2", true)).toBe(false)
+		-- and a replay rejoined that way logs no funnel step
+		expect(Server.funnel(MAKE, TREAT, Server.rejoinReplay(MAKE, true))).toBeNil()
+	end)
+
+	test("the Shop step moves on by itself only when there is nothing they can buy", function()
+		expect(Server.shopStuck(100, nil)).toBe(true) -- every upgrade maxed
+		expect(Server.shopStuck(49, 50)).toBe(true) -- a replay without the gift
+		expect(Server.shopStuck(50, 50)).toBe(false)
+		expect(Server.shopStuck(1e6, 50)).toBe(false)
+		expect(Server.shopStuck(nil, 50)).toBe(true)
+		expect(Config.Tutorial.ShopStuckSeconds > 0 and Config.Tutorial.ShopStuckSeconds <= 10).toBe(true)
+		local text = source("src/server/Tutorial.luau")
+		expect(string.find(text, "elseif step == Logic.SHOP then", 1, true) ~= nil).toBeTruthy()
+		-- the client never dims the screen round the 🛒 on a replay or with nothing affordable
+		local client = source("src/client/UI/Tutorial.luau")
+		expect(string.find(client, "shopDim()", 1, true) ~= nil).toBeTruthy()
+	end)
+
+	test("a phone-width column gets the shortest touch words (they fit one line at 18 px)", function()
+		local function w(cardNumber, extra)
+			local s = { Device = "Touch", Item = "Potion", Total = 2, Cures = 0, Narrow = true }
+			for k, v in extra or {} do
+				s[k] = v
+			end
+			return Card.words(cardNumber, s)
+		end
+		expect(w(2).Sub).toBe("Hold 👆 Make")
+		expect(w(3).Sub).toBe("Tap Treat at Counter")
+		expect(w(6).Sub).toBe("🤕 Check its bubble")
+		expect(w(6, { Waiting = true, Carrying = true }).Sub).toBe("Tap Treat at Counter")
+		for cardNumber = 1, Logic.CARDS do
+			for _, extra in { {}, { Waiting = true, Need = "🧪" }, { Waiting = true, Carrying = true } } do
+				local sub = w(cardNumber, extra).Sub
+				expect(sub ~= "").toBeTruthy()
+				if utf8.len(sub) > 22 then
+					error("card " .. cardNumber .. " is too long for a phone: " .. sub)
+				end
+			end
+		end
+		-- keyboard and pad keep the plan's words whatever the width
+		expect(Card.words(2, { Device = "Keyboard", Item = "Potion", Narrow = true }).Sub).toBe(
+			"Follow the arrows · hold"
+		)
+		-- and the subtitle wraps inside its column instead of running off the card
+		local client = source("src/client/UI/Tutorial.luau")
+		expect(string.find(client, "subCap.MaxSize", 1, true) ~= nil).toBeTruthy()
+	end)
+
+	test("the beam's route survives Guide re-showing the same target (targets compared, never spec tables)", function()
+		local text = source("src/client/UI/Wayfinder.luau")
+		expect(string.find(text, "if spec ~= current then", 1, true)).toBeNil()
+		expect(string.find(text, "live.Target ~= current.Target", 1, true) ~= nil).toBeTruthy()
+	end)
+end)
+
 T.describe("Skip and Replay (the confirms; memory-20261117-002)", function()
 	test("Skip: the binding words, and 'Keep going' as the safe default", function()
 		expect(Card.SKIP).toEqual({

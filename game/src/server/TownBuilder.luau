@@ -417,7 +417,15 @@ end
 function TownBuilder.spawn(): SpawnLocation
 	local existing = Workspace:FindFirstChild("TownSpawn")
 	if existing and existing:IsA("SpawnLocation") then
-		return existing -- the brother placed one: keep it
+		-- The brother placed one: keep it, unless it stands on the belt's lane (the old spot was the road's centre
+		-- line, where the conveyor runs now). Then it moves to the plaza, keeping its height and its turn.
+		local lane = Config.Town.BeltClear + existing.Size.Z / 2
+		if math.abs(existing.Position.Z - Config.Town.Origin.Z) <= lane then
+			local to = Config.Town.Origin + Config.Town.SpawnOffset
+			warn("[TownBuilder] TownSpawn stood on the belt's lane: moved to the plaza. Save it there in the place.")
+			existing.CFrame = existing.CFrame.Rotation + Vector3.new(to.X, existing.Position.Y, to.Z)
+		end
+		return existing
 	end
 	local side = Config.Town.SpawnSize
 	local spawn = Instance.new("SpawnLocation")

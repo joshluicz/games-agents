@@ -153,6 +153,7 @@ export type Situation = {
 	Total: number?, -- card 6: cures to go in all (Logic.MORE_CURES)
 	Cured: boolean?, -- card 5: the cure landed
 	Game: string?, -- card 4: Pure.GAMES key
+	Narrow: boolean?, -- a phone-width text column: touch gets the shortest words (they must fit at 18 px)
 }
 -- A card's words. Key: a key chip in the subtitle ("Prompt" = the prompt's key E / ButtonX; "Confirm" = ButtonA),
 -- after the words unless KeyFirst.
@@ -235,13 +236,13 @@ function Pure.words(card: number, s: Situation): Words
 		local word = itemWord(s.Item)
 		local title = if word == "POTION" then "MAKE A POTION" else "MAKE THE " .. word
 		if device == "Touch" then
-			return { Title = title, Sub = "Follow the arrows · hold 👆 Make" }
+			return { Title = title, Sub = if s.Narrow then "Hold 👆 Make" else "Follow the arrows · hold 👆 Make" }
 		end
 		return { Title = title, Sub = "Follow the arrows · hold", Key = "Prompt" }
 	elseif card == 3 then
 		local title = "GIVE IT THE " .. itemWord(s.Item)
 		if device == "Touch" then
-			return { Title = title, Sub = "Go to the Counter · tap Treat" }
+			return { Title = title, Sub = if s.Narrow then "Tap Treat at Counter" else "Go to the Counter · tap Treat" }
 		end
 		return { Title = title, Sub = "Go to the glowing Counter ·", Key = "Prompt" }
 	elseif card == 4 then
@@ -257,13 +258,19 @@ function Pure.words(card: number, s: Situation): Words
 		local title = "CURE " .. total .. " MORE " .. Pure.pips(s.Cures or 0, total)
 		if s.Carrying then
 			if device == "Touch" then
-				return { Title = title, Sub = "Now to the Counter · tap Treat" }
+				return {
+					Title = title,
+					Sub = if s.Narrow then "Tap Treat at Counter" else "Now to the Counter · tap Treat",
+				}
 			end
 			return { Title = title, Sub = "Now to the Counter ·", Key = "Prompt" }
 		elseif s.Waiting and s.Need then
 			return { Title = title, Sub = "It needs a " .. s.Need .. "!" }
 		end
-		return { Title = title, Sub = "🤕 New patient! Check its bubble" }
+		return {
+			Title = title,
+			Sub = if s.Narrow then "🤕 Check its bubble" else "🤕 New patient! Check its bubble",
+		}
 	elseif card == 7 then
 		if device == "Touch" then
 			return { Title = "UPGRADE YOUR CLINIC", Sub = "Tap 🛒 · buy a ⚡" }
@@ -319,6 +326,8 @@ local CONFETTI_STEP = 12 -- a step's burst
 local PORTRAIT = 56 -- the nurse's face
 local KEY_PX = 28 -- a key chip's height (and a glyph's size)
 local SEGMENT_PX = 8
+local NARROW_PX = 240 -- a text column under this is a phone's: the shortest words (Pure.words' Narrow)
+local SUB_MIN_PX = 60 -- the subtitle never wraps narrower than this
 local SKIP_HIT = Vector2.new(96, 44) -- the Skip chip's hit area (at least 56 x 44)
 local TREAT_SETTLE = 0.6 -- after TreatDone, look again once the game card has closed
 
@@ -694,6 +703,7 @@ function Tutorial.init(ctx: Types.Ctx)
 	subRow.Parent = column
 	local subList = Kit.list(subRow, Enum.FillDirection.Horizontal, Theme.Space.Step[2])
 	subList.SortOrder = Enum.SortOrder.LayoutOrder
+	subList.HorizontalAlignment = Enum.HorizontalAlignment.Left -- lines up with the title
 	subList.VerticalAlignment = Enum.VerticalAlignment.Center
 	subList.Wraps = true
 	local sub = Kit.label({
@@ -701,7 +711,7 @@ function Tutorial.init(ctx: Types.Ctx)
 		Text = "",
 		TextColor3 = Theme.Colors.Cash,
 		TextSize = Theme.TextSize.Body,
-		TextWrapped = false,
+		TextWrapped = true, -- inside the column's width (subCap): it never runs off the card
 		TextXAlignment = Enum.TextXAlignment.Left,
 		AutomaticSize = Enum.AutomaticSize.XY,
 		Size = UDim2.fromOffset(0, 0),
@@ -709,6 +719,8 @@ function Tutorial.init(ctx: Types.Ctx)
 		ZIndex = 3,
 		Parent = subRow,
 	})
+	local subCap = Instance.new("UISizeConstraint") -- MaxSize.X follows the column (fitSub)
+	subCap.Parent = sub
 	local keyCap = Kit.label({ -- the keyboard's key ([E]) as a little white keycap
 		Name = "Key",
 		Text = "",
@@ -1025,6 +1037,17 @@ function Tutorial.init(ctx: Types.Ctx)
 
 	type Look = { Situation: Situation, Icon: string, Color: Color3 }
 
+	-- A phone-width text column (the shortest words). Before the column has a width, the short screen decides.
+	local function narrowColumn(): boolean
+		local width = column.AbsoluteSize.X
+		if width > 0 then
+			return width < NARROW_PX
+		end
+		local camera = Workspace.CurrentCamera
+		return camera ~= nil and camera.ViewportSize.Y < HudZones.NOW_SHORT_BREAK
+	end
+	local narrowShown = narrowColumn()
+
 	local function look(cardNumber: number): Look
 		local state = ctx.State
 		local plot = plotModel(state)
@@ -1055,6 +1078,7 @@ function Tutorial.init(ctx: Types.Ctx)
 			Total = Logic.MORE_CURES,
 			Cured = cured,
 			Game = treatGame,
+			Narrow = narrowShown,
 		}
 		local patientIcon = ailmentIcon(frontPatient(plot)) or "🤧"
 		local stationColor = if station then station.Color else Theme.Colors.Purple
@@ -1085,8 +1109,43 @@ function Tutorial.init(ctx: Types.Ctx)
 		return { Situation = situation, Icon = icon, Color = color }
 	end
 
+	-- The subtitle wraps inside its column: the column's width, less the key chip's when one shows.
+	local function fitSub()
+		local width = column.AbsoluteSize.X
+		if width <= 0 then
+			return
+		end
+		local chip = 0
+		if keyCap.Visible then
+			chip = math.max(keyCap.AbsoluteSize.X, KEY_PX + Theme.Space.Step[2] * 2) + Theme.Space.Step[2]
+		elseif glyph.Visible then
+			chip = KEY_PX + Theme.Space.Step[2]
+		end
+		local cap = math.max(SUB_MIN_PX, math.floor(width - chip))
+		if subCap.MaxSize.X ~= cap then
+			subCap.MaxSize = Vector2.new(cap, math.huge)
+		end
+	end
+	column:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitSub)
+	keyCap:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitSub)
+
+	-- The card and its shadow follow the body when two lines of words make it taller (never in the slim strip).
+	local function fitCard()
+		if slimNow then
+			return
+		end
+		local base = if shortNow then Theme.Zone.NowHeightShort else Theme.Zone.NowHeight
+		local height = math.max(base, math.ceil(body.AbsoluteSize.Y))
+		if card.Size.Y.Offset ~= TAB + height then
+			card.Size = UDim2.new(card.Size.X.Scale, card.Size.X.Offset, 0, TAB + height)
+			shadow.Size = UDim2.new(1, 0, 0, height)
+			bubble.Position = UDim2.new(1, -Theme.Space.PadCard, 0, TAB + height + Theme.Space.Step[2])
+		end
+	end
+	body:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitCard)
+
 	-- The key chip: the prompt's key (E, or the pad's X glyph) or the pad's confirm (A).
-	local function showKey(key: ("Prompt" | "Confirm")?, first: boolean)
+	local function showKeyChip(key: ("Prompt" | "Confirm")?, first: boolean)
 		keyCap.Visible = false
 		glyph.Visible = false
 		if not key then
@@ -1113,6 +1172,10 @@ function Tutorial.init(ctx: Types.Ctx)
 		end
 		keyCap.LayoutOrder = order
 		keyCap.Visible = true
+	end
+	local function showKey(key: ("Prompt" | "Confirm")?, first: boolean)
+		showKeyChip(key, first)
+		fitSub()
 	end
 
 	-- The bar: each segment to its fill (Theme.Tween.Fill; at once when calm). Never drains within a run.
@@ -1167,6 +1230,8 @@ function Tutorial.init(ctx: Types.Ctx)
 		title.TextSize = if short then Theme.TextSize.Button else Theme.TextSize.Title
 		sub.TextSize = if short then Theme.TextSize.Caption else Theme.TextSize.Body
 		card.Size = UDim2.new(card.Size.X.Scale, card.Size.X.Offset, 0, TAB + height)
+		fitSub()
+		fitCard()
 	end
 
 	-- The card number on screen right now, or nil for no card.
@@ -1254,7 +1319,7 @@ function Tutorial.init(ctx: Types.Ctx)
 		end
 	end
 
-	local function render()
+	local function renderCard()
 		local wanted = wantedCard()
 		local hidden = wanted == nil or panelOpen()
 		if hidden then
@@ -1281,6 +1346,12 @@ function Tutorial.init(ctx: Types.Ctx)
 		end
 		present(wanted :: number)
 		syncPointer()
+	end
+	-- The slim strip is the one line to read during the mini-game: it draws over the game's shade (Hud.liftNow),
+	-- and UI/MiniGames keeps its card clear of it.
+	local function render()
+		renderCard()
+		Hud.liftNow(offered and slimNow and gameOpen())
 	end
 
 	--------------------------------------------------------------------------------------------------------------
@@ -1494,7 +1565,7 @@ function Tutorial.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- The UI pointer: card 7's dim, ring, ripple and hand, and the 📖 ring after the finale
 	--------------------------------------------------------------------------------------------------------------
-	local function cheapestUpgrade(): string?
+	local function cheapestUpgrade(): (string?, number)
 		local best: string?, bestPrice = nil, math.huge
 		local levels = ctx.State.Upgrades or {}
 		for _, id in data.Upgrades.Order do
@@ -1503,7 +1574,18 @@ function Tutorial.init(ctx: Types.Ctx)
 				best, bestPrice = id, price
 			end
 		end
-		return best
+		return best, bestPrice
+	end
+
+	-- The dim round the 🛒 only when there is something they can buy: never on a replay (no gift, so maybe nothing
+	-- is affordable; the server moves the step on by itself then), never with every upgrade maxed.
+	local function shopDim(): boolean
+		if ctx.State.TutorialReplay == true then
+			return false
+		end
+		local id, price = cheapestUpgrade()
+		local cash = ctx.State.Cash
+		return id ~= nil and type(cash) == "number" and cash >= price
 	end
 
 	-- What the pointer points at, whether it dims round it, and whether it carries the "Buy this!" label.
@@ -1527,7 +1609,7 @@ function Tutorial.init(ctx: Types.Ctx)
 				return nil, false, false
 			end
 			local shop = Hud.target("Shop")
-			return if shop and isShown(shop) then shop else nil, true, false
+			return if shop and isShown(shop) then shop else nil, shopDim(), false
 		end
 		if bookRingUntil > os.clock() and not Hud.isOpen() then
 			local book = Hud.target("Book")
@@ -1966,6 +2048,22 @@ function Tutorial.init(ctx: Types.Ctx)
 			end
 		end)
 	end
+	-- The words follow the column's width (a phone gets the shortest ones): once it is known, and on a resize.
+	local narrowQueued = false
+	column:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		if narrowQueued or narrowColumn() == narrowShown then
+			return
+		end
+		narrowQueued = true
+		task.defer(function()
+			narrowQueued = false
+			local narrow = narrowColumn()
+			if narrow ~= narrowShown then
+				narrowShown = narrow
+				render()
+			end
+		end)
+	end)
 end
 
 return Tutorial
