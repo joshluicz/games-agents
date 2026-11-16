@@ -35,6 +35,9 @@ and is cured.
 
 ## 2. Pet nurses: the Nurse Belt (shared, in town; `memory-20261116-012`)
 Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy the one you see**, with cash.
+- **Where (Joshua, 2026-11-16): "conveyor belt should be on the main road."** The belt runs **along the main street**
+  (down its middle, from the plaza towards one end), not in a corner of the plaza. The leaderboards moved off the road
+  into a Hall of Fame garden past one end of the street.
 
 - **One shared belt per server** (like the trending belt games): everyone sees the same nurses ride by and anyone
   can hire one. Each nurse shows its **rarity frame, role, level-1 stats and price** as it passes. Tap **Hire** (or
