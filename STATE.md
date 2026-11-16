@@ -17,8 +17,8 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 - ✅ Claude Code ↔ Studio MCP connected (user scope).
 
 ## Next actions
-**Live (published 2026-11-16, Playtesters only):** the tutorial build + player-sized patients, admin panel, Throw away
-(`af773f8`). Go Public (16+) and start marketing **with the depth update**.
+**Live and PUBLIC (16+) since 2026-11-16 (Joshua):** the tutorial build + player-sized patients, admin panel, Throw away
+(`af773f8`). 60-day window for 250 engaged 16+ plays has started. Marketing push **with the depth update** (Update 1).
 - [ ] **Claude:** merge and playtest the parallel work: depth update (worktree `.worktrees/depth`: mini-games +
       recipes, nurse belt + Nurse Journal + Mythic/Secret events, hospital levels, juice, perf), creatures v2
       (`.worktrees/creatures`), leaderboards (`.worktrees/boards`), the Creator Store model shortlist
