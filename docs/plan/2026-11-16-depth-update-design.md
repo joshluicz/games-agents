@@ -22,9 +22,9 @@ and is cured.
 | ☕ Cocoa | **Cool:** tap to blow when the steam ring is biggest, 3 times | 3 good timings |
 
 - **Ratings: OK / Good / Perfect.** Never a fail: OK still cures. Perfect adds a small cash tip and +1 **combo**;
-  combo multiplies tips (×1.2 / ×1.5 / ×2 at 3 / 6 / 10), and a non-Perfect resets it. Cash only (never Stars, Book
-  or story). A reset never looks like losing: the 🔥 chip stays warm and says "Go!" (review fix 2026-11-16; whether a
-  Good should *hold* the combo instead is open, build plan §E7).
+  combo multiplies tips (×1.2 / ×1.5 / ×2 at 3 / 6 / 10). A Good holds the combo and an OK (the miss) resets it
+  (decided 2026-11-16, build plan §E7). Cash only (never Stars, Book or story). A reset never looks like losing: the
+  🔥 chip stays warm and says "Go!".
 - **A longer recipe pays more:** each item after the first adds +50% to the cure's cash (2 items ×1.5, 3 items ×2),
   so a Lv 2+ patient is worth its extra trips (review fix 2026-11-16, build plan §E5).
 - **Recipes by wing:** Starter 1 item · Bath wing 2 · Winter wing 2 · Night 2 · Garden 3 · Regulars their own. The

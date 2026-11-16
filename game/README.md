@@ -668,7 +668,8 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   mini-game over the tutorial card; OK still cures; the HUD reveals 👩‍⚕️ with the rest at the end; no belt banner,
   combo sticker or celebration during it.
 - [ ] D3. Each mini-game (Pour, Patch, Scrub, Cool) on PC and the phone emulator: rated OK/Good/Perfect; a Perfect
-  pays a small tip and the combo counter climbs; ×1.2 at 3; a Good resets it. Look for `[MiniGames] ... broke` warns.
+  pays a small tip and the combo counter climbs; ×1.2 at 3; a Good holds it; an OK resets it to "Go!". Look for
+  `[MiniGames] ... broke` warns.
 - [ ] D4. Lv 2: a Bath patient needs 🛁🧪; with a tray of 1 you give 🛁 (one game), the badge ticks, then 🧪. The
   guide arrow goes to the Counter while you carry 🧪 too.
 - [ ] D5. Simple mode (⚙️): every game is one tap, rated Good, no tips.

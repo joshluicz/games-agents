@@ -97,7 +97,7 @@ T.describe("MiniGame", function()
 		expect(MiniGame.multiplier(40, CFG)).toBe(2)
 	end)
 
-	test("settle: Perfects build the combo and tip; anything else resets it", function()
+	test("settle: Perfects build the combo and tip; a Good holds it; an OK resets it", function()
 		local combo, tip = MiniGame.settle(0, { "Perfect", "Perfect" }, CFG)
 		expect(combo).toBe(2)
 		expect(tip).toBe(6)
@@ -105,11 +105,24 @@ T.describe("MiniGame", function()
 		expect(combo).toBe(3)
 		expect(tip).toBe(3) -- floor(3.6)
 		combo, tip = MiniGame.settle(5, { "Good" }, CFG)
-		expect(combo).toBe(0)
+		expect(combo).toBe(5) -- held: no +1, no tip, no reset (§E7)
+		expect(tip).toBe(0)
+		combo, tip = MiniGame.settle(5, { "OK" }, CFG)
+		expect(combo).toBe(0) -- the miss resets it
 		expect(tip).toBe(0)
 		combo, tip = MiniGame.settle(5, { "Perfect", "OK", "Perfect" }, CFG)
 		expect(combo).toBe(1)
 		expect(tip).toBe(7) -- 3 x 1.5 + 3 x 1 = 7.5
+	end)
+
+	test("settle: a Good between Perfects keeps the run going (it only doesn't add)", function()
+		local combo, tip = MiniGame.settle(1, { "Perfect", "Good", "Perfect" }, CFG)
+		expect(combo).toBe(3) -- 1 -> 2, held at 2, -> 3
+		expect(tip).toBe(6) -- 3 x 1 + 3 x 1.2 = 6.6, floored
+		combo = MiniGame.settle(9, { "Good", "Good", "Good" }, CFG)
+		expect(combo).toBe(9) -- Simple mode (all Good) neither builds nor breaks a combo
+		combo = MiniGame.settle(9, { "Good", "junk" :: any }, CFG)
+		expect(combo).toBe(0) -- anything that isn't Perfect or Good counts as the miss
 	end)
 
 	test("settle: tips never pass the cap per cure, and a Cheerer scales them", function()

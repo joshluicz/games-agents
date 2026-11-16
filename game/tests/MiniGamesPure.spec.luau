@@ -259,7 +259,8 @@ T.describe("MiniGames (client pure helpers)", function()
 		local combo = MiniGame.settle(2, { "Perfect" }, CFG)
 		expect(combo).toBe(3)
 		expect(Pure.multText(MiniGame.multiplier(combo, CFG))).toBe("×1.2")
-		expect((MiniGame.settle(2, { "Perfect", "Good" }, CFG))).toBe(0)
+		expect((MiniGame.settle(2, { "Perfect", "Good" }, CFG))).toBe(3) -- a GOOD! holds the 🔥 (§E7)
+		expect((MiniGame.settle(2, { "Perfect", "OK" }, CFG))).toBe(0) -- an OK sends it back to "Go!"
 		expect((MiniGame.settle(0, { "Good", "Good" }, CFG))).toBe(0) -- Simple mode never builds a combo
 	end)
 end)

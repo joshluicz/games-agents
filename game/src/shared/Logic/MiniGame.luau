@@ -4,7 +4,9 @@
 --
 -- One mini-game per recipe item: 🧪 Potion -> Pour · 🩹 Plaster -> Patch · 🛁 Bubbles -> Scrub · ☕ Cocoa -> Cool.
 -- Ratings are OK / Good / Perfect. There is no fail: OK still cures. A Perfect adds a small cash tip and +1 combo;
--- the combo multiplies tips (x1.2 / x1.5 / x2 from 3 / 6 / 10) and anything but a Perfect resets it. Tips are cash
+-- the combo multiplies tips (x1.2 / x1.5 / x2 from 3 / 6 / 10). A Good holds it (no tip, no +1, no reset) and an OK
+-- (the miss: also what a timeout, a too-early report or a far-away report rate) resets it (build plan §E7, decided
+-- 2026-11-16). Tips are cash
 -- only (never Stars, Book or story) and capped per cure, so a cheating client gains at most a small tip.
 --
 --   MiniGame.GAMES                               { [ItemId]: GameId }
@@ -26,7 +28,8 @@
 --   MiniGame.settle(combo, ratings, cfg, tipSoFar?, tipScale?): (combo, tip)
 --                                                walks the ratings in order: a Perfect adds 1 to the combo, then
 --                                                pays PerfectTip x multiplier(combo) x tipScale (a Cheerer on duty);
---                                                anything else resets the combo. The tip is floored and never takes
+--                                                a Good holds the combo; anything else (OK) resets it to 0. The tip
+--                                                is floored and never takes
 --                                                the patient's total past TipCapPerCure (tipSoFar = paid already).
 
 export type Rating = "OK" | "Good" | "Perfect"
@@ -176,8 +179,8 @@ function MiniGame.settle(
 		if rating == "Perfect" then
 			current += 1
 			raw += perfectTip * MiniGame.multiplier(current, cfg) * scale
-		else
-			current = 0
+		elseif rating ~= "Good" then
+			current = 0 -- an OK (the miss) resets it; a Good holds it
 		end
 	end
 	local room = math.max(0, num(mini.TipCapPerCure, 0) - math.max(0, num(tipSoFar, 0)))

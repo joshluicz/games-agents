@@ -10,8 +10,9 @@
 --   ☕ Cool   3 steam rings rise off the cocoa: tap as each is biggest   score = good blows (a blow is good within
 --             Cool.Window seconds of the ring's biggest moment, halfway through its PulseSeconds; it glows lime then)
 -- Each game is rated with Logic/MiniGame.rate(game, score, ctx.Config): a huge outlined PERFECT! / GOOD! / OK! pops
--- and the 🔥 combo counter climbs on a Perfect (otherwise it rests at "Go!" in a soft warm colour, never a grey 0, so
--- a GOOD! never looks like losing; the server's own combo wins when it answers).
+-- and the 🔥 combo counter climbs on a Perfect, holds on a Good and goes back to "Go!" on an OK (Logic/MiniGame.settle
+-- predicts it; at 0 it rests at "Go!" in a soft warm colour, never a grey 0, so it never looks like losing; the
+-- server's own combo wins when it answers).
 -- Never a fail: OK still cures. Then TreatResult (Hud.ask(TreatResult, session.Session, ratings)): its third value is
 -- the TreatOutcome; the card shows the server's ratings and tip for a moment and closes.
 -- Simple mode (session.Simple): one big tap per game, rated Good, no combo counter. A game id this client doesn't know
@@ -850,8 +851,8 @@ end
 local function showCombo(ctx: Types.Ctx, v: View, value: number, animate: boolean)
 	local before = v.ComboValue
 	v.ComboValue = value
-	-- No combo reads as a cheer, never a loss (a GOOD! still resets it, design §1): the chip stays warm (a soft
-	-- orange, not grey) and says "Go!" instead of a bare 0.
+	-- No combo reads as a cheer, never a loss (only an OK resets it; a GOOD! holds it: build plan §E7): the chip stays
+	-- warm (a soft orange, not grey) and says "Go!" instead of a bare 0.
 	v.ComboText.Text = if value <= 0 then "Go!" else tostring(value)
 	local multiplier = MiniGame.multiplier(value, ctx.Config)
 	local tag = Pure.multText(multiplier)

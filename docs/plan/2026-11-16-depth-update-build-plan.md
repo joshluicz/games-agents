@@ -361,8 +361,9 @@ Odds the sign prints (`Logic/Belt.odds`), percent:
   `accept(reported, games, elapsed, simple, cfg): {Rating}` (server: Simple → all Good; not a list of exactly
   #games valid ratings, or `elapsed < minSeconds × Slack` → all OK) ·
   `multiplier(combo, cfg)` · `settle(combo, ratings, cfg, tipSoFar?, tipScale?): (combo, tip)` (Perfect → combo+1
-  and `PerfectTip × multiplier(combo)`; anything else resets to 0; × `tipScale` (a Cheerer); floored; never above
-  `TipCapPerCure − tipSoFar`).
+  and `PerfectTip × multiplier(combo)`; Good → the combo holds (no +1, no tip, no reset); OK, the miss (also what a
+  timeout or a rejected report rates), → reset to 0, the chip back to "Go!" (§E7, decided 2026-11-16); × `tipScale`
+  (a Cheerer); floored; never above `TipCapPerCure − tipSoFar`).
 - **`Logic/Belt`**: `RARITIES` · `isRarePlus(r)` · `shouts(r)` (Epic+) · `odds(cfg, nightRush, golden)` (percent,
   sums to 100) · `roll(odds, r01, pity): Rarity` · `pityDue(dry, cfg)` · `afterArrival(dry, rarity)` ·
   `pick(roster, rarity, r01): NurseId?` · `price(cfg, rarity, level): number` · `golden(cfg, uptime):
@@ -552,7 +553,7 @@ Patients → Treatment → Nurses → Levels → (PlayerData, Plots, Economy, Pl
 - [ ] 2. Fresh save (`FreshSave`): the tutorial runs unchanged; patients have 1-item recipes; Treat opens a
   mini-game; OK still cures; the HUD reveals 👩‍⚕️ with the rest at the end.
 - [ ] 3. Each mini-game (Pour, Patch, Scrub, Cool) on PC and the phone emulator: rated OK/Good/Perfect; a Perfect
-  pays a small tip and the combo counter climbs; ×1.2 at 3; a Good resets it.
+  pays a small tip and the combo counter climbs; ×1.2 at 3; a Good holds it; an OK resets it to "Go!".
 - [ ] 4. Lv 2: a Bath patient needs 🛁🧪; with a tray of 1 you give 🛁 (one game), the badge ticks, then 🧪.
 - [ ] 5. Simple mode (⚙️): every game is one tap, rated Good, no tips.
 - [ ] 6. Junk: `TreatResult` with another session, a stale one or wrong types; `HireNurse(-1)`, from far away, twice
@@ -576,23 +577,27 @@ Patients → Treatment → Nurses → Levels → (PlayerData, Plots, Economy, Pl
 - [ ] 15. Owner leaves mid-game / mid-hire / with nurses: no errors, plot clean, the next joiner's prompts work.
 
 ---
-## E. Open points for Joshua (from building this; not decided here)
+## E. Open points for Joshua (from building this; not decided here; §E5-E7 decided 2026-11-16)
 1. **⭐ on levels: gate or spent?** The design says "Cost: ⭐15 + 💰400". This plan treats ⭐ as a gate (needed, not
    spent), like rooms, because spending ⭐ would re-lock rooms and regulars (`UnlockStars`). Confirm.
 2. **"Garden 3" recipes:** there's no Garden wing of patients (the Garden is a decor room with no station), so the
    only 3-item recipes are the regulars'. A Garden wing (patients + a station) would be a content add.
 3. **Lv 3 "Golden capsule"** is replaced by the belt (`memory-20261116-012`); Lv 3 unlocks the Garden instead.
 4. **Nurse names** are placeholders (Joshua's and his brother's to rename): see `Data/Nurses`.
-5. **Review fixes to the economy (2026-11-16, Claude's tuning; confirm or change the numbers).** The review found
+5. ✅ **Decided 2026-11-16** (Joshua: "your call for all" → Claude's call): **keep** the per-level `SpawnSeconds`
+   13/11/10/9/8, the ×1.0–×1.4 nurse price scale and +50% per extra recipe item. `Config.MaxQueue` 3 still caps the
+   line at every level, so faster spawns only help players who keep up. *Was:* **Review fixes to the economy
+   (2026-11-16, Claude's tuning; confirm or change the numbers).** The review found
    that a level-up cost a player more and earned them nothing: patients came every 13 s at every level, a 2-3 item
    recipe paid the same as a 1-item one, and nurse prices doubled by Lv 5. Now: patients come faster each level
    (`SpawnSeconds` 13/11/10/9/8), each recipe item after the first pays +50% (`Config.RecipeItemBonus`), a Cheerer's
    💰+% applies to the cure's cash, and the level price scale is ×1.0–×1.4 (was ×2.0). All in `Config` and
    `Data/Levels`.
-6. **Golden Hour has no countdown (2026-11-16).** The design asked for a countdown banner; the review read a ticking
-   2-minute clock on a 1% Secret as a FOMO timer (red line 3). Now: one short banner per window with the real chance
-   ("Golden Hour: Secret 1%"), "👑 Golden Hour!" on the sign's chip, no clock anywhere (Night Rush's banner lost its
-   clock too). The server still sends `GoldenEndsAt`/`EndsAt`, so a countdown is a client change if wanted.
-7. **Should a GOOD! hold the combo?** The design (and §B7 `MiniGame.settle`) reset the combo on any non-Perfect, so a
-   green GOOD! drops 🔥 9 to nothing. Kept as ruled; the chip now rests at a warm "Go!" instead of a grey 0. Holding
-   the combo on Good (only OK resets) is a one-line change in `Logic/MiniGame.settle` plus its spec.
+6. ✅ **Decided 2026-11-16** (Joshua: "your call for all" → Claude's call): **Golden Hour never gets a countdown**
+   (red line 3). The design asked for a countdown banner; the review read a ticking 2-minute clock on a 1% Secret as
+   a FOMO timer. So: one short banner per window (6 s) with the real chance ("Golden Hour: Secret 1%"), "👑 Golden
+   Hour!" on the sign's chip, no clock anywhere (Night Rush's banner has none either).
+7. ✅ **Decided 2026-11-16** (Joshua: "your call for all" → Claude's call): **a GOOD! holds the 🔥 combo** (it
+   doesn't grow and doesn't reset); only an OK (the miss) resets it to "Go!", and a PERFECT! still adds +1. Done in
+   `Logic/MiniGame.settle` (§B7), the mini-game card's chip (it predicts with `settle`) and the specs. *Was:* the
+   design reset the combo on any non-Perfect, so a green GOOD! dropped 🔥 9 to nothing.

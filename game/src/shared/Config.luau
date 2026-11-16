@@ -133,7 +133,7 @@ Config.Music = {
 Config.MiniGame = {
 	PerfectTip = 3, -- cash per Perfect, before the combo multiplier
 	TipCapPerCure = 15, -- the most tip cash one patient can give, however many Perfects
-	Combo = { -- Perfects in a row (a non-Perfect resets it): the tip multiplier from At on
+	Combo = { -- Perfects in a row (a Good holds it, an OK resets it): the tip multiplier from At on
 		{ At = 3, Multiplier = 1.2 },
 		{ At = 6, Multiplier = 1.5 },
 		{ At = 10, Multiplier = 2 },
