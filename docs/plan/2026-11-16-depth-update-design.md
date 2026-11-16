@@ -54,6 +54,20 @@ Not a blind capsule: **nurses ride a conveyor belt in the town plaza and you buy
   - Prices: Common 💰100 · Rare 💰400 · Epic 💰1,500 · Legendary 💰6,000 (scaled ×1.0–×2.0 by the hospital level of
     whoever is looking, so newcomers can always afford Commons).
 - **No Robux** anywhere on the belt (red line 3).
+- **Rarities, high ones on a server schedule** (the brother: "the server has these high rarities periodically"):
+  Common · Rare · Epic · Legendary always possible; **Mythic** only during Night Rush; **Secret** only during a
+  server-wide **Golden Hour**. Golden Hour starts every 20 minutes of server uptime, lasts 2 minutes, and is
+  announced to everyone with a countdown banner. It runs on game time, never real-world dates. Every odd, including
+  the event odds, is on the belt sign. Prices: Mythic 💰20,000 · Secret 💰50,000 (level-scaled like the rest).
+- **The Nurse Journal** (a bestiary, which is why kids love the belt games, per the brother):
+  - Every nurse has an entry: a **silhouette** until you've *seen* it ride the belt, full colour once *hired*,
+    grouped by rarity, with a completion %.
+  - Completing a rarity group gives a reward (cash + an exclusive decor or nurse hat; never Robux).
+  - A "NEW!" celebration plays when a nurse is first seen and first hired.
+  - The 👩‍⚕️ Nurses panel is the journal first, and equipping happens inside it.
+  - Save: `Data.NurseIndex = { [NurseId] = "Seen" | "Hired" }`.
+- **The cast:** about 16 original cute creature-nurses (5 Common, 4 Rare, 3 Epic, 2 Legendary, 1 Mythic,
+  1 Secret), with placeholder names.
 - **Nurses:** an original cast of cute creature-nurses (placeholder names, Joshua's to rename). Each has a
   **rarity**, a **role** and a **level** (1–5; hiring the same nurse again adds a level):
   - **Maker:** stands at a station and makes its item into a shared nurse tray every N s.
