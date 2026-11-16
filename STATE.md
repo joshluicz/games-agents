@@ -19,13 +19,14 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 ## Next actions
 **Launch path (`memory-20261116-008`): a 16+ soft launch first, hospital levels as Update 1, no paid items.**
 - [x] **Claude:** the candy-pop revamp, playtested in Studio (2026-11-16).
-- [ ] **Joshua + brother:** the game's **name** (OPEN #1). Then `Config.ProductName`, the page title and the sign.
-- [ ] **Joshua + brother + a parent:** fill in and agree `docs/plan/ownership-note-DRAFT.md` (OPEN #2). Needed before
-      any marketing or Robux.
-- [ ] **Joshua:** relay the brother's **yes to going public** (red line 4; a yes in chat counts).
+- [x] **Name:** "Cure a Creature" (page title "🏥 Cure a Creature", `memory-20261116-009`).
+- [ ] **Claude:** declutter + tutorial (`docs/plan/2026-11-16-first-session-design.md`), builder running; then playtest.
+- [x] **Ownership note** agreed (per Joshua); the game stays on his account for now (`memory-20261116-010`).
+- [x] **Page kit:** `docs/launch/page.md` (name, description) + `docs/launch/images/` (icon, 4 thumbnails).
+- [x] **Brother's yes to going public** ("my brother is ready", relayed 2026-11-16, `-009`).
 - [ ] **Joshua (+ anyone):** a 2-player test (hearts, helpers, owner leaving) and the phone emulator.
-- [ ] **Claude:** the page kit: icon, 3–5 thumbnails from Studio, a description. Then Joshua fills in the maturity
-      questionnaire (Creator Hub) with Claude guiding, and sets the game Public (16+).
+- [ ] **Joshua:** Creator Hub: name, description, icon, thumbnails, genre, devices, the maturity questionnaire.
+- [ ] **After the tutorial lands + a final test:** commit Drafts, Publish to Roblox, then set Public (16+).
 - [ ] **Joshua:** the 1,000-Robux refundable all-ages fee (OPEN #4) and the 250 engaged 16+ plays (OPEN #6:
       how many people he can ask).
 - [ ] **Claude, during the 16+ window:** design doc + build for **Hospital Levels** (Update 1).

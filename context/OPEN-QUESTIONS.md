@@ -4,14 +4,8 @@ The one place outstanding questions live. When one is answered, move it to ✅ w
 was filed. Don't re-ask an answered question.
 
 ## ⏳ Open
-1. 🎨 **The name, and the cast.** The theme is settled: a creature clinic (`memory-20261116-005`, working title
-   "Creature Clinic"). Still open: the game's real name (no "brainrot" at launch, `-004`) and the patients' names and
-   looks (the brother's call). The brother likes the clinic (2026-11-16, `-006`). ⬜ **Both.**
-2. 🤝 **The ownership note (red line 5), before any public promo or Robux.** Who owns the group and the game (CoS read:
-   Joshua, since the 18+ ID-verified owner is what unlocks all-ages publishing), what % the brother gets, and how it
-   reaches him (a group recurring payout, or Joshua pays him). ⚠️ Unconfirmed whether a 13-year-old can receive group
-   payouts or DevEx without a parent. Check before deciding. **Fill in `docs/plan/ownership-note-DRAFT.md`.** Now
-   blocks marketing for the launch (`-008`). ⬜ **Both, and a parent, since he's 13.**
+1. 🎨 **The cast's names and looks.** The game's name is settled ("Cure a Creature", `-009`). The creatures' names
+   and looks are placeholders the brothers can rename any time. ⬜ **Both (optional).**
 3. 🐦 **The holiday month: bird frame or Roblox first?** The same morning, studio-agents put the brother down to
    hand-build the bird frame over the holidays (`studio-agents` `memory-20261116-002`). ⬜ **Both.**
 4. 💸 **OK to spend about 1,100 Robux?** That's 100 for the group and 1,000 for the refundable all-ages fee, at Stage 2,
@@ -24,6 +18,10 @@ was filed. Don't re-ask an answered question.
    since DevEx pays an individual's account. ⬜ **Joshua.**
 
 ## ✅ Answered
+- The ownership note: agreed (per Joshua); the game stays on Joshua's account for now, a group later is possible:
+  2026-11-16 → `memory-20261116-010`.
+- The name "Cure a Creature"; the brother's yes to going public ("my brother is ready"): 2026-11-16 →
+  `memory-20261116-009`.
 - Hospital levels (the building grows), publish first with levels as Update 1, no paid items at launch: 2026-11-16 →
   `memory-20261116-008`.
 - The brother steps back; the old Shop deleted; the saturated, flashy look: 2026-11-16 → `memory-20261116-007`.
