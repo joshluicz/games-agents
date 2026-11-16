@@ -974,9 +974,19 @@ function NursePanel.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- On duty: equip and unequip
 	--------------------------------------------------------------------------------------------------------------
+	-- Known nurses only (rawget, so "Order" is never one): the server doesn't count a retired or renamed NurseId
+	-- in the save against the slots either (Server/Nurses.equip).
 	local function equippedNow(): { string }
 		local list = optimistic or ctx.State.Equipped
-		return if type(list) == "table" then list else {}
+		local known: { string } = {}
+		if type(list) == "table" then
+			for _, nurseId in list do
+				if type(nurseId) == "string" and type(rawget(data.Nurses, nurseId)) == "table" then
+					table.insert(known, nurseId)
+				end
+			end
+		end
+		return known
 	end
 
 	local function slotsNow(): number

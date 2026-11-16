@@ -4,7 +4,8 @@
 --   Cure.resolve(ctx: Types.CureCtx): Result?
 --
 -- In order (each step is guarded, so a broken system downstream never stops the payout before it):
---   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic)
+--   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic; so
+--                                 do the recipe's length and the plot's Cheerer, ctx.Items and ctx.Cheer)
 --   2. Economy.addCash(helper)    the helper earns the cash (and their Cured count goes up)
 --   3. Progress.addStars(owner)   the clinic's owner earns the Clinic Stars (design §5.9: friends' cures count)
 --   4. Book.stamp(helper)         the helper's Patient Book
@@ -79,6 +80,8 @@ local function sanitize(ctx: any): Types.CureCtx?
 	if type(patience) ~= "number" or patience ~= patience then
 		patience = 0
 	end
+	local items = ctx.Items
+	local cheer = ctx.Cheer
 	return {
 		Helper = ctx.Helper,
 		Owner = ctx.Owner,
@@ -89,6 +92,10 @@ local function sanitize(ctx: any): Types.CureCtx?
 		Visitor = ctx.Visitor == true,
 		PatienceLeft = math.clamp(patience, 0, 1),
 		Position = if typeof(ctx.Position) == "Vector3" then ctx.Position else Vector3.zero,
+		Items = if type(items) == "number" and items == items
+			then math.clamp(math.floor(items), 1, Pay.MAX_ITEMS)
+			else 1,
+		Cheer = if type(cheer) == "number" and cheer == cheer then math.clamp(cheer, 1, Pay.MAX_CHEER) else 1,
 	}
 end
 
@@ -114,6 +121,8 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 		Variant = cure.Variant,
 		Visitor = cure.Visitor,
 		Regular = cure.Regular ~= nil,
+		Items = cure.Items,
+		Cheer = cure.Cheer,
 		Cfg = Config,
 	})
 

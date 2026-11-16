@@ -37,10 +37,10 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids); *(depth)* `TreatSession`, `TreatOutcome`, `NurseNews`, `ShoutInfo`, `CelebrateInfo` (incl. `Room` for Kind "Room"), `BannerSpec` |
 | `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`; *(depth)* events `TreatStart`, `NurseNews`, `Shout`, `Celebrate` and functions `TreatResult`, `SetSimple`, `HireNurse`, `EquipNurse`, `LevelUp`). Server helpers: `serve` (rate limit plus pcall; a table third return value is passed on), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
-| `shared/Data/*.luau` | **Content**: `Ailments` (with each `Recipe`), `Stations`, `Items`, `Patients`, `Regulars` (their own `Recipe`), `Rooms` (`Level`: the Garden needs Lv 3), `Upgrades`, `Decor` (incl. the six Journal rewards), `DailyGoals`, `Wings`, `Variants`, *(depth)* `Nurses` (16 placeholder-named nurses), `Rarities` (Common..Secret, colours, Journal rewards), `Levels` (an array, Lv 1-5). Keyed maps carry `.Order`, and everything is frozen |
+| `shared/Data/*.luau` | **Content**: `Ailments` (with each `Recipe`), `Stations`, `Items`, `Patients`, `Regulars` (their own `Recipe`), `Rooms` (`Level`: the Garden needs Lv 3), `Upgrades`, `Decor` (incl. the six Journal rewards), `DailyGoals`, `Wings`, `Variants`, *(depth)* `Nurses` (16 placeholder-named nurses), `Rarities` (Common..Secret, colours, Journal rewards), `Levels` (an array, Lv 1-5, incl. `SpawnSeconds`). Keyed maps carry `.Order`, and everything is frozen |
 | `shared/Logic/Schema.luau` | Save schema **v3**: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done; a v2 save gets the hospital `Level` its rooms imply, no nurses and an empty journal), `isNewer(saved)`, `levelFromRooms(rooms)` |
 | `shared/Logic/Tutorial.luau` | The first-session tutorial's rules: the steps (1 welcome .. 8 Book, 9 done), `advance(step, event)`, `resume` after a rejoin, who Patients may send (`spawnPlan`, `queueCap`), the shop top-up (`cheapest`, `topUp`) |
-| `shared/Logic/Pay.luau` | Cash and ⭐ for a cure |
+| `shared/Logic/Pay.luau` | Cash and ⭐ for a cure (*(depth)* a longer recipe pays more, and so does a Cheerer on duty) |
 | `shared/Logic/Prices.luau` | Upgrade prices, hold time, tray capacity, patience |
 | `shared/Logic/Progress.luau` | Can this room be bought (season, *(depth)* the hospital level a room needs, ⭐, 💰), and what's the next goal (it skips rooms above your level: `levelAllows`) |
 | `shared/Logic/Book.luau` | Patient Book stamps and set completion |
@@ -49,7 +49,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Logic/Recipe.luau` *(depth)* | A patient's recipe: cut by level, the done mask, what's missing, what the items in hand can fill |
 | `shared/Logic/MiniGame.luau` *(depth)* | Mini-game ratings, the server's plausibility check, the combo and capped tips |
 | `shared/Logic/Belt.luau` *(depth)* | The Nurse Belt: odds (Night Rush, Golden Hour), rolls, pity, picks, prices by level, Golden Hour windows, rider position |
-| `shared/Logic/Levels.luau` *(depth)* | Hospital levels: the next level's cost, slots, beds, queue, recipe cap, room gates |
+| `shared/Logic/Levels.luau` *(depth)* | Hospital levels: the next level's cost, slots, beds, queue, recipe cap, seconds between patients, room gates |
 | `shared/Logic/Nurse.luau` *(depth)* | Owned nurses: copies and levels, stats by rarity and level, equip slots, the Journal and its set rewards |
 
 `Logic/*` is **pure**: no Roblox services and no requires, so Lune can test it. The server passes `Config` in as
@@ -59,7 +59,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | File | Does |
 |---|---|
 | `server/Main.server.luau` | Collision groups, then every system's `start()` in order ([Boot order](#boot-order)) |
-| `server/PlayerData.luau` | Loads and saves (schema v3, DataStore `PlayerData_v2`) with `UpdateAsync` under a session lock (a join waits out another server's lock until its lease ends), migrates `PlayerData_v1`, never saves after a failed load or over a newer-version save (`DataOk = false` plus a toast), autosaves, saves on leave (retried with backoff) and in `BindToClose`. Leaderstats `Cash` and `Stars`. The Studio-only `FreshSave` switch ([Test switches](#studio-rojo-connected)) |
+| `server/PlayerData.luau` | Loads and saves (schema v3, DataStore `PlayerData_v2`) with `UpdateAsync` under a session lock (a join waits out another server's lock until its lease ends), migrates `PlayerData_v1`, never saves after a failed load or over a newer-version save (`DataOk = false` plus a toast), autosaves, saves on leave (retried with backoff) and in `BindToClose`. A rejoin to the same server waits for the last Player's leave-save first. Leaderstats `Cash` and `Stars`. The Studio-only `FreshSave` switch ([Test switches](#studio-rojo-connected)) |
 | `server/State.luau` | Builds each player's Snapshot (incl. `Tutorial`, the step, and `TutorialCures`), pushes it (debounced) and answers `GetState` |
 | `server/Tutorial.luau` | The first-session tutorial ([below](#the-first-session-tutorial)): the saved step, moved on only by real server events, the one-time shop top-up, `TutorialAck`, and the quiet toasts while it runs |
 | `server/Events.luau` | Winter: `Config.Winter` dates or the `ForceWinter` Workspace attribute → `Workspace.IsWinter` |
@@ -80,8 +80,8 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` (scripts and Highlights removed, lights without shadows) |
 | `server/Visits.luau` | Hearts on the sign (once per owner per UTC day), the owner's `OpenHelpers` toggle, the friend referral reward |
 | `server/Treatment.luau` *(depth)* | Treat sessions at the Counter: `TreatStart`/`TreatResult` (one open session per player; any other id is refused and changes nothing; the server's ratings come from `MiniGame.accept`, all OK when the report is too early or the helper is over `Config.Treat.Distance` from the Counter), the timeout (all OK), tips (cash only, capped per cure, × the plot's Cheerer) and the player attribute `Combo`, Simple mode (`SetSimple`), Healer deliveries. Patients drives it through `Treatment.open/busy/drop/onHeal`; it never requires Patients |
-| `server/Levels.luau` *(depth)* | Hospital levels: `LevelUp` (⭐ is a gate, 💰 is spent, in one update), the plot's `Building` and `Level` attribute (they follow `Data.Level`), slots/queue/recipe cap/beds by level, `LevelChanged (p, level, previous)` only on a change (never at join), the `Celebrate` LevelUp. Studio switch `PreviewLevel` |
-| `server/Nurses.luau` *(depth)* | Owned nurses: `EquipNurse`, `grant` (charge + copy + journal mark + a first copy on duty + set rewards in one update), nurse workers on the plot (Maker → the `NurseTray`, Healer → `Heal`, Cheerer → `CheerPatience`/`CheerTip`; only while the owner is in the server), the 🧺 `NurseTrayGui` on each Counter, the Journal (`markSeen(nurseId, players?)`: the players near a rider). Resets the plot's tray and cheer attributes at boot and on release |
+| `server/Levels.luau` *(depth)* | Hospital levels: `LevelUp` (⭐ is a gate, 💰 is spent, in one update), the plot's `Building` and `Level` attribute (they follow `Data.Level`; a build that fails isn't retried until the level changes), slots/queue/recipe cap/beds/spawn seconds by level, `LevelChanged (p, level, previous)` only on a change (never at join), the `Celebrate` LevelUp. Studio switch `PreviewLevel` |
+| `server/Nurses.luau` *(depth)* | Owned nurses: `EquipNurse` (only known NurseIds take a slot; one change per 0.35 s per player), `grant` (charge + copy + journal mark + a first copy on duty + set rewards in one update), nurse workers on the plot (Maker → the `NurseTray`, Healer → `Heal`, Cheerer → `CheerPatience`/`CheerTip`; only while the owner is in the server), the 🧺 `NurseTrayGui` on each Counter, the Journal (`markSeen(nurseId, players?)`: the players near a rider). Resets the plot's tray and cheer attributes at boot and on release |
 | `server/NurseBelt.luau` *(depth)* | The shared Nurse Belt in town (`Workspace.NurseBelt`): an arrival every 6 s, odds, Night Rush, Golden Hour (on server uptime), pity, `HireNurse` (cooldown, distance by the belt formula, max level, the price by level), the odds sign, `Shout`s, Seen within `Config.Belt.SeenDistance`. Its `Conveyor` has `ConveyorGui > Clip > Stripes` and the attributes `StripeStuds`/`StudsPerSecond` (BeltView scrolls them). Studio switches `BeltForce`, `ForceGolden` |
 | `server/NurseBuilder.luau` *(depth)* | A nurse Model from its Look (via `CreatureBuilder.buildLook`) with a cap in its rarity colour (a white cross) and sparkles for Epic+, or `ServerStorage.Nurses.<NurseId>`; `setTask(model, task, icon?)` (a small task bubble), `hop(model, from, to, height, seconds, spin?)`, `popIn(model)`, `setGlow(model, on)` |
 
@@ -90,7 +90,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `client/Main.client.luau` | Builds `ctx` (Remotes, Config, Data, State, `onState`, `toast`, `on`/`fire`), then loads each UI and Feel module in a pcall and calls `init(ctx)` |
 | `client/UI/Theme.luau` · `client/UI/Kit.luau` | The look tokens, and building blocks (panel, button with press bounce, label...). Libraries, not inited. *(depth)* Theme.Juice timings, Theme.Confetti, DisplayOrder.Celebrate (45); Kit.countUp (rolling numbers that tick), celebrate, confetti, rarityFrame (a shimmer per rarity), rarityColor, breathing (idle calls to action), punch, isShown, setDot (dots hop), button hover, Kit.Juice (pure helpers), Kit.Ticked. Every looping effect runs on one shared loop that skips hidden UI and sleeps |
-| `client/UI/Toasts.luau` | The toast stack at the top centre (each slides into place, the others make room), and the bus `Banner` above it (BeltView: Golden Hour with a countdown, Night Rush, Epic+ arrivals; the same Id updates in place, Seconds = 0 hides it) |
+| `client/UI/Toasts.luau` | The toast stack at the top centre (each slides into place, the others make room), and the bus `Banner` above it (BeltView: Golden Hour, Night Rush, Epic+ arrivals, none with a countdown; the same Id updates in place, Seconds = 0 hides it) |
 | `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock (both roll up, Kit.countUp, as flying coins and stars land: `Hud.fly` from a GuiObject, a world Vector3 or nil; the next unlock skips rooms above your level and includes the next hospital level), the 🔥 combo sticker on 💰 (player attribute `Combo`), what you hold (nothing when your hands are empty), the day/night timer, the big 🛒 📖 📬 🎯 👩‍⚕️ buttons (🛒's dot: a room you can buy, decor to place or a level-up you can afford, `Hud.shopNews`), and ⚙️ settings (the 🎵 music, ✨ calm-effects and 👆/🎮 Simple-mode switches). A new player's HUD reveals itself with the tutorial step; everyone else sees it all |
 | `client/UI/Shop.luau` | Upgrades, Rooms and Decor tabs, plus decor place mode. *(depth)* The 🏥 Hospital tab (`Open("Shop", "Hospital")`): the level ladder, this level's stats, the next level's unlocks, its ⭐ gate and 💰 cost, Level up; `Shop.levelUpButton()`. Rooms that need a higher level show "🏥 Lv 3" |
 | `client/UI/BookPanel.luau` | The Patient Book: cards by wing, silhouettes for patients not yet seen |
@@ -106,7 +106,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/UI/Celebrate.luau` *(depth)* | Big celebration screens on the bus `Celebrate`: dim, confetti rain, rays, the reward bubble (a nurse's face with its shimmering rarity frame), a title ribbon, chips (level unlocks, rarity and role, a Journal set's cash and decor, a room's name) and a breathing 🎉 Yay!; one at a time, waits out the tutorial, closes itself after 7 s; on close the cash flies to 💰 and a new nurse to 👩‍⚕️ |
 | `client/UI/MiniGames.luau` *(depth)* | The treatment mini-games on `TreatStart`: a candy card, one game per recipe item (🧪 Pour hold-and-release, 🩹 Patch tap the sore spots, 🛁 Scrub pop the bubbles, ☕ Cool blow at the biggest steam ring), touch/mouse plus Space or gamepad A, a big outlined PERFECT!/GOOD!/OK! pop and the 🔥 combo chip; Simple mode is one tap per game; then `TreatResult` (never sooner than the games' minimum time), `MiniGameRated` and `TreatDone` (it shows the server's ratings and tip) |
 | `client/UI/NursePanel.luau` *(depth)* | The 👩‍⚕️ panel: the Nurse Journal (rarity tabs, silhouettes / greyed / full colour, completion %, group rewards, NEW! stickers and fly-in stamps), an on-duty slot strip, Equip/Unequip; `NursesNew` for the 👩‍⚕️ dot |
-| `client/UI/BeltView.luau` *(depth)* | Smooth belt riders, a focus card per rider (rarity frame, role and stat, your price, Hire; the HirePrompt in the Custom style with its key on the card), Epic+ glow, the scrolling conveyor stripes (one repeating tween; still with reduced motion), the 🎲 odds popup (bus `Open` (`"NurseOdds"`)), Golden Hour / Night Rush / arrival banners (never in the tutorial) |
+| `client/UI/BeltView.luau` *(depth)* | Smooth belt riders (the frame loop sleeps while the camera is far from the belt), a focus card per rider (rarity frame, role and stat, your price, Hire; the HirePrompt in the Custom style with its key on the card) and small stud-sized chips, only within 50 studs of you, Epic+ glow, the scrolling conveyor stripes (one repeating tween; still with reduced motion), the 🎲 odds popup (bus `Open` (`"NurseOdds"`)), Golden Hour / Night Rush / arrival banners (never in the tutorial, never a countdown) |
 | `client/Feel/CreatureMotion.luau` *(depth)* | Draws creatures' hops, head-shakes, droops and pops on each client from their attributes (the server writes only each end pose). Runs only while something moves. Nurses' rarity sparkles follow this client's reduced motion |
 
 ### Tests
@@ -192,8 +192,9 @@ fresh save starts at 1. A save from before the tutorial (no `Tutorial` field) wi
 
 ## Performance budget
 Full note (how to measure, the before/after table): `docs/plan/2026-11-16-perf-budget.md`.
-- **60 fps on a mid phone** with 6 full plots and the belt. **≤ 400 parts per plot** at Lv 5 (without creatures and
-  decor: a Lv 5 plot with every room is 389).
+- **60 fps on a mid phone** with 6 full plots and the belt. **≤ 400 parts per plot** at Lv 5 without creatures
+  and decor (a Lv 5 plot with every room is 389). Decor adds up to 10 pieces of ≤ 25 parts each (DecorBuilder warns
+  past it): about 500 for a fully decorated Lv 5 plot. The lead measures both in Studio (perf note).
 - **No per-frame server writes for creatures or riders.** A moving creature has the tag `CreatureMotion`. The server
   sets the motion attributes once per animation (`CreatureBuilder.hop`/`shake`/`tilt`/`scale`, or NurseBuilder's
   hop) and writes the end pose once. `Feel/CreatureMotion` draws the rest on each client. Riders follow the belt
@@ -265,7 +266,7 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
 - **Feel check:** a cure gives sparkles, a pop, a chime and the NEW PAGE banner; in ⚙️, the ✨ switch turns to 💤
   and the effects calm down, and 🎵 turns to 🔇 and the music fades; `ForceWinter` brings snow; at night there are
   fireflies and the lamps and lanterns glow. *(depth)* 💰/⭐ roll up as coins fly from the patient, toasts slide in,
-  banners show the Golden Hour countdown, rarity frames shimmer, red dots hop, claim buttons breathe, the conveyor
+  the Golden Hour banner shows (no countdown), rarity frames shimmer, red dots hop, claim buttons breathe, the conveyor
   stripes scroll, and a level-up / new nurse / Journal set / new room shows the celebration screen; 💤 calm stops
   all of that motion (numbers just set, no confetti, still stripes, no nurse sparkles).
 - **Junk remote calls**, from the client command bar. Each must return `false` plus a message and change nothing:
@@ -351,7 +352,7 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
 - [ ] D7. The belt: a nurse every ~6 s, each takes ~30 s; prices scale with your level; Hire by tap and by prompt;
   a second player sees the same riders; the hired one hops off; a Common/Rare is replaced quickly.
 - [ ] D8. Night (`SkipPhase`): the sign shows Night Rush odds; Mythic possible. Golden Hour (`ForceGolden`): a banner
-  with a countdown, Secret on the sign.
+  with the Secret chance and no countdown, Secret on the sign.
 - [ ] D9. Pity: `BeltForce = "Common"` → the 9th arrival is Rare+.
 - [ ] D10. Journal: silhouettes until seen (within 100 studs); NEW! on first seen and first hire; completion %;
   completing Commons gives 💰300 + Plaster Rug once.

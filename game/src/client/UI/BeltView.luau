@@ -3,20 +3,24 @@
 -- The shared Nurse Belt as THIS player sees it: smooth riders, a Hire card over each one, the odds popup, and the
 -- Golden Hour / Night Rush / big-arrival banners.
 --   init(ctx)   binds Workspace.NurseBelt (and a belt that replaces it later); listens for the bus "Shout" and
---               "Open" ("NurseOdds"); watches the Workspace attributes GoldenHour, GoldenEndsAt, NightRush (IsNight
---               when NurseBelt hasn't set it), PhaseEndsAt and BeltPity; fires "Banner" (Types.BannerSpec) and
+--               "Open" ("NurseOdds"); watches the Workspace attributes GoldenHour, NightRush (IsNight when
+--               NurseBelt hasn't set it) and BeltPity; fires "Banner" (Types.BannerSpec) and
 --               "Sound" (Arrival, Golden, Pop; the Hire cue comes with NurseNews in Feel/Sounds)
 --
 -- Riders (Workspace.NurseBelt.Riders.Rider_<RiderId>):
 --   · Smooth: every frame each rider's Root goes to BeltStart:Lerp(BeltEnd, Logic/Belt.alpha(StartAt, now,
 --     RideSeconds)) here on the client (the server only moves it once a second), keeping the server's rotation, with
 --     a tiny ride bounce (none with reduced motion). Hired riders, riders at the end and riders tagged CreatureMotion
---     are left to the server (they hop off). The frame loop and the 4 Hz card loop stop when no rider is left.
---   · Cards: one BillboardGui per rider in PlayerGui (Adornee = its Root, so it takes taps). Phone first: the rider
---     you tapped, or whose prompt is up, or the nearest one within FOCUS_REACH, shows the FULL card: the rarity band
+--     are left to the server (they hop off). The frame loop runs only while the camera is within MOVE_MAX_DISTANCE
+--     of the belt (the 4 Hz card loop checks); both stop when no rider is left.
+--   · Cards: one BillboardGui per rider in PlayerGui (Adornee = its Root, so it takes taps), shown only while you
+--     stand within HireDistance + CHIP_MARGIN studs of it, so the belt never covers the clinics round the plaza.
+--     Phone first: the rider you tapped, or whose prompt is up, or the nearest one within FOCUS_REACH, shows the
+--     FULL card (drawn on top, a fixed pixel size): the rarity band
 --     and frame (Kit.rarityFrame), its name, the role icon and level-1 stat (Logic/Nurse.stats), "⬆️ Lv n" when you
 --     own it, a NEW! sticker until it's in your Journal as hired, and a big Hire button with YOUR price
---     (Logic/Belt.price at your hospital level). Every other rider shows a small chip (its icon and your price);
+--     (Logic/Belt.price at your hospital level). Every other rider shows a small chip (its icon and your price),
+--     sized in studs (it shrinks with distance, never above CHIP_SIZE px) and not on top, so the world hides it;
 --     tap one to open its card. Hired riders show ✅; yours at max level show ⭐ MAX.
 --   · Hire: the button asks HireNurse (Hud.ask). Too far or short of cash, it explains instead of asking (the
 --     server still checks everything). Its HirePrompt (keyboard E, gamepad) gets the Custom style, so the card is
@@ -26,14 +30,13 @@
 --     rider off here (NurseBuilder's too, client-only) and stops the card's halo pulse.
 -- The odds popup ("🎲 Odds", a Hud.modal Popup over any panel): every rarity's odds by day, in Night Rush and in
 -- Golden Hour (now's column marked), your price for each, and the pity count (BeltPity). A 🎲 chip floats over the
--- belt's Sign to open it (it reads 🌙 / 👑 with a countdown during the events); UI/NursePanel opens it too
+-- belt's Sign to open it (it reads 🌙 / 👑 during the events, never a clock); UI/NursePanel opens it too
 -- (ctx.fire("Open", "NurseOdds")).
--- Banners (UI/Toasts shows them): Golden Hour (a countdown to GoldenEndsAt while it runs), Night Rush (8 s with a
--- countdown to PhaseEndsAt when the night starts), an Epic+ arrival and a Legendary+ hire from "Shout". None while
--- the first-session tutorial runs (or before the first snapshot); a Golden Hour still running when it ends shows
--- then.
--- Cash only, odds on show, nothing pressures a kid (red line 3): no "hurry" words, no flashing prices, no timer to
--- the next Golden Hour.
+-- Banners (UI/Toasts shows them): Golden Hour (once per window, for a few seconds, with the real Secret odds), Night
+-- Rush (8 s when the night starts), an Epic+ arrival and a Legendary+ hire from "Shout". None while the first-session
+-- tutorial runs (or before the first snapshot); a Golden Hour still running when it ends shows then.
+-- Cash only, odds on show, nothing pressures a kid (red line 3): no "hurry" words, no flashing prices, and no
+-- countdowns at all: not to the next Golden Hour, not to the end of one or of a Night Rush.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -64,9 +67,12 @@ local BOUNCE_HEIGHT = 0.2
 local BOUNCE_SECONDS = 0.85
 local HALO = 6 -- px of rarity halo round the full card
 local FULL_SIZE = Vector2.new(176, 164)
-local CHIP_SIZE = Vector2.new(120, 64)
+local CHIP_SIZE = Vector2.new(120, 64) -- px: the most a chip ever shows (up close)
+local CHIP_STUDS = Vector2.new(6, 3.2) -- the chip's canvas in studs (the same shape), so it shrinks with distance
+local CHIP_MARGIN = 10 -- studs past Config.Belt.HireDistance that a rider's chip still shows
 local SOFT_DOT = "rbxasset://textures/particles/explosion01_implosion_main.dds" -- built in (as Feel/Atmosphere)
 local NIGHT_BANNER_SECONDS = 8
+local GOLDEN_BANNER_SECONDS = 6
 local ARRIVAL_BANNER_SECONDS = 5
 local HIRED_BANNER_SECONDS = 4
 
@@ -590,9 +596,7 @@ function BeltView.init(ctx: Types.Ctx)
 		local status = oddsStatus
 		if status then
 			if golden then
-				local endsAt = Workspace:GetAttribute("GoldenEndsAt")
-				local left = if type(endsAt) == "number" then endsAt - Workspace:GetServerTimeNow() else 0
-				status.Text = "👑 Golden Hour " .. Pure.clock(left)
+				status.Text = "👑 Golden Hour"
 			elseif night then
 				status.Text = "🌙 Night Rush"
 			else
@@ -624,9 +628,7 @@ function BeltView.init(ctx: Types.Ctx)
 			return
 		end
 		if goldenHour() then
-			local endsAt = Workspace:GetAttribute("GoldenEndsAt")
-			local left = if type(endsAt) == "number" then endsAt - Workspace:GetServerTimeNow() else 0
-			button.Text = "👑 " .. Pure.clock(left)
+			button.Text = "👑 Golden Hour!"
 		elseif nightRush() then
 			button.Text = "🌙 Odds"
 		else
@@ -680,25 +682,6 @@ function BeltView.init(ctx: Types.Ctx)
 		renderInfo()
 	end
 
-	-- While Golden Hour runs (and the chip or the popup is there), its countdowns tick once a second.
-	local ticking = false
-	local function tickGolden()
-		if ticking then
-			return
-		end
-		ticking = true
-		task.spawn(function()
-			while goldenHour() do
-				renderInfo()
-				renderOdds()
-				task.wait(1)
-			end
-			ticking = false
-			renderInfo()
-			renderOdds()
-		end)
-	end
-
 	--------------------------------------------------------------------------------------------------------------
 	-- Rider cards
 	--------------------------------------------------------------------------------------------------------------
@@ -714,13 +697,14 @@ function BeltView.init(ctx: Types.Ctx)
 		local gui = Instance.new("BillboardGui")
 		gui.Name = "BeltCard_" .. rider.Id
 		gui.Adornee = root
-		gui.AlwaysOnTop = true
+		gui.AlwaysOnTop = false -- a chip sits in the world; the full card is drawn on top (draw)
 		gui.Active = true
 		gui.ClipsDescendants = false -- the NEW! sticker pokes out of the card's corner
 		gui.LightInfluence = 0
 		gui.MaxDistance = CARD_MAX_DISTANCE
 		gui.ResetOnSpawn = false
-		gui.Size = UDim2.fromOffset(CHIP_SIZE.X, CHIP_SIZE.Y)
+		gui.Enabled = false -- the card loop shows it once you're near (refresh)
+		gui.Size = UDim2.fromScale(CHIP_STUDS.X, CHIP_STUDS.Y)
 		gui.SizeOffset = Vector2.new(0, 0.5) -- the bottom edge sits on the anchor point, above the rider's head
 		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 		local ok, cf, size = pcall(function()
@@ -872,7 +856,20 @@ function BeltView.init(ctx: Types.Ctx)
 		end)
 
 		-- The chip ------------------------------------------------------------------------------------------
-		local chipFrame = frame({ Name = "Chip", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1) })
+		-- It fills the stud-sized canvas, so it shrinks with distance; never bigger than CHIP_SIZE px up close.
+		local chipFrame = frame({
+			Name = "Chip",
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.fromScale(0.5, 1),
+			Size = UDim2.fromScale(1, 1),
+		})
+		local chipMax = Instance.new("UISizeConstraint")
+		chipMax.MaxSize = CHIP_SIZE
+		chipMax.Parent = chipFrame
+		local chipShape = Instance.new("UIAspectRatioConstraint")
+		chipShape.AspectRatio = CHIP_SIZE.X / CHIP_SIZE.Y
+		chipShape.Parent = chipFrame
 		chipFrame.Parent = gui
 		local chip = Instance.new("TextButton")
 		chip.Name = "Tap"
@@ -880,8 +877,8 @@ function BeltView.init(ctx: Types.Ctx)
 		chip.AutoButtonColor = false
 		chip.BackgroundColor3 = Theme.Colors.Paper
 		chip.BorderSizePixel = 0
-		chip.Position = UDim2.fromOffset(4, 4)
-		chip.Size = UDim2.new(1, -8, 1, -8)
+		chip.Position = UDim2.fromScale(0.035, 0.06)
+		chip.Size = UDim2.fromScale(0.93, 0.88)
 		Kit.corner(chip, Theme.Size.Corner)
 		Kit.rarityFrame(chip, rider.Rarity)
 		chip.Parent = chipFrame
@@ -889,8 +886,8 @@ function BeltView.init(ctx: Types.Ctx)
 			Name = "Icon",
 			Text = if nurse then nurse.Icon else "❔",
 			TextScaled = true,
-			Position = UDim2.fromOffset(6, 6),
-			Size = UDim2.new(0, 42, 1, -12),
+			Position = UDim2.fromScale(0.05, 0.1),
+			Size = UDim2.fromScale(0.36, 0.8),
 			ZIndex = 2,
 			Parent = chip,
 		})
@@ -900,8 +897,8 @@ function BeltView.init(ctx: Types.Ctx)
 			TextScaled = true,
 			Font = Theme.DisplayFont,
 			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -6, 0.5, 0),
-			Size = UDim2.new(1, -58, 0, 28),
+			Position = UDim2.fromScale(0.95, 0.5),
+			Size = UDim2.fromScale(0.54, 0.5),
 			ZIndex = 2,
 			Parent = chip,
 		})
@@ -1063,8 +1060,11 @@ function BeltView.init(ctx: Types.Ctx)
 		end
 		local wasFull = rider.Full
 		rider.Full = full
-		local size = if full then FULL_SIZE else CHIP_SIZE
-		gui.Size = UDim2.fromOffset(size.X, size.Y)
+		-- The full card: a fixed pixel size, drawn on top. A chip: studs (it shrinks with distance), in the world.
+		gui.Size = if full
+			then UDim2.fromOffset(FULL_SIZE.X, FULL_SIZE.Y)
+			else UDim2.fromScale(CHIP_STUDS.X, CHIP_STUDS.Y)
+		gui.AlwaysOnTop = full
 		fullFrame.Visible = full
 		chipFrame.Visible = not full
 		if full and not wasFull then
@@ -1203,11 +1203,38 @@ function BeltView.init(ctx: Types.Ctx)
 		end
 	end
 
+	-- Studs from a point to the belt (the segment BeltStart..BeltEnd); huge when there's no belt.
+	local function beltDistance(point: Vector3): number
+		local a, b = beltStart, beltEnd
+		if not a or not b then
+			return math.huge
+		end
+		local from, along = a.Position, b.Position - a.Position
+		local t = math.clamp((point - from):Dot(along) / math.max(along:Dot(along), 1e-6), 0, 1)
+		return (from + along * t - point).Magnitude
+	end
+
+	-- The frame loop runs only while there are riders and the camera is near enough for the glide to show.
+	local function syncMoving()
+		local camera = Workspace.CurrentCamera
+		local near = next(riders) ~= nil and camera ~= nil and beltDistance(camera.CFrame.Position) <= MOVE_MAX_DISTANCE
+		if near and not moveConnection then
+			moveConnection = RunService.RenderStepped:Connect(step)
+		elseif not near and moveConnection then
+			moveConnection:Disconnect()
+			moveConnection = nil
+		end
+	end
+
+	local hireReach = if type(cfg.Belt.HireDistance) == "number" then cfg.Belt.HireDistance else 40
+	local chipReach = hireReach + CHIP_MARGIN
+
 	refresh = function()
 		local now = Workspace:GetServerTimeNow()
 		local here = characterPosition(player)
 		local calm = Kit.reducedMotion()
 		bounceOn = not calm
+		syncMoving()
 		local candidates: { Candidate } = {}
 		local prompted: number? = nil
 		for model, rider in riders do
@@ -1227,14 +1254,21 @@ function BeltView.init(ctx: Types.Ctx)
 		end
 		focusId = Pure.focus(candidates, prompted, tappedId, focusId, FOCUS_REACH)
 		for _, rider in riders do
+			-- Only riders near you show anything: a far chip is clutter over everyone's clinic (and its rarity
+			-- shimmer would run every frame; Kit skips hidden ones).
+			local gui = rider.Gui
+			if gui then
+				local show = rider.Id == focusId or rider.Distance <= chipReach
+				if gui.Enabled ~= show then
+					gui.Enabled = show
+				end
+			end
 			draw(rider, calm)
 		end
 	end
 
 	local function ensureLoops()
-		if not moveConnection then
-			moveConnection = RunService.RenderStepped:Connect(step)
-		end
+		syncMoving()
 		if looping then
 			return
 		end
@@ -1539,25 +1573,24 @@ function BeltView.init(ctx: Types.Ctx)
 		return not Pure.quiet(ctx.State.Tutorial)
 	end
 
-	local function syncGolden(on: boolean, endsAt: any)
+	-- Once per window, for a few seconds, with the real chance (no countdown, no "limited time": red line 3).
+	local function syncGolden(on: boolean)
 		if on and allowed() then
 			if not goldenShown then
+				goldenShown = true
 				Hud.sound("Golden")
+				local secret = BeltLogic.odds(cfg, nightRush(), true).Secret
+				ctx.fire("Banner", {
+					Id = "GoldenHour",
+					Icon = "👑",
+					Text = "Golden Hour: Secret " .. Pure.percent(secret),
+					Color = goldColor,
+					Seconds = GOLDEN_BANNER_SECONDS,
+				})
 			end
-			goldenShown = true
-			ctx.fire("Banner", {
-				Id = "GoldenHour",
-				Icon = "👑",
-				Text = "Golden Hour: Secret nurses!",
-				Color = goldColor,
-				EndsAt = if type(endsAt) == "number" then endsAt else nil,
-			})
 		elseif not on and goldenShown then
 			goldenShown = false
 			ctx.fire("Banner", { Id = "GoldenHour", Icon = "👑", Text = "", Seconds = 0 })
-		end
-		if on then
-			tickGolden()
 		end
 		renderInfo()
 		renderOdds()
@@ -1572,13 +1605,11 @@ function BeltView.init(ctx: Types.Ctx)
 			nightShown = false
 		elseif not nightShown and allowed() then
 			nightShown = true
-			local endsAt = Workspace:GetAttribute("PhaseEndsAt")
 			ctx.fire("Banner", {
 				Id = "NightRush",
 				Icon = "🌙",
 				Text = "Night Rush: more rare nurses!",
 				Color = Theme.Colors.Night,
-				EndsAt = if type(endsAt) == "number" then endsAt else nil,
 				Seconds = NIGHT_BANNER_SECONDS,
 			})
 		end
@@ -1587,11 +1618,10 @@ function BeltView.init(ctx: Types.Ctx)
 	end
 
 	local function syncGoldenFromAttributes()
-		syncGolden(goldenHour(), Workspace:GetAttribute("GoldenEndsAt"))
+		syncGolden(goldenHour())
 	end
 
 	Workspace:GetAttributeChangedSignal("GoldenHour"):Connect(syncGoldenFromAttributes)
-	Workspace:GetAttributeChangedSignal("GoldenEndsAt"):Connect(syncGoldenFromAttributes)
 	Workspace:GetAttributeChangedSignal("NightRush"):Connect(syncNight)
 	Workspace:GetAttributeChangedSignal("IsNight"):Connect(syncNight)
 	Workspace:GetAttributeChangedSignal("BeltPity"):Connect(renderOdds)
@@ -1602,9 +1632,9 @@ function BeltView.init(ctx: Types.Ctx)
 		end
 		if info.Kind == "Golden" then
 			if info.On == true then
-				syncGolden(true, info.EndsAt)
+				syncGolden(true)
 			elseif info.On == false then
-				syncGolden(false, nil)
+				syncGolden(false)
 			end
 		elseif info.Kind == "Arrival" then
 			local rarity = if type(info.Rarity) == "string" then rawget(data.Rarities, info.Rarity) else nil

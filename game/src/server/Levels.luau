@@ -12,7 +12,8 @@
 --                                        Economy.Purchased(p, "Level", "<level>"); the building grows; the
 --                                        Celebrate remote ({ Kind = "LevelUp", Title = the level's name, Icon,
 --                                        Level }); LevelChanged
---   Levels.slots(p) · Levels.queueCap(p) · Levels.recipeCap(p) · Levels.beds(p)   numbers from Data/Levels
+--   Levels.slots(p) · Levels.queueCap(p) · Levels.recipeCap(p) · Levels.beds(p) · Levels.spawnSeconds(p)
+--                                        numbers from Data/Levels (spawnSeconds: between new patients)
 --   Levels.LevelChanged                  signal (p, level, previous): once per change of a player's level (a
 --                                        level-up, or the save changed some other way), never for the level a
 --                                        player joins at
@@ -50,8 +51,14 @@ local MSG = table.freeze({
 	Oops = Remotes.OOPS,
 })
 
--- The level each loaded player was last seen at, so LevelChanged fires once per change.
-local known: { [Player]: number } = {}
+-- The level each loaded player was last seen at, so LevelChanged fires once per change. Weak keys: a last save
+-- change for a player who has already left (a cure landing on PlayerRemoving) can never pin their Player here.
+local known: { [Player]: number } = setmetatable({}, { __mode = "k" }) :: any
+-- A building that failed to build, per plot: the level it failed at (it isn't retried, or warned about again,
+-- until the level changes or the plot is released).
+local failed: { [Types.Plot]: number } = {}
+local warnings = 0
+local MAX_WARNINGS = 3
 
 local function isPlayer(value: any): boolean
 	return typeof(value) == "Instance" and value:IsA("Player")
@@ -78,6 +85,10 @@ function Levels.beds(player: Player): number
 	return LevelsLogic.beds(LevelsData, Levels.level(player))
 end
 
+function Levels.spawnSeconds(player: Player): number
+	return LevelsLogic.spawnSeconds(LevelsData, Levels.level(player))
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- The building on the plot
 ------------------------------------------------------------------------------------------------------------------
@@ -96,17 +107,31 @@ local function show(plot: Types.Plot, level: number, grewFrom: number?)
 	local shown = previewLevel() or level
 	local building = plot.Model:FindFirstChild("Building")
 	if building and building:GetAttribute("Level") == shown and plot.Model:GetAttribute("Level") == shown then
+		failed[plot] = nil
 		return
 	end
+	if failed[plot] == shown then
+		return -- it broke at this level already: not again on every save change
+	end
 	local ok, err = pcall(PlotBuilder.buildBuilding, plot.Model, shown, if previewLevel() then nil else grewFrom)
-	if not ok then
-		warn("[Levels] Could not build the hospital on plot " .. plot.Index .. ":", err)
+	if ok then
+		failed[plot] = nil
+	else
+		failed[plot] = shown
+		warnings += 1
+		if warnings <= MAX_WARNINGS then
+			warn("[Levels] Could not build the hospital on plot " .. plot.Index .. ":", err)
+		end
 		plot.Model:SetAttribute("Level", shown)
 	end
 end
 
 -- Brings everything in step with the player's saved level: their plot's Building, and LevelChanged on a change.
 local function sync(player: Player)
+	if player.Parent ~= Players then
+		known[player] = nil -- leaving: a last save change (a cure, a goal) must not bring them back
+		return
+	end
 	local data = PlayerData.get(player)
 	if not data then
 		return
@@ -181,6 +206,9 @@ function Levels.start()
 
 	Plots.PlotAssigned:Connect(function(player: Player)
 		sync(player)
+	end)
+	Plots.PlotReleased:Connect(function(_player: Player, plot: Types.Plot)
+		failed[plot] = nil -- cleared back to Lv 1 (PlotBuilder.clearPlot): the next owner's building gets a try
 	end)
 	PlayerData.Loaded:Connect(function(player: Player)
 		sync(player)

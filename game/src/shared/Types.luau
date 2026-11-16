@@ -106,6 +106,7 @@ export type LevelRow = {
 	Beds: number, -- beds in the main building (the Stand's own bed included)
 	Queue: number, -- patients in line
 	RecipeCap: number, -- recipes are cut to this many items
+	SpawnSeconds: number, -- seconds between new patients (a busier clinic at each level)
 	Floors: number,
 	Unlocks: { string }, -- short chips for the Shop: an emoji and two or three words
 }
@@ -284,6 +285,8 @@ export type CureCtx = {
 	Visitor: boolean,
 	PatienceLeft: number, -- 0..1
 	Position: Vector3,
+	Items: number?, -- the recipe's length, 1..3 (a longer recipe pays more: Logic/Pay); nil = 1
+	Cheer: number?, -- the plot's CheerTip when the cure lands (a Cheerer on duty: Logic/Pay); nil = 1
 }
 
 ------------------------------------------------------------------------------------------------------------------

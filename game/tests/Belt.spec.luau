@@ -19,7 +19,7 @@ local CFG = {
 		GoldenSeconds = 120,
 		PityArrivals = 8,
 		Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
-		PriceScale = { 1, 1.25, 1.5, 1.75, 2 },
+		PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 },
 	},
 	Nurses = { MaxLevel = 5 },
 }
@@ -141,11 +141,11 @@ T.describe("Belt", function()
 
 	test("prices scale by the viewer's hospital level", function()
 		expect(Belt.price(CFG, "Common", 1)).toBe(100)
-		expect(Belt.price(CFG, "Common", 5)).toBe(200)
-		expect(Belt.price(CFG, "Rare", 2)).toBe(500)
-		expect(Belt.price(CFG, "Legendary", 3)).toBe(9000)
+		expect(Belt.price(CFG, "Common", 5)).toBe(140)
+		expect(Belt.price(CFG, "Rare", 2)).toBe(440)
+		expect(Belt.price(CFG, "Legendary", 3)).toBe(7200)
 		expect(Belt.price(CFG, "Secret", 1)).toBe(50000)
-		expect(Belt.price(CFG, "Common", 99)).toBe(200)
+		expect(Belt.price(CFG, "Common", 99)).toBe(140)
 		expect(Belt.price(CFG, "Common", 0 / 0)).toBe(100)
 	end)
 

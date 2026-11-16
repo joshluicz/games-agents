@@ -16,6 +16,15 @@ was filed. Don't re-ask an answered question.
 7. 🏢 **Personal, or Eitri Brokkr?** Does the game's income sit with Joshua personally or with the company (Renvae
    became a business line of Eitri Brokkr on 2026-10-17)? CoS read: personal and family for now, revisit if it earns,
    since DevEx pays an individual's account. ⬜ **Joshua.**
+8. 🎮 **Depth update review fixes: OK?** (2026-11-16, Claude's tuning, open to change; details in
+   `docs/plan/2026-11-16-depth-update-build-plan.md` §E5-E7.) ⬜ **Joshua.**
+   - **Levelling up now pays off:** patients come faster at each hospital level (every 13 / 11 / 10 / 9 / 8 s), each
+     recipe item after the first pays +50%, and nurse prices go up at most ×1.4 by Lv 5 (was ×2). Before, a level-up
+     made nurses dearer and earned nothing.
+   - **Golden Hour has no countdown:** one short banner ("Golden Hour: Secret 1%"), no ticking clock (red line 3:
+     no FOMO timers). The design had asked for a countdown.
+   - **A GOOD! still resets the 🔥 combo** (as designed), but the chip now rests at a warm "Go!" instead of a grey 0.
+     Should a GOOD! keep the combo going instead?
 
 ## ✅ Answered
 - The ownership note: agreed (per Joshua); the game stays on Joshua's account for now, a group later is possible:

@@ -2,8 +2,9 @@
 -- Toasts and banners (build plan Task 6; depth update T6): short messages stacked at the top centre.
 --   init(ctx)   listens to ctx.on("Toast", text) and ctx.on("Banner", spec: Types.BannerSpec)
 -- Every toast in the game, from the server or from ctx.toast, arrives on the client bus as "Toast" (Main.client
--- wires that). Banners come from UI/BeltView (Golden Hour with its countdown, Night Rush, an Epic+ nurse stepping
--- on the belt): `{ Id, Icon, Text (≤ 6 words), Color?, EndsAt? (server time: a countdown to it), Seconds? }`. A
+-- wires that). Banners come from UI/BeltView (Golden Hour, Night Rush, an Epic+ nurse stepping on the belt; none of
+-- them sends EndsAt, red line 3): `{ Id, Icon, Text (≤ 6 words), Color?, EndsAt? (server time: a countdown to it),
+-- Seconds? }`. A
 -- banner with the same Id replaces the old one in place (it bumps); Seconds = 0 hides it; with no Seconds it stays
 -- until EndsAt (else a few seconds). Banners sit above the toasts; at most MAX_BANNERS at once.
 -- The look is candy pop (memory-20261116-007): a chunky pill with a glossy top, a thick dark outline and white

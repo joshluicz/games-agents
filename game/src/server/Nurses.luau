@@ -6,7 +6,10 @@
 --                                               after an equip, a hire, a level-up or any save change), removes
 --                                               them on PlotReleased (before Plots clears the plot)
 --   Nurses.slots(p): number                     = Levels.slots(p) (slots = hospital level)
---   Nurses.equip(p, nurseId, on): (ok, message) Logic/Nurse.equip, saved in Data.Equipped; NurseNews Equipped
+--   Nurses.equip(p, nurseId, on): (ok, message) Logic/Nurse.equip, saved in Data.Equipped; NurseNews Equipped.
+--                                               Only known NurseIds count against the slots (an unknown one in the
+--                                               save drops out of Equipped on the next change); one change per
+--                                               EQUIP_COOLDOWN per player (each builds or removes a nurse model)
 --   Nurses.grant(p, nurseId, price): (ok, message)
 --                                               NurseBelt's hire: charge `price` and add one copy in ONE
 --                                               PlayerData.update (Logic/Nurse.hire, NurseIndex "Hired"; a FIRST copy
@@ -91,6 +94,7 @@ local LOOK_SECONDS = 0.5 -- an idle nurse looks for work this often
 local HEAL_WAIT = 2 -- seconds a Healer waits for the delivery before it tries again
 local RETRY_SECONDS = 2
 local MAX_CASH = 1e15 -- as Economy: far below 2^53
+local EQUIP_COOLDOWN = 0.35 -- seconds between one player's equip changes (each one builds or removes a nurse)
 local NEAR_STUDS = 16 -- the tray billboard stops growing on screen closer than this
 
 local rng = Random.new()
@@ -213,6 +217,19 @@ function Pure.onDuty(equipped: any, isKnown: (string) -> boolean, slots: number)
 	return out
 end
 
+-- Two id lists hold the same ids in the same order.
+function Pure.sameList(a: { string }, b: any): boolean
+	if type(b) ~= "table" or #a ~= #b then
+		return false
+	end
+	for index, id in a do
+		if b[index] ~= id then
+			return false
+		end
+	end
+	return true
+end
+
 -- A nurse's level from its save entry (1..max; junk -> 1).
 function Pure.level(entry: any, max: number): number
 	local level = if type(entry) == "table" then entry.Level else nil
@@ -264,6 +281,7 @@ type Work = {
 }
 
 local works: { [Plot]: Work } = {}
+local lastEquip: { [Player]: number } = {}
 local trayLabels: { [Plot]: TextLabel } = {}
 local failures: { [string]: number } = {}
 
@@ -994,20 +1012,31 @@ function Nurses.equip(player: Player, nurseId: string, on: boolean): (boolean, s
 	if not data then
 		return false, Remotes.OOPS
 	end
-	local ok, message, list = NurseLogic.equip(data.Equipped, data.Nurses, nurseId, on, Nurses.slots(player))
+	-- Only known nurses count against the slots: a retired or renamed NurseId (kept in the save, Schema) would
+	-- otherwise hold a slot forever with nothing on the plot. It drops out of Equipped with this change.
+	local current = Pure.onDuty(data.Equipped, knownNurse, math.huge)
+	local ok, message, list = NurseLogic.equip(current, data.Nurses, nurseId, on, Nurses.slots(player))
 	if not ok then
 		return false, message
 	end
-	local changed = #list ~= #data.Equipped
-	if changed then
+	local toggled = #list ~= #current
+	if not Pure.sameList(list, data.Equipped) then
+		local now = os.clock()
+		local last = lastEquip[player]
+		if toggled and last and now - last < EQUIP_COOLDOWN then
+			return false, "Wait a moment! ⏳" -- each change builds or removes a nurse model: no spam
+		end
 		local saved = PlayerData.update(player, function(d)
 			d.Equipped = list
 		end)
 		if not saved then
 			return false, Remotes.OOPS
 		end
-		fire(Remotes.NurseNews, player, { Kind = "Equipped", NurseId = nurseId, On = on })
-		sync(player)
+		if toggled then
+			lastEquip[player] = now
+			fire(Remotes.NurseNews, player, { Kind = "Equipped", NurseId = nurseId, On = on })
+		end
+		-- (PlayerData.Changed already ran sync for the plot's nurses.)
 	end
 	return true, if on then "✅ On duty!" else "💤 Off duty"
 end
@@ -1047,8 +1076,10 @@ function Nurses.grant(player: Player, nurseId: string, price: number): (boolean,
 		level, isNew = entry.Level, new
 		NurseLogic.mark(d.NurseIndex, nurseId, "Hired")
 		if new then
-			local fits, _, list = NurseLogic.equip(d.Equipped, d.Nurses, nurseId, true, slots)
-			if fits and #list > #d.Equipped then
+			-- Known nurses only: an unknown id in the save never takes the new nurse's slot (see equip).
+			local current = Pure.onDuty(d.Equipped, knownNurse, math.huge)
+			local fits, _, list = NurseLogic.equip(current, d.Nurses, nurseId, true, slots)
+			if fits and #list > #current then
 				d.Equipped = list
 				equipped = true
 			end
@@ -1109,6 +1140,9 @@ function Nurses.start()
 			return false, Remotes.OOPS
 		end
 		return Nurses.equip(player, nurseId, on)
+	end)
+	Players.PlayerRemoving:Connect(function(player: Player)
+		lastEquip[player] = nil
 	end)
 
 	for _, plot in Plots.all() do

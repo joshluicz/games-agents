@@ -48,7 +48,10 @@ export type CelebrateWords = {
 }
 
 local KINDS = { LevelUp = "LevelUp", NewNurse = "Celebrate", JournalSet = "Celebrate", Room = "Fanfare" }
-local ROLE_ICONS = { Maker = "🧪", Healer = "🩹", Cheerer = "🎉" }
+-- The same role icons as the belt and the Journal (UI/BeltView Pure.ROLE_ICONS; tests/Juice checks they match). Never
+-- an item's icon (🧪 Potion, 🩹 Plaster): a pre-reader would read a Healer as a plaster.
+local ROLE_ICONS = { Maker = "🛠️", Healer = "🩺", Cheerer = "🎉" }
+Words.ROLE_ICONS = ROLE_ICONS
 local MAX_CHIPS = 4
 local MAX_TITLE_WORDS = 3
 

@@ -9,6 +9,8 @@
 --   Beds         beds in the main building, the Stand's own bed included (PlotBuilder adds Beds - 1 in Building)
 --   Queue        patients in line (was Config.MaxQueue for everyone)
 --   RecipeCap    recipes are cut to this many items (Logic/Recipe.effective): "Bath wing recipes" arrive at Lv 2
+--   SpawnSeconds a new patient comes about this often (Server/Patients, ±15%): a bigger hospital is a busier one,
+--                so a level-up raises what a clinic can earn (with nurses to keep up). Lv 1 = Config.SpawnEverySeconds
 --   Floors       storeys PlotBuilder stacks on the shell (0 = the open-air Stand)
 --   Unlocks      short chips for the Shop: an emoji, then two or three words
 -- The Lv 3 "Golden capsule" of the first design became the belt (memory-20261116-012), so Lv 3 opens the Garden.
@@ -22,6 +24,7 @@ export type Level = {
 	Beds: number,
 	Queue: number,
 	RecipeCap: number,
+	SpawnSeconds: number,
 	Floors: number,
 	Unlocks: { string },
 }
@@ -36,6 +39,7 @@ local LEVELS: { Level } = {
 		Beds = 1,
 		Queue = 4,
 		RecipeCap = 1,
+		SpawnSeconds = 13,
 		Floors = 0,
 		Unlocks = {},
 	},
@@ -48,6 +52,7 @@ local LEVELS: { Level } = {
 		Beds = 2,
 		Queue = 4,
 		RecipeCap = 2,
+		SpawnSeconds = 11,
 		Floors = 1,
 		Unlocks = { "🧱 Walls and roof", "👩‍⚕️ 2 nurses", "🛏️ 2 beds", "🧪 2-item recipes" },
 	},
@@ -60,6 +65,7 @@ local LEVELS: { Level } = {
 		Beds = 2,
 		Queue = 5,
 		RecipeCap = 3,
+		SpawnSeconds = 10,
 		Floors = 2,
 		Unlocks = { "🏢 2 floors", "✚ Big sign", "👩‍⚕️ 3 nurses", "🌻 Garden", "🧍 Line of 5" },
 	},
@@ -72,6 +78,7 @@ local LEVELS: { Level } = {
 		Beds = 3,
 		Queue = 5,
 		RecipeCap = 3,
+		SpawnSeconds = 9,
 		Floors = 3,
 		Unlocks = { "🏢 3 floors", "🚑 Ambulance bay", "👩‍⚕️ 4 nurses", "🛏️ 3 beds" },
 	},
@@ -84,6 +91,7 @@ local LEVELS: { Level } = {
 		Beds = 3,
 		Queue = 6,
 		RecipeCap = 3,
+		SpawnSeconds = 8,
 		Floors = 4,
 		Unlocks = { "🗼 Tower", "✨ Neon sign", "🚁 Helipad", "👩‍⚕️ 5 nurses", "🧍 Line of 6" },
 	},

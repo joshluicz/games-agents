@@ -9,6 +9,7 @@ Config.CurrencyName = "Cash" -- the leaderstats name, and what the HUD calls mon
 
 -- Pay (Logic/Pay)
 Config.BasePay = 12 -- cash for one cure before bonuses
+Config.RecipeItemBonus = 0.5 -- each recipe item after the first adds +50% (a 2-item cure pays x1.5, 3 items x2)
 Config.QuickServeBonus = 0.5 -- up to +50% for curing with most of the patience left
 Config.TipsPerLevel = 0.2 -- each Tip Jar level adds +20% cash
 Config.NightPayMultiplier = 2
@@ -25,7 +26,7 @@ Config.MaxQueue = 4 -- patients waiting at one clinic at once
 Config.QueueSpacing = 7 -- studs between patients in the queue (creatures are player-sized)
 Config.QueueDepth = 7 -- studs the line runs straight back from the counter before it turns sideways
 Config.CreatureSize = 1.6 -- every creature's size multiplier (about a player's height)
-Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7)
+Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7); Lv 1. Data/Levels SpawnSeconds is per level
 Config.RecoverSeconds = 4 -- time in bed (or in place) before the cure lands
 Config.QueuePatienceRate = 0.5 -- patience drains at this speed behind the front of the line (1 = full speed)
 Config.GuestPatienceMultiplier = 1.5 -- regulars and Today's Visitor wait this much longer
@@ -131,7 +132,7 @@ Config.Belt = {
 	ServerStepSeconds = 1, -- the server moves riders this often; clients glide them every frame
 	MaxRiders = 8, -- a safety cap on riders at once
 	Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
-	PriceScale = { 1, 1.25, 1.5, 1.75, 2 }, -- x by hospital level, so newcomers can always afford Commons
+	PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 }, -- x by hospital level, so newcomers can always afford Commons (open: §E5)
 }
 
 -- Nurses on your plot (Logic/Nurse, Server/Nurses). Speed and strength scale with rarity x level (1-5).

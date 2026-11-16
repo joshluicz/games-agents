@@ -305,6 +305,9 @@ function Carry.add(player: Player, itemId: string): boolean
 	if not isPlayer(player) or type(itemId) ~= "string" or type(rawget(Items :: any, itemId)) ~= "table" then
 		return false
 	end
+	if not joined[player] then
+		return false -- not joined yet, or gone (PlayerRemoving already cleared them): never bring their state back
+	end
 	local list = carried[player]
 	if not list then
 		list = {}

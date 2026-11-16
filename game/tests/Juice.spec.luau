@@ -150,6 +150,19 @@ T.describe("Celebrate words", function()
 		expect(words.Chips[1]).toBe(Rarities[nurse.Rarity].Icon .. " " .. nurse.Rarity)
 		expect(words.Sound).toBe("Celebrate")
 	end)
+	test("NewNurse: role icons match the belt and the Journal (never an item's icon)", function()
+		local source = fs.readFile(root .. "/src/client/UI/BeltView.luau")
+		for role, icon in Words.ROLE_ICONS do
+			local belt = string.match(source, "Pure%.ROLE_ICONS = {[^}]*" .. role .. ' = "([^"]+)"')
+			expect(belt).toBe(icon)
+		end
+		for _, id in Nurses.Order do
+			local nurse = Nurses[id]
+			local words =
+				Words.of({ Kind = "NewNurse", Title = "New nurse!", Icon = "👩‍⚕️", NurseId = id }, data)
+			expect(words.Chips[2]).toBe(Words.ROLE_ICONS[nurse.Role] .. " " .. nurse.Role)
+		end
+	end)
 	test("NewNurse: an unknown id (or Order) still celebrates, without a portrait", function()
 		local words =
 			Words.of({ Kind = "NewNurse", Title = "New nurse!", Icon = "👩‍⚕️", NurseId = "Order" }, data)

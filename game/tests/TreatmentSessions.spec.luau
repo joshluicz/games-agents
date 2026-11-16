@@ -102,6 +102,7 @@ local Economy = {
 	end,
 }
 local saves = {}
+local updates = 0 -- PlayerData.update calls that reached a save
 local PlayerData = {
 	get = function(player)
 		return saves[player]
@@ -110,6 +111,7 @@ local PlayerData = {
 		if not saves[player] then
 			return false
 		end
+		updates += 1
 		fn(saves[player])
 		return true
 	end,
@@ -282,6 +284,19 @@ T.describe("Treatment sessions (mocked)", function()
 		expect(outcome.Combo).toBe(0)
 		expect(outcome.Complete).toBe(false)
 		expect(cash[a]).toBe(nil)
+	end)
+
+	test("SetSimple to what it already is: ok, but no save write", function()
+		local a = newPlayer("A5b")
+		saves[a] = { Simple = false }
+		local before = updates
+		expect(SetSimple(a, false)).toBe(true)
+		expect(updates).toBe(before)
+		expect(SetSimple(a, true)).toBe(true)
+		expect(updates).toBe(before + 1)
+		expect(SetSimple(a, true)).toBe(true)
+		expect(updates).toBe(before + 1)
+		expect(saves[a].Simple).toBe(true)
 	end)
 
 	test("Simple mode: all Good whatever is reported, no tip", function()

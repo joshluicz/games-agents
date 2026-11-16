@@ -318,13 +318,18 @@ local function setSimple(player: Player, on: any): (boolean, string)
 	if type(on) ~= "boolean" then
 		return false, Remotes.OOPS
 	end
-	if not PlayerData.get(player) then
+	local data = PlayerData.get(player)
+	if not data then
 		return false, Remotes.OOPS
 	end
-	PlayerData.update(player, function(data)
-		data.Simple = on
+	local message = if on then "👆 Simple taps on!" else "🎮 Mini-games on!"
+	if data.Simple == on then
+		return true, message -- nothing changes: no save write, no snapshot push
+	end
+	PlayerData.update(player, function(d)
+		d.Simple = on
 	end)
-	return true, if on then "👆 Simple taps on!" else "🎮 Mini-games on!"
+	return true, message
 end
 
 -- A Healer is ready: Patients gives the front patient what the tray holds for it (OK, no tip, no combo).

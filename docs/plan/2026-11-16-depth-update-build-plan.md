@@ -196,7 +196,8 @@ today's attributes (`PatientId`, `Kind`, `Regular`, `Ailment`, `Station`, `Item`
 - **Beds:** Patients finds free beds among `Bed_%d+` BaseParts under `Rooms` **and** `Building` (T1 changes
   `freeBed` and `deactivate`). The level's `Beds` count includes the Stand's own bed: Building adds `Beds − 1`.
 - The Building never covers the Counter, the queue lane, the stations' prompts or the gate, and keeps the plot
-  ≤ 400 parts at Lv 5 (T5 measures it).
+  ≤ 400 parts at Lv 5 without decor (389 counted; T5 measures it). Decor comes on top: 10 slots, each piece
+  ≤ 25 parts (DecorBuilder warns past it), so a fully decorated Lv 5 plot is about 500 (perf budget note).
 
 **The belt (T3).** `Workspace.NurseBelt` (Model), built by `NurseBelt.start()` (not by PlotBuilder):
 - Placed at `Config.Town.Origin + Config.Belt.Offset` (east of the plaza, on the street's centre line, riders
@@ -280,15 +281,18 @@ the lead applies T7's version.
   | Legendary (2) | AuroraOtter (Healer) · StarlightLamb (Cheerer) |
   | Mythic (1) | MoonpuffDrake (Maker) |
   | Secret (1) | GoldieGryphlet (Healer) |
-- **✚ `Levels`**: an ARRAY `Levels[1..5]` of `{ Name, Icon, Stars, Cash, Slots, Beds, Queue, RecipeCap, Floors, Unlocks: { string } }`.
+- **✚ `Levels`**: an ARRAY `Levels[1..5]` of `{ Name, Icon, Stars, Cash, Slots, Beds, Queue, RecipeCap, SpawnSeconds, Floors, Unlocks: { string } }`.
 
-  | Lv | Name | ⭐ gate | 💰 | Slots | Beds | Queue | Recipe cap | Floors | Unlocks (chips) |
-  |---|---|---|---|---|---|---|---|---|---|
-  | 1 | First-Aid Stand | 0 | 0 | 1 | 1 | 4 | 1 | 0 | – |
-  | 2 | Clinic | 15 | 400 | 2 | 2 | 4 | 2 | 1 | walls + roof, 2 nurses, 2 beds, 2-item recipes |
-  | 3 | Hospital | 45 | 1,500 | 3 | 2 | 5 | 3 | 2 | 2 floors, ✚ sign, 3 nurses, 🌻 Garden, line of 5 |
-  | 4 | Big Hospital | 100 | 5,000 | 4 | 3 | 5 | 3 | 3 | 3 floors, ambulance bay, 4 nurses, 3 beds |
-  | 5 | Mega Hospital | 200 | 15,000 | 5 | 3 | 6 | 3 | 4 | tower, neon sign, helipad, 5 nurses, line of 6 |
+  | Lv | Name | ⭐ gate | 💰 | Slots | Beds | Queue | Recipe cap | Spawn (s) | Floors | Unlocks (chips) |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | 1 | First-Aid Stand | 0 | 0 | 1 | 1 | 4 | 1 | 13 | 0 | – |
+  | 2 | Clinic | 15 | 400 | 2 | 2 | 4 | 2 | 11 | 1 | walls + roof, 2 nurses, 2 beds, 2-item recipes |
+  | 3 | Hospital | 45 | 1,500 | 3 | 2 | 5 | 3 | 10 | 2 | 2 floors, ✚ sign, 3 nurses, 🌻 Garden, line of 5 |
+  | 4 | Big Hospital | 100 | 5,000 | 4 | 3 | 5 | 3 | 9 | 3 | 3 floors, ambulance bay, 4 nurses, 3 beds |
+  | 5 | Mega Hospital | 200 | 15,000 | 5 | 3 | 6 | 3 | 8 | 4 | tower, neon sign, helipad, 5 nurses, line of 6 |
+
+  `SpawnSeconds` (added by the review fixes, §E5): a new patient comes about this often (±15%), so a level-up
+  raises what a clinic can earn; Lv 1 is the old `Config.SpawnEverySeconds` (13).
 
   ⭐ is a **gate** (needed, not spent), like rooms; 💰 is spent (§E asks Joshua to confirm).
 
@@ -312,7 +316,7 @@ Config.Belt = {
   GoldenEverySeconds = 1200, GoldenSeconds = 120, PityArrivals = 8,
   HireCooldown = 3, HireDistance = 40, SeenDistance = 100, ServerStepSeconds = 1, MaxRiders = 8,
   Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
-  PriceScale = { 1, 1.25, 1.5, 1.75, 2 },                  -- by the viewer's (and the hirer's) hospital level
+  PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 },                  -- by the viewer's (and the hirer's) hospital level (§E5)
 }
 Config.Nurses = {
   MaxLevel = 5, TrayMax = 4, MinSeconds = 3, FasterPerLevel = 0.08,
@@ -323,6 +327,10 @@ Config.Nurses = {
   CheerPerLevel = 0.03,
 }
 ```
+Pay (review fixes, §E5): `Config.RecipeItemBonus = 0.5`: each recipe item after the first adds +50% to the cure's
+cash (`Logic/Pay.reward` reads `Items`, the recipe's length, and `Cheer`, the plot's `CheerTip`, from the cure;
+`Types.CureCtx` carries both). So a Cheerer's 💰+% shows on every cure, not only on the capped tip.
+
 Odds the sign prints (`Logic/Belt.odds`), percent:
 
 | | Common | Rare | Epic | Legendary | Mythic | Secret |
@@ -357,7 +365,7 @@ Odds the sign prints (`Logic/Belt.odds`), percent:
   `alpha(startAt, now, rideSeconds)` · `canHire(entry?, cfg): (ok, message)`.
 - **`Logic/Levels`**: `max(levels)` · `clamp(levels, level)` · `row(levels, level)` · `nextRow(levels, level)` ·
   `canLevelUp(data, levels): (ok, message)` ("Max level!", "Need ⭐n", "Need 💰n") · `slots` · `beds` · `queue` ·
-  `recipeCap` (each `(levels, level): number`) · `impliedByRoom(levels, room): number` · `roomAllowed(room, level)`.
+  `recipeCap` · `spawnSeconds` (each `(levels, level): number`) · `impliedByRoom(levels, room): number` · `roomAllowed(room, level)`.
 - **`Logic/Nurse`**: `hire(entry?, cfg): (entry, isNew, levelledUp)` · `stats(role, rarity, level, cfg): { Every:
   number?, Patience: number, Tip: number }` · `bestCheer(list): { Patience, Tip }` · `equip(equipped, nurses,
   nurseId, on, slots): (ok, message, equipped)` · `mark(index, nurseId, mark): (index, changed)` ·
@@ -420,7 +428,8 @@ the prompts, runs arrivals, Night Rush, Golden Hour, pity, the sign, `Shout`s) �
 level-up; sets the plot's `Level` attribute) · `Levels.level(p): number` (1 until loaded) ·
 `Levels.levelUp(p): (boolean, string)` (`Logic/Levels.canLevelUp`, spend 💰 and set `Data.Level` in ONE update,
 `Economy.Purchased:Fire(p, "Level", tostring(level))`, `Celebrate` LevelUp, `LevelChanged`) ·
-`Levels.slots(p)`, `Levels.queueCap(p)`, `Levels.recipeCap(p)`, `Levels.beds(p)` (numbers from Data/Levels) ·
+`Levels.slots(p)`, `Levels.queueCap(p)`, `Levels.recipeCap(p)`, `Levels.beds(p)`, `Levels.spawnSeconds(p)` (numbers
+from Data/Levels) ·
 signal `Levels.LevelChanged (p, level, previous)`.
 
 **T5 `PlotBuilder`** adds `PlotBuilder.buildBuilding(plotModel, level): Model` (replaces `Plot.Building`; extra
@@ -448,7 +457,7 @@ CreatureMotion`. Each in a pcall; a missing one is skipped.
 | `NurseNews (info)` | Main.client (remote) | T4, T6 |
 | `NursesNew (count)` | T4 (unseen journal news) | Hud (the 👩‍⚕️ dot) |
 | `Shout (info)` | Main.client (remote) | T4 |
-| `Banner (spec)` | T4 (Golden Hour countdown, Night Rush, Epic+ arrival) | T6 Toasts |
+| `Banner (spec)` | T4 (Golden Hour, Night Rush, Epic+ arrival; none sends `EndsAt`, §E6) | T6 Toasts |
 | `Celebrate (info)` | Main.client (remote), T6 itself (rooms) | T6 Celebrate |
 | `Open ("Nurses")` | Hud | T4 NursePanel |
 | `Open ("Shop", "Hospital")` | anyone | T5 Shop (the new tab) |
@@ -547,7 +556,7 @@ Patients → Treatment → Nurses → Levels → (PlayerData, Plots, Economy, Pl
 - [ ] 7. The belt: a nurse every ~6 s, each takes ~30 s; prices scale with your level; Hire by tap and by prompt;
   a second player sees the same riders; the hired one hops off; a Common/Rare is replaced quickly.
 - [ ] 8. Night (`SkipPhase`): the sign shows Night Rush odds; Mythic possible. Golden Hour (shorten
-  `GoldenEverySeconds` in Studio): banner with countdown, Secret on the sign.
+  `GoldenEverySeconds` in Studio): a short banner with the Secret chance (no countdown, §E6), Secret on the sign.
 - [ ] 9. Pity: force 8 Commons in a row (Studio) → the 9th is Rare+.
 - [ ] 10. Journal: silhouettes until seen; NEW! on first seen and first hire; completion %; completing Commons gives
   💰300 + Plaster Rug once.
@@ -567,3 +576,16 @@ Patients → Treatment → Nurses → Levels → (PlayerData, Plots, Economy, Pl
    only 3-item recipes are the regulars'. A Garden wing (patients + a station) would be a content add.
 3. **Lv 3 "Golden capsule"** is replaced by the belt (`memory-20261116-012`); Lv 3 unlocks the Garden instead.
 4. **Nurse names** are placeholders (Joshua's and his brother's to rename): see `Data/Nurses`.
+5. **Review fixes to the economy (2026-11-16, Claude's tuning; confirm or change the numbers).** The review found
+   that a level-up cost a player more and earned them nothing: patients came every 13 s at every level, a 2-3 item
+   recipe paid the same as a 1-item one, and nurse prices doubled by Lv 5. Now: patients come faster each level
+   (`SpawnSeconds` 13/11/10/9/8), each recipe item after the first pays +50% (`Config.RecipeItemBonus`), a Cheerer's
+   💰+% applies to the cure's cash, and the level price scale is ×1.0–×1.4 (was ×2.0). All in `Config` and
+   `Data/Levels`.
+6. **Golden Hour has no countdown (2026-11-16).** The design asked for a countdown banner; the review read a ticking
+   2-minute clock on a 1% Secret as a FOMO timer (red line 3). Now: one short banner per window with the real chance
+   ("Golden Hour: Secret 1%"), "👑 Golden Hour!" on the sign's chip, no clock anywhere (Night Rush's banner lost its
+   clock too). The server still sends `GoldenEndsAt`/`EndsAt`, so a countdown is a client change if wanted.
+7. **Should a GOOD! hold the combo?** The design (and §B7 `MiniGame.settle`) reset the combo on any non-Perfect, so a
+   green GOOD! drops 🔥 9 to nothing. Kept as ruled; the chip now rests at a warm "Go!" instead of a grey 0. Holding
+   the combo on Good (only OK resets) is a one-line change in `Logic/MiniGame.settle` plus its spec.

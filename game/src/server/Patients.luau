@@ -3,8 +3,9 @@
 -- (build plan §B5 "Patients", Task 1). Server only. API: Patients.start().
 --
 -- A visit, step by step:
---   1. Arrive. Each owned plot gets a patient every Config.SpawnEverySeconds while fewer than the owner's
---      hospital level allows are in line (Levels.queueCap). Who comes, in order: a regular whose story beat is due
+--   1. Arrive. Each owned plot gets a patient every few seconds (the owner's hospital level: Levels.spawnSeconds,
+--      13 s at Lv 1 down to 8 s at Lv 5) while fewer than that level allows are in line (Levels.queueCap). Who
+--      comes, in order: a regular whose story beat is due
 --      (Story.dueRegular, with a speech bubble from Story.bubble), Today's Visitor (Daily.visitorFor, a ⭐ on the
 --      badge), otherwise a patient whose ailment's station is on the plot. Night patients only come at night (and
 --      are likelier then), Winter patients need the Winter Wing, and new Book pages are likelier. Variants: Sparkly
@@ -124,6 +125,7 @@ local PROMPT_DISTANCE = 10
 local DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
 local TREAT_COOLDOWN = 0.3 -- per player
 local MAX_CHEER_PATIENCE = 3 -- a sanity cap on the plot's CheerPatience (Cheerers give at most ~1.5)
+local MAX_CHEER_TIP = 3 -- and on its CheerTip (the cure's cash, Logic/Pay)
 local ITEM_PATIENCE = Config.Treat.ItemPatience -- each recipe item given refills this share of the patience
 
 -- Feel
@@ -888,6 +890,8 @@ local function payCure(p: Patient)
 		Visitor = p.Visitor,
 		PatienceLeft = p.PatienceLeft,
 		Position = p.Root.Position + Vector3.new(0, 2.5 * p.BaseScale, 0),
+		Items = #p.Recipe, -- a longer recipe pays more
+		Cheer = Pure.cheer(p.Plot.Plot.Model:GetAttribute("CheerTip"), MAX_CHEER_TIP), -- the plot's Cheerer
 	}
 	-- Its own thread: a patient thread cancelled mid-visit can never cut a reward in half.
 	task.spawn(function()
@@ -1456,7 +1460,9 @@ local function tick(state: PlotState, now: number, dt: number)
 		local plan = tutorialAsk("spawnPlan", "Normal", state.Owner, next(state.All) == nil, state.SecondSpawned)
 		-- A spawn the tutorial holds back keeps its turn, so the patient comes the moment the tutorial is ready.
 		if plan ~= "Wait" then
-			state.NextSpawn = now + Config.SpawnEverySeconds * rng:NextNumber(0.85, 1.15)
+			-- A higher hospital level gets patients faster (Data/Levels SpawnSeconds): the level's throughput.
+			local every = levelAsk("spawnSeconds", state.Owner, Config.SpawnEverySeconds)
+			state.NextSpawn = now + every * rng:NextNumber(0.85, 1.15)
 			trySpawn(state, if type(plan) == "string" then plan else "Normal")
 		end
 	end
@@ -1692,7 +1698,8 @@ local function healFront(plotArg: any, _nurseId: string): { string }
 end
 
 -- The clinic is closing mid-mini-game: if the items in it finish the recipe, the patient counts as treated (so
--- settleEarly cures it now); otherwise the helper gets their own items back. Either way the session closes.
+-- settleEarly cures it now); otherwise a helper who is staying gets their own items back (never the owner: the
+-- clinic closes because they're leaving). Either way the session closes.
 local function closeSessionEarly(p: Patient)
 	local indices = p.SessionIndices
 	if not p.Session or not indices then
@@ -1706,7 +1713,8 @@ local function closeSessionEarly(p: Patient)
 		p.State = "Treated"
 		dropSession(p, false)
 	else
-		dropSession(p, true)
+		local helper = p.SessionHelper
+		dropSession(p, helper ~= nil and helper ~= p.Plot.Owner and helper.Parent == Players)
 	end
 end
 

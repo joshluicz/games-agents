@@ -89,6 +89,21 @@ T.describe("Levels", function()
 		expect(Levels.recipeCap(LevelsData, 99)).toBe(3)
 	end)
 
+	test("each level brings patients faster (spawnSeconds), Lv 1 at Config's 13 s", function()
+		local last = math.huge
+		for level = 1, Levels.max(LevelsData) do
+			local seconds = Levels.spawnSeconds(LevelsData, level)
+			expect(seconds < last).toBe(true)
+			expect(seconds >= 1).toBe(true)
+			last = seconds
+		end
+		expect(Levels.spawnSeconds(LevelsData, 1)).toBe(13)
+		expect(Levels.spawnSeconds(LevelsData, 5)).toBe(8)
+		expect(Levels.spawnSeconds(LevelsData, 0 / 0)).toBe(13)
+		expect(Levels.spawnSeconds({ { SpawnSeconds = 0 } } :: any, 1)).toBe(13)
+		expect(Levels.spawnSeconds({ {} } :: any, 1)).toBe(13)
+	end)
+
 	test("Schema.ROOM_LEVELS matches impliedByRoom for every room", function()
 		for _, roomId in Rooms.Order do
 			local implied = Levels.impliedByRoom(LevelsData, Rooms[roomId])

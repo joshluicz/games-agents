@@ -10,7 +10,7 @@ come from reading the scripts, and the lead fills in the measured column during 
 | Rule | Limit | Who keeps it |
 |---|---|---|
 | Frame rate | 60 fps on a mid phone with 6 full plots and the belt | everyone; the lead measures |
-| Parts per plot | ≤ 400 at hospital Lv 5 (rooms + building + decor, without creatures) | T5 `PlotBuilder.buildBuilding` measures |
+| Parts per plot | ≤ 400 at hospital Lv 5 for the plot, rooms and building (389 counted from the code), **plus decor**: 10 slots, ≤ 25 parts a piece, so about 500 with every slot filled (review fix 2026-11-16: the two numbers used to disagree on whether decor counted) | T5 `PlotBuilder.buildBuilding` measures; `DecorBuilder` warns once per DecorId over 25 |
 | Parts per creature | under 40 (placeholder); a night creature adds 1 (its glow ring) | `CreatureBuilder`, `NurseBuilder` |
 | Highlights | **at most 1 in the whole world**; creatures, nurses, riders and kit models never use one | `CreatureBuilder` (creatures and kit creatures); `PlotBuilder`, `DecorBuilder`, `NurseBuilder` and `NurseBelt` remove any in kit models (applied at integration) |
 | Lights | no light casts shadows (`Shadows = false` on every PointLight, SpotLight and SurfaceLight) | every builder; kit models are forced off |
@@ -52,6 +52,7 @@ existing ones). The Bloom at night (`DayNight`) makes the Neon glow.
 | `UI/Guide` | Polled 5 times a second until 3 cures. Its pin's endless bounce tween ran while hidden. It handled every part added to the town | Polls 5 times a second only while the pin shows. Otherwise it rests until your plot, your carry, your cures, the snapshot or the plot's `FrontStation` change (1 s at most). The bounce pauses while hidden. It tracks station prompts by tag only |
 | `UI/PromptFilter` | Handled every part added to `Workspace.Clinics` (each creature, nurse and building floor) | Tags only (`ClinicSignPrompt`, `StationPrompt`, `TreatPrompt`), plus a watch on each plot's Counter until Patients tags its prompt |
 | `Feel/CreatureMotion` | (new) | Runs only while a creature animates |
+| `UI/BeltView` | (new) RenderStepped and every rider's rarity shimmer all session, for every player | The frame loop runs only while the camera is within 320 studs of the belt; a rider's card is shown (and shimmers) only within 50 studs of you (review fix 2026-11-16) |
 
 MicroProfiler labels to look for: `CreatureMotion`, `Atmosphere sway`, `Tutorial layout`.
 
@@ -62,6 +63,11 @@ These trade looks for speed, so the brothers decide:
 - `CULL_STUDS` in `Feel/CreatureMotion` (160): lower it and fewer far creatures get drawn in between.
 - Particle rates: Sparkly and Frosty glitter, heal sparkles, snow (`Atmosphere`'s `SNOW.Rate`).
 - `BillboardGui.MaxDistance` on badges (75) and station icons (80).
+- Decor parts: the placeholder recipes run about 8 to 25 parts a piece (a Rug about 9, a Plant 12 or more). If a
+  fully decorated Lv 5 plot costs frames, trim the biggest recipes first, or cut the Lv 5 shell (merge window and
+  rail parts, more SurfaceGui detail).
+- The belt's cards show only within 50 studs of you (`BeltView` `CHIP_MARGIN`), and its frame loop sleeps while the
+  camera is more than 320 studs from the belt (`MOVE_MAX_DISTANCE`).
 
 ## How to measure (lead, §D item 14)
 1. **Before/after on the same machine:** run the same session on `main` and on this branch. Use the Roblox player's
@@ -76,7 +82,8 @@ These trade looks for speed, so the brothers decide:
    - Shadow lights: the same loop with `d:IsA("Light") and d.Shadows` should print 0.
    - Parts per plot at Lv 5, without creatures: `local n=0 for _,d in workspace.Clinics.Plot_1:GetDescendants() do
      if d:IsA("BasePart") and not d:FindFirstAncestor("Patients") and not d:FindFirstAncestor("Nurses") then n+=1
-     end end print(n)` should print 400 or less.
+     end end print(n)` should print 400 or less with no decor placed, and about 500 with every decor slot filled
+     (this count includes decor).
 4. **Sleep checks:** with nothing moving (an empty clinic by day, tutorial done, calm mode on), the MicroProfiler
    shows none of the labels above.
 
@@ -87,4 +94,5 @@ These trade looks for speed, so the brothers decide:
 | Network receive per client while patients hop (KB/s) | lower than `main` | | |
 | Highlights in the world | ≤ 1 | | |
 | Shadow-casting lights | 0 | | |
-| Parts in Plot_1 at Lv 5 (no creatures) | ≤ 400 | | |
+| Parts in Plot_1 at Lv 5 (no creatures, no decor) | ≤ 400 | | |
+| Parts in Plot_1 at Lv 5 with every decor slot filled (no creatures) | about 500 | | |

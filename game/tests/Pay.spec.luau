@@ -8,6 +8,7 @@ local Pay = require("../src/shared/Logic/Pay")
 
 local CFG = {
 	BasePay = 12,
+	RecipeItemBonus = 0.5,
 	QuickServeBonus = 0.5,
 	TipsPerLevel = 0.2,
 	NightPayMultiplier = 2,
@@ -116,6 +117,28 @@ T.describe("Pay.reward", function()
 		expect(Pay.reward(args({ Tips = -4 })).Cash).toBe(18)
 		expect(Pay.reward(args({ BasePay = 0 / 0 })).Cash).toBe(1)
 		expect(Pay.reward(args({ BasePay = math.huge })).Cash).toBe(1)
+	end)
+
+	test("a longer recipe pays more: +50% per item after the first", function()
+		expect(Pay.reward(args({ Items = 1 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 2 })).Cash).toBe(27) -- 12 x 1.5 x 1.5
+		expect(Pay.reward(args({ Items = 3 })).Cash).toBe(36) -- 12 x 2 x 1.5
+		expect(Pay.reward(args({ Items = 3 })).Stars).toBe(1) -- stars don't change
+	end)
+
+	test("recipe length: junk is 1 item, and never more than 3", function()
+		expect(Pay.reward(args({ Items = nil })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 0 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 0 / 0 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Items = 99 })).Cash).toBe(36)
+	end)
+
+	test("a Cheerer on duty multiplies the cure's cash (so its 💰+5% shows)", function()
+		expect(Pay.reward(args({ PatienceLeft = 0, Cheer = 1.05 })).Cash).toBe(13) -- 12.6
+		expect(Pay.reward(args({ Cheer = 1.25 })).Cash).toBe(23) -- 18 x 1.25 = 22.5
+		expect(Pay.reward(args({ Cheer = 0.5 })).Cash).toBe(18) -- below 1 is no Cheerer
+		expect(Pay.reward(args({ Cheer = 0 / 0 })).Cash).toBe(18)
+		expect(Pay.reward(args({ Cheer = 50 })).Cash).toBe(54) -- capped at x3
 	end)
 
 	test("a missing Cfg field is neutral, never an error", function()

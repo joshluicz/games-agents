@@ -9,6 +9,8 @@
 --   Levels.canLevelUp(data, levels): (ok, message) checks, in order: the top · Clinic Stars (a gate, not spent) ·
 --                                                  cash. Messages: "Max level!", "Need ⭐15", "Need 💰400"; "" when ok
 --   Levels.slots / beds / queue / recipeCap (levels, level): number    from the row
+--   Levels.spawnSeconds(levels, level): number     seconds between new patients (the row's SpawnSeconds; 13 when a
+--                                                  row has none or junk)
 --   Levels.impliedByRoom(levels, room): number     the highest level whose ⭐ gate is at or below the room's own ⭐
 --                                                  gate (and at least the room's Level): what an old save that owns
 --                                                  the room starts at (Schema.ROOM_LEVELS mirrors it)
@@ -23,6 +25,7 @@ export type Level = {
 	Beds: number,
 	Queue: number,
 	RecipeCap: number,
+	SpawnSeconds: number,
 	Floors: number,
 	Unlocks: { string },
 }
@@ -30,6 +33,7 @@ export type Level = {
 local Levels = {}
 
 local STAR_ICON = "⭐" -- the same icons as Logic/Progress
+local DEFAULT_SPAWN_SECONDS = 13 -- Config.SpawnEverySeconds (this module never requires Config)
 local CASH_ICON = "💰"
 
 local function num(value: any, fallback: number): number
@@ -87,6 +91,11 @@ end
 
 function Levels.recipeCap(levels: { Level }, level: any): number
 	return Levels.row(levels, level).RecipeCap
+end
+
+function Levels.spawnSeconds(levels: { Level }, level: any): number
+	local seconds = num(Levels.row(levels, level).SpawnSeconds, DEFAULT_SPAWN_SECONDS)
+	return if seconds >= 1 then seconds else DEFAULT_SPAWN_SECONDS
 end
 
 function Levels.impliedByRoom(levels: { Level }, room: any): number
