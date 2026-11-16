@@ -28,13 +28,13 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 ### Shared (server and client)
 | File | Does |
 |---|---|
-| `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs. Also who's an admin: `AdminUserIds`, `AdminNames` ([Admin panel](#admin-panel)) |
+| `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs. Also who's an admin: `AdminUserIds`, `AdminNames` ([Admin panel](#admin-panel)), and the `Leaderboards` timings and board lists ([Leaderboards](#leaderboards)) |
 | `shared/Palette.luau` | The candy-pop colours and fonts shared by the world and the UI (`memory-20261116-007`). Change colours here |
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids) |
-| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck` and `Admin`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
+| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`, `Admin` and `GetBoards`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
 | `shared/Data/*.luau` | **Content**: `Ailments`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`. Keyed maps carry `.Order`, and everything is frozen |
-| `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done), `isNewer(saved)` |
+| `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done), `isNewer(saved)`. `WeekCures` = { Week, Count } for the weekly leaderboard |
 | `shared/Logic/Tutorial.luau` | The first-session tutorial's rules: the steps (1 welcome .. 8 Book, 9 done), `advance(step, event)`, `resume` after a rejoin, who Patients may send (`spawnPlan`, `queueCap`), the shop top-up (`cheapest`, `topUp`) |
 | `shared/Logic/Pay.luau` | Cash and ⭐ for a cure |
 | `shared/Logic/Prices.luau` | Upgrade prices, hold time, tray capacity, patience |
@@ -42,6 +42,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Logic/Book.luau` | Patient Book stamps and set completion |
 | `shared/Logic/Story.luau` | Regulars: who's unlocked, whether a beat is due today, advancing a beat |
 | `shared/Logic/Daily.luau` | UTC day, Today's Visitor, banked goals, mailbox |
+| `shared/Logic/Leaderboard.luau` | The leaderboards' rules ([Leaderboards](#leaderboards)): the boards, the UTC week, store names, a player's values from their save, what changed since the last write, backoff, permanent errors, the live merge and rank, admin exclusion |
 | `shared/Logic/Admin.luau` | The admin panel's rules: who is an admin, the fixed action list and the argument each takes, the alone-in-server rule ([Admin panel](#admin-panel)) |
 
 `Logic/*` is **pure**: no Roblox services and no requires, so Lune can test it. The server passes `Config` in as
@@ -68,9 +69,11 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Stations.luau` | A hold-to-make prompt on every `Station_*`, with the hold time checked on the server |
 | `server/Patients.luau` | A queue per plot, the `Treat` prompt on the Counter, beds, patience, night patients, variants, visitors and regulars. During an owner's tutorial: its two patients, one at a time, no patience running out (steps 1-6), no regulars or visitor |
 | `server/CreatureBuilder.luau` | A creature Model from its `Look`, or a clone of `ServerStorage.Creatures.<PatientId>`. The badge and bubble stop growing up close (`DistanceLowerLimit`) |
-| `server/Cure.luau` | One cure, in order: pay, cash, ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
+| `server/Cure.luau` | One cure, in order: pay, cash (with `Cured` and this UTC week's `WeekCures`), ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` |
 | `server/Visits.luau` | Hearts on the sign (once per owner per UTC day), the owner's `OpenHelpers` toggle, the friend referral reward |
+| `server/Leaderboards.luau` | The global leaderboards ([Leaderboards](#leaderboards)): throttled OrderedDataStore writes from the server's save, cached reads every 2 minutes, DisplayName lookups, admins kept off, the `GetBoards` remote, the plaza boards' contents |
+| `server/BoardBuilder.luau` | Builds the plaza leaderboards (`Workspace.TownBoards`, the "🏆 Top Doctors" gantry west of the plaza) and draws their rows. A library `Leaderboards` uses |
 | `server/Admin.luau` | The 🛠️ Admin panel's server side ([Admin panel](#admin-panel)): decides who is an admin (sets the `IsAdmin` player attribute), looks up `Config.AdminNames` at startup, and wires the `Admin` remote: re-checks admin on every call, validates the action and its argument, logs `[Admin] <name> <action>`, then calls the systems' own APIs. Admin-only hooks it uses: `Tutorial.finish`/`restart`, `Patients.sendNext`/`reopen`, `Book.completeAll`, `Story.makeDue`, `Daily.resetToday` |
 
 ### Client
@@ -79,7 +82,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/Main.client.luau` | Builds `ctx` (Remotes, Config, Data, State, `onState`, `toast`, `on`/`fire`), then loads each UI and Feel module in a pcall and calls `init(ctx)` |
 | `client/UI/Theme.luau` · `client/UI/Kit.luau` | The look tokens, and building blocks (panel, button with press bounce, label...). Libraries, not inited |
 | `client/UI/Toasts.luau` | The toast stack at the top centre |
-| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, what you hold (nothing when your hands are empty), the day/night timer, the big 🛒 📖 📬 🎯 buttons, and ⚙️ settings (the 🎵 music and ✨ calm-effects switches, plus 🛠️ Admin for admins only). A new player's HUD reveals itself with the tutorial step; everyone else sees it all |
+| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, what you hold (nothing when your hands are empty), the day/night timer, the big 🛒 📖 📬 🎯 🏆 buttons, and ⚙️ settings (the 🎵 music and ✨ calm-effects switches, plus 🛠️ Admin for admins only). A new player's HUD reveals itself with the tutorial step; everyone else sees it all |
 | `client/UI/Shop.luau` | Upgrades, Rooms and Decor tabs, plus decor place mode |
 | `client/UI/BookPanel.luau` | The Patient Book: cards by wing, silhouettes for patients not yet seen |
 | `client/UI/DayReportPanel.luau` | The end-of-night pop-up (never during the tutorial) |
@@ -87,6 +90,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/UI/Guide.luau` | The first-cures arrow: to the right station, then to the Counter (the tutorial steers it with `Guide.setSteer`). Also sets each station prompt's hold time from your own Faster Hands level |
 | `client/UI/Tutorial.luau` | The tutorial's step card, its pointer, the welcome title card and the first-join camera sweep; turns the camera to your clinic when you arrive |
 | `client/UI/PromptFilter.luau` | Hides world prompts that aren't for you: the helpers switch for visitors, "Send a heart" for the owner, and the Make and Treat prompts on clinics you can't work at (the server still checks) |
+| `client/UI/Boards.luau` | The 🏆 leaderboards panel: a tab per board, the top 10, and your own bar ("You: #12"), from `GetBoards` |
 | `client/UI/AdminPanel.luau` | The 🛠️ Admin panel ([Admin panel](#admin-panel)): buttons only, each one asks the `Admin` remote and toasts the reply; a second page picks a patient to spawn |
 | `client/Feel/Sounds.luau` | One table of built-in `rbxasset://` sound cues; any module plays one with `ctx.fire("Sound", name)` |
 | `client/Feel/CureFX.luau` | Cure sparkles, the "💰 +n" / "⭐ +n" pop, the NEW PAGE banner, new-room and placed-decor celebrations, hearts on your sign |
@@ -98,26 +102,29 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `tests/run.luau` | Runs every `tests/*.spec.luau`, prints PASS/FAIL and exits 1 on any failure |
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
-| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin` |
+| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin`, `Leaderboard` |
 
 ## Boot order
 **Server (`Main.server.luau`):**
 1. `Remotes` is required first, so every remote exists before anything else runs.
 2. The collision groups `Patients` and `Players` are set up. Patients walk through players and each other.
 3. Then `start()`, in this order: `PlayerData` → `State` → `Events` → `Plots` → `Carry` → `Economy` → `Progress` →
-   `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Stations` → `Patients` → `Visits` → `DayNight` → `Admin`.
+   `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Stations` → `Patients` → `Visits` → `Leaderboards` →
+   `DayNight` → `Admin`.
    - `Tutorial` starts before `Stations` and `Patients`, so its quiet toasts and listeners are set before any
      patient comes. `Stations`, `Patients` and `Cure` call its hooks; it requires none of them.
    - `Plots.start()` builds the whole town (`PlotBuilder.buildTown`), with a `Room_Stand` on every plot, before
      `Stations` and `Patients` start.
-   - `CreatureBuilder`, `DecorBuilder` and `Cure` are libraries that other systems require, so they're not in the
-     list.
+   - `CreatureBuilder`, `DecorBuilder`, `BoardBuilder` and `Cure` are libraries that other systems require, so
+     they're not in the list.
+   - `Leaderboards` starts after `Plots` (it reads the built town to place its boards).
    - `Admin` starts last: its remote calls into the systems above.
    - Each `start()` runs in `xpcall`. One that errors prints `[Main] <Name>.start() failed` and the rest still start.
 4. It prints `[Main] Clinic is open.`
 
 **Client (`Main.client.luau`):** waits for `game.Loaded` and builds `ctx`. Then it loads `UI.Toasts`, `Hud`, `Shop`,
-`BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter`, `AdminPanel` and `Tutorial`, then `Feel.Sounds`,
+`BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter`, `AdminPanel`, `Boards` and `Tutorial`, then
+`Feel.Sounds`,
 `CureFX` and `Atmosphere`. Each one is loaded in its own pcall, and its `init(ctx)` runs. A missing or broken module
 warns `[Client] ...` and is skipped. `Music.client` and `RoofFade.client` are separate LocalScripts. Until the
 server's first snapshot arrives, `ctx.State.Tutorial` is 0 ("not known yet"), so the HUD starts calm (only 💰).
@@ -202,6 +209,71 @@ once per player). Replies come back as toasts.
   ```
   As an admin, junk must also return `false` and change nothing: `R.Admin:InvokeServer("AddCash", 1e9)`,
   `("SpawnPatient", "Order")`, `("GiveRobux")`. In a 2-player Studio test both players are admins (Studio).
+
+## Leaderboards
+Global boards for every server: `server/Leaderboards.luau` (rules in `shared/Logic/Leaderboard.luau`, spec
+`tests/Leaderboard.spec.luau`), the plaza boards in `server/BoardBuilder.luau`, and the 🏆 panel in
+`client/UI/Boards.luau`. Tuning in `Config.Leaderboards`.
+
+| Board | Value (from the server's save) | OrderedDataStore (key = `tostring(UserId)`) |
+|---|---|---|
+| 🏥 Most Cured | `Data.Cured`, all time | `Board_Cured_v1` |
+| ⭐ Most Stars | `Data.Stars`, all time | `Board_Stars_v1` |
+| ❤️ Most Hearts | `Data.HeartsReceived`, all time | `Board_Hearts_v1` |
+| 🏆 Cures This Week | `Data.WeekCures.Count` for this UTC week | `Board_Week_v1_w<week>`: a new store every Monday 00:00 UTC, so it starts empty |
+
+- **The week** is `Leaderboard.week(os.time())`: `(unixDay + 3) // 7`, Monday to Sunday UTC (2026-11-16 starts week
+  2968). It uses the real clock, never `Workspace.UtcDay`, so a Studio day test can't write to a future week.
+  `Cure` counts each cure into the save's `WeekCures` ({ Week, Count }; a cure in a new week starts it from 0). The
+  last count of a week is still written to that week's board just after Monday 00:00.
+- **Later boards:** Hospital Level (`Data.Level`) and Nurse Journal % (`Data.NurseIndex` "Hired" entries over the
+  number of nurses in `Data/Nurses`) are defined already and read those fields only if the save has them. Add
+  `"Level"`/`"Journal"` to `Config.Leaderboards.Boards` (and `WorldBoards`, at most 4) once the depth update lands.
+- **`Version`** (1) is in every store name: bump it to start every board fresh.
+- **Trust:** values come only from the server's save, and only from a save that loaded and is being saved
+  (`PlayerData.canSave`): defaults after a failed load, a lost lock or `FreshSave` never reach a board. The client
+  only calls `GetBoards()` (rate-limited; answered from the server's cache, never a DataStore call).
+- **Admins are never on a board** (Joshua, 2026-11-16: the 🛠️ Admin panel adds cash and stars, so their numbers are
+  fake): the game's owner (`game.CreatorId` when a user owns the game) and every UserId in `Config.AdminUserIds`
+  (`311718381`, Dandlepeeps). Their values are never written, and they're filtered out of every list read back, in
+  case an old value is stored. Their 🏆 bar says "🛠️ Admins aren't ranked". **In Studio nobody is excluded**, so the
+  boards can be tested; with API access on, a Studio session writes the admin's real values to the live stores, and
+  live servers filter them out again. (`Config.AdminNames` isn't used here: put the id in `AdminUserIds`.)
+- **Budgets** (Roblox's limits, 2026-11): each player's *changed* values are written at most every 150 s (the first
+  one 75-150 s after joining, jittered), once when they leave, and in `BindToClose`: at most 4 `SetAsync` per player
+  per 150 s, about 1.6 a minute, against 60 + 10 per player per minute per server. Zeros are never written. Each
+  board is read with one `GetSortedAsync` (the top 100) every 120 s, shared by the whole server: 4 reads per 2
+  minutes, against 5 + 2 per player per minute. Names of top-10 players who aren't in the server come from one
+  batched `UserService:GetUserInfosByUserIdsAsync` per read pass, cached for an hour. Every request checks its budget
+  first (`GetRequestBudgetForRequestType`), runs in a pcall, and a failure backs off (30 s, doubling to 10 min).
+- **Live merge:** what the boards and the panel show is the stored top 100 with this server's players' current saved
+  values laid over it, so a cure moves you up within ~5 s without waiting for a write and a read. "You: #n" is exact
+  within the top 100, then "You: #100+".
+- **Names:** the DisplayName and, small, the @username, as Roblox already shows them. Nothing else about anyone.
+- **Studio without API access** (or an unpublished place): the first request fails with a permanent error, Output
+  prints one `[Leaderboards] DataStores aren't available here...` line (no errors), nothing is retried, and the boards
+  and the panel say "Leaderboards open when the game is live" (the panel still shows your own value).
+
+**Where the plaza boards stand.** `Workspace.TownBoards`, rebuilt at every server start: a candy-pop gantry, "🏆 Top
+Doctors", spanning the street just **west** of the plaza, at `Config.Town.Origin.X - 26` (the plaza's radius 17 + 9).
+Two white posts stand on the curbs (z = ±16.9 from the street's centre line); the four boards (🏥 ⭐ ❤️ 🏆, left to
+right as seen from the plaza) hang from a pink beam with their bottoms 7.5 studs up, so players walk under them, and
+face the plaza and the `TownSpawn` (east); the back shows the same boards for players coming from the west plots.
+The street and plaza sizes are read from the built `ClinicTown`, so the gantry follows PlotBuilder's layout. It
+clears the plots (fences at z = ±18.4), the middle plots' gates, signs and mailboxes (x within ±13), the plaza's
+benches, lamps and planters (within 17 of the centre), the street lamps (x = ±39) and the arches (the street's ends).
+**The plaza's east side is left free for the Nurse Belt.**
+
+**Testing it.**
+- Studio, API access **off**: Play. No red errors; the gantry stands west of the spawn saying "Leaderboards open when
+  the game is live"; 🏆 Top (after the tutorial) shows the same with your values.
+- Studio, API access **on** (it writes the live boards from your real save): Play, cure a few. Within ~5 s your row is
+  on the plaza boards and in 🏆 ("You: #n"). After 75-150 s, or on Stop, Output shows no `[Leaderboards] Couldn't
+  write`. The next Play reads the boards back.
+- Live: an admin account (JokingPuzzle, Dandlepeeps) never appears, and its bar says "🛠️ Admins aren't ranked"; a
+  second, non-admin account appears after its first cure.
+- Junk: `game.ReplicatedStorage.Remotes.GetBoards:InvokeServer()` spammed from the command bar returns `nil` past 10
+  calls a second and never costs a DataStore request.
 
 ## Rules the code keeps
 - **The server owns all data and money.** Every RemoteFunction is wired with `Remotes.serve` (10 calls/s per player
@@ -304,6 +376,10 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
 - [ ] 11. Hearts: a heart from a second client counts once a day, and the sign's count is still there after the owner
   rejoins. The OpenHelpers toggle works. A non-friend can't treat when it's closed.
 - [ ] 12. Rejoin keeps everything. Junk remote calls are rejected.
+- [ ] 13. Leaderboards: the 🏆 Top Doctors gantry stands west of the plaza, clear of the street lamps, signs and
+  gates, readable from the spawn and at night. 🏆 Top opens the panel: each tab shows its board, your bar shows "You:
+  #n" (or "Play to join in!"). A cure moves your number within a few seconds. Admins aren't on any board
+  ([Leaderboards](#leaderboards)).
 
 **Edge cases (build plan, Review Focus):**
 - [ ] The plot owner leaves mid-cure: patients, carry visuals and prompts on that plot clean up with no errors, a

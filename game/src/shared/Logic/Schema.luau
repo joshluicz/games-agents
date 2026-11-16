@@ -18,6 +18,8 @@
 --   Tutorial        the first-session tutorial step (Logic/Tutorial: 1 = the welcome .. 9 = done). A save without
 --                   it is migrated: any cure (Cured > 0, a v1 "Served" included) means an existing player, so done;
 --                   anyone else starts at the welcome. A fresh save starts at the welcome.
+--   WeekCures       this player's cures in one UTC week (Logic/Leaderboard.week), for the weekly leaderboard:
+--                   { Week, Count }. A cure in a new week starts the count again (Leaderboard.addWeekCure)
 
 export type BookPage = { Cured: number, Variants: { [string]: boolean } }
 export type StoryEntry = { Beat: number, LastBeatDay: number }
@@ -39,6 +41,7 @@ export type Data = {
 	VisitorDay: number,
 	HeartsReceived: number,
 	Tutorial: number,
+	WeekCures: { Week: number, Count: number },
 }
 
 local Schema = {}
@@ -72,6 +75,7 @@ function Schema.default(): Data
 		VisitorDay = 0,
 		HeartsReceived = 0,
 		Tutorial = Schema.TUTORIAL_FIRST,
+		WeekCures = { Week = 0, Count = 0 },
 	}
 end
 
@@ -237,6 +241,10 @@ function Schema.reconcile(saved: any, today: number?): Data
 	data.ReferralRewarded = saved.ReferralRewarded == true
 	data.VisitorDay = countOr(saved.VisitorDay, 0)
 	data.HeartsReceived = countOr(saved.HeartsReceived, 0)
+	if isTable(saved.WeekCures) then
+		data.WeekCures.Week = countOr(saved.WeekCures.Week, 0)
+		data.WeekCures.Count = countOr(saved.WeekCures.Count, 0)
+	end
 
 	-- The tutorial step. A save from before the tutorial existed has none: a player with any cure already knows
 	-- the game (done), anyone else starts at the welcome.

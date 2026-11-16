@@ -9,8 +9,8 @@
 --                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion),
 --                 plus 🛠️ Admin (opens UI/AdminPanel) only while the server has set the player attribute IsAdmin
 --   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty) above
---                 the 🛒 📖 📬 🎯 buttons, each with a dot when something waits there (a room you can buy or decor to
---                 place · new pages · mail · a goal)
+--                 the 🛒 📖 📬 🎯 🏆 buttons, each of the first four with a dot when something waits there (a room you
+--                 can buy or decor to place · new pages · mail · a goal); 🏆 Top opens the leaderboards (UI/Boards)
 -- It reveals itself to a new player (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A3),
 -- driven by the Snapshot's Tutorial step: at first only 💰; ⭐ after the first cure; 🛒 at the shop step and 📖 at
 -- the Book step (its pointer needs it), each with a bounce; 📬 🎯, the clock and the visitor chip when the tutorial
@@ -41,12 +41,13 @@
 --   Hud.sound(name, volume?)           a Feel/Sounds cue over the bus
 --   Hud.format(n): string              1,234 · 1.2M past a million
 --   Hud.target(name): GuiObject?       a HUD piece by name ("Cash", "Stars", "Shop", "Book", "Mailbox", "Goals",
---                                      "Settings", "Hands"), for pointers (UI/Tutorial) and flying icons
+--                                      "Boards", "Settings", "Hands"), for pointers (UI/Tutorial) and flying icons
 --   Hud.isOpen(name?): boolean         a modal is open (that one, or any)
 --
 -- Client bus (ctx.on / ctx.fire):
 --   listens  "BookNew" (count)                      BookPanel: unseen new pages, for the 📖 dot
---   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Admin"
+--   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Boards" |
+--                                                   "Admin"
 --   fires    "ModalOpened" (name) · "ModalClosed" (name)
 --   fires    "Sound" (name, volume?)                Whoosh on open, Nope on a shake, Pop when icons land
 
@@ -115,6 +116,7 @@ local TABS: { Tab } = {
 	{ Name = "Book", Icon = "📖", Caption = "Book", Kind = "Purple", Color = Theme.Colors.Purple },
 	{ Name = "Mailbox", Icon = "📭", Caption = "Mail", Kind = "Secondary", Color = Theme.Colors.Secondary },
 	{ Name = "Goals", Icon = "🎯", Caption = "Goals", Kind = "Good", Color = Theme.Colors.Good },
+	{ Name = "Boards", Icon = "🏆", Caption = "Top", Kind = "Cash", Color = Theme.Colors.Cash }, -- UI/Boards
 }
 
 local function tabColor(name: string): Color3?
@@ -1388,7 +1390,8 @@ function Hud.init(ctx: Types.Ctx)
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.BackgroundTransparency = 1
 	bar.Position = UDim2.new(0.5, 0, 1, -margin)
-	bar.Size = UDim2.fromOffset(size * 4 + gap * 3, size)
+	local barWidth = size * #TABS + gap * (#TABS - 1)
+	bar.Size = UDim2.fromOffset(barWidth, size)
 	bar.Parent = gui
 	Kit.list(bar, Enum.FillDirection.Horizontal, gap)
 
@@ -1440,6 +1443,7 @@ function Hud.init(ctx: Types.Ctx)
 	targets.Book = buttons.Book
 	targets.Mailbox = buttons.Mailbox
 	targets.Goals = buttons.Goals
+	targets.Boards = buttons.Boards
 
 	local hands = Instance.new("Frame")
 	hands.Name = "Hands"
@@ -1659,12 +1663,13 @@ function Hud.init(ctx: Types.Ctx)
 		settings.toggle()
 	end)
 
-	-- Small screens: scale the bottom cluster down a touch, never below the 56 px tap target.
+	-- Small screens: scale the bottom cluster down so it keeps 100 px clear on each side (the touch jump button sits
+	-- 95 px in from the right on a phone), never below the 56 px tap target (0.74 x 76).
 	local bottomScale = Instance.new("UIScale")
 	bottomScale.Parent = bar
 	local function fit()
 		local width = gui.AbsoluteSize.X
-		bottomScale.Scale = if width < 420 then 0.8 else 1
+		bottomScale.Scale = math.clamp((width - 200) / barWidth, 0.74, 1)
 	end
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 	fit()
@@ -1784,7 +1789,7 @@ function Hud.init(ctx: Types.Ctx)
 		local appeared = showPiece(starsPill, reveal.Stars, animate, 1.25)
 		appeared = showPiece(buttons.Shop, reveal.Shop, animate, 1.45) or appeared -- the shop step's bounce
 		appeared = showPiece(buttons.Book, reveal.Book, animate, 1.45) or appeared -- the Book step's
-		for _, name in { "Mailbox", "Goals" } do
+		for _, name in { "Mailbox", "Goals", "Boards" } do
 			appeared = showPiece(buttons[name], reveal.Rest, animate, 1.3) or appeared
 		end
 		appeared = showPiece(side, reveal.Rest, animate, 1.12) or appeared

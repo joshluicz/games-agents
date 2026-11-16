@@ -82,6 +82,7 @@ T.describe("Schema.reconcile", function()
 		saved.ReferralRewarded = true
 		saved.VisitorDay = 20500
 		saved.HeartsReceived = 7
+		saved.WeekCures = { Week = 2968, Count = 11 }
 		expect(Schema.reconcile(saved)).toEqual(saved)
 		expect(Schema.reconcile(saved, 20500)).toEqual(saved) -- nothing is in the future
 	end)
@@ -90,6 +91,13 @@ T.describe("Schema.reconcile", function()
 		local data = Schema.reconcile({ Version = 2, Cash = 5 })
 		expect(data.VisitorDay).toBe(0)
 		expect(data.HeartsReceived).toBe(0)
+		expect(data.WeekCures).toEqual({ Week = 0, Count = 0 })
+	end)
+
+	test("repairs a bad weekly count", function()
+		local data = Schema.reconcile({ Version = 2, WeekCures = { Week = "x", Count = -3 } })
+		expect(data.WeekCures).toEqual({ Week = 0, Count = 0 })
+		expect(Schema.reconcile({ Version = 2, WeekCures = 5 }).WeekCures).toEqual({ Week = 0, Count = 0 })
 	end)
 
 	test("pulls saved days later than today back to today", function()

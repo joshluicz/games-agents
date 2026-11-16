@@ -99,6 +99,7 @@ export type Data = {
 	VisitorDay: number, -- the UTC day this clinic last cured Today's Visitor (0 = never)
 	HeartsReceived: number, -- hearts left on this clinic's sign, all time (cosmetic)
 	Tutorial: number, -- the first-session tutorial step (Logic/Tutorial): 1 = the welcome .. 8, 9 = done
+	WeekCures: { Week: number, Count: number }, -- cures in one UTC week, for the weekly leaderboard
 }
 
 ------------------------------------------------------------------------------------------------------------------
