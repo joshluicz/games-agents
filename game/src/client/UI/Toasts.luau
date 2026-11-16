@@ -2,13 +2,16 @@
 -- Toasts (build plan Task 6): short messages stacked at the top centre. Every toast in the game, from the
 -- server or from ctx.toast, arrives on the client bus as "Toast" (Main.client wires that).
 --   init(ctx)   listens to ctx.on("Toast", text)
--- The look is the old shop toast (cream card, ink text), with a pop in and a fade out. The same text twice in a
+-- The look is candy pop (memory-20261116-007): a chunky purple pill with a glossy top, a thick dark outline and
+-- white outlined text in the round body font, popping in with a bounce and fading out. The same text twice in a
 -- row bumps a "×2" counter instead of stacking a copy. At most MAX_SHOWN at once; the oldest goes first.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
@@ -20,12 +23,18 @@ local MAX_CHARS = 120
 local BASE_SECONDS = 2.6
 local SECONDS_PER_EXTRA_CHAR = 0.03 -- longer messages stay a little longer
 local MAX_SECONDS = 5
-local CREAM = Color3.fromRGB(255, 245, 200)
+local FILL = Theme.Colors.Purple
+-- A CanvasGroup clips whatever is drawn outside it, so the card sits this far inside to keep its outline.
+local OUTLINE_ROOM = 4
 -- The HUD's wallet (top left) and clock (top right) are about this wide; toasts sit between them when they fit.
 local SIDE_RESERVE = 214
 local MIN_WIDTH = 240
 local MAX_WIDTH = 440
-local BELOW_WALLET_Y = 118
+-- Narrow screens: under the HUD's cash and stars pills (margin 12 + cash 52 + gap 8 + stars 56, plus a little).
+local BELOW_WALLET_Y = 132
+-- New toasts grow from small with a springy overshoot; the same text again gives a smaller bump.
+local POP_FROM = 0.6
+local REPEAT_FROM = 1.12
 
 type Toast = {
 	Text: string,
@@ -36,6 +45,61 @@ type Toast = {
 	Token: number,
 	Leaving: boolean,
 }
+
+-- The card: a candy pill (fill, gradient, glossy top, thick dark outline) holding the outlined text.
+local function card(group: CanvasGroup, text: string): TextLabel
+	local frame = Instance.new("Frame")
+	frame.Name = "Card"
+	frame.Size = UDim2.fromScale(1, 0)
+	frame.AutomaticSize = Enum.AutomaticSize.Y
+	frame.BackgroundColor3 = Kit.lighten(FILL, 0.08)
+	frame.BorderSizePixel = 0
+	Kit.corner(frame, Theme.Size.CornerLarge)
+	Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
+	Palette.candyGradient(frame)
+
+	-- The gloss (decoration layer, ZIndex 0): a soft white band across the top, under the text.
+	local gloss = Instance.new("Frame")
+	gloss.Name = "Gloss"
+	gloss.ZIndex = 0
+	gloss.BackgroundColor3 = Palette.White
+	gloss.BackgroundTransparency = 0.5
+	gloss.BorderSizePixel = 0
+	gloss.Position = UDim2.fromOffset(14, 3)
+	gloss.Size = UDim2.new(1, -28, 0, 14)
+	Kit.corner(gloss, 7)
+	local fade = Instance.new("UIGradient")
+	fade.Rotation = 90
+	fade.Transparency = NumberSequence.new(0.15, 1)
+	fade.Parent = gloss
+	gloss.Parent = frame
+
+	-- The text sits in its own padded holder, so the gloss can stay pinned to the card's top edge.
+	local body = Instance.new("Frame")
+	body.Name = "Body"
+	body.BackgroundTransparency = 1
+	body.Size = UDim2.fromScale(1, 0)
+	body.AutomaticSize = Enum.AutomaticSize.Y
+	local pad = Kit.pad(body, 8)
+	pad.PaddingLeft = UDim.new(0, 16)
+	pad.PaddingRight = UDim.new(0, 16)
+	body.Parent = frame
+
+	local label = Kit.label({
+		Name = "Text",
+		Text = text,
+		Size = UDim2.fromScale(1, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		TextSize = Theme.TextSize.Body,
+		TextColor3 = Theme.Colors.OnColor,
+		TextWrapped = true,
+		Parent = body,
+	})
+	Kit.outline(label)
+
+	frame.Parent = group
+	return label
+end
 
 function Toasts.init(ctx: Types.Ctx)
 	local gui = Kit.screen("Toasts", Theme.DisplayOrder.Toast)
@@ -48,7 +112,7 @@ function Toasts.init(ctx: Types.Ctx)
 	holder.AutomaticSize = Enum.AutomaticSize.Y
 	holder.BackgroundTransparency = 1
 	holder.Parent = gui
-	local list = Kit.list(holder, Enum.FillDirection.Vertical, 6)
+	local list = Kit.list(holder, Enum.FillDirection.Vertical, 0) -- each toast's OUTLINE_ROOM is the gap
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 
 	-- Between the wallet and the clock when there's room; on narrow screens, full width under the wallet.
@@ -109,7 +173,7 @@ function Toasts.init(ctx: Types.Ctx)
 			return
 		end
 		toast.Scale.Scale = from
-		TweenService:Create(toast.Scale, Theme.Tween.PopIn, { Scale = 1 }):Play()
+		TweenService:Create(toast.Scale, Theme.Tween.Bump, { Scale = 1 }):Play()
 		TweenService:Create(toast.Group, Theme.Tween.Fade, { GroupTransparency = 0 }):Play()
 	end
 
@@ -126,7 +190,7 @@ function Toasts.init(ctx: Types.Ctx)
 		if newest and newest.Text == text and not newest.Leaving then
 			newest.Count += 1
 			newest.Label.Text = text .. "  ×" .. newest.Count
-			popIn(newest, 1.08)
+			popIn(newest, REPEAT_FROM)
 			schedule(newest)
 			return
 		end
@@ -141,25 +205,11 @@ function Toasts.init(ctx: Types.Ctx)
 		group.LayoutOrder = order
 		group.Size = UDim2.fromScale(1, 0)
 		group.AutomaticSize = Enum.AutomaticSize.Y
-		group.BackgroundColor3 = CREAM
+		group.BackgroundTransparency = 1
 		group.BorderSizePixel = 0
 		group.GroupTransparency = 1
-		Kit.corner(group, Theme.Size.Corner)
-		local stroke = Kit.stroke(group, Theme.Colors.Stroke, 2)
-		stroke.Transparency = 0.35
-		local pad = Kit.pad(group, 8)
-		pad.PaddingLeft = UDim.new(0, 14)
-		pad.PaddingRight = UDim.new(0, 14)
-
-		local label = Kit.label({
-			Name = "Text",
-			Text = text,
-			Size = UDim2.fromScale(1, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			TextSize = 22,
-			TextWrapped = true,
-			Parent = group,
-		})
+		Kit.pad(group, OUTLINE_ROOM)
+		local label = card(group, text)
 
 		local scale = Instance.new("UIScale")
 		scale.Parent = group
@@ -175,7 +225,7 @@ function Toasts.init(ctx: Types.Ctx)
 			Leaving = false,
 		}
 		table.insert(shown, toast)
-		popIn(toast, 0.8)
+		popIn(toast, POP_FROM)
 		schedule(toast)
 	end
 

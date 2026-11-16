@@ -5,6 +5,9 @@
 -- Purchase(kind, id) and placing calls PlaceDecor(slotKey, decorId?); the server checks everything and answers
 -- (ok, message), which is shown as a toast. Nothing changes on screen until the server's next Snapshot.
 -- Bus: fires "Purchased" (kind, id) and "DecorPlaced" (slotKey, decorId?) after the server says yes.
+-- Look (candy pop, memory-20261116-007): a pink header; each row is a white card with a thick outline and a bright
+-- icon tile. What you can buy is a lime button with a shine; what you can't is grey with a 🔒. Nothing here is
+-- Robux: every price is in-game 💰.
 
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,6 +15,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local Prices = require(Shared:WaitForChild("Logic"):WaitForChild("Prices"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
@@ -19,10 +23,20 @@ local Theme = require(script.Parent.Theme)
 
 local Shop = {}
 
+local ACCENT = Theme.Colors.Pink
 local TABS = {
-	{ Id = "Upgrades", Icon = "⚡", Caption = "Upgrades" },
-	{ Id = "Rooms", Icon = "🏠", Caption = "Rooms" },
-	{ Id = "Decor", Icon = "🌸", Caption = "Decor" },
+	{ Id = "Upgrades", Icon = "⚡", Caption = "Upgrades", Color = Theme.Colors.Primary },
+	{ Id = "Rooms", Icon = "🏠", Caption = "Rooms", Color = Theme.Colors.Secondary },
+	{ Id = "Decor", Icon = "🌸", Caption = "Decor", Color = Theme.Colors.Pink },
+}
+-- Each row's icon tile takes the next candy colour, so a page reads as a bright stack.
+local TILE_COLORS = {
+	Theme.Colors.Pink,
+	Theme.Colors.Secondary,
+	Theme.Colors.Primary,
+	Theme.Colors.Purple,
+	Theme.Colors.Good,
+	Theme.Colors.Cyan,
 }
 local TAB_WIDTH = Theme.Size.IconButton
 local ROW_HEIGHT = 84
@@ -35,6 +49,8 @@ local EARNED_HOW: { [string]: string } = {
 
 type Row = {
 	Frame: Frame,
+	Tile: Frame,
+	Color: Color3, -- the tile's own candy colour
 	Icon: TextLabel,
 	Title: TextLabel,
 	Pips: Frame,
@@ -42,29 +58,119 @@ type Row = {
 	Buy: TextButton,
 }
 
-type Style = { Color: Color3, Text: Color3, Active: boolean }
+-- Light = dark body text with no outline (like Kit's Quiet/Card kinds); otherwise white outlined display text.
+-- Shine = a call to action (Kit.shine); Lock = the 🔒 badge on the button's corner.
+type Style = { Color: Color3, Light: boolean, Active: boolean, Shine: boolean, Lock: boolean }
 local STYLES: { [string]: Style } = {
-	Buy = { Color = Theme.Colors.Primary, Text = Theme.Colors.OnColor, Active = true },
-	Poor = { Color = Theme.Colors.Quiet, Text = Theme.Colors.InkSoft, Active = true }, -- still tappable: says why
-	Done = { Color = Theme.Colors.Good, Text = Theme.Colors.OnColor, Active = false },
-	Locked = { Color = Theme.Colors.Disabled, Text = Theme.Colors.Ink, Active = false },
-	Place = { Color = Theme.Colors.Secondary, Text = Theme.Colors.OnColor, Active = true },
-	Busy = { Color = Theme.Colors.Quiet, Text = Theme.Colors.Ink, Active = false },
+	Buy = { Color = Theme.Colors.Good, Light = false, Active = true, Shine = true, Lock = false },
+	-- Can't afford it yet: grey and locked, but still tappable so it can say how much more you need.
+	Poor = { Color = Theme.Colors.Disabled, Light = false, Active = true, Shine = false, Lock = true },
+	Done = { Color = Theme.Colors.Card, Light = true, Active = false, Shine = false, Lock = false },
+	Locked = { Color = Theme.Colors.Disabled, Light = false, Active = false, Shine = false, Lock = true },
+	Place = { Color = Theme.Colors.Secondary, Light = false, Active = true, Shine = true, Lock = false },
+	Busy = { Color = Theme.Colors.Quiet, Light = true, Active = false, Shine = false, Lock = false },
 }
+
+local function childOf(parent: Instance, name: string, class: string): Instance?
+	local found = parent:FindFirstChild(name)
+	return if found and found:IsA(class) then found else nil
+end
+
+local function setVisible(parent: Instance, name: string, visible: boolean)
+	local found = childOf(parent, name, "GuiObject") :: GuiObject?
+	if found then
+		found.Visible = visible
+	end
+end
 
 local function style(button: TextButton, name: string, text: string)
 	local s = STYLES[name] or STYLES.Buy
+	local fill = if s.Light then s.Color else Kit.lighten(s.Color, 0.08)
 	button.Text = text
-	button.BackgroundColor3 = s.Color
-	button.TextColor3 = s.Text
-	button.TextStrokeColor3 = Kit.shade(s.Color, 0.45)
-	button.TextStrokeTransparency = if s.Text == Theme.Colors.OnColor then 0.55 else 1
+	button.BackgroundColor3 = fill
+	button.TextColor3 = if s.Light then Theme.Colors.Ink else Theme.Colors.OnColor
+	button.Font = if s.Light then Theme.Font else Theme.DisplayFont
 	button.Interactable = s.Active
-	button.AutoButtonColor = false
-	button:SetAttribute("KitColor", s.Color)
-	local stroke = button:FindFirstChildOfClass("UIStroke")
-	if stroke then
-		stroke.Color = Kit.shade(s.Color, 0.25)
+	button:SetAttribute("KitColor", fill)
+	local outline = childOf(button, "TextOutline", "UIStroke") :: UIStroke?
+	if outline then
+		outline.Enabled = not s.Light
+	end
+	setVisible(button, "Shine", s.Shine)
+	setVisible(button, "Lock", s.Lock)
+end
+
+-- Everything style() changes, so a request can put the button back exactly as it was.
+type Look = {
+	Text: string,
+	Color: Color3,
+	TextColor: Color3,
+	Font: Enum.Font,
+	Interactable: boolean,
+	KitColor: any,
+	Outlined: boolean?,
+	Shine: boolean?,
+	Lock: boolean?,
+}
+
+local function lookOf(button: TextButton): Look
+	local outline = childOf(button, "TextOutline", "UIStroke") :: UIStroke?
+	local shine = childOf(button, "Shine", "GuiObject") :: GuiObject?
+	local lock = childOf(button, "Lock", "GuiObject") :: GuiObject?
+	return {
+		Text = button.Text,
+		Color = button.BackgroundColor3,
+		TextColor = button.TextColor3,
+		Font = button.Font,
+		Interactable = button.Interactable,
+		KitColor = button:GetAttribute("KitColor"),
+		Outlined = if outline then outline.Enabled else nil,
+		Shine = if shine then shine.Visible else nil,
+		Lock = if lock then lock.Visible else nil,
+	}
+end
+
+local function setLook(button: TextButton, look: Look)
+	button.Text = look.Text
+	button.BackgroundColor3 = look.Color
+	button.TextColor3 = look.TextColor
+	button.Font = look.Font
+	button.Interactable = look.Interactable
+	button:SetAttribute("KitColor", look.KitColor)
+	local outline = childOf(button, "TextOutline", "UIStroke") :: UIStroke?
+	if outline and look.Outlined ~= nil then
+		outline.Enabled = look.Outlined
+	end
+	if look.Shine ~= nil then
+		setVisible(button, "Shine", look.Shine)
+	end
+	if look.Lock ~= nil then
+		setVisible(button, "Lock", look.Lock)
+	end
+end
+
+-- The shape outline Kit draws round a button (not the Contextual one round its text).
+local function borderOf(gui: Instance): UIStroke?
+	for _, child in gui:GetChildren() do
+		if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
+			return child
+		end
+	end
+	return nil
+end
+
+-- A tab in its own colour: a pale tint while it waits, full candy with outlined text when it's open.
+local function paintTab(button: TextButton, selected: boolean, color: Color3)
+	button.BackgroundColor3 = if selected then Kit.lighten(color, 0.08) else Kit.lighten(color, 0.78)
+	local border = borderOf(button)
+	if border then
+		border.Color = Theme.Colors.Outline
+		border.Thickness = if selected then Theme.Size.StrokeLarge else Theme.Size.Stroke
+	end
+	local caption = childOf(button, "Caption", "TextLabel") :: TextLabel?
+	if caption then
+		caption.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
+		Kit.outline(caption, 2).Enabled = selected
 	end
 end
 
@@ -100,25 +206,70 @@ local function page(parent: Instance, name: string): ScrollingFrame
 	return scroll
 end
 
+-- The 🔒 badge on a button's top-left corner (shown by the Poor and Locked styles).
+local function lockBadge(button: TextButton)
+	local badge = Instance.new("Frame")
+	badge.Name = "Lock"
+	badge.AnchorPoint = Vector2.new(0.5, 0.5)
+	badge.Position = UDim2.fromOffset(6, 6)
+	badge.Size = UDim2.fromOffset(28, 28)
+	badge.BackgroundColor3 = Theme.Colors.Paper
+	badge.BorderSizePixel = 0
+	badge.Visible = false
+	badge.ZIndex = 3
+	Kit.corner(badge, 14)
+	Kit.stroke(badge, Theme.Colors.Outline, 2.5)
+	Kit.label({
+		Name = "Icon",
+		Text = "🔒",
+		TextScaled = true,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.7, 0.7),
+		ZIndex = 3,
+		Parent = badge,
+	})
+	badge.Parent = button
+end
+
+-- "Open" = a white card · "Owned" = a pale lime card · "Locked" = the icon tile goes grey.
+local function setRowState(row: Row, state: string)
+	row.Frame.BackgroundColor3 = if state == "Owned" then Kit.lighten(Theme.Colors.Good, 0.85) else Theme.Colors.Paper
+	row.Tile.BackgroundColor3 = if state == "Locked" then Theme.Colors.Disabled else Kit.lighten(row.Color, 0.08)
+end
+
 local function makeRow(parent: Instance, order: number, icon: string, title: string): Row
+	local color = TILE_COLORS[(order - 1) % #TILE_COLORS + 1]
 	local frame = Instance.new("Frame")
 	frame.Name = "Row" .. order
 	frame.LayoutOrder = order
 	frame.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
-	frame.BackgroundColor3 = Theme.Colors.Card
+	frame.BackgroundColor3 = Theme.Colors.Paper
 	frame.BorderSizePixel = 0
 	Kit.corner(frame, 16)
-	local stroke = Kit.stroke(frame, Theme.Colors.Stroke, 2)
-	stroke.Transparency = 0.55
+	Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
 
+	-- The icon tile: the item's emoji on its own candy square.
+	local tile = Instance.new("Frame")
+	tile.Name = "Tile"
+	tile.AnchorPoint = Vector2.new(0, 0.5)
+	tile.Position = UDim2.new(0, 10, 0.5, 0)
+	tile.Size = UDim2.fromOffset(60, 60)
+	tile.BackgroundColor3 = Kit.lighten(color, 0.08)
+	tile.BorderSizePixel = 0
+	Kit.corner(tile, 14)
+	Kit.stroke(tile, Theme.Colors.Outline, Theme.Size.Stroke)
+	Palette.candyGradient(tile)
+	Kit.gloss(tile, 4)
+	tile.Parent = frame
 	local iconLabel = Kit.label({
 		Name = "Icon",
 		Text = icon,
 		TextScaled = true,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 10, 0.5, 0),
-		Size = UDim2.fromOffset(60, 60),
-		Parent = frame,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.78, 0.78),
+		Parent = tile,
 	})
 	local titleLabel = Kit.label({
 		Name = "Title",
@@ -138,7 +289,7 @@ local function makeRow(parent: Instance, order: number, icon: string, title: str
 	pips.Size = UDim2.fromOffset(0, 24)
 	pips.AutomaticSize = Enum.AutomaticSize.X
 	pips.Parent = frame
-	local pipList = Kit.list(pips, Enum.FillDirection.Horizontal, 4)
+	local pipList = Kit.list(pips, Enum.FillDirection.Horizontal, 6)
 	pipList.HorizontalAlignment = Enum.HorizontalAlignment.Left
 
 	local note = Kit.label({
@@ -155,15 +306,31 @@ local function makeRow(parent: Instance, order: number, icon: string, title: str
 
 	local buy = Kit.button({
 		Name = "Buy",
-		Kind = "Primary",
+		Kind = "Good",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -12, 0.5, 0),
 		Size = UDim2.fromOffset(BUY_WIDTH, Theme.Size.ButtonHeight),
 		TextSize = Theme.TextSize.Body,
+		TextScaled = true, -- the chunky display font is wide: a long price shrinks to fit, never below 18
 		Parent = frame,
 	})
+	local buyLimit = Instance.new("UITextSizeConstraint")
+	buyLimit.MaxTextSize = Theme.TextSize.Body
+	buyLimit.MinTextSize = Theme.TextSize.Small
+	buyLimit.Parent = buy
+	Kit.shine(buy) -- shown only while the row is a call to action (style's Shine)
+	lockBadge(buy)
 	frame.Parent = parent
-	return { Frame = frame, Icon = iconLabel, Title = titleLabel, Pips = pips, Note = note, Buy = buy }
+	return {
+		Frame = frame,
+		Tile = tile,
+		Color = color,
+		Icon = iconLabel,
+		Title = titleLabel,
+		Pips = pips,
+		Note = note,
+		Buy = buy,
+	}
 end
 
 -- Level dots (●●○) at the start of the note line; the note moves right to make room.
@@ -177,12 +344,11 @@ local function setPips(row: Row, level: number, max: number)
 		local dot = Instance.new("Frame")
 		dot.Name = "Pip" .. i
 		dot.LayoutOrder = i
-		dot.Size = UDim2.fromOffset(14, 14)
-		dot.BackgroundColor3 = if i <= level then Theme.Colors.Star else Theme.Colors.Quiet
+		dot.Size = UDim2.fromOffset(12, 12) -- 12 + a 2 px outline each side, 6 apart: the same 18 px pitch
+		dot.BackgroundColor3 = if i <= level then Theme.Colors.Star else Theme.Colors.Paper
 		dot.BorderSizePixel = 0
-		Kit.corner(dot, 7)
-		local stroke = Kit.stroke(dot, Theme.Colors.Stroke, 1.5)
-		stroke.Transparency = 0.5
+		Kit.corner(dot, 6)
+		Kit.stroke(dot, Theme.Colors.Outline, 2)
 		dot.Parent = row.Pips
 	end
 	local shift = if max > 0 then max * 18 + 6 else 0
@@ -200,6 +366,7 @@ function Shop.init(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = "Shop",
 		Title = "🛒 Shop",
+		Accent = ACCENT,
 		MaxSize = Vector2.new(680, 560),
 	})
 
@@ -222,6 +389,7 @@ function Shop.init(ctx: Types.Ctx)
 	pagesArea.Parent = modal.Body
 
 	local tabButtons: { [string]: TextButton } = {}
+	local tabColors: { [string]: Color3 } = {}
 	local pages: { [string]: ScrollingFrame } = {}
 	local current = "Upgrades"
 
@@ -232,12 +400,7 @@ function Shop.init(ctx: Types.Ctx)
 		current = id
 		for tabId, button in tabButtons do
 			local selected = tabId == id
-			button.BackgroundColor3 = if selected then Theme.Colors.Card else Theme.Colors.Quiet
-			local stroke = button:FindFirstChildOfClass("UIStroke")
-			if stroke then
-				stroke.Color = if selected then Theme.Colors.Primary else Kit.shade(Theme.Colors.Quiet, 0.25)
-				stroke.Thickness = if selected then 4 else Theme.Size.Stroke
-			end
+			paintTab(button, selected, tabColors[tabId])
 			pages[tabId].Visible = selected
 		end
 		modal.Focus = tabButtons[id]
@@ -261,6 +424,7 @@ function Shop.init(ctx: Types.Ctx)
 			selectTab(tab.Id)
 		end)
 		tabButtons[tab.Id] = button
+		tabColors[tab.Id] = tab.Color
 		pages[tab.Id] = page(pagesArea, tab.Id)
 	end
 	Hud.fitTabs(tabColumn, { tabButtons.Upgrades, tabButtons.Rooms, tabButtons.Decor }, 8)
@@ -276,20 +440,12 @@ function Shop.init(ctx: Types.Ctx)
 			return false
 		end
 		busy = true
-		local before = {
-			Text = button.Text,
-			BackgroundColor3 = button.BackgroundColor3,
-			TextColor3 = button.TextColor3,
-			Interactable = button.Interactable,
-		}
+		local before = lookOf(button)
 		style(button, "Busy", "⏳")
 		local ok, message = Hud.ask(remote, ...)
 		busy = false
 		-- Put the button back as it was; refresh restyles the rows from the newest Snapshot.
-		button.Text = before.Text
-		button.BackgroundColor3 = before.BackgroundColor3
-		button.TextColor3 = before.TextColor3
-		button.Interactable = before.Interactable
+		setLook(button, before)
 		if ok then
 			ctx.toast(if message ~= "" then message else "🎉 Yay!")
 			Hud.fly(button, "✨", nil, 6)
@@ -329,6 +485,7 @@ function Shop.init(ctx: Types.Ctx)
 			if request(row.Buy, ctx.Remotes.Purchase, "Upgrade", upgradeId) then
 				ctx.fire("Purchased", "Upgrade", upgradeId)
 				Hud.pop(row.Frame, 1.05)
+				Kit.bump(row.Tile)
 			end
 		end)
 		upgradeRows[upgradeId] = row
@@ -342,6 +499,7 @@ function Shop.init(ctx: Types.Ctx)
 			local price = Prices.upgradePrice(data.Upgrades, upgradeId, level)
 			setPips(row, math.min(level, max), max)
 			row.Note.Text = upgrade.Hint
+			setRowState(row, if price then "Open" else "Owned")
 			if not price then
 				style(row.Buy, "Done", "✅ Max")
 			elseif (state.Cash or 0) >= price then
@@ -376,6 +534,7 @@ function Shop.init(ctx: Types.Ctx)
 				if request(row.Buy, ctx.Remotes.Purchase, "Room", roomId) then
 					ctx.fire("Purchased", "Room", roomId)
 					Hud.pop(row.Frame, 1.06)
+					Kit.bump(row.Tile) -- CureFX's NEW ROOM banner (with rays) follows
 				end
 			end)
 			roomRows[roomId] = row
@@ -408,15 +567,19 @@ function Shop.init(ctx: Types.Ctx)
 			setPips(row, 0, 0)
 			if owned then
 				row.Note.Text = roomGifts(room)
+				setRowState(row, "Owned")
 				style(row.Buy, "Done", "✅ Built")
 			elseif room.Season == "Winter" and not state.IsWinter then
 				row.Note.Text = "❄️ Winter only"
+				setRowState(row, "Locked")
 				style(row.Buy, "Locked", "❄️ Soon")
 			elseif stars < room.StarsNeeded then
 				row.Note.Text = "⭐ " .. stars .. " / " .. room.StarsNeeded
-				style(row.Buy, "Locked", "🔒 ⭐" .. room.StarsNeeded)
+				setRowState(row, "Locked")
+				style(row.Buy, "Locked", "⭐ " .. room.StarsNeeded) -- the 🔒 is the button's badge
 			else
 				row.Note.Text = roomGifts(room)
+				setRowState(row, "Open")
 				style(
 					row.Buy,
 					if (state.Cash or 0) >= room.Price then "Buy" else "Poor",
@@ -440,7 +603,7 @@ function Shop.init(ctx: Types.Ctx)
 
 	local backButton = Kit.button({
 		Name = "Back",
-		Kind = "Quiet",
+		Kind = "Secondary",
 		Text = "⬅",
 		TextSize = Theme.TextSize.Title,
 		Size = UDim2.fromOffset(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight),
@@ -451,6 +614,7 @@ function Shop.init(ctx: Types.Ctx)
 		Name = "Title",
 		Text = "",
 		TextScaled = true,
+		Outlined = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Position = UDim2.fromOffset(Theme.Size.ButtonHeight + 10, 8),
 		Size = UDim2.new(1, -(Theme.Size.ButtonHeight * 2 + 30), 0, 40),
@@ -543,8 +707,11 @@ function Shop.init(ctx: Types.Ctx)
 			local room = data.Rooms[slot.RoomId]
 			local here = slot.Placed and rawget(data.Decor, slot.Placed)
 			local mine = slot.Placed == decorId
+			-- An empty spot is a bright lime "put it here"; where it is now is cyan; a spot with other decor (a
+			-- swap) stays a white card.
 			local button = Kit.iconButton({
 				Name = slot.Key,
+				Kind = if mine then "Cyan" elseif not slot.Placed then "Good" else "Card",
 				Icon = if here then here.Icon else "➕",
 				Caption = room.Icon .. " " .. slot.N,
 				LayoutOrder = if slot.Placed then 100 + index else index, -- empty spots first
@@ -552,16 +719,7 @@ function Shop.init(ctx: Types.Ctx)
 				Parent = slotGrid,
 			})
 			if mine then
-				button.BackgroundColor3 = Theme.Colors.Good
 				button.Interactable = false
-			elseif not slot.Placed then
-				local stroke = button:FindFirstChildOfClass("UIStroke")
-				if stroke then
-					stroke.Color = Theme.Colors.Good
-					stroke.Thickness = 4
-				end
-			else
-				button.BackgroundColor3 = Theme.Colors.Quiet
 			end
 			button.Activated:Connect(function()
 				if busy or placing ~= decorId then
@@ -624,6 +782,7 @@ function Shop.init(ctx: Types.Ctx)
 			if request(row.Buy, ctx.Remotes.Purchase, "Decor", decorId) then
 				ctx.fire("Purchased", "Decor", decorId)
 				Hud.pop(row.Frame, 1.05)
+				Kit.bump(row.Tile)
 				enterPlace(decorId) -- straight to "where does it go?"
 			end
 		end)
@@ -638,9 +797,11 @@ function Shop.init(ctx: Types.Ctx)
 			if owned[decorId] == true then
 				local placed = placedSlotOf(state, decorId) ~= nil
 				row.Note.Text = if placed then "📍 In your clinic" else "📦 In storage"
+				setRowState(row, "Owned")
 				style(row.Buy, "Place", "📍 Place")
 			elseif decor.Price then
 				row.Note.Text = ""
+				setRowState(row, "Open")
 				style(
 					row.Buy,
 					if (state.Cash or 0) >= decor.Price then "Buy" else "Poor",
@@ -648,6 +809,7 @@ function Shop.init(ctx: Types.Ctx)
 				)
 			else
 				row.Note.Text = EARNED_HOW[decor.EarnedBy or ""] or "🏆 Earned"
+				setRowState(row, "Locked")
 				style(row.Buy, "Locked", "🏆")
 			end
 			-- Owned first, then what you can buy, then what you earn.

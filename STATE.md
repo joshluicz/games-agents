@@ -17,16 +17,19 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 - ✅ Claude Code ↔ Studio MCP connected (user scope).
 
 ## Next actions
-- [ ] **Both brothers:** a 2-player test (Test → Clients and Servers, or both join the private game): hearts, the
-      helpers sign, a friend treating, the owner leaving mid-cure. Checklist item 11 and the edge cases in
-      `game/README.md`. Add notes to `logs/playtests/`.
-- [ ] **Joshua:** the phone emulator: buttons, safe area, prompt reach. And: is it fun for a kid? Write it down.
-- [ ] **Brother:** `docs/guides/build-the-clinic.md`: the First-Aid Stand, the 4 rooms, the creatures and decor into
-      `ServerStorage.ClinicKit` / `ServerStorage.Creatures`. The code uses placeholders until his kit is in.
-- [ ] **Both:** the game's name and the cast's names and looks (OPEN #1). Then `Config.ProductName`.
-- [ ] **Both:** the old `Workspace.Shop` model is unused now. Keep it as a town building, or delete it (their call).
-- [ ] **Stage 1, later:** add the 2× Cash pass (cash only, Shop only, never pushed, `memory-20261116-006`). Not in
-      the build yet.
+**Launch path (`memory-20261116-008`): a 16+ soft launch first, hospital levels as Update 1, no paid items.**
+- [x] **Claude:** the candy-pop revamp, playtested in Studio (2026-11-16).
+- [ ] **Joshua + brother:** the game's **name** (OPEN #1). Then `Config.ProductName`, the page title and the sign.
+- [ ] **Joshua + brother + a parent:** fill in and agree `docs/plan/ownership-note-DRAFT.md` (OPEN #2). Needed before
+      any marketing or Robux.
+- [ ] **Joshua:** relay the brother's **yes to going public** (red line 4; a yes in chat counts).
+- [ ] **Joshua (+ anyone):** a 2-player test (hearts, helpers, owner leaving) and the phone emulator.
+- [ ] **Claude:** the page kit: icon, 3–5 thumbnails from Studio, a description. Then Joshua fills in the maturity
+      questionnaire (Creator Hub) with Claude guiding, and sets the game Public (16+).
+- [ ] **Joshua:** the 1,000-Robux refundable all-ages fee (OPEN #4) and the 250 engaged 16+ plays (OPEN #6:
+      how many people he can ask).
+- [ ] **Claude, during the 16+ window:** design doc + build for **Hospital Levels** (Update 1).
+- [ ] **Later update:** the 2× Cash pass (`-006`), only after the ownership note.
 
 ## Blocked on
 - Nothing for the private build. Going public waits on the ownership note (OPEN #2) and a yes from both.
@@ -35,6 +38,15 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-16 (Joshua's PC, Claude, tidy-up + candy-pop revamp + launch decisions).** Joshua: the brother is stepping
+  back, delete the old Shop, and a saturated, flashy, trending look (`memory-20261116-007`). `Workspace.Shop` and
+  `RoofFade.client.luau` deleted; the grey Baseplate is now grass green (place version 23). New `shared/Palette.luau`
+  (candy colours, LuckiestGuy display font, outlines); `Theme` and `Kit` rebuilt (glossy outlined buttons, header
+  bands, `Kit.shine`, `Kit.rays`, `Kit.bump`, `Kit.gloss`). Four parallel restylers did the HUD, the panels and reward
+  FX, the world and lighting (`CandyColor` grade in DayNight), and the creatures and badges. Fixed: station make
+  sparkles used server `Emit()`, which never reaches players. Studio check: clean boot, day, night and Shop all look
+  right. Then Joshua chose (`-008`): hospital levels where the building grows (Update 1), publish first as a 16+ soft
+  launch, no paid items at launch. Drafted `docs/plan/ownership-note-DRAFT.md` (blanks for the brothers).
 - **2026-11-16 (Joshua's PC, Claude, Creature Clinic build + first Studio run).** Research → concept pivot: 4
   research docs in `docs/research/`, rulings `memory-20261116-003` (own plot, daily return because it's fun, no AFK, not
   a restaurant tycoon), `-004` (original absurd cast, no "brainrot" title at launch), `-005` (Creature Clinic, evergreen,

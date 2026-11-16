@@ -6,11 +6,16 @@
 | Computer | Windows | Mac |
 | Claude | ✅ Claude Code + Studio MCP | ⛔ No Claude account (Anthropic's consumer terms are 18+). Studio's own Assistant if available |
 | Git / Rojo | ✅ runs `rojo serve` | Not needed |
-| Role | **Code, accounts, money** | **World, feel, players** |
+| Role | **Code, accounts, money, and now the world** | ~~World, feel, players~~ stepping back (2026-11-16) |
+
+> **2026-11-16, Joshua:** "my brother won't be doing much. Now it's really just on me." (`memory-20261116-007`).
+> Joshua builds the game with Claude, the world included. The brother's list below is what he *can* pick up, not what
+> the game waits on. His say on going public and money (red lines 4 and 5) is unchanged.
 
 ## Joshua owns
 - Setup: ID age check + 2FA on his Roblox account, Claude Code ↔ Studio MCP, Rokit/Rojo, publishing the private place.
-- Every system in `game/src`: customers, station, serving, upgrades, saving, day/night, game passes.
+- Every system in `game/src`, and the world: the plots, rooms, creatures and decor are code-built (`PlotBuilder`,
+  `CreatureBuilder`, `DecorBuilder`), styled from `game/src/shared/Palette.luau`.
 - Accounts and money: the group (100 Robux), the all-ages fee (1,000 Robux, refundable), Creator Analytics, DevEx later.
 - The ownership note (red line 5) and recruiting the first 250 players aged 16+.
 

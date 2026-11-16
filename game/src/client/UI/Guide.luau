@@ -2,8 +2,9 @@
 -- Guide (build plan Task 6): the two client helpers that live in the world instead of on the HUD.
 --   init(ctx)
 --
--- 1. The first-cures arrow. While you've cured fewer than GUIDE_UNTIL_CURED patients, a glowing arc runs from
---    you to where to go next, with a bouncing bubble over it:
+-- 1. The first-cures arrow. While you've cured fewer than GUIDE_UNTIL_CURED patients, a glowing arc with a dark
+--    outline runs from you to where to go next, with a bouncing candy map pin over it (a disc in the target's
+--    colour, a thick dark outline, a white middle with the icon). The bounce stops while Hud.calm():
 --      the front patient waits and you don't carry its treatment  -> the matching Station_* (its icon, its colour)
 --      you carry the right item                                    -> the Counter (the patient's ailment icon)
 --    Only on your own plot. It is all local (a client-only Part, Beam and BillboardGui), survives respawn, and
@@ -26,6 +27,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local Prices = require(Shared:WaitForChild("Logic"):WaitForChild("Prices"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
@@ -38,6 +40,13 @@ local STEP_SECONDS = 0.2
 local NEAR_STUDS = 8 -- closer than this, the arc hides (you're there) but the bubble stays
 local FRONT_STUDS = 8 -- fallback: a patient this close to QueueStart counts as the front one
 local UP = CFrame.Angles(0, 0, math.pi / 2) -- turns an Attachment's axis (X) to point up, so the arc bows upward
+local REST_OFFSET = Vector3.new(0, 3, 0) -- the pin's height over the target
+local BOUNCE_OFFSET = Vector3.new(0, 3.8, 0)
+local ARC_FADE = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.85),
+	NumberSequenceKeypoint.new(0.25, 0.3),
+	NumberSequenceKeypoint.new(1, 0.05),
+})
 
 local function splitCarry(raw: any): { string }
 	local items = {}
@@ -215,24 +224,34 @@ local function startArrow(ctx: Types.Ctx)
 	target.CFrame = UP
 	target.Parent = marker
 
-	local beam = Instance.new("Beam")
-	beam.Name = "Arc"
-	beam.Attachment1 = target
-	beam.FaceCamera = true
-	beam.Segments = 24
-	beam.Width0 = 0.5
-	beam.Width1 = 1.3
-	beam.CurveSize0 = 5
-	beam.CurveSize1 = -5
-	beam.LightEmission = 0.7
-	beam.LightInfluence = 0
-	beam.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.85),
-		NumberSequenceKeypoint.new(0.25, 0.3),
-		NumberSequenceKeypoint.new(1, 0.05),
-	})
-	beam.Enabled = false
-	beam.Parent = marker
+	-- The arc: a saturated beam in the target's colour, over a wider dark one that reads as its outline.
+	local function arcBeam(name: string, width0: number, width1: number, emission: number): Beam
+		local arc = Instance.new("Beam")
+		arc.Name = name
+		arc.Attachment1 = target
+		arc.FaceCamera = true
+		arc.Segments = 24
+		arc.Width0 = width0
+		arc.Width1 = width1
+		arc.CurveSize0 = 5
+		arc.CurveSize1 = -5
+		arc.LightEmission = emission
+		arc.LightInfluence = 0
+		arc.Transparency = ARC_FADE
+		arc.Enabled = false
+		arc.Parent = marker
+		return arc
+	end
+	local edge = arcBeam("ArcOutline", 0.8, 1.75, 0)
+	edge.Color = ColorSequence.new(Theme.Colors.Outline)
+	local beam = arcBeam("Arc", 0.5, 1.3, 0.3)
+	pcall(function()
+		beam.ZOffset = 0.1 -- draw the colour in front of its outline
+	end)
+	local function setArc(on: boolean)
+		beam.Enabled = on
+		edge.Enabled = on
+	end
 
 	local bubble = Instance.new("BillboardGui")
 	bubble.Name = "Bubble"
@@ -241,48 +260,92 @@ local function startArrow(ctx: Types.Ctx)
 	bubble.LightInfluence = 0
 	bubble.MaxDistance = 250
 	bubble.Size = UDim2.fromOffset(84, 118)
-	bubble.StudsOffset = Vector3.new(0, 3, 0)
+	bubble.StudsOffset = REST_OFFSET
+	bubble.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	bubble.Enabled = false
 	bubble.Parent = marker
+	-- The pin: a round disc on a point. It pops from its tip (AnchorPoint at the bottom).
+	local pin = Instance.new("Frame")
+	pin.Name = "Pin"
+	pin.AnchorPoint = Vector2.new(0.5, 1)
+	pin.Position = UDim2.fromScale(0.5, 1)
+	pin.Size = UDim2.fromScale(1, 1)
+	pin.BackgroundTransparency = 1
+	pin.Parent = bubble
+	local pop = Instance.new("UIScale")
+	pop.Name = "Pop"
+	pop.Parent = pin
+	-- The point: a square turned 45° whose lower sides just touch the disc, so the two read as one pin shape.
+	local down = Instance.new("Frame")
+	down.Name = "Down"
+	down.AnchorPoint = Vector2.new(0.5, 0.5)
+	down.Position = UDim2.new(0.5, 0, 0, 79)
+	down.Size = UDim2.fromOffset(38, 38)
+	down.Rotation = 45
+	down.BorderSizePixel = 0
+	down.ZIndex = 1
+	Kit.corner(down, 6)
+	Kit.stroke(down, Theme.Colors.Outline, Theme.Size.StrokeLarge)
+	down.Parent = pin
 	local disc = Instance.new("Frame")
 	disc.Name = "Disc"
 	disc.AnchorPoint = Vector2.new(0.5, 0)
-	disc.Position = UDim2.fromScale(0.5, 0)
+	disc.Position = UDim2.new(0.5, 0, 0, 14)
 	disc.Size = UDim2.fromOffset(76, 76)
-	disc.BackgroundColor3 = Theme.Colors.Card
 	disc.BorderSizePixel = 0
+	disc.ZIndex = 2
 	Kit.corner(disc, 38)
-	local discStroke = Kit.stroke(disc, Theme.Colors.Primary, 5)
-	disc.Parent = bubble
+	Kit.stroke(disc, Theme.Colors.Outline, Theme.Size.StrokeLarge)
+	Palette.candyGradient(disc)
+	disc.Parent = pin
+	local middle = Instance.new("Frame")
+	middle.Name = "Middle"
+	middle.AnchorPoint = Vector2.new(0.5, 0.5)
+	middle.Position = UDim2.fromScale(0.5, 0.5)
+	middle.Size = UDim2.fromScale(0.7, 0.7)
+	middle.BackgroundColor3 = Palette.White
+	middle.BorderSizePixel = 0
+	Kit.corner(middle, 27)
+	Kit.stroke(middle, Theme.Colors.Outline, Theme.Size.Stroke)
+	middle.Parent = disc
 	local icon = Kit.label({
 		Name = "Icon",
 		Text = "",
 		TextScaled = true,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.7, 0.7),
-		Parent = disc,
+		Size = UDim2.fromScale(0.78, 0.78),
+		Parent = middle,
 	})
-	Kit.label({
-		Name = "Down",
-		Text = "👇",
-		TextScaled = true,
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.fromScale(0.5, 1),
-		Size = UDim2.fromOffset(40, 40),
-		Parent = bubble,
-	})
+	local function paintPin(color: Color3)
+		local fill = Kit.lighten(color, 0.08)
+		disc.BackgroundColor3 = fill
+		down.BackgroundColor3 = Kit.shade(fill, 0.13) -- matches the bottom of the disc's gradient
+	end
+	paintPin(Theme.Colors.Primary)
 	marker.Parent = Workspace
 
+	-- The bob follows the calm setting live: it stops (and rests) as soon as Hud.calm() turns on.
 	local bounce: Tween? = nil
-	if not Hud.calm() then
-		bounce = TweenService:Create(
-			bubble,
-			TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-			{ StudsOffset = Vector3.new(0, 3.8, 0) }
-		)
-		bounce:Play()
+	local function syncBounce()
+		local still = Hud.calm()
+		if still and bounce then
+			bounce:Cancel()
+			bounce = nil
+			bubble.StudsOffset = REST_OFFSET
+		elseif not still and not bounce then
+			bubble.StudsOffset = REST_OFFSET
+			local created = TweenService:Create(
+				bubble,
+				TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ StudsOffset = BOUNCE_OFFSET }
+			)
+			bounce = created
+			created:Play()
+		end
 	end
+	syncBounce()
+	local calmConnection = player:GetAttributeChangedSignal("ReduceEffects"):Connect(syncBounce)
 
 	-- The arc starts at you; a new character gets a new start.
 	local start: Attachment? = nil
@@ -295,6 +358,7 @@ local function startArrow(ctx: Types.Ctx)
 			attachment.Parent = root
 			start = attachment
 			beam.Attachment0 = attachment
+			edge.Attachment0 = attachment
 		end
 	end
 	local characterConnection = player.CharacterAdded:Connect(onCharacter)
@@ -304,7 +368,7 @@ local function startArrow(ctx: Types.Ctx)
 
 	local shownKey = ""
 	local function hide()
-		beam.Enabled = false
+		setArc(false)
 		bubble.Enabled = false
 		shownKey = ""
 	end
@@ -315,25 +379,20 @@ local function startArrow(ctx: Types.Ctx)
 		if key ~= shownKey then
 			shownKey = key
 			icon.Text = iconText
-			discStroke.Color = color
+			paintPin(color)
 			beam.Color = ColorSequence.new(color)
-			local scale = disc:FindFirstChild("Pop") :: UIScale?
-			if not scale then
-				local created = Instance.new("UIScale")
-				created.Name = "Pop"
-				created.Parent = disc
-				scale = created
-			end
-			if scale and not Hud.calm() then
-				scale.Scale = 0.5
-				TweenService:Create(scale, Theme.Tween.PopIn, { Scale = 1 }):Play()
+			if Hud.calm() then
+				pop.Scale = 1
+			else
+				pop.Scale = 0.5
+				TweenService:Create(pop, Theme.Tween.Bump, { Scale = 1 }):Play()
 			end
 		end
 		bubble.Enabled = true
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local near = root ~= nil and root:IsA("BasePart") and (root.Position - part.Position).Magnitude < NEAR_STUDS
-		beam.Enabled = start ~= nil and start.Parent ~= nil and not near
+		setArc(start ~= nil and start.Parent ~= nil and not near)
 	end
 
 	local function step()
@@ -388,6 +447,7 @@ local function startArrow(ctx: Types.Ctx)
 		end
 		-- Goal reached: clean up for good.
 		characterConnection:Disconnect()
+		calmConnection:Disconnect()
 		if bounce then
 			bounce:Cancel()
 		end

@@ -1,7 +1,14 @@
 --!strict
 -- Stations: where you hold to make a treatment item (build plan §B2).
--- Uses Color3, so it is Roblox-only: Lune specs must not require it.
+-- Uses Color3 (from Shared/Palette), so it is Roblox-only: Lune specs must not require it.
 -- Iterate `Stations.Order` for display order; `for id, station in Stations` yields only stations.
+--
+-- Colours are candy pop (memory-20261116-007): four full-saturation candy colours, as far apart as the set
+-- allows, so a kid matches a patient's badge ring to its station at a glance. None of them is green, yellow or
+-- red, which the patience ring uses.
+
+local Palette = require(script.Parent.Parent:WaitForChild("Palette"))
+local Candy = Palette.Candy
 
 export type StationId = string
 export type Station = {
@@ -12,10 +19,10 @@ export type Station = {
 }
 
 local ENTRIES: { [StationId]: Station } = {
-	Remedy = { Name = "Remedy Bench", Icon = "🧪", Item = "Potion", Color = Color3.fromRGB(176, 124, 255) },
-	Plaster = { Name = "Plaster Table", Icon = "🩹", Item = "Plaster", Color = Color3.fromRGB(255, 150, 100) },
-	Bath = { Name = "Warm Bath", Icon = "🛁", Item = "Bubbles", Color = Color3.fromRGB(80, 196, 240) },
-	Cocoa = { Name = "Cocoa Corner", Icon = "☕", Item = "Cocoa", Color = Color3.fromRGB(196, 132, 84) },
+	Remedy = { Name = "Remedy Bench", Icon = "🧪", Item = "Potion", Color = Candy.Purple },
+	Plaster = { Name = "Plaster Table", Icon = "🩹", Item = "Plaster", Color = Candy.Pink },
+	Bath = { Name = "Warm Bath", Icon = "🛁", Item = "Bubbles", Color = Candy.Blue },
+	Cocoa = { Name = "Cocoa Corner", Icon = "☕", Item = "Cocoa", Color = Candy.Orange },
 }
 
 local ORDER = { "Remedy", "Plaster", "Bath", "Cocoa" }

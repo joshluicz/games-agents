@@ -75,7 +75,7 @@ Workspace:GetAttributeChangedSignal("IsNight"):Connect(onPhase)
 task.spawn(onPhase)
 
 ------------------------------------------------------------------------------------------------------------------
--- The 🎵 button (Kit style when the UI kit loads; a plain button otherwise)
+-- The 🎵 button (a candy-pink Kit button when the UI kit loads, Quiet while muted; a plain button otherwise)
 ------------------------------------------------------------------------------------------------------------------
 
 local gui = Instance.new("ScreenGui")
@@ -102,16 +102,20 @@ local buttonPosition = UDim2.new(1, -(margin + BUTTON_SIZE + gap), BUTTON_Y, 0)
 
 local button: GuiButton
 local icon: TextLabel?
+local onColor: Color3? -- the candy fill while music plays; muted shows the Quiet fill
 if hasKit then
 	button = Kit.iconButton({
 		Name = "Music",
 		Icon = "🎵",
+		Kind = "Pink",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = buttonPosition,
 		Size = UDim2.fromOffset(BUTTON_SIZE, BUTTON_SIZE),
 		Parent = gui,
 	})
 	icon = button:FindFirstChild("Icon") :: TextLabel?
+	local kitColor = button:GetAttribute("KitColor")
+	onColor = if typeof(kitColor) == "Color3" then kitColor else Theme.Colors.Pink
 else
 	local plain = Instance.new("TextButton")
 	plain.AnchorPoint = Vector2.new(1, 0.5)
@@ -135,7 +139,7 @@ local function show()
 		button.Text = text
 	end
 	if hasKit then
-		button.BackgroundColor3 = if muted() then Theme.Colors.Quiet else Theme.Colors.Card
+		button.BackgroundColor3 = if muted() then Theme.Colors.Quiet else onColor or Theme.Colors.Pink
 		button:SetAttribute("KitColor", button.BackgroundColor3)
 	end
 	TweenService:Create(sound, TweenInfo.new(0.5), { Volume = targetVolume() }):Play()

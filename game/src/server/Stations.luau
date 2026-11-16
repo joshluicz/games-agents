@@ -34,6 +34,7 @@ local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 local Types = require(Shared.Types)
+local Palette = require(Shared.Palette)
 local ItemData = require(Shared.Data.Items)
 local StationData = require(Shared.Data.Stations)
 local Prices = require(Shared.Logic.Prices)
@@ -144,16 +145,21 @@ local function stationPart(instance: Instance): BasePart?
 	return nil
 end
 
+-- Candy pop (memory-20261116-007): sparkles in the station's own full colour that turn candy yellow as they fall.
 local function sparkleEmitter(part: BasePart, color: Color3): ParticleEmitter
 	local sparkles = Instance.new("ParticleEmitter")
 	sparkles.Name = "MakeSparkles"
 	sparkles.Enabled = false
-	sparkles.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.35), Color3.fromRGB(255, 236, 150))
-	sparkles.LightEmission = 0.6
+	sparkles.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, color),
+		ColorSequenceKeypoint.new(0.55, color),
+		ColorSequenceKeypoint.new(1, Palette.Candy.Yellow),
+	})
+	sparkles.LightEmission = 0.35 -- mostly normal blending, so the colour stays saturated in daylight
 	sparkles.LightInfluence = 0
 	sparkles.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.5),
-		NumberSequenceKeypoint.new(0.6, 0.35),
+		NumberSequenceKeypoint.new(0, 0.6),
+		NumberSequenceKeypoint.new(0.6, 0.42),
 		NumberSequenceKeypoint.new(1, 0),
 	})
 	sparkles.Transparency = NumberSequence.new(0, 0.3)
@@ -250,7 +256,13 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 			toast(player, SWAP_ICON .. " " .. iconOf(swapped) .. " " .. SWAP_ARROW .. " " .. iconOf(itemId))
 		end
 
-		sparkles:Emit(14)
+		-- Emit() on the server never reaches players, so switch the emitter on for a moment instead (the
+		-- Enabled change replicates and each client makes the burst itself).
+		sparkles.Rate = 90
+		sparkles.Enabled = true
+		task.delay(0.16, function()
+			sparkles.Enabled = false
+		end)
 		local ok, err = pcall(Daily.onMake, player, itemId)
 		if not ok then
 			warn("[Stations] Daily.onMake failed:", err)

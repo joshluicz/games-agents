@@ -1,14 +1,17 @@
 --!strict
 -- The payoff moments (build plan Task 7). Client only; nothing here changes game state.
---   Cured remote   sparkles, a soft ring and little hearts at the patient, a "+💰 n" / "+⭐ n" pop that floats up,
---                  and a chime. A NEW PAGE banner when the Book got a new page.
---   A new room     sparkles across its floor, a NEW ROOM banner and a fanfare (when your Rooms grow).
---   Decor placed   a puff of sparkles and a soft thud where it lands (when your Decor.Placed changes).
+--   Cured remote   sparkles, candy confetti, a ring and little hearts at the patient, a "+💰 n" / "+⭐ n" pop that
+--                  floats up, and a chime. A NEW PAGE banner when the Book got a new page.
+--   A new room     sparkles and confetti across its floor, a NEW ROOM banner and a fanfare (when your Rooms grow).
+--   A set done     a SET COMPLETE banner when a Book wing's set reward lands in your Decor.Owned.
+--   Decor placed   a puff of sparkles and confetti, and a soft thud where it lands (when your Decor.Placed changes).
 --   A heart        a 💖 floats off your clinic sign when someone leaves you a heart.
 --
--- Calm by design (Rated Minimal, kids on phones): no flashes, no camera shake, soft colours, slow fades.
+-- Candy pop (memory-20261116-007): saturated colours, chunky outlined text, banners with the reward's icon on
+-- turning rays. Still kind to kids on phones: nothing flashes or strobes, no camera shake, and every motion honours
 -- Reduce effects: the player attribute "ReduceEffects" (client-only, set by Feel/Atmosphere's toggle; falls back to
--- the device's Reduced Motion setting) cuts the particles, drops the ring, the pop scale and the banner shine.
+-- the device's Reduced Motion setting) cuts the particles and the confetti, drops the ring, the pop scale and the
+-- banner shine, and holds the rays still.
 --
 -- Bus events fired: "Sound" (Chime, Sparkle, Fanfare, Pop, Thud, Heart): Feel/Sounds plays them.
 
@@ -17,7 +20,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
 local Kit = require(UI:WaitForChild("Kit"))
@@ -28,16 +33,20 @@ local CureFX = {}
 local TEXTURE = {
 	Sparkle = "rbxasset://textures/particles/sparkles_main.dds", -- a four-point twinkle
 	Ring = "rbxasset://textures/particles/explosion01_shockwave_main.dds", -- a soft thin ring
+	Confetti = "rbxasset://textures/particles/SquareParticle.png", -- a plain square
 }
 
--- Sparkle colours per mood: warm by default, gold for Sparkly, icy for Frosty, lavender at night.
+-- Sparkle colours per mood, all full candy: gold and pink by default, gold for Sparkly, cyan for Frosty, purple at
+-- night, lime for a new room.
 local PALETTES: { [string]: { Color3 } } = {
-	Default = { Color3.fromRGB(255, 220, 120), Color3.fromRGB(255, 170, 200) },
-	Sparkly = { Color3.fromRGB(255, 214, 64), Color3.fromRGB(255, 245, 190) },
-	Frosty = { Color3.fromRGB(190, 230, 255), Color3.fromRGB(255, 255, 255) },
-	Night = { Color3.fromRGB(200, 180, 255), Color3.fromRGB(255, 232, 160) },
-	Room = { Color3.fromRGB(140, 220, 170), Color3.fromRGB(255, 220, 120) },
+	Default = { Theme.Colors.Cash, Theme.Colors.Pink },
+	Sparkly = { Theme.Colors.Star, Theme.Colors.Paper },
+	Frosty = { Theme.Colors.Cyan, Theme.Colors.Paper },
+	Night = { Theme.Colors.Purple, Theme.Colors.Cash },
+	Room = { Theme.Colors.Good, Theme.Colors.Cash },
 }
+-- Confetti: one emitter per colour, so every burst is a mix of the candy set.
+local CONFETTI = { Theme.Colors.Pink, Theme.Colors.Cash, Theme.Colors.Cyan, Theme.Colors.Good, Theme.Colors.Purple }
 
 local MAX_LIVE_FX = 12 -- world effects at once (a cure uses 3); a crowd of helpers can't flood the screen
 local MAX_BANNERS = 3 -- queued banners; more are dropped
@@ -155,6 +164,34 @@ local function burst(position: Vector3, palette: { Color3 }, count: number, spre
 	sparkles:Emit(if quiet then math.max(3, math.floor(count / 3)) else count)
 
 	if not quiet then
+		-- Confetti: tumbling candy squares that pop up and fall (no light emission, so nothing flashes).
+		local pieces = math.max(2, math.floor(count / 5))
+		for _, color in CONFETTI do
+			local confetti = Instance.new("ParticleEmitter")
+			confetti.Name = "Confetti"
+			confetti.Texture = TEXTURE.Confetti
+			confetti.Color = ColorSequence.new(color)
+			confetti.LightEmission = 0
+			confetti.LightInfluence = 0
+			confetti.Size = NumberSequence.new(0.24)
+			confetti.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.75, 0),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			confetti.Lifetime = NumberRange.new(0.9, 1.3)
+			confetti.Speed = NumberRange.new(7, 11)
+			confetti.SpreadAngle = Vector2.new(spread or 50, spread or 50)
+			confetti.EmissionDirection = Enum.NormalId.Top
+			confetti.Acceleration = Vector3.new(0, -16, 0)
+			confetti.Drag = 1.5
+			confetti.Rotation = NumberRange.new(0, 360)
+			confetti.RotSpeed = NumberRange.new(-300, 300)
+			confetti.Enabled = false
+			confetti.Parent = attachment
+			confetti:Emit(pieces)
+		end
+
 		local ring = Instance.new("ParticleEmitter")
 		ring.Texture = TEXTURE.Ring
 		ring.Color = ColorSequence.new(palette[2] or palette[1])
@@ -214,7 +251,7 @@ local function moneyPop(position: Vector3, lines: { { Text: string, Color: Color
 	local quiet = calm()
 	local attachment = anchorAt(position, POP_SECONDS + 0.2)
 	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(220, 44 * #lines)
+	gui.Size = UDim2.fromOffset(280, 46 * #lines) -- the chunky display font is wide
 	gui.StudsOffsetWorldSpace = Vector3.new(0, 2.5, 0)
 	gui.AlwaysOnTop = true
 	gui.LightInfluence = 0
@@ -233,15 +270,12 @@ local function moneyPop(position: Vector3, lines: { { Text: string, Color: Color
 		local label = Instance.new("TextLabel")
 		label.LayoutOrder = index
 		label.BackgroundTransparency = 1
-		label.Size = UDim2.new(1, 0, 0, 44)
-		label.Font = Theme.Font
-		label.TextSize = 36
+		label.Size = UDim2.new(1, 0, 0, 46)
+		label.Font = Theme.DisplayFont
+		label.TextSize = 38
 		label.TextColor3 = line.Color
 		label.Text = line.Text
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = Theme.Colors.Ink
-		stroke.Thickness = 2.5
-		stroke.Parent = label
+		local stroke = Palette.outlineText(label, Theme.Size.StrokeLarge)
 		label.Parent = gui
 		table.insert(labels, label)
 		table.insert(strokes, stroke)
@@ -271,7 +305,11 @@ end
 -- Banners (NEW PAGE, NEW ROOM): one at a time, top-centre under the toasts
 ------------------------------------------------------------------------------------------------------------------
 
-type Banner = { Title: string, Sub: string, Accent: Color3 }
+-- Icon: the reward's emoji, in a white bubble on the banner's top edge with rays behind it. Sound: played when the
+-- banner shows (rather than when it's queued), for one that waits behind another.
+type Banner = { Icon: string, Title: string, Sub: string, Accent: Color3, Sound: string? }
+
+local BADGE = 64 -- the icon bubble, px
 
 local screen: ScreenGui? = nil
 local queue: { Banner } = {}
@@ -287,48 +325,102 @@ local function bannerScreen(): ScreenGui
 	return created
 end
 
+-- Fades every fill, text and outline in a banner together.
+local function fadeAll(root: GuiObject, info: TweenInfo)
+	local items: { Instance } = root:GetDescendants()
+	table.insert(items, root)
+	for _, item in items do
+		if item:IsA("TextLabel") then
+			tween(item, info, { TextTransparency = 1, BackgroundTransparency = 1 })
+		elseif item:IsA("Frame") then
+			tween(item, info, { BackgroundTransparency = 1 })
+		elseif item:IsA("UIStroke") then
+			tween(item, info, { Transparency = 1 })
+		end
+	end
+end
+
 local function showBanner(banner: Banner)
 	local quiet = calm()
+	if banner.Sound then
+		sound(banner.Sound)
+	end
+	-- A candy slab in the banner's colour: thick dark outline, gradient, gloss, white outlined text.
 	local frame = Instance.new("Frame")
 	frame.Name = "Banner"
 	frame.AnchorPoint = Vector2.new(0.5, 0.5)
-	frame.Position = UDim2.fromScale(0.5, 0.27)
+	frame.Position = UDim2.fromScale(0.5, 0.29)
 	frame.Size = UDim2.new(0.86, 0, 0, 112)
-	frame.BackgroundColor3 = Theme.Colors.Paper
+	frame.BackgroundColor3 = Kit.lighten(banner.Accent, 0.08)
 	frame.BorderSizePixel = 0
 	local limit = Instance.new("UISizeConstraint")
 	limit.MaxSize = Vector2.new(440, 112)
 	limit.Parent = frame
 	Kit.corner(frame, Theme.Size.CornerLarge)
-	local stroke = Kit.stroke(frame, banner.Accent, 4)
+	Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.StrokeLarge)
+	Palette.candyGradient(frame)
+	Kit.gloss(frame, 10)
+
+	-- The reward's icon on the top edge, on turning rays (Kit.rays holds still with reduced motion).
+	local badge = Instance.new("Frame")
+	badge.Name = "Badge"
+	badge.BackgroundTransparency = 1
+	badge.AnchorPoint = Vector2.new(0.5, 0.5)
+	badge.Position = UDim2.fromScale(0.5, 0)
+	badge.Size = UDim2.fromOffset(BADGE, BADGE)
+	badge.ZIndex = 1
+	badge.Parent = frame
+	Kit.rays(badge, Theme.Colors.Cash)
+	local bubble = Instance.new("Frame")
+	bubble.Name = "Bubble"
+	bubble.BackgroundColor3 = Theme.Colors.Paper
+	bubble.BorderSizePixel = 0
+	bubble.Size = UDim2.fromScale(1, 1)
+	bubble.ZIndex = 1
+	Kit.corner(bubble, BADGE / 2)
+	Kit.stroke(bubble, Theme.Colors.Outline, Theme.Size.Stroke)
+	bubble.Parent = badge
+	Kit.label({
+		Name = "Icon",
+		Text = banner.Icon,
+		TextScaled = true,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.72, 0.72),
+		Parent = bubble,
+	})
 
 	local title = Kit.label({
 		Name = "Title",
 		Text = banner.Title,
 		TextSize = 44,
-		TextColor3 = Theme.Colors.Ink,
+		Outlined = true,
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 12),
-		Size = UDim2.new(1, -24, 0, 52),
+		Position = UDim2.new(0.5, 0, 0, BADGE / 2 + 2),
+		Size = UDim2.new(1, -24, 0, 42),
 		TextWrapped = false,
 		TextScaled = true,
+		ZIndex = 2,
 		Parent = frame,
 	})
 	local textLimit = Instance.new("UITextSizeConstraint")
 	textLimit.MaxTextSize = 44
 	textLimit.Parent = title
+	Kit.outline(title, Theme.Size.StrokeLarge)
 	local sub = Kit.label({
 		Name = "Sub",
 		Text = banner.Sub,
 		TextSize = Theme.TextSize.Body,
-		TextColor3 = Theme.Colors.InkSoft,
+		TextColor3 = Theme.Colors.OnColor,
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 66),
-		Size = UDim2.new(1, -24, 0, 32),
+		Position = UDim2.new(0.5, 0, 0, BADGE / 2 + 44),
+		Size = UDim2.new(1, -24, 0, 30),
+		ZIndex = 2,
 		Parent = frame,
 	})
+	Kit.outline(sub, 2)
 
-	-- A slow sheen that slides across once (not a flash).
+	-- A slow sheen that slides across once (not a flash), under the text.
 	local shine: Frame? = nil
 	if not quiet then
 		local sheen = Instance.new("Frame")
@@ -336,7 +428,7 @@ local function showBanner(banner: Banner)
 		sheen.Size = UDim2.fromScale(1, 1)
 		sheen.BackgroundColor3 = Color3.new(1, 1, 1)
 		sheen.BorderSizePixel = 0
-		sheen.ZIndex = 2
+		sheen.ZIndex = 0
 		Kit.corner(sheen, Theme.Size.CornerLarge)
 		local gradient = Instance.new("UIGradient")
 		gradient.Rotation = 20
@@ -360,16 +452,13 @@ local function showBanner(banner: Banner)
 
 	frame.Parent = bannerScreen()
 	Kit.popIn(frame)
+	task.delay(0.2, Kit.bump, badge) -- the reward icon springs once the banner lands
 	task.wait(BANNER_HOLD)
 
-	local fadeInfo = Theme.Tween.Fade
-	tween(frame, fadeInfo, { BackgroundTransparency = 1 })
-	tween(stroke, fadeInfo, { Transparency = 1 })
-	tween(title, fadeInfo, { TextTransparency = 1 })
-	tween(sub, fadeInfo, { TextTransparency = 1 })
 	if shine then
 		shine:Destroy()
 	end
+	fadeAll(frame, Theme.Tween.Fade)
 	Kit.popOut(frame)
 	task.wait(0.3)
 	frame:Destroy()
@@ -458,7 +547,7 @@ local function onCured(info: any)
 		end
 		task.delay(0.35, function()
 			sound("Fanfare")
-			banner({ Title = "📖 NEW PAGE!", Sub = sub, Accent = Theme.Colors.Star })
+			banner({ Icon = "📖", Title = "NEW PAGE!", Sub = sub, Accent = Theme.Colors.Purple })
 		end)
 	end
 end
@@ -497,7 +586,7 @@ local function celebrateRoom(roomId: string)
 		return
 	end
 	sound("Fanfare")
-	banner({ Title = "🎉 NEW ROOM!", Sub = room.Icon .. " " .. room.Name, Accent = Theme.Colors.Good })
+	banner({ Icon = room.Icon, Title = "NEW ROOM!", Sub = "🎉 " .. room.Name, Accent = Theme.Colors.Good })
 
 	local plot = myPlot()
 	local rooms = plot and plot:FindFirstChild("Rooms")
@@ -516,6 +605,34 @@ local function celebrateRoom(roomId: string)
 		local at = cf * Vector3.new(offset.X * size.X, 0, offset.Z * size.Z)
 		task.delay((index - 1) * 0.15, burst, Vector3.new(at.X, floorY, at.Z), PALETTES.Room, 16, 80)
 	end
+end
+
+-- The Book wing whose set reward this decor is (Data/Wings SetReward), if any.
+local function setRewardWing(decorId: string): string?
+	local wings = (ctx.Data :: any).Wings
+	for _, wingId in wings.Order do
+		if wings[wingId].SetReward == decorId then
+			return wingId
+		end
+	end
+	return nil
+end
+
+-- A wing's set reward just landed: the server's toast says it, this celebrates it. It queues after the NEW PAGE
+-- banner of the cure that finished the set, so its fanfare plays when it shows.
+local function celebrateSet(wingId: string, decorId: string)
+	local wing = (ctx.Data :: any).Wings[wingId]
+	local decor = ctx.Data.Decor[decorId]
+	if not wing or not decor then
+		return
+	end
+	banner({
+		Icon = decor.Icon,
+		Title = "SET COMPLETE!",
+		Sub = wing.Icon .. " " .. wing.Name,
+		Accent = Theme.Colors.Primary,
+		Sound = "Fanfare",
+	})
 end
 
 local function celebrateDecor(slotKey: string, decorId: string)
@@ -555,6 +672,18 @@ local function watchSnapshots()
 			for roomId, owned in snapshot.Rooms do
 				if owned == true and previous.Rooms[roomId] ~= true then
 					task.spawn(celebrateRoom, roomId)
+				end
+			end
+		end
+		local owned = type(snapshot.Decor) == "table" and snapshot.Decor.Owned
+		local ownedBefore = type(previous.Decor) == "table" and previous.Decor.Owned
+		if type(owned) == "table" and type(ownedBefore) == "table" then
+			for decorId, has in owned do
+				if has == true and ownedBefore[decorId] ~= true then
+					local wingId = setRewardWing(decorId)
+					if wingId then
+						task.spawn(celebrateSet, wingId, decorId)
+					end
 				end
 			end
 		end

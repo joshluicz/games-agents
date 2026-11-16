@@ -5,7 +5,9 @@
 --     who uses their own id): a chunky round body, big shiny eyes, rosy cheeks, ears, a hat and an extra
 --     (wings, tail...). Under 40 parts. ServerStorage.Creatures.<PatientId> (a Model, or one MeshPart) replaces
 --     the placeholder look; its pivot's LookVector must be the creature's face.
---     Night patients glow (PointLight plus a soft Highlight), Sparkly sparkles, Frosty gets an icy tint.
+--     Candy pop (memory-20261116-007): saturated SmoothPlastic bodies, dark eyes with white shine. Night patients
+--     glow in a rich version of their body colour (PointLight, a Highlight rim, a little Neon on their tips).
+--     Sparkly gets rainbow bits and rainbow glitter; Frosty an icy cyan tint and frost sparkles.
 --   CreatureBuilder.badge(model): Badge?             the ailment badge (IconGui) and speech bubble (BubbleGui)
 --   CreatureBuilder.setRing(badge, fraction, colour) the badge's ring: 0..1, filling clockwise from 12 o'clock
 --   CreatureBuilder.setMood(model, mood)             "Sick" (little o mouth) | "Happy" | "Sad" | "Sleep"
@@ -17,7 +19,9 @@
 --   PrimaryPart `Root`: an invisible anchored part at the bottom centre. The pivot IS Root.CFrame, and its
 --   LookVector is where the face looks. Every other part is welded to Root (unanchored, massless, no collision,
 --   no queries, CollisionGroup "Patients"), so moving Root moves the whole creature with one replicated CFrame.
---   Root.IconAnchor (Attachment above the head) holds the BillboardGuis IconGui and BubbleGui.
+--   Root.IconAnchor (Attachment above the head) holds the BillboardGuis IconGui and BubbleGui. The badge is
+--   chunky and outlined like the top games' billboards: a dark rim, the patience ring, the station's candy ring
+--   and a white disc with the ailment, plus corner chips (what it needs, Today's Visitor ⭐, the variant).
 --   Root.FX (Attachment at the body's middle) holds the lights and particle emitters.
 --   Model:GetScale() is the creature's own size (Look.Scale); Patients scales relative to it.
 -- Rated Minimal: soft, round and friendly. Nothing sharp, scary or gross.
@@ -28,10 +32,13 @@ local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Ailments = require(Shared.Data.Ailments)
 local Items = require(Shared.Data.Items)
+local Palette = require(Shared.Palette)
 local PatientsData = require(Shared.Data.Patients)
 local Regulars = require(Shared.Data.Regulars)
 local Stations = require(Shared.Data.Stations)
 local Variants = require(Shared.Data.Variants)
+
+local Candy = Palette.Candy
 
 local CreatureBuilder = {}
 
@@ -83,25 +90,46 @@ local COLLISION_GROUP = "Patients"
 local SPARKLE_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
 local SMOKE_TEXTURE = "rbxasset://textures/particles/smoke_main.dds"
 
-local WHITE = Color3.new(1, 1, 1)
+local WHITE = Palette.White
 local BLACK = Color3.new(0, 0, 0)
-local INK = Color3.fromRGB(46, 36, 66) -- eyes: soft plum-navy, never pure black
-local MOUTH = Color3.fromRGB(96, 50, 66)
-local CHEEK = Color3.fromRGB(255, 158, 184)
-local LEAF = Color3.fromRGB(116, 198, 83)
-local STEM = Color3.fromRGB(94, 170, 66)
-local ICE = Color3.fromRGB(205, 238, 255)
-local GOLD = Color3.fromRGB(255, 226, 138)
-local STAR_GOLD = Color3.fromRGB(255, 213, 79)
-local NIGHT_GLOW = Color3.fromRGB(228, 216, 255)
-local HEAL_PINK = Color3.fromRGB(255, 184, 220)
-local RING_START = Color3.fromRGB(126, 214, 155)
-local DEFAULT_STATION = Color3.fromRGB(255, 170, 200)
+local EYE = Palette.Outline -- deep plum-navy, never pure black
+local MOUTH = Palette.Ink
+local CHEEK = Color3.fromRGB(255, 112, 172)
+local LEAF = Candy.Lime
+local STEM = Color3.fromRGB(46, 178, 64)
+local ICE = Color3.fromRGB(112, 226, 255) -- Frosty: icy cyan
+local HEAL = Candy.Pink
+local HEAL_LIGHT = Color3.fromRGB(255, 200, 236)
+local SAD_PUFF = Color3.fromRGB(140, 132, 255) -- a soft periwinkle puff: sad, never scary
+local RING_START = Candy.Lime -- the patience ring starts full and green
+local TRACK = Color3.fromRGB(236, 232, 250) -- the empty part of the patience ring
+local DEFAULT_STATION = Candy.Pink
+local BUBBLE = Candy.Purple -- a regular's speech bubble (white outlined text reads best on it)
+local STICKER_RING: { [string]: Color3 } = { Sparkly = Candy.Pink, Frosty = Candy.Cyan }
+
+-- Rainbow glitter for Sparkly, and the colours a cure bursts into.
+local RAINBOW = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Candy.Pink),
+	ColorSequenceKeypoint.new(0.2, Candy.Orange),
+	ColorSequenceKeypoint.new(0.4, Candy.Yellow),
+	ColorSequenceKeypoint.new(0.6, Candy.Lime),
+	ColorSequenceKeypoint.new(0.8, Candy.Cyan),
+	ColorSequenceKeypoint.new(1, Candy.Purple),
+})
+local CONFETTI = { Candy.Pink, Candy.Yellow, Candy.Cyan, Candy.Lime, Candy.Purple }
+
+-- The badge: the IconGui is BADGE_STUDS square, and the round badge fills BADGE_FACE of it, so the corner chips and
+-- the outlines stay inside the gui.
+local BADGE_STUDS = 3.8
+local BADGE_FACE = 0.8
+
+-- Big parts keep their own colour on a Sparkly creature; the small bits (ears, tops, wings, tails) go rainbow.
+local BIG_PARTS = { Body = true, Head = true, Belly = true, BellyTop = true, Crust = true }
 
 local DEFAULT_LOOK: Look = {
 	Shape = "Ball",
-	Body = "#FFC8DC",
-	Accent = "#FFF3F8",
+	Body = "#FF6EC0",
+	Accent = "#FFD6EC",
 	Ears = "Round",
 	Top = "None",
 	Extra = "None",
@@ -323,9 +351,12 @@ local function buildBody(b: Build, look: Look, shape: Shape): (Ellipsoid?, Ellip
 	if head then
 		ball(b, "Head", head.R * 2, CFrame.new(head.C), b.Body, true)
 		if look.Ears == "None" and look.Top == "None" then
-			-- a soft little drop tip
+			-- a soft little drop tip (a glowing wisp at night)
 			local tipY = head.C.Y + head.R.Y - 0.12
-			ball(b, "Tip", Vector3.one * 0.8, CFrame.new(0, tipY, head.C.Z + 0.08), b.Body, true)
+			local tip = ball(b, "Tip", Vector3.one * 0.8, CFrame.new(0, tipY, head.C.Z + 0.08), b.Body, true)
+			if b.Night then
+				tip.Material = Enum.Material.Neon
+			end
 		end
 	end
 
@@ -345,24 +376,24 @@ local function buildFace(b: Build, shape: Shape, faceZ: (number, number) -> numb
 		local x = side * shape.EyeX
 		local y = shape.FaceY
 		local eye = CFrame.new(x, y, faceZ(x, y) + 0.06) * CFrame.Angles(0, -side * 0.3 * curve, 0)
-		ball(b, "Eye", Vector3.new(0.6, 0.74, 0.36), eye, INK, false)
-		-- Two glints in the same corner of both eyes: the "alive and friendly" look.
-		ball(b, "EyeShine", Vector3.new(0.22, 0.22, 0.1), eye * CFrame.new(0.12, 0.17, -0.16), WHITE, false)
-		ball(b, "EyeShine", Vector3.new(0.11, 0.11, 0.06), eye * CFrame.new(-0.1, -0.15, -0.15), WHITE, false)
+		-- Big dark eyes with two white glints in the same corner of both: the "alive and friendly" look.
+		ball(b, "Eye", Vector3.new(0.64, 0.8, 0.36), eye, EYE, false)
+		ball(b, "EyeShine", Vector3.new(0.26, 0.26, 0.1), eye * CFrame.new(0.13, 0.19, -0.16), WHITE, false)
+		ball(b, "EyeShine", Vector3.new(0.12, 0.12, 0.06), eye * CFrame.new(-0.11, -0.17, -0.15), WHITE, false)
 
 		-- Closed, contented eyes for sleeping in bed (shown by setMood "Sleep").
-		local lid = block(b, "Lid", Vector3.new(0.66, 0.5, 0.04), eye * CFrame.new(0, -0.02, -0.19), WHITE, false)
+		local lid = block(b, "Lid", Vector3.new(0.7, 0.52, 0.04), eye * CFrame.new(0, -0.02, -0.19), WHITE, false)
 		lid.Transparency = 1
 		lid.CastShadow = false
 		local lidGui = surface(lid, "LidGui")
 		lidGui.Enabled = false
-		arc(lidGui, "Closed", true, UDim2.fromScale(0.5, 0.18), UDim2.fromScale(0.62, 0.82), 6, INK).Visible = true
+		arc(lidGui, "Closed", true, UDim2.fromScale(0.5, 0.18), UDim2.fromScale(0.62, 0.82), 7, EYE).Visible = true
 
 		local cx = side * (shape.EyeX + 0.42)
 		local cy = y - 0.4
 		local cheekCf = CFrame.new(cx, cy, faceZ(cx, cy) + 0.04) * CFrame.Angles(0, -side * 0.55 * curve, 0)
 		local cheek = ball(b, "Cheek", Vector3.new(0.5, 0.3, 0.14), cheekCf, CHEEK, false)
-		cheek.Transparency = 0.1
+		cheek.Transparency = 0.15
 	end
 
 	local mouthY = shape.FaceY - 0.5
@@ -380,8 +411,8 @@ local function buildFace(b: Build, shape: Shape, faceZ: (number, number) -> numb
 	sick.BorderSizePixel = 0
 	corner(sick)
 	sick.Parent = gui
-	arc(gui, "Happy", true, UDim2.fromScale(0.5, 0.15), UDim2.fromScale(0.52, 0.77), 5, MOUTH)
-	arc(gui, "Sad", false, UDim2.fromScale(0.5, 0.98), UDim2.fromScale(0.46, 0.68), 5, MOUTH)
+	arc(gui, "Happy", true, UDim2.fromScale(0.5, 0.15), UDim2.fromScale(0.52, 0.77), 6, MOUTH)
+	arc(gui, "Sad", false, UDim2.fromScale(0.5, 0.98), UDim2.fromScale(0.46, 0.68), 6, MOUTH)
 end
 
 local function buildFeet(b: Build, shape: Shape)
@@ -499,13 +530,18 @@ local function buildTop(b: Build, look: Look, top: number)
 			ball(b, "Snow", Vector3.one * 0.6, cf, b.Accent, true)
 		end
 	elseif kind == "Star" then
-		-- A soft, rounded star (no sharp points).
+		-- A soft, rounded star (no sharp points). It glows (Neon) on a night creature.
 		local centre = CFrame.new(0, top + 0.78, 0.05)
-		local star = lighten(b.Body, 0.2)
-		ball(b, "Star", Vector3.new(0.62, 0.62, 0.3), centre, star, true)
+		local star = if b.Night then b.Body else lighten(b.Body, 0.2)
+		local parts = { ball(b, "Star", Vector3.new(0.62, 0.62, 0.3), centre, star, true) }
 		for i = 0, 4 do
 			local ray = centre * CFrame.Angles(0, 0, i * math.rad(72)) * CFrame.new(0, 0.42, 0)
-			ball(b, "StarRay", Vector3.new(0.4, 0.88, 0.24), ray, star, true)
+			table.insert(parts, ball(b, "StarRay", Vector3.new(0.4, 0.88, 0.24), ray, star, true))
+		end
+		if b.Night then
+			for _, part in parts do
+				part.Material = Enum.Material.Neon
+			end
 		end
 	elseif kind == "Lid" then
 		local up = CFrame.Angles(0, 0, math.pi / 2)
@@ -534,7 +570,10 @@ local function buildExtra(b: Build, look: Look, shape: Shape)
 	elseif kind == "Tail" then
 		ball(b, "Tail", Vector3.one * 0.62, CFrame.new(0, 0.62, c + 0.12), b.Body, true)
 		ball(b, "Tail", Vector3.one * 0.5, CFrame.new(0, 0.98, c + 0.46), b.Body, true)
-		ball(b, "TailTip", Vector3.one * 0.44, CFrame.new(0, 1.36, c + 0.6), b.Accent, true)
+		local tip = ball(b, "TailTip", Vector3.one * 0.44, CFrame.new(0, 1.36, c + 0.6), b.Accent, true)
+		if b.Night then
+			tip.Material = Enum.Material.Neon -- a glowing tail tip at night
+		end
 	elseif kind == "Spout" then
 		local pot = darken(b.Body, 0.05)
 		local spout = CFrame.new(a + 0.28, cy + 0.05, 0) * CFrame.Angles(0, 0, 0.75)
@@ -549,7 +588,7 @@ local function placeholder(look: Look, night: boolean): (Model, { BasePart })
 	local b: Build = {
 		Model = model,
 		Tint = {},
-		Body = hex(look.Body, Color3.fromRGB(255, 200, 220)),
+		Body = hex(look.Body, Candy.Pink),
 		Accent = hex(look.Accent, WHITE),
 		Night = night,
 	}
@@ -679,7 +718,7 @@ local function sparkleEmitter(name: string, colors: ColorSequence, size: number,
 	e.Name = name
 	e.Texture = SPARKLE_TEXTURE
 	e.Color = colors
-	e.LightEmission = 0.9
+	e.LightEmission = 0.5 -- half additive: bright, but the candy colour still shows in daylight
 	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, size), NumberSequenceKeypoint.new(1, 0) })
 	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 0.6) })
 	e.Rate = rate
@@ -691,6 +730,15 @@ local function sparkleEmitter(name: string, colors: ColorSequence, size: number,
 	return e
 end
 
+-- A night creature's own glow: its body colour made rich (saturated, full brightness). A white-ish body glows lilac.
+local function glowOf(body: Color3): Color3
+	local h, s = Color3.toHSV(body)
+	if s < 0.12 then
+		return Color3.fromRGB(190, 140, 255)
+	end
+	return Color3.fromHSV(h, math.max(s, 0.72), 1)
+end
+
 local function addEffects(model: Model, root: Part, middle: number, night: boolean, variant: string?, body: Color3)
 	local fx = Instance.new("Attachment")
 	fx.Name = "FX"
@@ -698,34 +746,35 @@ local function addEffects(model: Model, root: Part, middle: number, night: boole
 	fx.Parent = root
 
 	if night then
-		-- Spooky-cute: a soft lavender glow, never scary.
+		-- Spooky-cute: a rich glow in the creature's own colour, never scary.
+		local color = glowOf(body)
 		local glow = Instance.new("PointLight")
 		glow.Name = "NightGlow"
-		glow.Color = NIGHT_GLOW
-		glow.Brightness = 1.2
-		glow.Range = 10
+		glow.Color = color
+		glow.Brightness = 1.5
+		glow.Range = 11
 		glow.Shadows = false
 		glow.Parent = fx
-		local halo = Instance.new("Highlight")
+		local halo = Instance.new("Highlight") -- one per night creature only (Roblox shows 31 at most)
 		halo.Name = "NightHalo"
-		halo.FillColor = lighten(body, 0.6)
-		halo.FillTransparency = 0.82
-		halo.OutlineColor = NIGHT_GLOW
-		halo.OutlineTransparency = 0.4
+		halo.FillColor = color
+		halo.FillTransparency = 0.8 -- a light wash, so the face still reads
+		halo.OutlineColor = color
+		halo.OutlineTransparency = 0.1 -- a bright rim
 		halo.DepthMode = Enum.HighlightDepthMode.Occluded
 		halo.Parent = model
 	end
 
 	local healLight = Instance.new("PointLight")
 	healLight.Name = "HealLight"
-	healLight.Color = HEAL_PINK
+	healLight.Color = HEAL
 	healLight.Brightness = 1.6
 	healLight.Range = 9
 	healLight.Shadows = false
 	healLight.Enabled = false
 	healLight.Parent = fx
 
-	local heal = sparkleEmitter("Heal", ColorSequence.new(HEAL_PINK, WHITE), 0.35, 8)
+	local heal = sparkleEmitter("Heal", ColorSequence.new(HEAL, HEAL_LIGHT), 0.38, 9)
 	heal.EmissionDirection = Enum.NormalId.Top
 	heal.SpreadAngle = Vector2.new(45, 45)
 	heal.Speed = NumberRange.new(1, 2)
@@ -735,33 +784,50 @@ local function addEffects(model: Model, root: Part, middle: number, night: boole
 	heal.Parent = fx
 
 	if variant == "Sparkly" then
-		local colors = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, GOLD),
-			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 190, 230)),
-			ColorSequenceKeypoint.new(1, WHITE),
-		})
-		sparkleEmitter("Sparkle", colors, 0.4, 6).Parent = fx
+		-- Rainbow glitter: each speck runs through the candy colours, so the cloud is every colour at once.
+		local glitter = sparkleEmitter("Sparkle", RAINBOW, 0.46, 10)
+		glitter.LightEmission = 0.7
+		glitter.Parent = fx
 	elseif variant == "Frosty" then
-		local frost = sparkleEmitter("Frost", ColorSequence.new(WHITE, ICE), 0.3, 5)
+		local frost = sparkleEmitter("Frost", ColorSequence.new(WHITE, Candy.Cyan), 0.34, 7)
 		frost.Speed = NumberRange.new(0.5, 1.2)
 		frost.Acceleration = Vector3.new(0, -1.5, 0)
 		frost.Lifetime = NumberRange.new(1, 1.8)
-		frost.LightEmission = 0.5
+		frost.LightEmission = 0.6
 		frost.Parent = fx
 	end
 end
 
-local function applyVariant(tint: { BasePart }, variant: string?)
+-- Sparkly: the big parts get brighter and a little more saturated; the small bits (ears, tops, wings, tails, feet)
+-- take a rainbow colour by height, red-pink on top down to violet at the feet, like a holo sticker. A kit model's
+-- parts aren't named like ours, so all of them count as big.
+local function rainbowTint(tint: { BasePart }, kit: boolean)
+	local low, high = math.huge, -math.huge
+	for _, part in tint do
+		low = math.min(low, part.Position.Y)
+		high = math.max(high, part.Position.Y)
+	end
+	local span = math.max(high - low, 0.01)
+	for _, part in tint do
+		if kit or BIG_PARTS[part.Name] then
+			local h, s, v = Color3.toHSV(part.Color)
+			part.Color = Color3.fromHSV(h, math.min(s + 0.1, 1), math.min(v + 0.1, 1))
+		else
+			local t = (part.Position.Y - low) / span -- 0 at the bottom, 1 at the top
+			part.Color = part.Color:Lerp(Color3.fromHSV((1 - t) * 0.78, 0.72, 1), 0.6)
+		end
+		part.Reflectance = 0.05
+	end
+end
+
+local function applyVariant(tint: { BasePart }, variant: string?, kit: boolean)
 	if variant == "Frosty" then
 		for _, part in tint do
-			part.Color = part.Color:Lerp(ICE, 0.5)
-			part.Reflectance = 0.12
+			part.Color = part.Color:Lerp(ICE, 0.45)
+			part.Reflectance = 0.1
 		end
 	elseif variant == "Sparkly" then
-		for _, part in tint do
-			part.Color = part.Color:Lerp(GOLD, 0.18)
-			part.Reflectance = 0.06
-		end
+		rainbowTint(tint, kit)
 	end
 end
 
@@ -786,13 +852,35 @@ local function emoji(parent: Instance, name: string, text: string, size: number,
 	l.Position = UDim2.fromScale(0.5, 0.52)
 	l.Size = UDim2.fromScale(size, size)
 	l.BackgroundTransparency = 1
-	l.Font = Enum.Font.FredokaOne
+	l.Font = Palette.BodyFont
 	l.TextScaled = true
-	l.TextColor3 = INK
+	l.TextColor3 = Palette.Ink
 	l.Text = text
 	l.ZIndex = z
 	l.Parent = parent
 	return l
+end
+
+-- A plain see-through frame centred in its parent, `size` of it.
+local function holder(parent: Instance, name: string, size: number, z: number): Frame
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.Position = UDim2.fromScale(0.5, 0.5)
+	f.Size = UDim2.fromScale(size, size)
+	f.BackgroundTransparency = 1
+	f.ZIndex = z
+	f.Parent = parent
+	return f
+end
+
+-- A corner chip: a candy ring with a thick dark outline, a white middle and an emoji in it.
+local function chip(parent: Instance, name: string, size: number, position: UDim2, ring: Color3, icon: string): Frame
+	local root = circle(parent, name, size, position, ring, 7)
+	Palette.outlineShape(root, 3)
+	local inner = circle(root, "Inner", 0.74, UDim2.fromScale(0.5, 0.5), WHITE, 1)
+	emoji(inner, name .. "Icon", icon, 0.8, 2)
+	return root
 end
 
 -- One half of the ring: a clip frame showing half of a full circle whose gradient decides how much shows.
@@ -820,52 +908,60 @@ local function ringHalf(parent: Instance, name: string, right: boolean): (Frame,
 	return fill, gradient
 end
 
-local function makeBadge(anchor: Attachment, ailmentIcon: string, itemIcon: string, ring: Color3, sticker: string?)
+local function makeBadge(
+	anchor: Attachment,
+	ailmentIcon: string,
+	itemIcon: string,
+	ring: Color3,
+	sticker: string?,
+	stickerRing: Color3
+): Badge
 	local centre = UDim2.fromScale(0.5, 0.5)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "IconGui"
-	gui.Size = UDim2.fromScale(3, 3) -- studs: big enough to read on a phone from behind the counter
+	gui.Size = UDim2.fromScale(BADGE_STUDS, BADGE_STUDS) -- studs: big enough to read on a phone from the counter
 	gui.StudsOffsetWorldSpace = Vector3.new(0, 1.6, 0)
 	gui.LightInfluence = 0
 	gui.MaxDistance = 75
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-	local track = circle(gui, "Track", 1, centre, WHITE, 1)
-	track.BackgroundTransparency = 0.25
-	local fillLeft, gradLeft = ringHalf(gui, "RingLeft", false)
-	local fillRight, gradRight = ringHalf(gui, "RingRight", true)
-	circle(gui, "StationRing", 0.84, centre, ring, 3) -- the treating station's colour, like its own badge
-	circle(gui, "Disc", 0.74, centre, WHITE, 4)
-	local icon = emoji(gui, "Icon", ailmentIcon, 0.56, 5)
+	-- From the outside in: a thick dark rim, the patience ring, the station's candy ring, then a white disc with the
+	-- ailment. The rim is a dark circle rather than a stroke, so it stays chunky at every distance.
+	local face = holder(gui, "Face", BADGE_FACE, 1)
+	circle(face, "Outline", 1, centre, Palette.Outline, 1)
+	circle(face, "Track", 0.9, centre, TRACK, 2)
+	local ringFrame = holder(face, "Ring", 0.9, 3)
+	local fillLeft, gradLeft = ringHalf(ringFrame, "RingLeft", false)
+	local fillRight, gradRight = ringHalf(ringFrame, "RingRight", true)
+	local stationRing = circle(face, "StationRing", 0.76, centre, ring, 4) -- the treating station's colour
+	Palette.outlineShape(stationRing, 2.5)
+	local disc = circle(face, "Disc", 0.6, centre, WHITE, 5)
+	Palette.outlineShape(disc, 2)
+	local icon = emoji(face, "Icon", ailmentIcon, 0.5, 6)
 
-	local need = circle(gui, "Need", 0.44, UDim2.fromScale(0.85, 0.85), ring, 6)
-	local needInner = circle(need, "Inner", 0.8, centre, WHITE, 7)
-	emoji(needInner, "NeedIcon", itemIcon, 0.74, 8)
-
-	local star = circle(gui, "Star", 0.42, UDim2.fromScale(0.15, 0.15), STAR_GOLD, 6)
-	emoji(star, "StarIcon", "⭐", 0.72, 7)
+	local need = chip(face, "Need", 0.4, UDim2.fromScale(0.86, 0.86), ring, itemIcon)
+	local star = chip(face, "Star", 0.44, UDim2.fromScale(0.14, 0.14), Candy.Yellow, "⭐")
 	star.Visible = false
-
-	local stickerFrame = circle(gui, "Sticker", 0.42, UDim2.fromScale(0.85, 0.15), WHITE, 6)
-	emoji(stickerFrame, "StickerIcon", sticker or "", 0.72, 7)
+	local stickerFrame = chip(face, "Sticker", 0.4, UDim2.fromScale(0.86, 0.14), stickerRing, sticker or "")
 	stickerFrame.Visible = sticker ~= nil
 	gui.Parent = anchor
 
-	-- A regular's speech bubble: an emote and 6 words or fewer.
+	-- A regular's speech bubble: an emote and 6 words or fewer, in chunky outlined letters on a candy bubble with a
+	-- dark outline and a dark lip underneath. Inset from the gui's edge so the outlines always show whole.
 	local bubble = Instance.new("BillboardGui")
 	bubble.Name = "BubbleGui"
-	bubble.Size = UDim2.fromScale(8, 2.4)
-	bubble.StudsOffsetWorldSpace = Vector3.new(0, 4.4, 0)
+	bubble.Size = UDim2.fromScale(8, 2.6)
+	bubble.StudsOffsetWorldSpace = Vector3.new(0, 4.6, 0)
 	bubble.LightInfluence = 0
 	bubble.MaxDistance = 60
 	bubble.Enabled = false
 	bubble.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	local shadow = Instance.new("Frame")
 	shadow.Name = "Shadow"
-	shadow.Position = UDim2.fromScale(0.01, 0.05)
-	shadow.Size = UDim2.fromScale(1, 0.8)
-	shadow.BackgroundColor3 = INK
-	shadow.BackgroundTransparency = 0.85
+	shadow.AnchorPoint = Vector2.new(0.5, 0)
+	shadow.Position = UDim2.fromScale(0.5, 0.1)
+	shadow.Size = UDim2.fromScale(0.96, 0.68)
+	shadow.BackgroundColor3 = Palette.Outline
 	shadow.BorderSizePixel = 0
 	shadow.ZIndex = 1
 	corner(shadow, 0.45)
@@ -873,20 +969,24 @@ local function makeBadge(anchor: Attachment, ailmentIcon: string, itemIcon: stri
 	local tail = Instance.new("Frame")
 	tail.Name = "Tail"
 	tail.AnchorPoint = Vector2.new(0.5, 0.5)
-	tail.Position = UDim2.fromScale(0.5, 0.8)
-	tail.Size = UDim2.fromScale(0.075, 0.25) -- a square: 0.6 x 0.6 studs
+	tail.Position = UDim2.fromScale(0.5, 0.76)
+	tail.Size = UDim2.fromScale(0.07, 0.215) -- a square: 0.56 x 0.56 studs
 	tail.Rotation = 45
-	tail.BackgroundColor3 = WHITE
+	tail.BackgroundColor3 = BUBBLE
 	tail.BorderSizePixel = 0
 	tail.ZIndex = 2
+	Palette.outlineShape(tail, 3)
 	tail.Parent = bubble
 	local body = Instance.new("Frame")
 	body.Name = "Body"
-	body.Size = UDim2.fromScale(1, 0.8)
-	body.BackgroundColor3 = WHITE
+	body.AnchorPoint = Vector2.new(0.5, 0)
+	body.Position = UDim2.fromScale(0.5, 0.04)
+	body.Size = UDim2.fromScale(0.96, 0.68)
+	body.BackgroundColor3 = BUBBLE
 	body.BorderSizePixel = 0
 	body.ZIndex = 3
 	corner(body, 0.45)
+	Palette.outlineShape(body, 3)
 	body.Parent = bubble
 	local emote = emoji(body, "Emote", "", 0.8, 4)
 	emote.SizeConstraint = Enum.SizeConstraint.RelativeYY
@@ -898,12 +998,13 @@ local function makeBadge(anchor: Attachment, ailmentIcon: string, itemIcon: stri
 	text.Position = UDim2.fromScale(0.25, 0.5)
 	text.Size = UDim2.fromScale(0.71, 0.72)
 	text.BackgroundTransparency = 1
-	text.Font = Enum.Font.FredokaOne
+	text.Font = Palette.DisplayFont
 	text.TextScaled = true
 	text.TextWrapped = true
-	text.TextColor3 = INK
+	text.TextColor3 = WHITE
 	text.Text = ""
 	text.ZIndex = 4
+	Palette.outlineText(text)
 	text.Parent = body
 	bubble.Parent = anchor
 
@@ -947,7 +1048,7 @@ function CreatureBuilder.build(patientId: string, variant: string?): Model
 	else
 		model, tint = placeholder(look, night)
 	end
-	applyVariant(tint, variant)
+	applyVariant(tint, variant, kitModel ~= nil)
 
 	local root, height, middle = addRoot(model)
 	weldAll(model, root)
@@ -962,7 +1063,8 @@ function CreatureBuilder.build(patientId: string, variant: string?): Model
 		if ailment then ailment.Icon else "❔",
 		if item then item.Icon else "",
 		if station then station.Color else DEFAULT_STATION,
-		if variantData then variantData.Icon else nil
+		if variantData then variantData.Icon else nil,
+		if variant then STICKER_RING[variant] or WHITE else WHITE
 	)
 
 	model.Name = patientId
@@ -1025,49 +1127,53 @@ end
 -- A short burst at a spot, on its own Attachment in Terrain so it plays out after the creature is gone.
 -- Emitters are switched on briefly instead of Emit(), which doesn't replicate from the server.
 function CreatureBuilder.effectAt(position: Vector3, kind: string)
-	local emitter: ParticleEmitter
+	local emitters: { ParticleEmitter } = {}
 	if kind == "Puff" then
-		emitter = Instance.new("ParticleEmitter")
-		emitter.Name = "Puff"
-		emitter.Texture = SMOKE_TEXTURE
-		emitter.Color = ColorSequence.new(Color3.fromRGB(216, 210, 232), WHITE)
-		emitter.LightEmission = 0.15
-		emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 2.4) })
-		emitter.Transparency =
-			NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 1) })
-		emitter.Rate = 70
-		emitter.Lifetime = NumberRange.new(0.7, 1)
-		emitter.Speed = NumberRange.new(2, 4)
-		emitter.SpreadAngle = Vector2.new(180, 180)
-		emitter.Drag = 4
-		emitter.Rotation = NumberRange.new(0, 360)
-		emitter.RotSpeed = NumberRange.new(-60, 60)
+		local puff = Instance.new("ParticleEmitter")
+		puff.Name = "Puff"
+		puff.Texture = SMOKE_TEXTURE
+		puff.Color = ColorSequence.new(SAD_PUFF, Color3.fromRGB(214, 222, 255))
+		puff.LightEmission = 0.15
+		puff.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 2.4) })
+		puff.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+		puff.Rate = 70
+		puff.Lifetime = NumberRange.new(0.7, 1)
+		puff.Speed = NumberRange.new(2, 4)
+		puff.SpreadAngle = Vector2.new(180, 180)
+		puff.Drag = 4
+		puff.Rotation = NumberRange.new(0, 360)
+		puff.RotSpeed = NumberRange.new(-60, 60)
+		table.insert(emitters, puff)
 	elseif kind == "Cure" then
-		local colors = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 150, 200)),
-			ColorSequenceKeypoint.new(0.5, GOLD),
-			ColorSequenceKeypoint.new(1, WHITE),
-		})
-		emitter = sparkleEmitter("Cure", colors, 0.6, 120)
-		emitter.EmissionDirection = Enum.NormalId.Top
-		emitter.SpreadAngle = Vector2.new(70, 70)
-		emitter.Speed = NumberRange.new(7, 11)
-		emitter.Acceleration = Vector3.new(0, -10, 0)
-		emitter.Lifetime = NumberRange.new(0.5, 0.9)
+		-- Candy confetti: one emitter per colour, so every speck keeps its own colour.
+		for _, color in CONFETTI do
+			local confetti = sparkleEmitter("Cure", ColorSequence.new(color, lighten(color, 0.35)), 0.6, 26)
+			confetti.EmissionDirection = Enum.NormalId.Top
+			confetti.SpreadAngle = Vector2.new(70, 70)
+			confetti.Speed = NumberRange.new(7, 11)
+			confetti.Acceleration = Vector3.new(0, -10, 0)
+			confetti.Lifetime = NumberRange.new(0.5, 0.9)
+			table.insert(emitters, confetti)
+		end
 	else -- "Pop"
-		emitter = sparkleEmitter("Pop", ColorSequence.new(WHITE, Color3.fromRGB(255, 220, 240)), 0.45, 90)
-		emitter.Speed = NumberRange.new(5, 8)
-		emitter.Drag = 4
-		emitter.Lifetime = NumberRange.new(0.35, 0.6)
+		local pop = sparkleEmitter("Pop", ColorSequence.new(Candy.Yellow, Candy.Pink), 0.45, 90)
+		pop.Speed = NumberRange.new(5, 8)
+		pop.Drag = 4
+		pop.Lifetime = NumberRange.new(0.35, 0.6)
+		table.insert(emitters, pop)
 	end
 
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "PatientFX"
 	attachment.Parent = Workspace.Terrain
 	attachment.WorldPosition = position
-	emitter.Parent = attachment
+	for _, emitter in emitters do
+		emitter.Parent = attachment
+	end
 	task.delay(0.18, function()
-		emitter.Enabled = false
+		for _, emitter in emitters do
+			emitter.Enabled = false
+		end
 	end)
 	task.delay(2.5, function()
 		attachment:Destroy()

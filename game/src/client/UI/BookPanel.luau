@@ -6,24 +6,43 @@
 -- pages stamped since you last looked carry a 🆕 ribbon. The 💌 page shows each regular's story as 5 hearts.
 -- Reads only the Snapshot (Book, Story, Stars) and the Cured remote (NewPage). Fires "BookNew" (count) for the
 -- HUD's 📖 dot.
+-- Look (candy pop, memory-20261116-007): a purple header and one candy colour per wing (its tab, bar and cards).
+-- A page you've filled is a white card with a thick outline and the creature on its wing's colour; one you haven't
+-- is a flat grey silhouette, so the filled ones pop. A finished set's reward sits on turning rays.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
 local BookPanel = {}
 
+local ACCENT = Theme.Colors.Purple
 local TAB_WIDTH = Theme.Size.IconButton
 local MIN_CARD = 118
 local CARD_GAP = 10
 local FRIENDS = "Friends"
+-- Each wing's own colour (Data/Wings ids); a wing added later takes the next one from SPARE_COLORS.
+local WING_COLORS: { [string]: Color3 } = {
+	Starter = Theme.Colors.Good,
+	Bath = Theme.Colors.Cyan,
+	Winter = Theme.Colors.Secondary,
+	Night = Theme.Colors.Purple,
+	[FRIENDS] = Theme.Colors.Pink,
+}
+local SPARE_COLORS = { Theme.Colors.Primary, Theme.Colors.Cash, Theme.Colors.Pink }
+local SEEN_STROKE = Theme.Size.Stroke
+local UNSEEN_FILL = Kit.lighten(Theme.Colors.Disabled, 0.55)
+local UNSEEN_FACE = Kit.lighten(Theme.Colors.Disabled, 0.2)
 
 type Card = {
 	Frame: Frame,
+	Stroke: UIStroke,
+	Color: Color3, -- its wing's colour
 	Face: Frame,
 	Name: TextLabel,
 	Info: TextLabel,
@@ -35,18 +54,54 @@ type Card = {
 type Page = {
 	Frame: Frame,
 	Tab: TextButton,
+	Color: Color3,
 	Progress: TextLabel?,
 	Fill: Frame?,
-	Reward: TextLabel?,
+	Reward: TextLabel?, -- the reward's emoji
+	Badge: Frame?, -- the circle it sits on
+	Rays: Frame?, -- made the first time the set is complete
+	Complete: boolean,
 	Cards: { [string]: Card },
 	Ids: { string },
 }
+
+type Header = { Count: TextLabel, Fill: Frame, Reward: TextLabel?, Badge: Frame? }
 
 local function textLimit(label: TextLabel, max: number)
 	local limit = Instance.new("UITextSizeConstraint")
 	limit.MaxTextSize = max
 	limit.MinTextSize = 10
 	limit.Parent = label
+end
+
+local function childOf(parent: Instance, name: string, class: string): Instance?
+	local found = parent:FindFirstChild(name)
+	return if found and found:IsA(class) then found else nil
+end
+
+-- The shape outline Kit draws round a button (not the Contextual one round its text).
+local function borderOf(gui: Instance): UIStroke?
+	for _, child in gui:GetChildren() do
+		if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
+			return child
+		end
+	end
+	return nil
+end
+
+-- A tab in its wing's colour: a pale tint while it waits, full candy with outlined text when it's open.
+local function paintTab(button: TextButton, selected: boolean, color: Color3)
+	button.BackgroundColor3 = if selected then Kit.lighten(color, 0.08) else Kit.lighten(color, 0.78)
+	local border = borderOf(button)
+	if border then
+		border.Color = Theme.Colors.Outline
+		border.Thickness = if selected then Theme.Size.StrokeLarge else Theme.Size.Stroke
+	end
+	local caption = childOf(button, "Caption", "TextLabel") :: TextLabel?
+	if caption then
+		caption.TextColor3 = if selected then Theme.Colors.OnColor else Theme.Colors.Ink
+		Kit.outline(caption, 2).Enabled = selected
+	end
 end
 
 local function patientsOf(data: any, wingId: string): { string }
@@ -64,19 +119,18 @@ local function curedCount(state: Types.Snapshot, id: string): number
 	return if entry and type(entry.Cured) == "number" then entry.Cured else 0
 end
 
-local function newCard(parent: Instance, order: number): Card
+local function newCard(parent: Instance, order: number, color: Color3): Card
 	local frame = Instance.new("Frame")
 	frame.Name = "Card" .. order
 	frame.LayoutOrder = order
-	frame.BackgroundColor3 = Theme.Colors.Card
+	frame.BackgroundColor3 = UNSEEN_FILL
 	frame.BorderSizePixel = 0
 	Kit.corner(frame, 16)
-	local stroke = Kit.stroke(frame, Theme.Colors.Stroke, 2)
-	stroke.Transparency = 0.5
+	local stroke = Kit.stroke(frame, Theme.Colors.Outline, SEEN_STROKE)
 
 	local face = Instance.new("Frame")
 	face.Name = "Face"
-	face.BackgroundColor3 = Theme.Colors.Paper
+	face.BackgroundColor3 = UNSEEN_FACE
 	face.BorderSizePixel = 0
 	face.AnchorPoint = Vector2.new(0.5, 0)
 	face.Position = UDim2.new(0.5, 0, 0, 8)
@@ -116,19 +170,29 @@ local function newCard(parent: Instance, order: number): Card
 		ZIndex = 3,
 		Parent = frame,
 	})
+	-- A red "NEW!" sticker, tipped at an angle, on a page stamped since you last looked.
 	local ribbon = Kit.label({
 		Name = "New",
-		Text = "🆕",
-		TextScaled = true,
-		Position = UDim2.fromOffset(4, 4),
-		Size = UDim2.fromOffset(28, 28),
+		Text = "NEW!",
+		TextSize = Theme.TextSize.Small,
+		TextWrapped = false,
+		Outlined = true,
+		BackgroundColor3 = Theme.Colors.Dot,
+		BackgroundTransparency = 0,
+		Position = UDim2.fromOffset(2, 2),
+		Size = UDim2.fromOffset(58, 26),
+		Rotation = -8,
 		Visible = false,
 		ZIndex = 3,
 		Parent = frame,
 	})
+	Kit.corner(ribbon, 13)
+	Kit.stroke(ribbon, Theme.Colors.Outline, 2.5)
 	frame.Parent = parent
 	return {
 		Frame = frame,
+		Stroke = stroke,
+		Color = color,
 		Face = face,
 		Name = name,
 		Info = info,
@@ -138,6 +202,8 @@ local function newCard(parent: Instance, order: number): Card
 	}
 end
 
+-- Seen: a white card with a thick outline, the creature on its wing's colour. Not seen: a flat grey card with a
+-- softer outline and a dark silhouette.
 local function setFace(card: Card, look: any, dark: boolean)
 	local wanted = if dark then "unseen" else "seen"
 	if card.Shown == wanted then
@@ -151,7 +217,15 @@ local function setFace(card: Card, look: any, dark: boolean)
 	portrait.Position = UDim2.fromScale(0.5, 0.5)
 	portrait.Size = UDim2.fromScale(0.95, 0.95)
 	portrait.Parent = card.Face
-	card.Face.BackgroundColor3 = if dark then Color3.fromRGB(226, 218, 230) else Theme.Colors.Paper
+	card.Frame.BackgroundColor3 = if dark then UNSEEN_FILL else Theme.Colors.Paper
+	card.Stroke.Thickness = if dark then 2 else SEEN_STROKE
+	card.Stroke.Transparency = if dark then 0.6 else 0
+	card.Face.BackgroundColor3 = if dark then UNSEEN_FACE else Kit.lighten(card.Color, 0.45)
+	if not dark then
+		Palette.candyGradient(card.Face)
+		Kit.stroke(card.Face, Theme.Colors.Outline, 2)
+	end
+	card.Name.TextColor3 = if dark then Theme.Colors.InkSoft else Theme.Colors.Ink
 end
 
 local function grid(parent: Instance): (ScrollingFrame, UIGridLayout)
@@ -199,6 +273,7 @@ function BookPanel.init(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = "Book",
 		Title = "📖 Book",
+		Accent = ACCENT,
 		MaxSize = Vector2.new(760, 600),
 	})
 	local title = modal.Panel:FindFirstChild("Title") :: TextLabel?
@@ -239,12 +314,7 @@ function BookPanel.init(ctx: Types.Ctx)
 		for pageId, p in pages do
 			local selected = pageId == id
 			p.Frame.Visible = selected
-			p.Tab.BackgroundColor3 = if selected then Theme.Colors.Card else Theme.Colors.Quiet
-			local stroke = p.Tab:FindFirstChildOfClass("UIStroke")
-			if stroke then
-				stroke.Color = if selected then Theme.Colors.Secondary else Kit.shade(Theme.Colors.Quiet, 0.25)
-				stroke.Thickness = if selected then 4 else Theme.Size.Stroke
-			end
+			paintTab(p.Tab, selected, p.Color)
 		end
 		modal.Focus = pages[id].Tab
 	end
@@ -258,6 +328,10 @@ function BookPanel.init(ctx: Types.Ctx)
 			Size = UDim2.fromOffset(TAB_WIDTH, TAB_WIDTH),
 			Parent = tabColumn,
 		})
+		local caption = childOf(tab, "Caption", "TextLabel") :: TextLabel?
+		if caption then
+			caption.Font = Theme.DisplayFont -- the count is a number: chunky
+		end
 		tab.Activated:Connect(function()
 			selectPage(id)
 		end)
@@ -265,28 +339,35 @@ function BookPanel.init(ctx: Types.Ctx)
 	end
 
 	-- The header of a page: icon and name, a progress bar, and the reward it leads to.
-	local function header(
-		parent: Instance,
-		icon: string,
-		text: string,
-		rewardIcon: string?
-	): (TextLabel, Frame, TextLabel?)
+	local function header(parent: Instance, icon: string, text: string, color: Color3, rewardIcon: string?): Header
 		local frame = Instance.new("Frame")
 		frame.Name = "Header"
-		frame.BackgroundColor3 = Theme.Colors.Card
+		frame.BackgroundColor3 = Theme.Colors.Paper
 		frame.BorderSizePixel = 0
 		frame.Size = UDim2.new(1, -12, 0, 64)
 		Kit.corner(frame, 16)
-		local stroke = Kit.stroke(frame, Theme.Colors.Stroke, 2)
-		stroke.Transparency = 0.5
+		Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
+		-- The wing's icon on a tile of its colour.
+		local tile = Instance.new("Frame")
+		tile.Name = "Tile"
+		tile.AnchorPoint = Vector2.new(0, 0.5)
+		tile.Position = UDim2.new(0, 8, 0.5, 0)
+		tile.Size = UDim2.fromOffset(46, 46)
+		tile.BackgroundColor3 = Kit.lighten(color, 0.08)
+		tile.BorderSizePixel = 0
+		Kit.corner(tile, 12)
+		Kit.stroke(tile, Theme.Colors.Outline, Theme.Size.Stroke)
+		Palette.candyGradient(tile)
+		Kit.gloss(tile, 4)
+		tile.Parent = frame
 		Kit.label({
 			Name = "Icon",
 			Text = icon,
 			TextScaled = true,
-			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, 8, 0.5, 0),
-			Size = UDim2.fromOffset(46, 46),
-			Parent = frame,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.8, 0.8),
+			Parent = tile,
 		})
 		local nameLabel = Kit.label({
 			Name = "WingName",
@@ -300,23 +381,26 @@ function BookPanel.init(ctx: Types.Ctx)
 		textLimit(nameLabel, 22)
 		local track = Instance.new("Frame")
 		track.Name = "Track"
-		track.BackgroundColor3 = Theme.Colors.Quiet
+		track.BackgroundColor3 = Theme.Colors.Paper
 		track.BorderSizePixel = 0
 		track.Position = UDim2.fromOffset(62, 38)
 		track.Size = UDim2.new(1, -62 - 70 - 56, 0, 16)
 		Kit.corner(track, 8)
+		Kit.stroke(track, Theme.Colors.Outline, 2)
 		track.Parent = frame
 		local fill = Instance.new("Frame")
 		fill.Name = "Fill"
-		fill.BackgroundColor3 = Theme.Colors.Good
+		fill.BackgroundColor3 = Kit.lighten(color, 0.08)
 		fill.BorderSizePixel = 0
 		fill.Size = UDim2.fromScale(0, 1)
 		Kit.corner(fill, 8)
+		Palette.candyGradient(fill)
 		fill.Parent = track
 		local count = Kit.label({
 			Name = "Count",
 			Text = "0/0",
 			TextScaled = true,
+			Outlined = true,
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, -74, 0, 34),
 			Size = UDim2.fromOffset(50, 24),
@@ -324,25 +408,38 @@ function BookPanel.init(ctx: Types.Ctx)
 		})
 		textLimit(count, 20)
 		local reward: TextLabel? = nil
+		local badge: Frame? = nil
 		if rewardIcon then
-			local badge = Kit.label({
-				Name = "Reward",
+			-- A holder, so the rays (made when the set is done) can sit behind the badge.
+			local holder = Instance.new("Frame")
+			holder.Name = "Reward"
+			holder.BackgroundTransparency = 1
+			holder.AnchorPoint = Vector2.new(1, 0.5)
+			holder.Position = UDim2.new(1, -8, 0.5, 0)
+			holder.Size = UDim2.fromOffset(52, 52)
+			holder.Parent = frame
+			local circle = Instance.new("Frame")
+			circle.Name = "Badge"
+			circle.BackgroundColor3 = Theme.Colors.Paper
+			circle.BorderSizePixel = 0
+			circle.Size = UDim2.fromScale(1, 1)
+			circle.ZIndex = 1
+			Kit.corner(circle, 26)
+			Kit.stroke(circle, Theme.Colors.Outline, Theme.Size.Stroke)
+			circle.Parent = holder
+			reward = Kit.label({
+				Name = "Icon",
 				Text = rewardIcon,
 				TextScaled = true,
-				BackgroundColor3 = Theme.Colors.Paper,
-				BackgroundTransparency = 0,
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -8, 0.5, 0),
-				Size = UDim2.fromOffset(52, 52),
-				Parent = frame,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromScale(0.72, 0.72),
+				Parent = circle,
 			})
-			Kit.corner(badge, 26)
-			Kit.stroke(badge, Theme.Colors.Star, 3)
-			Kit.pad(badge, 6)
-			reward = badge
+			badge = circle
 		end
 		frame.Parent = parent
-		return count, fill, reward
+		return { Count = count, Fill = fill, Reward = reward, Badge = badge }
 	end
 
 	local function pageFrame(id: string): (Frame, ScrollingFrame)
@@ -359,22 +456,32 @@ function BookPanel.init(ctx: Types.Ctx)
 	end
 
 	-- Wing pages
+	local spare = 0
 	for index, wingId in data.Wings.Order do
 		local wing = data.Wings[wingId]
 		local reward = data.Decor[wing.SetReward]
+		local color = WING_COLORS[wingId]
+		if not color then
+			spare += 1
+			color = SPARE_COLORS[(spare - 1) % #SPARE_COLORS + 1]
+		end
 		local frame, scroll = pageFrame(wingId)
-		local count, fill, rewardBadge = header(frame, wing.Icon, wing.Name, reward and reward.Icon)
+		local top = header(frame, wing.Icon, wing.Name, color, reward and reward.Icon)
 		local ids = patientsOf(data, wingId)
 		local cards: { [string]: Card } = {}
 		for order, patientId in ids do
-			cards[patientId] = newCard(scroll, order)
+			cards[patientId] = newCard(scroll, order, color)
 		end
 		pages[wingId] = {
 			Frame = frame,
 			Tab = makeTab(wingId, wing.Icon, index),
-			Progress = count,
-			Fill = fill,
-			Reward = rewardBadge,
+			Color = color,
+			Progress = top.Count,
+			Fill = top.Fill,
+			Reward = top.Reward,
+			Badge = top.Badge,
+			Rays = nil,
+			Complete = false,
 			Cards = cards,
 			Ids = ids,
 		}
@@ -383,20 +490,25 @@ function BookPanel.init(ctx: Types.Ctx)
 
 	-- The regulars
 	do
+		local color = WING_COLORS[FRIENDS]
 		local frame, scroll = pageFrame(FRIENDS)
-		local count, fill = header(frame, "💌", "Story friends", nil)
+		local top = header(frame, "💌", "Story friends", color, nil)
 		local cards: { [string]: Card } = {}
 		local ids = {}
 		for order, regularId in data.Regulars.Order do
-			cards[regularId] = newCard(scroll, order)
+			cards[regularId] = newCard(scroll, order, color)
 			table.insert(ids, regularId)
 		end
 		pages[FRIENDS] = {
 			Frame = frame,
 			Tab = makeTab(FRIENDS, "💌", #pageOrder + 1),
-			Progress = count,
-			Fill = fill,
+			Color = color,
+			Progress = top.Count,
+			Fill = top.Fill,
 			Reward = nil,
+			Badge = nil,
+			Rays = nil,
+			Complete = false,
 			Cards = cards,
 			Ids = ids,
 		}
@@ -485,13 +597,24 @@ function BookPanel.init(ctx: Types.Ctx)
 			end
 		end
 		setProgress(p, met, #p.Ids)
-		if p.Reward then
+		local badge = p.Badge
+		if p.Reward and badge then
+			-- Still to earn: a faded icon on white. Earned: a gold badge on turning rays.
 			local complete = #p.Ids > 0 and met >= #p.Ids
 			p.Reward.TextTransparency = if complete then 0 else 0.55
-			local stroke = p.Reward:FindFirstChildOfClass("UIStroke")
-			if stroke then
-				stroke.Color = if complete then Theme.Colors.Good else Theme.Colors.Star
+			badge.BackgroundColor3 = if complete then Kit.lighten(Theme.Colors.Cash, 0.08) else Theme.Colors.Paper
+			local holder = badge.Parent
+			if complete and not p.Rays and holder and holder:IsA("GuiObject") then
+				p.Rays = Kit.rays(holder, Theme.Colors.Cash)
 			end
+			local rays = p.Rays
+			if rays then
+				rays.Visible = complete
+			end
+			if complete and not p.Complete then
+				Kit.bump(badge)
+			end
+			p.Complete = complete
 		end
 		return met, #p.Ids
 	end

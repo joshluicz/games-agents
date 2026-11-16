@@ -6,20 +6,25 @@
 --   init(ctx)   listens to the DayReport remote
 -- It doesn't dim the screen or grab gamepad focus: it arrives on its own while you play, so it never blocks you.
 -- A day with nothing cured shows nothing (no "you did nothing" screen).
+-- Look (candy pop, memory-20261116-007): an orange header; the count is big gold outlined display text on turning
+-- rays and springs when it lands; candy chips for ⭐ and 📖; new faces in outlined bubbles that pop in one by one.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
 local DayReportPanel = {}
 
+local ACCENT = Theme.Colors.Primary
 local AUTO_CLOSE = 8
 local MAX_FACES = 5
+local FACE_STAGGER = 0.08 -- seconds between each new face's pop
 
 local function textLimit(label: TextLabel, max: number)
 	local limit = Instance.new("UITextSizeConstraint")
@@ -82,6 +87,7 @@ function DayReportPanel.init(ctx: Types.Ctx)
 		Name = "DayReport",
 		Layer = "Popup",
 		Title = "🌙 Day done!",
+		Accent = ACCENT,
 		MaxSize = Vector2.new(440, 470),
 		Scale = Vector2.new(0.9, 0.92),
 		Dim = false,
@@ -100,16 +106,35 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	Hud.fitHeight(content, modal.Body)
 
-	-- The big number
+	-- The big number: gold outlined display text on turning rays.
+	local score = Instance.new("Frame")
+	score.Name = "Score"
+	score.BackgroundTransparency = 1
+	score.LayoutOrder = 1
+	score.Size = UDim2.new(1, 0, 0, 72)
+	score.Parent = content
+	local burst = Instance.new("Frame") -- a square in the middle, so the rays stay round and close
+	burst.Name = "Burst"
+	burst.BackgroundTransparency = 1
+	burst.AnchorPoint = Vector2.new(0.5, 0.5)
+	burst.Position = UDim2.fromScale(0.5, 0.5)
+	burst.Size = UDim2.fromOffset(60, 60)
+	burst.ZIndex = 1
+	burst.Parent = score
+	local rays = Kit.rays(burst, Theme.Colors.Cash)
+	rays.Visible = false -- only while the card is up (a hidden ray burst doesn't turn)
 	local cured = Kit.label({
 		Name = "Cured",
 		Text = "😊 0",
 		TextScaled = true,
-		LayoutOrder = 1,
-		Size = UDim2.new(1, 0, 0, 72),
-		Parent = content,
+		Outlined = true,
+		TextColor3 = Theme.Colors.Cash,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 2,
+		Parent = score,
 	})
 	textLimit(cured, 72)
+	Kit.outline(cured, Theme.Size.StrokeLarge)
 	local scoreValue = Instance.new("NumberValue")
 	scoreValue.Parent = cured
 	scoreValue.Changed:Connect(function(v: number)
@@ -129,19 +154,21 @@ function DayReportPanel.init(ctx: Types.Ctx)
 			Name = name,
 			Text = "",
 			TextScaled = true,
+			Outlined = true,
 			LayoutOrder = order,
-			BackgroundColor3 = color,
+			BackgroundColor3 = Kit.lighten(color, 0.08),
 			BackgroundTransparency = 0,
 			Size = UDim2.fromOffset(120, 44),
 			Parent = chips,
 		})
 		Kit.corner(label, 22)
-		Kit.stroke(label, Kit.shade(color, 0.3), 2.5)
+		Kit.stroke(label, Theme.Colors.Outline, Theme.Size.Stroke)
+		Palette.candyGradient(label)
 		Kit.pad(label, 6)
 		return label
 	end
 	local starsChip = chip("Stars", 1, Theme.Colors.Star)
-	local pagesChip = chip("Pages", 2, Color3.fromRGB(198, 226, 255))
+	local pagesChip = chip("Pages", 2, Theme.Colors.Purple)
 
 	-- New faces
 	local faces = Instance.new("Frame")
@@ -156,12 +183,11 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	local nextCard = Instance.new("Frame")
 	nextCard.Name = "Next"
 	nextCard.LayoutOrder = 4
-	nextCard.BackgroundColor3 = Theme.Colors.Card
+	nextCard.BackgroundColor3 = Theme.Colors.Paper
 	nextCard.BorderSizePixel = 0
 	nextCard.Size = UDim2.new(1, 0, 0, 76)
 	Kit.corner(nextCard, 16)
-	local nextStroke = Kit.stroke(nextCard, Theme.Colors.Stroke, 2)
-	nextStroke.Transparency = 0.5
+	Kit.stroke(nextCard, Theme.Colors.Outline, Theme.Size.Stroke)
 	nextCard.Parent = content
 	Kit.label({
 		Name = "Aim",
@@ -172,14 +198,27 @@ function DayReportPanel.init(ctx: Types.Ctx)
 		Size = UDim2.fromOffset(40, 40),
 		Parent = nextCard,
 	})
+	-- What's next, on a candy tile.
+	local nextTile = Instance.new("Frame")
+	nextTile.Name = "Tile"
+	nextTile.AnchorPoint = Vector2.new(0, 0.5)
+	nextTile.Position = UDim2.new(0, 52, 0.5, 0)
+	nextTile.Size = UDim2.fromOffset(52, 52)
+	nextTile.BackgroundColor3 = Kit.lighten(Theme.Colors.Cyan, 0.08)
+	nextTile.BorderSizePixel = 0
+	Kit.corner(nextTile, 12)
+	Kit.stroke(nextTile, Theme.Colors.Outline, Theme.Size.Stroke)
+	Palette.candyGradient(nextTile)
+	Kit.gloss(nextTile, 4)
+	nextTile.Parent = nextCard
 	local nextIcon = Kit.label({
 		Name = "Icon",
 		Text = "",
 		TextScaled = true,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 52, 0.5, 0),
-		Size = UDim2.fromOffset(52, 52),
-		Parent = nextCard,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.78, 0.78),
+		Parent = nextTile,
 	})
 	local nextName = Kit.label({
 		Name = "Name",
@@ -198,9 +237,10 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	nextTrack.AnchorPoint = Vector2.new(0, 0)
 	nextTrack.Position = UDim2.new(0, 140, 0.5, 8)
 	nextTrack.Size = UDim2.new(1, -140 - 84, 0, 14)
-	nextTrack.BackgroundColor3 = Theme.Colors.Quiet
+	nextTrack.BackgroundColor3 = Theme.Colors.Paper
 	nextTrack.BorderSizePixel = 0
 	Kit.corner(nextTrack, 7)
+	Kit.stroke(nextTrack, Theme.Colors.Outline, 2)
 	nextTrack.Parent = nextCard
 	local nextFill = Instance.new("Frame")
 	nextFill.Name = "Fill"
@@ -208,6 +248,7 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	nextFill.BackgroundColor3 = Theme.Colors.Star
 	nextFill.BorderSizePixel = 0
 	Kit.corner(nextFill, 7)
+	Palette.candyGradient(nextFill)
 	nextFill.Parent = nextTrack
 	local nextMeter = Kit.label({
 		Name = "Meter",
@@ -220,7 +261,7 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	})
 	local goButton = Kit.button({
 		Name = "Go",
-		Kind = "Primary",
+		Kind = "Good",
 		Text = "🛒",
 		TextSize = Theme.TextSize.Title,
 		AnchorPoint = Vector2.new(1, 0.5),
@@ -228,6 +269,7 @@ function DayReportPanel.init(ctx: Types.Ctx)
 		Size = UDim2.fromOffset(64, Theme.Size.ButtonHeight),
 		Parent = nextCard,
 	})
+	Kit.shine(goButton) -- opens the in-game 💰 Shop on your next goal (nothing paid lives there)
 
 	-- The auto-close bar along the bottom of the card
 	local timerTrack = Instance.new("Frame")
@@ -241,7 +283,7 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	timerTrack.Parent = modal.Panel
 	local timerFill = Instance.new("Frame")
 	timerFill.Name = "Fill"
-	timerFill.BackgroundColor3 = Theme.Colors.Secondary
+	timerFill.BackgroundColor3 = ACCENT
 	timerFill.BorderSizePixel = 0
 	timerFill.Size = UDim2.fromScale(1, 1)
 	Kit.corner(timerFill, 3)
@@ -267,16 +309,19 @@ function DayReportPanel.init(ctx: Types.Ctx)
 
 		faces:ClearAllChildren()
 		Kit.list(faces, Enum.FillDirection.Horizontal, 6)
+		local faceFrames: { GuiObject } = {}
 		for index, patientId in report.NewPages do
 			if index > MAX_FACES then
-				Kit.label({
+				local more = Kit.label({
 					Name = "More",
 					Text = "+" .. (#report.NewPages - MAX_FACES),
 					TextScaled = true,
+					Outlined = true,
 					LayoutOrder = index,
 					Size = UDim2.fromOffset(48, 48),
 					Parent = faces,
 				})
+				table.insert(faceFrames, more)
 				break
 			end
 			local look = Hud.lookOf(patientId)
@@ -284,20 +329,23 @@ function DayReportPanel.init(ctx: Types.Ctx)
 				local holder = Instance.new("Frame")
 				holder.Name = patientId
 				holder.LayoutOrder = index
-				holder.BackgroundColor3 = Theme.Colors.Card
+				holder.BackgroundColor3 = Kit.lighten(Theme.Colors.Good, 0.6)
 				holder.BorderSizePixel = 0
 				holder.Size = UDim2.fromOffset(60, 60)
 				Kit.corner(holder, 30)
-				Kit.stroke(holder, Theme.Colors.Good, 3)
+				Kit.stroke(holder, Theme.Colors.Outline, Theme.Size.Stroke)
+				Palette.candyGradient(holder)
 				local portrait = Hud.portrait(look)
 				portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 				portrait.Position = UDim2.fromScale(0.5, 0.5)
 				portrait.Size = UDim2.fromScale(0.9, 0.9)
 				portrait.Parent = holder
 				holder.Parent = faces
+				table.insert(faceFrames, holder)
 			end
 		end
 		faces.Visible = #report.NewPages > 0
+		rays.Visible = true
 
 		local nextGoal = report.Next
 		local hasNext = nextGoal.Kind ~= "None" and nextGoal.Id ~= ""
@@ -316,6 +364,14 @@ function DayReportPanel.init(ctx: Types.Ctx)
 		end
 
 		modal.open()
+		-- New faces pop in one after another (Kit.bump does nothing with reduced motion).
+		for index, face in faceFrames do
+			task.delay(0.3 + index * FACE_STAGGER, function()
+				if token == mine then
+					Kit.bump(face)
+				end
+			end)
+		end
 		if Hud.calm() then
 			scoreValue.Value = report.Cured
 		else
@@ -328,7 +384,11 @@ function DayReportPanel.init(ctx: Types.Ctx)
 					):Play()
 					task.delay(0.9, function()
 						if token == mine then
-							Hud.pop(cured, 1.15)
+							Kit.bump(score) -- the number and its rays spring together
+							Kit.bump(starsChip)
+							if pagesChip.Visible then
+								task.delay(FACE_STAGGER, Kit.bump, pagesChip)
+							end
 							Hud.sound("Fanfare")
 							if report.StarsGained > 0 then
 								Hud.fly(starsChip, "⭐", "Stars", math.min(report.StarsGained, 6))
@@ -349,6 +409,12 @@ function DayReportPanel.init(ctx: Types.Ctx)
 			end
 		end)
 	end
+
+	ctx.on("ModalClosed", function(name: any)
+		if name == "DayReport" then
+			rays.Visible = false
+		end
+	end)
 
 	ctx.Remotes.DayReport.OnClientEvent:Connect(function(raw: any)
 		local report = clean(raw)

@@ -13,8 +13,10 @@
 -- decor is visual only and Toolbox models can hide scripts.
 --
 -- Placeholder recipes come from Data/Decor `Look`: Kind picks the shape, Color and Accent colour it, and Glow = true
--- tags the bulb with PlotBuilder.NIGHT_LIGHT_TAG (Neon plus a PointLight, on only at night). Cozy, rounded and
--- pastel (design §6); every recipe stays under 25 parts. Water, steam and snow are slow ParticleEmitters.
+-- tags the bulb with PlotBuilder.NIGHT_LIGHT_TAG (Neon plus a PointLight, on only at night). Rounded and toy-like in
+-- the candy-pop look (memory-20261116-007): SmoothPlastic everywhere, Glass only for the see-through bowl and globe,
+-- and Look colours pushed to full saturation by `candy()` (Data/Decor's hexes are soft pastels). Every recipe stays
+-- under 25 parts. Water, steam and snow are slow ParticleEmitters.
 --
 -- Idle motion: a sub-Model tagged BOB_TAG sways on each client (Feel/Atmosphere), so nothing moves on the server and
 -- nothing replicates per frame. Its attributes:
@@ -28,6 +30,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Decor = require(ReplicatedStorage.Shared.Data.Decor)
+local Palette = require(ReplicatedStorage.Shared.Palette)
 local PlotBuilder = require(script.Parent.PlotBuilder)
 
 local DecorBuilder = {}
@@ -44,21 +47,23 @@ local TEXTURE = {
 	Sparkle = "rbxasset://textures/particles/sparkles_main.dds",
 }
 
+-- Candy pop (shared/Palette): the fixed colours every recipe shares.
 local COLORS = {
-	Wood = Color3.fromRGB(201, 143, 98),
-	WoodDark = Color3.fromRGB(150, 106, 78),
-	Stone = Color3.fromRGB(232, 226, 214),
-	Soil = Color3.fromRGB(122, 86, 62),
-	Eye = Color3.fromRGB(58, 42, 34),
-	White = Color3.fromRGB(255, 255, 255),
-	Cheek = Color3.fromRGB(255, 159, 176),
-	Heart = Color3.fromRGB(255, 120, 150),
-	Orange = Color3.fromRGB(255, 159, 67),
-	Leaf = Color3.fromRGB(122, 196, 104),
-	Sunny = Color3.fromRGB(255, 226, 122),
-	Water = Color3.fromRGB(127, 208, 245),
-	Warm = Color3.fromRGB(255, 236, 200),
-	Snow = Color3.fromRGB(250, 252, 255),
+	Wood = Palette.World.Wood,
+	WoodDark = Palette.World.WoodDark,
+	Stone = Color3.fromRGB(246, 242, 255), -- a lilac-white, so the fountain reads as toy, not rock
+	Soil = Palette.World.Trunk,
+	Eye = Palette.Outline,
+	White = Palette.White,
+	Cheek = Palette.Candy.Pink:Lerp(Palette.White, 0.35),
+	Heart = Palette.Candy.Red,
+	Orange = Palette.Candy.Orange,
+	Leaf = Palette.World.Leaves,
+	Sunny = Palette.Candy.Yellow,
+	Water = Palette.World.Water,
+	Warm = Palette.World.Lamp,
+	Snow = Palette.White,
+	Teddy = Palette.Candy.Purple:Lerp(Palette.White, 0.4), -- a lilac teddy, so it stands out on an orange shelf
 }
 
 -- A few decor items get a little extra on top of their Kind recipe.
@@ -85,6 +90,15 @@ local FACING = CFrame.Angles(0, math.rad(90), 0) -- turns a Cylinder's X axis to
 
 local function lighten(color: Color3, amount: number): Color3
 	return color:Lerp(COLORS.White, amount)
+end
+
+-- Pushes a Look colour to candy saturation, keeping its hue. Near-whites stay white (snow globes, white arches).
+local function candy(color: Color3): Color3
+	local h, s, v = color:ToHSV()
+	if s < 0.12 then
+		return color
+	end
+	return Color3.fromHSV(h, math.min(1, s * 1.25 + 0.2), math.max(v, 0.92))
 end
 
 local function darken(color: Color3, amount: number): Color3
@@ -246,35 +260,25 @@ local RECIPES: { [string]: Recipe } = {}
 
 -- A round, layered rug. The Heart Rug gets a heart; the others a little flower of dots.
 RECIPES.Rug = function(model, color, accent, _look, flourish)
-	local fabric = { Material = Enum.Material.Fabric }
-	cylinder(model, "Base", 0.1, 3.9, Vector3.new(0, 0.05, 0), color, fabric)
-	cylinder(model, "Ring", 0.11, 3.2, Vector3.new(0, 0.055, 0), accent, fabric)
-	cylinder(model, "Inner", 0.12, 2.5, Vector3.new(0, 0.06, 0), lighten(accent, 0.55), fabric)
+	cylinder(model, "Base", 0.1, 3.9, Vector3.new(0, 0.05, 0), color)
+	cylinder(model, "Ring", 0.11, 3.2, Vector3.new(0, 0.055, 0), accent)
+	cylinder(model, "Inner", 0.12, 2.5, Vector3.new(0, 0.06, 0), lighten(accent, 0.55))
 	if flourish == "Heart" then
 		-- Two discs and a turned square make a heart, pointing at the front.
-		cylinder(model, "HeartLeft", 0.14, 0.95, Vector3.new(-0.32, 0.07, 0.18), color, fabric)
-		cylinder(model, "HeartRight", 0.14, 0.95, Vector3.new(0.32, 0.07, 0.18), color, fabric)
+		cylinder(model, "HeartLeft", 0.14, 0.95, Vector3.new(-0.32, 0.07, 0.18), color)
+		cylinder(model, "HeartRight", 0.14, 0.95, Vector3.new(0.32, 0.07, 0.18), color)
 		block(
 			model,
 			"HeartPoint",
 			Vector3.new(0.95, 0.14, 0.95),
 			CFrame.new(0, 0.07, -0.18) * CFrame.Angles(0, math.rad(45), 0),
-			color,
-			fabric
+			color
 		)
 	else
-		cylinder(model, "Centre", 0.14, 0.8, Vector3.new(0, 0.07, 0), color, fabric)
+		cylinder(model, "Centre", 0.14, 0.8, Vector3.new(0, 0.07, 0), color)
 		for i = 1, 5 do
 			local a = math.rad(i * 72)
-			cylinder(
-				model,
-				"Petal",
-				0.13,
-				0.5,
-				Vector3.new(math.cos(a) * 0.75, 0.065, math.sin(a) * 0.75),
-				accent,
-				fabric
-			)
+			cylinder(model, "Petal", 0.13, 0.5, Vector3.new(math.cos(a) * 0.75, 0.065, math.sin(a) * 0.75), accent)
 		end
 	end
 end
@@ -307,9 +311,9 @@ RECIPES.Lamp = function(model, color, accent, look)
 	cylinder(model, "Pole", 3.0, 0.25, Vector3.new(0, 1.8, 0), accent, { Solid = true })
 	cylinder(model, "Collar", 0.3, 0.75, Vector3.new(0, 3.35, 0), darken(accent, 0.1))
 	local bulb = ball(model, "Bulb", 1.8, Vector3.new(0, 4.25, 0), color)
-	local glass = { Material = Enum.Material.Glass, Transparency = 0.25 }
-	ball(model, "Bubble", 0.55, Vector3.new(0.85, 5.0, -0.2), lighten(accent, 0.4), glass)
-	ball(model, "Bubble", 0.38, Vector3.new(-0.7, 5.3, 0.25), lighten(accent, 0.4), glass)
+	local bubbly = { Transparency = 0.25 }
+	ball(model, "Bubble", 0.55, Vector3.new(0.85, 5.0, -0.2), lighten(accent, 0.4), bubbly)
+	ball(model, "Bubble", 0.38, Vector3.new(-0.7, 5.3, 0.25), lighten(accent, 0.4), bubbly)
 	ball(model, "Shine", 0.35, Vector3.new(-0.42, 4.65, -0.62), COLORS.White)
 	if look.Glow then
 		glow(bulb, lighten(color, 0.2), 12)
@@ -349,13 +353,12 @@ end
 -- A little bookcase of toys: a ball, stacked blocks, a teddy and books.
 RECIPES.Shelf = function(model, color, accent)
 	local z = 0.3 -- pushed back a little, so the toys face the room
-	local solid = { Solid = true, Material = Enum.Material.Wood }
-	local wood = { Material = Enum.Material.Wood }
+	local solid = { Solid = true }
 	block(model, "SideLeft", Vector3.new(0.25, 4, 1.2), CFrame.new(-1.68, 2, z), color, solid)
 	block(model, "SideRight", Vector3.new(0.25, 4, 1.2), CFrame.new(1.68, 2, z), color, solid)
-	block(model, "Back", Vector3.new(3.2, 4, 0.12), CFrame.new(0, 2, z + 0.55), darken(color, 0.12), wood)
+	block(model, "Back", Vector3.new(3.2, 4, 0.12), CFrame.new(0, 2, z + 0.55), lighten(color, 0.55))
 	for i, y in { 0.1, 1.45, 2.8 } do
-		block(model, "Shelf" .. i, Vector3.new(3.15, 0.2, 1.1), CFrame.new(0, y, z), color, wood)
+		block(model, "Shelf" .. i, Vector3.new(3.15, 0.2, 1.1), CFrame.new(0, y, z), color)
 	end
 	block(model, "Top", Vector3.new(3.8, 0.25, 1.35), CFrame.new(0, 4.1, z), darken(color, 0.05), solid)
 
@@ -370,7 +373,7 @@ RECIPES.Shelf = function(model, color, accent)
 		COLORS.Water
 	)
 	-- Middle shelf: a teddy
-	local teddy = Color3.fromRGB(217, 160, 102)
+	local teddy = COLORS.Teddy
 	ball(model, "TeddyBody", 0.8, Vector3.new(-0.5, 1.95, z - 0.05), teddy)
 	ball(model, "TeddyHead", 0.62, Vector3.new(-0.5, 2.5, z - 0.1), teddy)
 	ball(model, "TeddyEar", 0.24, Vector3.new(-0.73, 2.75, z - 0.05), teddy)
@@ -391,7 +394,7 @@ end
 
 -- A round fish bowl on a little stand, with a fish that swims round and bubbles that rise.
 RECIPES.Bowl = function(model, color, accent)
-	local solid = { Solid = true, Material = Enum.Material.Wood }
+	local solid = { Solid = true }
 	cylinder(model, "Foot", 0.2, 1.4, Vector3.new(0, 0.1, 0), COLORS.Wood, solid)
 	cylinder(model, "Leg", 1.5, 0.5, Vector3.new(0, 0.95, 0), COLORS.Wood, solid)
 	cylinder(model, "Plate", 0.15, 1.5, Vector3.new(0, 1.75, 0), COLORS.Wood, solid)
@@ -514,7 +517,7 @@ end
 RECIPES.Fountain = function(model, color, accent)
 	local solid = { Solid = true }
 	cylinder(model, "Basin", 0.9, 3.8, Vector3.new(0, 0.45, 0), COLORS.Stone, solid)
-	cylinder(model, "Rim", 0.18, 3.95, Vector3.new(0, 0.96, 0), lighten(COLORS.Stone, 0.4), solid)
+	cylinder(model, "Rim", 0.18, 3.95, Vector3.new(0, 0.96, 0), accent, solid)
 	cylinder(model, "Water", 0.1, 3.35, Vector3.new(0, 0.97, 0), color, { Transparency = 0.15 })
 	cylinder(model, "Pillar", 1.6, 0.5, Vector3.new(0, 1.8, 0), COLORS.Stone, solid)
 	cylinder(model, "Bowl", 0.3, 1.4, Vector3.new(0, 2.6, 0), COLORS.Stone)
@@ -670,7 +673,7 @@ end
 
 -- A round teapot with a four-leaf clover, on a little table, letting off a wisp of steam.
 RECIPES.Kettle = function(model, color, accent)
-	local solid = { Solid = true, Material = Enum.Material.Wood }
+	local solid = { Solid = true }
 	cylinder(model, "Foot", 0.15, 1.2, Vector3.new(0, 0.075, 0), COLORS.Wood, solid)
 	cylinder(model, "Leg", 1.45, 0.3, Vector3.new(0, 0.85, 0), COLORS.Wood, solid)
 	cylinder(model, "Table", 0.2, 2.3, Vector3.new(0, 1.65, 0), COLORS.Wood, solid)
@@ -752,8 +755,8 @@ end
 local function placeholder(decorId: string): Model
 	local entry = Decor[decorId]
 	local look: Look = if entry then entry.Look else { Kind = "Gift", Color = "#FFB7D5", Accent = "#FFFFFF" }
-	local color = hexColor(look.Color, Color3.fromRGB(255, 183, 213))
-	local accent = hexColor(look.Accent, COLORS.White)
+	local color = candy(hexColor(look.Color, Palette.Candy.Pink))
+	local accent = candy(hexColor(look.Accent, COLORS.White))
 
 	local model = Instance.new("Model")
 	model.Name = decorId

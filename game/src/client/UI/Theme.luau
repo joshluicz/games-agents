@@ -1,49 +1,62 @@
 --!strict
--- The look of every screen: palette, fonts, sizes and motion (build plan Task 0). Change a token here, not
--- per button. Cozy and bright, not oversaturated (design §6); chunky and readable for phones (Global Constraints).
+-- The look of every screen: palette, fonts, sizes and motion. Change a token here, not per button.
+-- "Candy pop" (memory-20261116-007): saturated colours, thick dark outlines, chunky outlined text, glossy buttons.
+-- The colours themselves live in Shared/Palette so the world and the UI match. Chunky and readable for phones.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette"))
+
+local Candy = Palette.Candy
 
 local Theme = {}
 
 Theme.Colors = table.freeze({
 	-- Surfaces
-	Paper = Color3.fromRGB(255, 250, 240), -- panels
-	Card = Color3.fromRGB(255, 255, 255), -- rows and cards inside panels
-	Shade = Color3.fromRGB(46, 30, 24), -- the dim behind a modal (use with Transparency.Dim)
+	Paper = Color3.fromRGB(255, 255, 255), -- panels (a white-to-ice gradient is added by Kit.panel)
+	PaperEdge = Color3.fromRGB(220, 232, 255), -- the bottom of the panel gradient
+	Card = Color3.fromRGB(238, 244, 255), -- rows and cards inside panels
+	Shade = Color3.fromRGB(20, 12, 48), -- the dim behind a modal (use with Transparency.Dim)
 	-- Text
-	Ink = Color3.fromRGB(74, 52, 42),
-	InkSoft = Color3.fromRGB(140, 112, 96),
-	OnColor = Color3.fromRGB(255, 255, 255), -- text on coloured buttons
+	Ink = Palette.Ink,
+	InkSoft = Palette.InkSoft,
+	OnColor = Palette.White, -- text on coloured buttons (always outlined)
+	Outline = Palette.Outline,
 	-- Roles
-	Primary = Color3.fromRGB(255, 132, 102), -- main actions (coral)
-	Secondary = Color3.fromRGB(98, 170, 255), -- other actions (sky)
-	Good = Color3.fromRGB(86, 196, 140), -- claim, done (mint)
-	Danger = Color3.fromRGB(236, 98, 120), -- close, cancel (berry)
-	Quiet = Color3.fromRGB(236, 226, 212), -- tertiary buttons
-	Disabled = Color3.fromRGB(206, 198, 190),
+	Primary = Candy.Orange, -- main actions
+	Secondary = Candy.Blue, -- other actions
+	Good = Candy.Lime, -- claim, open, done
+	Danger = Candy.Red, -- close, cancel
+	Pink = Candy.Pink,
+	Purple = Candy.Purple,
+	Cyan = Candy.Cyan,
+	Quiet = Color3.fromRGB(226, 232, 252), -- tertiary buttons
+	Disabled = Color3.fromRGB(176, 176, 198),
 	-- Game values
-	Cash = Color3.fromRGB(255, 196, 64),
-	Star = Color3.fromRGB(255, 214, 64),
-	Heart = Color3.fromRGB(255, 111, 145),
-	Night = Color3.fromRGB(62, 46, 110),
-	NightText = Color3.fromRGB(236, 228, 255),
-	Stroke = Color3.fromRGB(120, 86, 66), -- outlines on paper
-	Dot = Color3.fromRGB(255, 72, 88), -- the "something new" badge
+	Cash = Candy.Yellow,
+	Star = Color3.fromRGB(255, 226, 40),
+	Heart = Candy.Pink,
+	Night = Color3.fromRGB(96, 52, 214),
+	NightText = Color3.fromRGB(240, 232, 255),
+	Stroke = Palette.Outline, -- every outline
+	Dot = Color3.fromRGB(255, 40, 70), -- the "something new" badge
 })
 
 Theme.Transparency = table.freeze({
-	Dim = 0.45,
+	Dim = 0.4,
 	Panel = 0,
 	Soft = 0.1,
 })
 
--- FredokaOne: round and friendly, readable at small sizes.
-Theme.Font = Enum.Font.FredokaOne
-Theme.FontFace = Font.fromEnum(Enum.Font.FredokaOne)
+-- Body text: FredokaOne, round and readable. Display (titles, buttons, numbers): LuckiestGuy, chunky and loud.
+Theme.Font = Palette.BodyFont
+Theme.FontFace = Font.fromEnum(Palette.BodyFont)
+Theme.DisplayFont = Palette.DisplayFont
+Theme.DisplayFontFace = Font.fromEnum(Palette.DisplayFont)
 
 Theme.TextSize = table.freeze({
 	Small = 18, -- the minimum for anything a player must read
 	Body = 24,
-	Title = 32,
+	Title = 34,
 	Big = 48, -- numbers that matter (cash, the Day Report count)
 	Icon = 40, -- emoji on icon buttons
 })
@@ -51,26 +64,32 @@ Theme.TextSize = table.freeze({
 Theme.Size = table.freeze({
 	ButtonHeight = 56, -- the minimum tap target height (Global Constraints)
 	IconButton = 76, -- square bottom-bar buttons
-	Corner = 14,
-	CornerLarge = 22,
-	Stroke = 3,
+	Corner = 16,
+	CornerLarge = 24,
+	Stroke = 3, -- outlines on buttons and chips
+	StrokeLarge = 4, -- outlines on panels
+	TextStroke = 2.5, -- outlines on text
 	Pad = 12,
 	Gap = 10,
 	Margin = 12, -- from the safe-area edge
 	PanelMaxWidth = 560,
 	PanelMaxHeight = 640,
-	Dot = 18,
+	Dot = 20,
 })
 
 -- Short and interruptible. Panels pop with a little overshoot; presses squash quickly and spring back.
 Theme.Tween = table.freeze({
 	Press = TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-	Release = TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-	PopIn = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	Release = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	PopIn = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 	PopOut = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 	Fade = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+	Bump = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	Shine = TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
 })
-Theme.PressScale = 0.92
+Theme.PressScale = 0.9
+Theme.ShineEvery = 3.5 -- seconds between shine sweeps on call-to-action buttons
+Theme.RaysSpin = 18 -- seconds per turn of the reward rays
 
 -- ScreenGui.DisplayOrder: higher draws on top.
 Theme.DisplayOrder = table.freeze({

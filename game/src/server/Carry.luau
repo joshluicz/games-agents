@@ -13,9 +13,10 @@
 --   · player attribute `Carry`: the ids joined with commas, oldest first ("Potion,Plaster"; "" = nothing)
 --   · player attribute `CarryMax`: the tray size (follows a Bigger Tray purchase straight away)
 --   · the tray bubble: a BillboardGui `CarryGui` on the character's Head. Each item is a big emoji in a ring of
---     its station's colour (so it matches the patient's ailment colour), followed by faint dots for the room
---     left. The bubble turns gold when the tray is full and hides when you carry nothing. It's sized in studs,
---     drawn on top and unlit, so it stays readable on a phone, at night and through a roof.
+--     its station's colour (so it matches the patient's ailment colour), followed by soft dots for the room
+--     left. The bubble turns candy yellow when the tray is full and hides when you carry nothing. It's sized in
+--     studs, drawn on top and unlit, so it stays readable on a phone, at night and through a roof. Candy pop
+--     (memory-20261116-007): a white pill with a thick dark outline and a dark lip underneath, like a candy button.
 -- Cleared on death and on leave. A new character without a death (LoadCharacter) gets the same items back.
 -- The tray level is read from PlayerData directly (same number as Economy.level), so Carry never requires
 -- Economy and Economy may require Carry.
@@ -24,6 +25,7 @@ local Players = game:GetService("Players")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Items = require(Shared.Data.Items)
+local Palette = require(Shared.Palette)
 local Stations = require(Shared.Data.Stations)
 local Prices = require(Shared.Logic.Prices)
 local PlayerData = require(script.Parent.PlayerData)
@@ -36,17 +38,18 @@ local GUI_NAME = "CarryGui"
 local SLOT = 1.7 -- one item circle
 local GAP = 0.2 -- between circles
 local PAD = 0.28 -- inside the bubble's edge
-local SHADOW = 0.14 -- how far the soft shadow sits below the bubble
+local EDGE = 0.13 -- the dark outline round the bubble (drawn as a shape, so it stays chunky at any distance)
+local SHADOW = 0.16 -- the outline is this much deeper underneath: the candy lip
 local LIFT = 3 -- above the top of the head, clear of the default name tag
 local MAX_DISTANCE = 60
 
 local COLORS = {
-	Bubble = Color3.fromRGB(255, 250, 240), -- Theme.Colors.Paper
-	BubbleFull = Color3.fromRGB(255, 226, 120), -- warm gold: "your tray is full"
-	Shadow = Color3.fromRGB(74, 52, 42), -- Theme.Colors.Ink
-	Inner = Color3.fromRGB(255, 255, 255),
-	Empty = Color3.fromRGB(255, 255, 255),
-	Fallback = Color3.fromRGB(206, 152, 106),
+	Bubble = Palette.White,
+	BubbleFull = Palette.Candy.Yellow, -- "your tray is full"
+	Outline = Palette.Outline,
+	Inner = Palette.White,
+	Empty = Color3.fromRGB(222, 216, 242), -- a soft lilac dot: room left on the tray
+	Fallback = Palette.Candy.Orange,
 }
 
 local carried: { [Player]: { string } } = {}
@@ -125,27 +128,32 @@ local function render(player: Player)
 		return
 	end
 
-	local width = max * SLOT + (max - 1) * GAP + 2 * PAD
+	local width = max * SLOT + (max - 1) * GAP + 2 * PAD -- the bubble itself
 	local height = SLOT + 2 * PAD
-	local total = height + SHADOW
-	gui.Size = UDim2.fromScale(width, total)
+	local guiWidth = width + 2 * EDGE
+	local total = height + 2 * EDGE + SHADOW
+	gui.Size = UDim2.fromScale(guiWidth, total)
 
 	local root = Instance.new("Frame")
 	root.Name = "Tray"
 	root.BackgroundTransparency = 1
 	root.Size = UDim2.fromScale(1, 1)
 
-	-- A soft drop shadow, then the bubble itself: two pills, sized in scale so nothing depends on pixels.
-	local pill = UDim2.fromScale(1, height / total)
-	local shadow = frame(root, "Shadow", pill, UDim2.fromScale(0.5, (height / 2 + SHADOW) / total), COLORS.Shadow)
-	shadow.BackgroundTransparency = 0.7
+	-- Two dark pills (the outline, and the same again lower down for the lip), then the bubble itself on top. All
+	-- sized in scale, so nothing depends on pixels and nothing reaches past the gui's edge.
+	local outlinePill = UDim2.fromScale(1, (height + 2 * EDGE) / total)
+	local middleY = (height / 2 + EDGE) / total
+	local shadow = frame(root, "Shadow", outlinePill, UDim2.fromScale(0.5, middleY + SHADOW / total), COLORS.Outline)
 	shadow.ZIndex = 1
 	round(shadow)
+	local outline = frame(root, "Outline", outlinePill, UDim2.fromScale(0.5, middleY), COLORS.Outline)
+	outline.ZIndex = 2
+	round(outline)
 	local full = #list >= capacity
 	local bubbleColor = if full then COLORS.BubbleFull else COLORS.Bubble
-	local bubble = frame(root, "Bubble", pill, UDim2.fromScale(0.5, (height / 2) / total), bubbleColor)
-	bubble.BackgroundTransparency = 0.05
-	bubble.ZIndex = 2
+	local pill = UDim2.fromScale(width / guiWidth, height / total)
+	local bubble = frame(root, "Bubble", pill, UDim2.fromScale(0.5, middleY), bubbleColor)
+	bubble.ZIndex = 3
 	round(bubble)
 
 	local slotW, slotH = SLOT / width, SLOT / height
@@ -156,22 +164,23 @@ local function render(player: Player)
 			local ring = frame(bubble, "Item_" .. index, UDim2.fromScale(slotW, slotH), centre, itemColor(itemId))
 			ring:SetAttribute("ItemId", itemId)
 			round(ring)
-			local inner = frame(ring, "Inner", UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.5, 0.5), COLORS.Inner)
+			Palette.outlineShape(ring, 2.5)
+			local inner = frame(ring, "Inner", UDim2.fromScale(0.76, 0.76), UDim2.fromScale(0.5, 0.5), COLORS.Inner)
 			round(inner)
+			Palette.outlineShape(inner, 2)
 			local icon = Instance.new("TextLabel")
 			icon.Name = "Icon"
 			icon.AnchorPoint = Vector2.new(0.5, 0.5)
 			icon.Position = UDim2.fromScale(0.5, 0.52)
-			icon.Size = UDim2.fromScale(0.78, 0.78)
+			icon.Size = UDim2.fromScale(0.8, 0.8)
 			icon.BackgroundTransparency = 1
-			icon.Font = Enum.Font.FredokaOne
+			icon.Font = Palette.BodyFont
 			icon.TextScaled = true
 			icon.Text = Items[itemId] and Items[itemId].Icon or "❔"
 			icon.Parent = inner
 		else
 			local dot =
-				frame(bubble, "Empty_" .. index, UDim2.fromScale(slotW * 0.42, slotH * 0.42), centre, COLORS.Empty)
-			dot.BackgroundTransparency = 0.35
+				frame(bubble, "Empty_" .. index, UDim2.fromScale(slotW * 0.4, slotH * 0.4), centre, COLORS.Empty)
 			round(dot)
 		end
 	end
@@ -204,7 +213,7 @@ local function attachGui(player: Player, character: Model)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = GUI_NAME
 	gui.Adornee = adornee
-	gui.Size = UDim2.fromScale(SLOT + 2 * PAD, SLOT + 2 * PAD)
+	gui.Size = UDim2.fromScale(SLOT + 2 * PAD + 2 * EDGE, SLOT + 2 * PAD + 2 * EDGE + SHADOW)
 	gui.StudsOffsetWorldSpace = Vector3.new(0, lift, 0)
 	gui.AlwaysOnTop = true -- never hidden by a hat, a counter or a roof
 	gui.LightInfluence = 0 -- as bright at night as by day

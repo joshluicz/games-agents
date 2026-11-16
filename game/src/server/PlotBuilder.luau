@@ -16,6 +16,11 @@
 -- The brother's models win: ServerStorage.ClinicKit.<RoomId> replaces a placeholder room, and
 -- ServerStorage.ClinicKit.Plot (pivot = ground-top centre, facing the street) replaces the placeholder plot.
 -- Workspace.Shop is never touched: the town sits at Config.Town.Origin.
+--
+-- The look is "candy pop" (memory-20261116-007, colours in shared/Palette): toy-like SmoothPlastic in saturated
+-- colours, white fences and trims, two-tone stripes instead of textures, and Neon only on lamps at night. Each plot
+-- wears its own Palette.PlotColors accent (gate arch, sign frame, counter, mailbox, the Stand's awning), so a kid can
+-- say "mine is the pink one". Signs and plaques are white outlined display text on a glossy candy board.
 
 local CollectionService = game:GetService("CollectionService")
 local ServerStorage = game:GetService("ServerStorage")
@@ -23,6 +28,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
+local Palette = require(Shared.Palette)
 local Rooms = require(Shared.Data.Rooms)
 local Stations = require(Shared.Data.Stations)
 
@@ -46,101 +52,100 @@ local PLOT_RAISE = 0.6 -- plots sit a small step above the street
 local FLOOR_TOP = 0.3 -- room-local height of the floor's top face
 local MAX_PLOTS = 6
 
--- Cozy, bright, not oversaturated (design §6).
+local WHITE = Palette.White
+local CANDY = Palette.Candy
+local WORLD = Palette.World
+
+local function lighten(color: Color3, amount: number): Color3
+	return color:Lerp(WHITE, amount)
+end
+
+local function darken(color: Color3, amount: number): Color3
+	return color:Lerp(Color3.new(0, 0, 0), amount)
+end
+
+-- Candy pop (memory-20261116-007). The base colours live in shared/Palette; these are their jobs in the town.
 local COLORS = {
-	TownLawn = Color3.fromRGB(122, 190, 98),
-	Lawn = Color3.fromRGB(140, 206, 112),
-	Street = Color3.fromRGB(240, 224, 190),
-	Curb = Color3.fromRGB(216, 202, 178),
-	Plaza = Color3.fromRGB(248, 216, 198),
-	Spawn = Color3.fromRGB(255, 248, 236),
-	Path = Color3.fromRGB(242, 222, 178),
-	Stone = Color3.fromRGB(228, 222, 212),
-	Fence = Color3.fromRGB(255, 250, 240),
-	Wood = Color3.fromRGB(206, 152, 106),
-	WoodDark = Color3.fromRGB(160, 112, 76),
-	Board = Color3.fromRGB(255, 244, 222),
-	Trunk = Color3.fromRGB(150, 104, 72),
-	Leaf1 = Color3.fromRGB(120, 190, 92),
-	Leaf2 = Color3.fromRGB(104, 176, 84),
-	Leaf3 = Color3.fromRGB(146, 208, 110),
-	Bush = Color3.fromRGB(98, 170, 84),
-	LampPost = Color3.fromRGB(86, 112, 104),
-	LampGlow = Color3.fromRGB(255, 232, 176),
-	Ink = Color3.fromRGB(74, 52, 42),
-	White = Color3.fromRGB(255, 255, 255),
-	Cream = Color3.fromRGB(255, 252, 245),
-	Snow = Color3.fromRGB(248, 252, 255),
+	TownLawn = WORLD.GrassDark,
+	Lawn = WORLD.Grass,
+	LawnStripe = WORLD.Grass:Lerp(WORLD.LeavesLight, 0.45),
+	Street = WORLD.Street,
+	StreetLine = WORLD.StreetLine,
+	Curb = WHITE,
+	PlazaRing = CANDY.Pink,
+	Plaza = WORLD.Path,
+	Spawn = CANDY.Yellow,
+	Path = WORLD.Path,
+	Fence = WORLD.Fence,
+	Trunk = WORLD.Trunk,
+	Bush = WORLD.GrassDark,
+	LampPost = CANDY.Purple,
+	LampGlow = WORLD.Lamp,
+	Bench = CANDY.Blue,
+	Water = WORLD.Water,
+	Flag = CANDY.Red,
+	ForSale = CANDY.Yellow,
 }
-local FLOWERS = {
-	Color3.fromRGB(255, 150, 190),
-	Color3.fromRGB(255, 222, 102),
-	Color3.fromRGB(255, 255, 255),
-	Color3.fromRGB(200, 170, 255),
-}
--- One accent per plot (sign trim, gate arch, mailbox), so a kid can say "mine is the pink one".
-local PLOT_ACCENTS = {
-	Color3.fromRGB(255, 143, 171),
-	Color3.fromRGB(110, 190, 255),
-	Color3.fromRGB(110, 215, 170),
-	Color3.fromRGB(255, 206, 92),
-	Color3.fromRGB(190, 150, 255),
-	Color3.fromRGB(255, 166, 120),
+-- Tree crowns, biggest ball first. Some trees are pink blossom trees, for a bit of candy in the green.
+local LEAVES =
+	{ WORLD.Leaves, WORLD.LeavesLight, WORLD.Leaves:Lerp(WORLD.LeavesLight, 0.5), lighten(WORLD.LeavesLight, 0.2) }
+local BLOSSOM = { lighten(CANDY.Pink, 0.2), lighten(CANDY.Pink, 0.45), CANDY.Pink, lighten(CANDY.Pink, 0.6) }
+local FLOWERS = { CANDY.Pink, CANDY.Yellow, WHITE, CANDY.Purple, CANDY.Red, CANDY.Orange }
+local STONES =
+	{ lighten(CANDY.Pink, 0.4), lighten(CANDY.Yellow, 0.4), lighten(CANDY.Blue, 0.4), lighten(CANDY.Purple, 0.4) }
+local PLANTERS = { CANDY.Pink, CANDY.Blue, CANDY.Yellow, CANDY.Purple }
+
+-- Plot_n's own accent (Palette.PlotColors).
+local function plotAccentFor(index: number): Color3
+	local colors = Palette.PlotColors
+	return colors[(index - 1) % #colors + 1]
+end
+
+-- Each room has its own candy colour (awning stripes, trim, plaque, bed frames); the Stand takes its plot's accent.
+type RoomStyle = {
+	Main: Color3,
+	Blanket: Color3,
+	Floor: Color3,
+	FloorStripe: Color3,
+	Wall: Color3,
+	Garden: boolean, -- low hedges and a flower arbor instead of walls and a striped awning
+	Snow: boolean,
 }
 
-type RoomStyle = {
-	Floor: Color3,
-	FloorMaterial: Enum.Material,
-	Wall: Color3,
-	Trim: Color3,
-	Awning: { Color3 }?, -- two colours that alternate; nil = a garden arbor instead
-	Blanket: Color3,
-	Snow: boolean?,
-}
+local function roomStyle(main: Color3, blanket: Color3, snow: boolean?): RoomStyle
+	return {
+		Main = main,
+		Blanket = blanket,
+		Floor = lighten(main, 0.82),
+		FloorStripe = lighten(main, 0.64),
+		Wall = lighten(main, 0.5),
+		Garden = false,
+		Snow = snow == true,
+	}
+end
 
 local STYLES: { [string]: RoomStyle } = {
-	Stand = {
-		Floor = Color3.fromRGB(228, 192, 142),
-		FloorMaterial = Enum.Material.WoodPlanks,
-		Wall = Color3.fromRGB(255, 240, 222),
-		Trim = COLORS.Wood,
-		Awning = { Color3.fromRGB(255, 132, 122), COLORS.Cream },
-		Blanket = Color3.fromRGB(255, 160, 150),
-	},
-	BathRoom = {
-		Floor = Color3.fromRGB(206, 236, 246),
-		FloorMaterial = Enum.Material.SmoothPlastic,
-		Wall = Color3.fromRGB(226, 246, 255),
-		Trim = Color3.fromRGB(150, 200, 226),
-		Awning = { Color3.fromRGB(90, 196, 240), COLORS.White },
-		Blanket = Color3.fromRGB(140, 214, 240),
-	},
-	Ward = {
-		Floor = Color3.fromRGB(248, 224, 232),
-		FloorMaterial = Enum.Material.Fabric,
-		Wall = Color3.fromRGB(255, 242, 246),
-		Trim = Color3.fromRGB(214, 170, 190),
-		Awning = { Color3.fromRGB(196, 166, 255), COLORS.White },
-		Blanket = Color3.fromRGB(196, 166, 255),
-	},
-	WinterWing = {
-		Floor = Color3.fromRGB(226, 238, 255),
-		FloorMaterial = Enum.Material.SmoothPlastic,
-		Wall = Color3.fromRGB(240, 248, 255),
-		Trim = Color3.fromRGB(150, 180, 226),
-		Awning = { Color3.fromRGB(122, 162, 232), COLORS.White },
-		Blanket = Color3.fromRGB(122, 162, 232),
-		Snow = true,
-	},
+	Stand = roomStyle(CANDY.Red, CANDY.Yellow),
+	BathRoom = roomStyle(CANDY.Cyan, CANDY.Yellow),
+	Ward = roomStyle(CANDY.Purple, CANDY.Pink),
+	WinterWing = roomStyle(CANDY.Blue, CANDY.Mint, true),
 	Garden = {
-		Floor = Color3.fromRGB(158, 214, 122),
-		FloorMaterial = Enum.Material.Grass,
-		Wall = Color3.fromRGB(104, 176, 86),
-		Trim = COLORS.Wood,
-		Awning = nil,
-		Blanket = COLORS.White,
+		Main = CANDY.Yellow,
+		Blanket = WHITE,
+		Floor = WORLD.Grass:Lerp(WORLD.LeavesLight, 0.3),
+		FloorStripe = WORLD.LeavesLight,
+		Wall = WORLD.Leaves,
+		Garden = true,
+		Snow = false,
 	},
 }
+
+local function styleFor(roomId: string, accent: Color3?): RoomStyle
+	if roomId == "Stand" and accent then
+		return roomStyle(accent, CANDY.Yellow)
+	end
+	return STYLES[roomId] or STYLES.Stand
+end
 
 -- Where things go inside each placeholder room (room-local x, z; y is ignored). Counts match Data/Rooms.
 type Layout = { Stations: { [string]: Vector3 }, Beds: { Vector3 }, Decor: { Vector3 } }
@@ -234,7 +239,7 @@ local function cylinder(
 end
 
 local function marker(parent: Instance, name: string, cframe: CFrame, size: Vector3?): Part
-	local p = part(parent, name, size or Vector3.new(2, 1, 2), cframe, COLORS.White)
+	local p = part(parent, name, size or Vector3.new(2, 1, 2), cframe, WHITE)
 	p.Transparency = 1
 	p.CanCollide = false
 	p.CanQuery = false
@@ -243,29 +248,117 @@ local function marker(parent: Instance, name: string, cframe: CFrame, size: Vect
 	return p
 end
 
-local function lighten(color: Color3, amount: number): Color3
-	return color:Lerp(COLORS.White, amount)
+-- A flat painted detail (stripes, road lines): walk-through, ray-ignored and shadowless.
+local function paint(p: BasePart): BasePart
+	soft(p)
+	p.CastShadow = false
+	return p
 end
 
-local function darken(color: Color3, amount: number): Color3
-	return color:Lerp(Color3.new(0, 0, 0), amount)
+------------------------------------------------------------------------------------------------------------------
+-- GUI helpers (signs, plaques, billboards)
+------------------------------------------------------------------------------------------------------------------
+
+local function rounded(gui: GuiObject, radius: UDim)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = radius
+	corner.Parent = gui
 end
 
-local function label(parent: Instance, name: string, text: string, size: UDim2, position: UDim2): TextLabel
+-- White display text with a thick ink outline: the candy-pop sign look. `stroke` is in the gui's own pixels.
+local function candyLabel(
+	parent: Instance,
+	name: string,
+	text: string,
+	size: UDim2,
+	position: UDim2,
+	stroke: number
+): TextLabel
 	local l = Instance.new("TextLabel")
 	l.Name = name
 	l.BackgroundTransparency = 1
 	l.Size = size
 	l.Position = position
-	l.Font = Enum.Font.FredokaOne
-	l.TextColor3 = COLORS.Ink
+	l.Font = Palette.DisplayFont
+	l.TextColor3 = WHITE
 	l.TextScaled = true
 	l.Text = text
+	l.ZIndex = 3
+	Palette.outlineText(l, stroke)
 	l.Parent = parent
 	return l
 end
 
--- A round icon badge floating above a part (station icons, slot previews).
+-- An emoji icon. No text outline: the badge it sits on has one.
+local function iconLabel(parent: Instance, name: string, text: string, size: UDim2, position: UDim2): TextLabel
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.BackgroundTransparency = 1
+	l.Size = size
+	l.Position = position
+	l.Font = Palette.BodyFont
+	l.TextColor3 = Palette.Ink
+	l.TextScaled = true
+	l.Text = text
+	l.ZIndex = 3
+	l.Parent = parent
+	return l
+end
+
+-- A glossy candy board filling a SurfaceGui (the sign, plaques, the welcome arch): the colour with a light-to-deep
+-- gradient, a white rim and a soft shine across the top. Text labels go on top (ZIndex 3). Sizes are gui pixels.
+local function candyBoard(gui: SurfaceGui, color: Color3, inset: number, radius: number, rim: number): Frame
+	local board = Instance.new("Frame")
+	board.Name = "Board"
+	board.AnchorPoint = Vector2.new(0.5, 0.5)
+	board.Position = UDim2.fromScale(0.5, 0.5)
+	board.Size = UDim2.new(1, -inset * 2, 1, -inset * 2)
+	board.BackgroundColor3 = color
+	board.BorderSizePixel = 0
+	board.ZIndex = 1
+	rounded(board, UDim.new(0, radius))
+	Palette.candyGradient(board)
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "Rim"
+	stroke.Color = WHITE
+	stroke.Thickness = rim
+	stroke.LineJoinMode = Enum.LineJoinMode.Round
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = board
+
+	local shine = Instance.new("Frame")
+	shine.Name = "Shine"
+	shine.AnchorPoint = Vector2.new(0.5, 0)
+	shine.Position = UDim2.new(0.5, 0, 0, rim)
+	shine.Size = UDim2.new(1, -radius * 2, 0.3, 0)
+	shine.BackgroundColor3 = WHITE
+	shine.BackgroundTransparency = 0.78
+	shine.BorderSizePixel = 0
+	shine.ZIndex = 2
+	rounded(shine, UDim.new(0, radius))
+	shine.Parent = board
+
+	board.Parent = gui
+	return board
+end
+
+-- A filled circle centred in its parent; `scale` is its diameter as a fraction of the parent.
+local function disc(parent: Instance, name: string, scale: number, color: Color3, zIndex: number): Frame
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.Position = UDim2.fromScale(0.5, 0.5)
+	f.Size = UDim2.fromScale(scale, scale)
+	f.BackgroundColor3 = color
+	f.BorderSizePixel = 0
+	f.ZIndex = zIndex
+	rounded(f, UDim.new(0.5, 0))
+	f.Parent = parent
+	return f
+end
+
+-- A round icon badge floating above a part (station icons): a white disc with a thick ink outline inside a candy
+-- ring. Drawn as nested circles rather than UIStrokes, so the outline keeps its weight at any distance.
 local function iconBadge(adornee: BasePart, name: string, icon: string, ring: Color3, studs: number, height: number)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = name
@@ -274,20 +367,16 @@ local function iconBadge(adornee: BasePart, name: string, icon: string, ring: Co
 	gui.LightInfluence = 0
 	gui.MaxDistance = 80
 
-	local disc = Instance.new("Frame")
-	disc.Name = "Disc"
-	disc.Size = UDim2.fromScale(1, 1)
-	disc.BackgroundColor3 = COLORS.White
-	disc.Parent = gui
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.5, 0)
-	corner.Parent = disc
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = ring
-	stroke.Thickness = 4
-	stroke.Parent = disc
-	local text = label(disc, "Icon", icon, UDim2.fromScale(0.7, 0.7), UDim2.fromScale(0.15, 0.15))
-	text.TextColor3 = COLORS.Ink
+	disc(gui, "Outline", 1, Palette.Outline, 1)
+	disc(gui, "Ring", 0.86, ring, 2)
+	local shine = disc(gui, "Shine", 0.08, WHITE, 3) -- a glossy dot on the ring, top left
+	shine.Position = UDim2.fromScale(0.228, 0.228)
+	shine.BackgroundTransparency = 0.2
+	disc(gui, "Rim", 0.68, Palette.Outline, 3)
+	disc(gui, "Disc", 0.6, WHITE, 4)
+	local text = iconLabel(gui, "Icon", icon, UDim2.fromScale(0.42, 0.42), UDim2.fromScale(0.5, 0.5))
+	text.AnchorPoint = Vector2.new(0.5, 0.5)
+	text.ZIndex = 5
 
 	gui.Parent = adornee
 	return gui
@@ -308,13 +397,16 @@ end
 -- Scenery pieces. `at` is a CFrame on the ground where the piece stands.
 ------------------------------------------------------------------------------------------------------------------
 
-local function tree(parent: Instance, at: CFrame, scale: number)
+-- A round, layered toy tree: a trunk and four stacked balls. `blossom` makes it a pink blossom tree.
+local function tree(parent: Instance, at: CFrame, scale: number, blossom: boolean?)
+	local crown = if blossom then BLOSSOM else LEAVES
 	local model = Instance.new("Model")
 	model.Name = "Tree"
-	cylinder(model, "Trunk", 6 * scale, 1.4 * scale, at * CFrame.new(0, 3 * scale, 0), COLORS.Trunk, Enum.Material.Wood)
-	soft(ball(model, "Leaves", 7 * scale, at * CFrame.new(0, 7 * scale, 0), COLORS.Leaf1))
-	soft(ball(model, "Leaves", 5.5 * scale, at * CFrame.new(1.8 * scale, 8.8 * scale, 0.6 * scale), COLORS.Leaf3))
-	soft(ball(model, "Leaves", 5 * scale, at * CFrame.new(-1.6 * scale, 8.4 * scale, -1 * scale), COLORS.Leaf2))
+	cylinder(model, "Trunk", 6 * scale, 1.4 * scale, at * CFrame.new(0, 3 * scale, 0), COLORS.Trunk)
+	soft(ball(model, "Leaves", 7 * scale, at * CFrame.new(0, 7 * scale, 0), crown[1]))
+	soft(ball(model, "Leaves", 5.5 * scale, at * CFrame.new(1.8 * scale, 8.8 * scale, 0.6 * scale), crown[2]))
+	soft(ball(model, "Leaves", 5 * scale, at * CFrame.new(-1.6 * scale, 8.4 * scale, -1 * scale), crown[3]))
+	soft(ball(model, "Leaves", 4 * scale, at * CFrame.new(0.2 * scale, 10.6 * scale, -0.2 * scale), crown[4]))
 	model.Parent = parent
 end
 
@@ -341,10 +433,10 @@ end
 local function bench(parent: Instance, at: CFrame)
 	local model = Instance.new("Model")
 	model.Name = "Bench"
-	part(model, "Seat", Vector3.new(5, 0.4, 1.6), at * CFrame.new(0, 1.4, 0), COLORS.Wood, Enum.Material.Wood)
-	part(model, "Back", Vector3.new(5, 1.4, 0.3), at * CFrame.new(0, 2.3, 0.7), COLORS.Wood, Enum.Material.Wood)
-	part(model, "Leg", Vector3.new(0.4, 1.2, 1.4), at * CFrame.new(-2.1, 0.6, 0), COLORS.LampPost)
-	part(model, "Leg", Vector3.new(0.4, 1.2, 1.4), at * CFrame.new(2.1, 0.6, 0), COLORS.LampPost)
+	part(model, "Seat", Vector3.new(5, 0.4, 1.6), at * CFrame.new(0, 1.4, 0), COLORS.Bench)
+	part(model, "Back", Vector3.new(5, 1.4, 0.3), at * CFrame.new(0, 2.3, 0.7), COLORS.Bench)
+	part(model, "Leg", Vector3.new(0.4, 1.2, 1.4), at * CFrame.new(-2.1, 0.6, 0), WHITE)
+	part(model, "Leg", Vector3.new(0.4, 1.2, 1.4), at * CFrame.new(2.1, 0.6, 0), WHITE)
 	model.Parent = parent
 end
 
@@ -413,140 +505,119 @@ end
 
 local function buildStation(model: Model, stationId: string, at: Vector3)
 	local station = Stations[stationId]
-	local color = if station then station.Color else COLORS.Wood
+	local color = if station then station.Color else CANDY.Orange
 	local icon = if station then station.Icon else "❔"
 	local base = CFrame.new(at.X, FLOOR_TOP, at.Z)
 	local stationPart: BasePart
 
+	-- Every station wears its Data/Stations colour (the colour kids match to the ailment), with white trim.
 	if stationId == "Bath" then
-		stationPart =
-			part(model, "Station_Bath", Vector3.new(5.6, 2.2, 3.6), base * CFrame.new(0, 1.1, 0), COLORS.White)
-		soft(part(model, "Water", Vector3.new(5, 0.15, 3), base * CFrame.new(0, 2.15, 0), lighten(color, 0.2)))
+		stationPart = part(model, "Station_Bath", Vector3.new(5.6, 2.2, 3.6), base * CFrame.new(0, 1.1, 0), WHITE)
+		soft(part(model, "TubStripe", Vector3.new(5.68, 0.5, 3.68), base * CFrame.new(0, 1.4, 0), color))
+		soft(part(model, "Water", Vector3.new(5, 0.15, 3), base * CFrame.new(0, 2.15, 0), COLORS.Water))
 		for i, offset in { Vector3.new(-1.8, 2.5, -0.6), Vector3.new(-0.4, 2.6, 0.7), Vector3.new(1.2, 2.5, -0.3) } do
-			local bubble = soft(ball(model, "Bubble", 0.8 + i * 0.15, base * CFrame.new(offset), COLORS.White))
-			bubble.Transparency = 0.15
+			local bubble = soft(ball(model, "Bubble", 0.8 + i * 0.15, base * CFrame.new(offset), WHITE))
+			bubble.Transparency = 0.1
 		end
 		for _, x in { -2.3, 2.3 } do
-			soft(ball(model, "Foot", 0.6, base * CFrame.new(x, 0.2, 1.3), color))
-			soft(ball(model, "Foot", 0.6, base * CFrame.new(x, 0.2, -1.3), color))
+			soft(ball(model, "Foot", 0.6, base * CFrame.new(x, 0.2, 1.3), CANDY.Yellow))
+			soft(ball(model, "Foot", 0.6, base * CFrame.new(x, 0.2, -1.3), CANDY.Yellow))
 		end
 	else
-		stationPart = part(
-			model,
-			"Station_" .. stationId,
-			Vector3.new(4.2, 3, 2.6),
-			base * CFrame.new(0, 1.5, 0),
-			lighten(color, 0.55)
-		)
-		soft(part(model, "Top", Vector3.new(4.5, 0.3, 2.9), base * CFrame.new(0, 3.15, 0), darken(color, 0.1)))
-		soft(part(model, "Stripe", Vector3.new(4.25, 0.5, 0.1), base * CFrame.new(0, 2.2, -1.3), color))
+		stationPart =
+			part(model, "Station_" .. stationId, Vector3.new(4.2, 3, 2.6), base * CFrame.new(0, 1.5, 0), color)
+		soft(part(model, "Top", Vector3.new(4.5, 0.3, 2.9), base * CFrame.new(0, 3.15, 0), WHITE))
+		soft(part(model, "Stripe", Vector3.new(4.25, 0.5, 0.1), base * CFrame.new(0, 2.2, -1.3), WHITE))
 		local top = base * CFrame.new(0, 3.3, 0)
 		if stationId == "Remedy" then
-			local bottles = { color, Color3.fromRGB(255, 150, 200), Color3.fromRGB(120, 220, 180) }
+			-- Potion bottles in colours no other station uses, so they never read as a colour clue.
+			local bottles = { CANDY.Mint, CANDY.Lime, lighten(color, 0.4) }
 			for i, bottleColor in bottles do
 				local x = (i - 2) * 1.2
-				local bottle = soft(
-					cylinder(model, "Bottle", 1, 0.6, top * CFrame.new(x, 0.5, 0.2), bottleColor, Enum.Material.Glass)
-				)
-				bottle.Transparency = 0.2
-				soft(ball(model, "Cork", 0.4, top * CFrame.new(x, 1.1, 0.2), COLORS.Wood))
+				soft(cylinder(model, "Bottle", 1, 0.6, top * CFrame.new(x, 0.5, 0.2), bottleColor))
+				soft(ball(model, "Cork", 0.4, top * CFrame.new(x, 1.1, 0.2), WORLD.Wood))
 			end
 		elseif stationId == "Plaster" then
-			soft(part(model, "Box", Vector3.new(1.8, 0.8, 1.2), top * CFrame.new(-0.6, 0.4, 0.2), COLORS.White))
-			soft(part(model, "BoxStripe", Vector3.new(1.82, 0.22, 1.22), top * CFrame.new(-0.6, 0.4, 0.2), color))
-			soft(cylinder(model, "Roll", 0.5, 0.9, top * CFrame.new(1.2, 0.25, 0.1), lighten(color, 0.3)))
+			soft(part(model, "Box", Vector3.new(1.8, 0.8, 1.2), top * CFrame.new(-0.6, 0.4, 0.2), WHITE))
+			soft(part(model, "BoxStripe", Vector3.new(1.82, 0.22, 1.22), top * CFrame.new(-0.6, 0.4, 0.2), CANDY.Red))
+			soft(cylinder(model, "Roll", 0.5, 0.9, top * CFrame.new(1.2, 0.25, 0.1), lighten(color, 0.5)))
 		elseif stationId == "Cocoa" then
-			soft(cylinder(model, "Mug", 0.9, 0.8, top * CFrame.new(-0.9, 0.45, 0.1), COLORS.White))
-			soft(cylinder(model, "CocoaTop", 0.1, 0.7, top * CFrame.new(-0.9, 0.86, 0.1), color))
-			soft(part(model, "Marshmallow", Vector3.new(0.3, 0.3, 0.3), top * CFrame.new(-0.8, 1.0, 0.1), COLORS.White))
-			soft(ball(model, "Pot", 1.3, top * CFrame.new(0.9, 0.55, 0.2), color))
+			soft(cylinder(model, "Mug", 0.9, 0.8, top * CFrame.new(-0.9, 0.45, 0.1), WHITE))
+			soft(cylinder(model, "CocoaTop", 0.1, 0.7, top * CFrame.new(-0.9, 0.86, 0.1), COLORS.Trunk)) -- cocoa brown
+			soft(part(model, "Marshmallow", Vector3.new(0.3, 0.3, 0.3), top * CFrame.new(-0.8, 1.0, 0.1), WHITE))
+			soft(ball(model, "Pot", 1.3, top * CFrame.new(0.9, 0.55, 0.2), CANDY.Red))
 		end
 	end
 
 	iconBadge(stationPart, "IconGui", icon, color, 2.6, stationPart.Size.Y / 2 + 2.1)
 end
 
-local function buildBed(model: Model, index: number, at: Vector3, blanket: Color3, frame: Color3)
+local function buildBed(model: Model, index: number, at: Vector3, style: RoomStyle)
 	local base = CFrame.new(at.X, FLOOR_TOP, at.Z)
-	part(model, "BedFrame", Vector3.new(4.4, 0.8, 7), base * CFrame.new(0, 0.4, 0), frame, Enum.Material.Wood)
+	part(model, "BedFrame", Vector3.new(4.4, 0.8, 7), base * CFrame.new(0, 0.4, 0), style.Main)
 	-- Bed_<n> is the mattress: patients lie on its top face; the pillow end is +Z (the room's back).
-	part(
-		model,
-		"Bed_" .. index,
-		Vector3.new(4, 1, 6.6),
-		base * CFrame.new(0, 1.3, 0),
-		COLORS.Cream,
-		Enum.Material.Fabric
-	)
-	soft(
-		part(
-			model,
-			"Pillow",
-			Vector3.new(3, 0.5, 1.4),
-			base * CFrame.new(0, 2.05, 2.4),
-			COLORS.White,
-			Enum.Material.Fabric
-		)
-	)
-	soft(
-		part(
-			model,
-			"Blanket",
-			Vector3.new(4.1, 0.25, 3.4),
-			base * CFrame.new(0, 1.92, -1.4),
-			blanket,
-			Enum.Material.Fabric
-		)
-	)
-	part(
-		model,
-		"Headboard",
-		Vector3.new(4.4, 2.6, 0.5),
-		base * CFrame.new(0, 1.3, 3.75),
-		darken(frame, 0.08),
-		Enum.Material.Wood
-	)
+	part(model, "Bed_" .. index, Vector3.new(4, 1, 6.6), base * CFrame.new(0, 1.3, 0), WHITE)
+	soft(part(model, "Pillow", Vector3.new(3, 0.5, 1.4), base * CFrame.new(0, 2.05, 2.4), lighten(style.Blanket, 0.6)))
+	soft(part(model, "Blanket", Vector3.new(4.1, 0.25, 3.4), base * CFrame.new(0, 1.92, -1.4), style.Blanket))
+	soft(part(model, "BlanketStripe", Vector3.new(4.18, 0.31, 0.6), base * CFrame.new(0, 1.92, -0.2), WHITE))
+	part(model, "Headboard", Vector3.new(4.4, 2.6, 0.5), base * CFrame.new(0, 1.3, 3.75), darken(style.Main, 0.1))
 end
 
-local function buildDecorSlot(model: Model, index: number, at: Vector3, floorColor: Color3)
+local function buildDecorSlot(model: Model, index: number, at: Vector3)
 	marker(model, "DecorSlot_" .. index, CFrame.new(at.X, FLOOR_TOP + 0.5, at.Z), Vector3.new(4, 1, 4))
-	-- A soft round spot that shows where decor goes.
-	local spot = soft(
-		cylinder(model, "DecorSpot", 0.06, 3.4, CFrame.new(at.X, FLOOR_TOP + 0.03, at.Z), lighten(floorColor, 0.45))
-	)
-	spot.Transparency = 0.3
-	spot.CastShadow = false
+	-- A soft white spot that shows where decor goes.
+	local spot = paint(cylinder(model, "DecorSpot", 0.06, 3.4, CFrame.new(at.X, FLOOR_TOP + 0.03, at.Z), WHITE))
+	spot.Transparency = 0.35
 end
 
 local function buildShell(model: Model, roomId: string, w: number, d: number, style: RoomStyle)
 	local room = Rooms[roomId]
 	local back = d / 2
-	if style.Awning then
+	if not style.Garden then
 		-- Tall enough that the awning's high back edge rests on it.
 		part(model, "BackWall", Vector3.new(w, 8.6, 0.6), CFrame.new(0, FLOOR_TOP + 4.3, back - 0.3), style.Wall)
+		-- A white band low on the back wall (two-tone, like a sweet shop).
+		soft(
+			part(model, "WallBand", Vector3.new(w - 1.3, 1.1, 0.06), CFrame.new(0, FLOOR_TOP + 1.2, back - 0.63), WHITE)
+		)
 		for _, side in { -1, 1 } do
+			local x = side * (w / 2 - 0.3)
 			part(
 				model,
 				"SideWall",
 				Vector3.new(0.6, 4, d * 0.5),
-				CFrame.new(side * (w / 2 - 0.3), FLOOR_TOP + 2, back - d * 0.25),
+				CFrame.new(x, FLOOR_TOP + 2, back - d * 0.25),
 				style.Wall
 			)
+			soft(
+				part(
+					model,
+					"WallCap",
+					Vector3.new(0.8, 0.3, d * 0.5 + 0.2),
+					CFrame.new(x, FLOOR_TOP + 4.15, back - d * 0.25),
+					style.Main
+				)
+			)
 		end
-		-- A striped awning over the back half, sloping down toward the front.
-		local awning = style.Awning
+		-- A striped awning over the back half, sloping down toward the front, with a flap hanging off its front
+		-- edge so the stripes run down the front.
+		local awning = { style.Main, WHITE }
 		local depth = d * 0.45
 		local stripes = 6
 		local stripeWidth = (w + 1) / stripes
 		for i = 1, stripes do
 			local x = -(w + 1) / 2 + (i - 0.5) * stripeWidth
+			local color = awning[(i % 2) + 1]
+			local stripe = CFrame.new(x, FLOOR_TOP + 8.1, back - depth / 2) * CFrame.Angles(math.rad(-12), 0, 0)
+			soft(part(model, "Awning", Vector3.new(stripeWidth, 0.35, depth + 0.6), stripe, color))
+			local edge = stripe * Vector3.new(0, -0.175, -(depth + 0.6) / 2)
 			soft(
 				part(
 					model,
-					"Awning",
-					Vector3.new(stripeWidth, 0.35, depth + 0.6),
-					CFrame.new(x, FLOOR_TOP + 8.1, back - depth / 2) * CFrame.Angles(math.rad(-12), 0, 0),
-					awning[(i % 2) + 1]
+					"AwningFlap",
+					Vector3.new(stripeWidth, 0.8, 0.12),
+					CFrame.new(edge - Vector3.new(0, 0.4, 0)),
+					color
 				)
 			)
 		end
@@ -557,7 +628,7 @@ local function buildShell(model: Model, roomId: string, w: number, d: number, st
 				7.2,
 				0.5,
 				CFrame.new(side * (w / 2 - 0.6), FLOOR_TOP + 3.6, back - depth + 0.2),
-				style.Trim
+				WHITE
 			)
 		end
 		if style.Snow then
@@ -568,7 +639,7 @@ local function buildShell(model: Model, roomId: string, w: number, d: number, st
 						"Snow",
 						Vector3.new(w / 4, 0.4, depth * 0.7),
 						CFrame.new(x, FLOOR_TOP + 8.45, back - depth / 2) * CFrame.Angles(math.rad(-12), 0, 0),
-						COLORS.Snow
+						WHITE
 					)
 				)
 			end
@@ -586,24 +657,9 @@ local function buildShell(model: Model, roomId: string, w: number, d: number, st
 			)
 		end
 		for _, side in { -1, 1 } do
-			cylinder(
-				model,
-				"ArborPost",
-				7,
-				0.6,
-				CFrame.new(side * 4.5, FLOOR_TOP + 3.5, back - 2.2),
-				style.Trim,
-				Enum.Material.Wood
-			)
+			cylinder(model, "ArborPost", 7, 0.6, CFrame.new(side * 4.5, FLOOR_TOP + 3.5, back - 2.2), WHITE)
 		end
-		part(
-			model,
-			"ArborBeam",
-			Vector3.new(10.4, 0.6, 1.2),
-			CFrame.new(0, FLOOR_TOP + 7.2, back - 2.2),
-			style.Trim,
-			Enum.Material.Wood
-		)
+		part(model, "ArborBeam", Vector3.new(10.4, 0.6, 1.2), CFrame.new(0, FLOOR_TOP + 7.2, back - 2.2), style.Main)
 		for i = 0, 6 do
 			soft(
 				ball(
@@ -623,34 +679,53 @@ local function buildShell(model: Model, roomId: string, w: number, d: number, st
 	end
 
 	-- Name plaque: on the back wall above the station badges, or hanging under the garden arbor.
-	local plaqueHeight = if style.Awning then FLOOR_TOP + 7.3 else FLOOR_TOP + 6.1
-	local plaqueZ = if style.Awning then back - 0.68 else back - 2.88
-	local plaqueWidth = if style.Awning then math.min(w * 0.5, 10) else 8
+	local plaqueHeight = if style.Garden then FLOOR_TOP + 6.1 else FLOOR_TOP + 7.3
+	local plaqueZ = if style.Garden then back - 2.88 else back - 0.68
+	local plaqueWidth = if style.Garden then 8 else math.min(w * 0.5, 10)
 	local plaque = soft(
-		part(model, "Plaque", Vector3.new(plaqueWidth, 1.5, 0.15), CFrame.new(0, plaqueHeight, plaqueZ), COLORS.Board)
+		part(
+			model,
+			"Plaque",
+			Vector3.new(plaqueWidth, 1.5, 0.15),
+			CFrame.new(0, plaqueHeight, plaqueZ),
+			darken(style.Main, 0.12)
+		)
 	)
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = "PlaqueGui"
 	gui.Face = Enum.NormalId.Front
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = 40
-	gui.LightInfluence = 0.2
+	gui.LightInfluence = 0
 	gui.MaxDistance = 100
-	label(gui, "Name", room.Icon .. " " .. room.Name, UDim2.fromScale(0.94, 0.8), UDim2.fromScale(0.03, 0.1))
+	candyBoard(gui, style.Main, 3, 10, 3)
+	candyLabel(gui, "Name", room.Icon .. " " .. room.Name, UDim2.fromScale(0.92, 0.72), UDim2.fromScale(0.04, 0.14), 3)
 	gui.Parent = plaque
 end
 
-local function placeholderRoom(roomId: string): Model
+local function placeholderRoom(roomId: string, accent: Color3?): Model
 	local room = Rooms[roomId]
-	local style = STYLES[roomId] or STYLES.Stand
+	local style = styleFor(roomId, accent)
 	local size = slotSize(roomId)
 	local w, d = size.X, size.Z
 
 	local model = Instance.new("Model")
 	model.Name = "Room_" .. roomId
-	local floor = part(model, "Floor", size, CFrame.identity, style.Floor, style.FloorMaterial)
-	part(model, "Edge", Vector3.new(w + 0.6, 0.4, d + 0.6), CFrame.new(0, -0.15, 0), darken(style.Floor, 0.12))
+	local floor = part(model, "Floor", size, CFrame.identity, style.Floor)
+	part(model, "Edge", Vector3.new(w + 0.6, 0.4, d + 0.6), CFrame.new(0, -0.15, 0), style.Main)
 	model.PrimaryPart = floor
+	-- Three painted stripes across the floor, so it reads as seven two-tone bands.
+	for i = -1, 1 do
+		paint(
+			part(
+				model,
+				"FloorStripe",
+				Vector3.new(w - 0.4, 0.04, d / 7),
+				CFrame.new(0, FLOOR_TOP + 0.03, i * d * 2 / 7),
+				style.FloorStripe
+			)
+		)
+	end
 
 	buildShell(model, roomId, w, d, style)
 
@@ -659,10 +734,10 @@ local function placeholderRoom(roomId: string): Model
 		buildStation(model, stationId, layout.Stations[stationId])
 	end
 	for index, at in layout.Beds do
-		buildBed(model, index, at, style.Blanket, COLORS.Wood)
+		buildBed(model, index, at, style)
 	end
 	for index, at in layout.Decor do
-		buildDecorSlot(model, index, at, style.Floor)
+		buildDecorSlot(model, index, at)
 	end
 	return model
 end
@@ -750,12 +825,22 @@ local function kitRoom(roomId: string): Model?
 	return model
 end
 
-function PlotBuilder.buildRoom(roomId: string): Model
+-- `accent` is the plot's colour, for the Stand's awning (a kit room ignores it).
+local function buildRoomModel(roomId: string, accent: Color3?): Model
 	assert(Rooms[roomId], "Unknown room " .. tostring(roomId))
-	local model = kitRoom(roomId) or placeholderRoom(roomId)
+	local model = kitRoom(roomId) or placeholderRoom(roomId, accent)
 	model:SetAttribute("RoomId", roomId)
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic -- a room streams in whole, with its stations
 	return model
+end
+
+function PlotBuilder.buildRoom(roomId: string): Model
+	return buildRoomModel(roomId, nil)
+end
+
+local function plotAccent(plotModel: Model): Color3?
+	local index = plotModel:GetAttribute("PlotIndex")
+	return if type(index) == "number" then plotAccentFor(index) else nil
 end
 
 function PlotBuilder.placeRoom(plotModel: Model, roomId: string): Model?
@@ -775,7 +860,7 @@ function PlotBuilder.placeRoom(plotModel: Model, roomId: string): Model?
 		return nil
 	end
 
-	local model = PlotBuilder.buildRoom(roomId)
+	local model = buildRoomModel(roomId, plotAccent(plotModel))
 	local floor = model.PrimaryPart :: BasePart
 	model:PivotTo(slot.CFrame * floor.CFrame:ToObjectSpace(model:GetPivot()))
 	model.Parent = roomsFolder
@@ -784,7 +869,7 @@ function PlotBuilder.placeRoom(plotModel: Model, roomId: string): Model?
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- Slot previews: a dashed outline and a floating badge showing what unlocks there
+-- Slot previews ("for sale"): a see-through yellow floor, a candy dashed outline and a floating price badge
 ------------------------------------------------------------------------------------------------------------------
 
 function PlotBuilder.setPreview(plotModel: Model, slotId: string, roomId: string?)
@@ -806,7 +891,12 @@ function PlotBuilder.setPreview(plotModel: Model, slotId: string, roomId: string
 	preview.Name = "Preview"
 	local w, d = slot.Size.X, slot.Size.Z
 	local ground = slot.CFrame * CFrame.new(0, -slot.Size.Y / 2 + 0.06, 0)
+	local fill = paint(
+		part(preview, "Fill", Vector3.new(w - 0.6, 0.04, d - 0.6), ground * CFrame.new(0, 0.01, 0), COLORS.ForSale)
+	)
+	fill.Transparency = 0.65
 	local dash = 2.2
+	local n = 0
 	for _, edge in { { w, -d / 2, 0 }, { w, d / 2, 0 }, { d, -w / 2, 90 }, { d, w / 2, 90 } } do
 		local length, offset, angle = edge[1], edge[2], edge[3]
 		local count = math.floor(length / (dash * 2))
@@ -815,37 +905,46 @@ function PlotBuilder.setPreview(plotModel: Model, slotId: string, roomId: string
 			local cf = if angle == 0
 				then ground * CFrame.new(along, 0, offset)
 				else ground * CFrame.new(offset, 0, along) * CFrame.Angles(0, math.rad(90), 0)
-			local strip = soft(part(preview, "Dash", Vector3.new(dash, 0.12, 0.5), cf, COLORS.White))
-			strip.Transparency = 0.25
-			strip.CastShadow = false
+			n += 1
+			local color = if n % 2 == 0 then WHITE else COLORS.ForSale
+			paint(part(preview, "Dash", Vector3.new(dash, 0.14, 0.6), cf, color))
 		end
 	end
 
+	-- The price badge: a candy-yellow panel with a thick ink outline (nested frames, so it scales with distance).
 	local anchor = marker(preview, "BadgeAnchor", ground * CFrame.new(0, 3.5, 0), Vector3.one)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "PreviewGui"
 	gui.Size = UDim2.fromScale(6, 4)
 	gui.LightInfluence = 0
 	gui.MaxDistance = 90
+	local outline = Instance.new("Frame")
+	outline.Name = "Outline"
+	outline.Size = UDim2.fromScale(1, 1)
+	outline.BackgroundColor3 = Palette.Outline
+	outline.BorderSizePixel = 0
+	outline.ZIndex = 1
+	rounded(outline, UDim.new(0.24, 0))
+	outline.Parent = gui
 	local panel = Instance.new("Frame")
-	panel.Size = UDim2.fromScale(1, 1)
-	panel.BackgroundColor3 = COLORS.White
-	panel.BackgroundTransparency = 0.1
+	panel.Name = "Panel"
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.5)
+	panel.Size = UDim2.fromScale(0.94, 0.91)
+	panel.BackgroundColor3 = COLORS.ForSale
+	panel.BorderSizePixel = 0
+	panel.ZIndex = 2
+	rounded(panel, UDim.new(0.22, 0))
+	Palette.candyGradient(panel)
 	panel.Parent = gui
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.2, 0)
-	corner.Parent = panel
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = COLORS.Wood
-	stroke.Thickness = 3
-	stroke.Parent = panel
-	label(panel, "Icon", "🔒" .. room.Icon, UDim2.fromScale(0.9, 0.5), UDim2.fromScale(0.05, 0.04))
-	label(
-		panel,
+	iconLabel(gui, "Icon", "🔒" .. room.Icon, UDim2.fromScale(0.86, 0.46), UDim2.fromScale(0.07, 0.08))
+	candyLabel(
+		gui,
 		"Cost",
 		string.format("⭐%d  💰%d", room.StarsNeeded, room.Price),
-		UDim2.fromScale(0.9, 0.36),
-		UDim2.fromScale(0.05, 0.58)
+		UDim2.fromScale(0.86, 0.34),
+		UDim2.fromScale(0.07, 0.57),
+		2
 	)
 	gui.Parent = anchor
 	preview.Parent = slot
@@ -868,25 +967,13 @@ local function plotCFrame(index: number, count: number): CFrame
 	return CFrame.lookAt(centre, centre + facing)
 end
 
+-- The clinic sign: a glossy board in the plot's accent inside an accent frame, white posts, and the owner's name in
+-- white outlined display text. OwnerName and HeartCount stay direct children of SignGui (Plots and Visits set them).
 local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color3)
-	local sign = part(
-		model,
-		"Sign",
-		Vector3.new(9, 3.4, 0.5),
-		cf * CFrame.new(-13, 3.4, -33.6),
-		COLORS.Board,
-		Enum.Material.Wood
-	)
+	local sign = part(model, "Sign", Vector3.new(9, 3.4, 0.5), cf * CFrame.new(-13, 3.4, -33.6), darken(accent, 0.15))
 	soft(part(scenery, "SignTrim", Vector3.new(9.8, 4.2, 0.4), cf * CFrame.new(-13, 3.4, -33.2), accent))
 	for _, x in { -17.2, -8.8 } do
-		part(
-			scenery,
-			"SignPost",
-			Vector3.new(0.7, 5.6, 0.7),
-			cf * CFrame.new(x, 2.8, -33.2),
-			COLORS.WoodDark,
-			Enum.Material.Wood
-		)
+		part(scenery, "SignPost", Vector3.new(0.7, 5.6, 0.7), cf * CFrame.new(x, 2.8, -33.2), WHITE)
 	end
 
 	local gui = Instance.new("SurfaceGui")
@@ -894,10 +981,11 @@ local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color
 	gui.Face = Enum.NormalId.Front -- the side facing the street
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = 40
-	gui.LightInfluence = 0.2
+	gui.LightInfluence = 0 -- stays bright and readable at night
 	gui.MaxDistance = 150
-	label(gui, "OwnerName", "✨ Free clinic", UDim2.fromScale(0.92, 0.56), UDim2.fromScale(0.04, 0.06))
-	label(gui, "HeartCount", "", UDim2.fromScale(0.92, 0.32), UDim2.fromScale(0.04, 0.62))
+	candyBoard(gui, accent, 8, 18, 5)
+	candyLabel(gui, "OwnerName", "✨ Free clinic", UDim2.fromScale(0.86, 0.5), UDim2.fromScale(0.07, 0.1), 4)
+	candyLabel(gui, "HeartCount", "", UDim2.fromScale(0.86, 0.28), UDim2.fromScale(0.07, 0.62), 3)
 	gui.Parent = sign
 end
 
@@ -919,22 +1007,21 @@ local function buildFenceAndGate(scenery: Model, cf: CFrame, half: number, accen
 		nightLight(glow, 16)
 	end
 	part(scenery, "GateArch", Vector3.new(gate * 2 + 2.6, 1, 1.6), cf * CFrame.new(0, 6.5, -e), accent)
+	soft(part(scenery, "GateArchStripe", Vector3.new(gate * 2 + 2.7, 0.34, 1.7), cf * CFrame.new(0, 6.5, -e), WHITE))
 end
 
 local function buildMailbox(scenery: Model, cf: CFrame, accent: Color3)
 	local model = Instance.new("Model")
 	model.Name = "MailboxProp"
-	part(model, "Post", Vector3.new(0.4, 3, 0.4), cf * CFrame.new(9.5, 1.5, -33), COLORS.WoodDark, Enum.Material.Wood)
+	part(model, "Post", Vector3.new(0.4, 3, 0.4), cf * CFrame.new(9.5, 1.5, -33), WHITE)
 	part(model, "Box", Vector3.new(1.6, 1.2, 2), cf * CFrame.new(9.5, 3.5, -33), accent)
-	soft(
-		part(model, "Flag", Vector3.new(0.1, 0.9, 0.35), cf * CFrame.new(10.4, 3.9, -33.5), Color3.fromRGB(240, 90, 90))
-	)
+	soft(part(model, "Flag", Vector3.new(0.1, 0.9, 0.35), cf * CFrame.new(10.4, 3.9, -33.5), COLORS.Flag))
 	model.Parent = scenery
 end
 
 local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 	local half = Config.Town.PlotSize / 2
-	local accent = PLOT_ACCENTS[(index - 1) % #PLOT_ACCENTS + 1]
+	local accent = plotAccentFor(index)
 	local model = Instance.new("Model")
 	model.Name = "Plot_" .. index
 
@@ -943,17 +1030,42 @@ local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 	scenery.Parent = model
 
 	part(model, "Ground", Vector3.new(half * 2, 1, half * 2), cf * CFrame.new(0, -0.5, 0), COLORS.Lawn)
+	-- Mowing stripes, running from the street to the back.
+	for _, x in { -28, -14, 0, 14, 28 } do
+		paint(
+			part(
+				scenery,
+				"LawnStripe",
+				Vector3.new(7, 0.04, half * 2 - 1),
+				cf * CFrame.new(x, 0.02, 0),
+				COLORS.LawnStripe
+			)
+		)
+	end
 
-	-- The front path from the gate to the counter, and stepping stones across the back yard.
-	part(scenery, "Path", Vector3.new(9, 0.2, half - 15.6), cf * CFrame.new(0, 0.05, -(half + 15.6) / 2), COLORS.Path)
-	for _, z in { 3.5, 7.2, 10.9, 14.6 } do
-		cylinder(scenery, "SteppingStone", 0.2, 2.8, cf * CFrame.new(math.sin(z) * 0.8, 0.05, z), COLORS.Stone)
+	-- The front path from the gate to the counter (white edged), and candy stepping stones across the back yard.
+	local pathLength = half - 15.6
+	local pathZ = -(half + 15.6) / 2
+	part(scenery, "Path", Vector3.new(9, 0.2, pathLength), cf * CFrame.new(0, 0.05, pathZ), COLORS.Path)
+	for _, side in { -1, 1 } do
+		paint(
+			part(
+				scenery,
+				"PathEdge",
+				Vector3.new(0.6, 0.24, pathLength),
+				cf * CFrame.new(side * 4.8, 0.05, pathZ),
+				WHITE
+			)
+		)
+	end
+	for i, z in { 3.5, 7.2, 10.9, 14.6 } do
+		cylinder(scenery, "SteppingStone", 0.2, 2.8, cf * CFrame.new(math.sin(z) * 0.8, 0.05, z), STONES[i])
 	end
 
 	-- The counter: patients queue in front of it (toward the street), you treat from behind it.
-	part(model, "Counter", Vector3.new(12, 3.4, 2.4), cf * CFrame.new(0, 1.7, -14.5), COLORS.Wood, Enum.Material.Wood)
-	soft(part(scenery, "CounterTop", Vector3.new(12.8, 0.4, 3), cf * CFrame.new(0, 3.6, -14.5), COLORS.Cream))
-	soft(part(scenery, "CounterStripe", Vector3.new(12.2, 0.6, 0.1), cf * CFrame.new(0, 2.5, -15.72), accent))
+	part(model, "Counter", Vector3.new(12, 3.4, 2.4), cf * CFrame.new(0, 1.7, -14.5), accent)
+	soft(part(scenery, "CounterTop", Vector3.new(12.8, 0.4, 3), cf * CFrame.new(0, 3.6, -14.5), WHITE))
+	soft(part(scenery, "CounterStripe", Vector3.new(12.2, 0.6, 0.1), cf * CFrame.new(0, 2.5, -15.72), WHITE))
 
 	-- Markers. QueueStart and PatientSpawn face the counter; PatientExit faces the street.
 	local turn = CFrame.Angles(0, math.pi, 0)
@@ -980,10 +1092,10 @@ local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 
 	-- The first-aid stand sits under a big tree (design §5.10).
 	tree(scenery, cf * CFrame.new(16.5, 0, -9), 1.35)
-	tree(scenery, cf * CFrame.new(-28, 0, -27), 1)
+	tree(scenery, cf * CFrame.new(-28, 0, -27), 1, true)
 	tree(scenery, cf * CFrame.new(28.5, 0, -26), 1.1)
 	tree(scenery, cf * CFrame.new(-29, 0, 29), 1.2)
-	tree(scenery, cf * CFrame.new(29.5, 0, 29.5), 1)
+	tree(scenery, cf * CFrame.new(29.5, 0, 29.5), 1, true)
 	local bushes = {
 		Vector3.new(-24, 0, -32.6),
 		Vector3.new(-31.5, 0, -31.8),
@@ -1071,13 +1183,57 @@ local function buildTownScenery(count: number): Model
 	for _, side in { -1, 1 } do
 		part(town, "Curb", Vector3.new(width, 0.4, 0.8), ground * CFrame.new(0, 0.2, side * (h - 0.4)), COLORS.Curb)
 	end
-	cylinder(town, "Plaza", 0.2, h * 2 - 2, ground * CFrame.new(0, 0.3, 0), COLORS.Plaza)
+	-- The plaza: a candy-pink ring round a cream disc.
+	local plazaRadius = h - 1
+	cylinder(town, "Plaza", 0.2, plazaRadius * 2, ground * CFrame.new(0, 0.3, 0), COLORS.PlazaRing)
+	cylinder(town, "PlazaInner", 0.25, plazaRadius * 2 - 4, ground * CFrame.new(0, 0.325, 0), COLORS.Plaza)
 
-	-- Plaza: round planters with little trees at the corners, benches facing the spawn.
-	for _, corner in { Vector2.new(1, 1), Vector2.new(1, -1), Vector2.new(-1, 1), Vector2.new(-1, -1) } do
+	-- Road paint: a white zebra crossing in front of each pair of facing gates (the middle pair opens onto the
+	-- plaza), and white dashes down the middle of the street.
+	local crossings: { number } = {}
+	for column = 1, perRow do
+		local x = (column - (perRow + 1) / 2) * (size + PLOT_GAP)
+		if math.abs(x) > plazaRadius + 4 then
+			table.insert(crossings, x)
+			for z = -(h - 4), h - 4, 4 do
+				paint(
+					part(town, "Crossing", Vector3.new(8, 0.05, 2), ground * CFrame.new(x, 0.235, z), COLORS.StreetLine)
+				)
+			end
+		end
+	end
+	local function nearCrossing(x: number): boolean
+		for _, crossingX in crossings do
+			if math.abs(x - crossingX) < 7 then
+				return true
+			end
+		end
+		return false
+	end
+	for _, side in { -1, 1 } do
+		local x = plazaRadius + 4
+		while x < width / 2 - 3 do
+			if not nearCrossing(side * x) then
+				paint(
+					part(
+						town,
+						"RoadLine",
+						Vector3.new(4, 0.05, 0.6),
+						ground * CFrame.new(side * x, 0.235, 0),
+						COLORS.StreetLine
+					)
+				)
+			end
+			x += 8
+		end
+	end
+
+	-- Plaza: round candy planters with little trees at the corners, benches facing the spawn.
+	for i, corner in { Vector2.new(1, 1), Vector2.new(1, -1), Vector2.new(-1, 1), Vector2.new(-1, -1) } do
 		local at = ground * CFrame.new(corner.X * 10.5, 0.4, corner.Y * 10.5)
-		cylinder(town, "Planter", 1.2, 4, at * CFrame.new(0, 0.6, 0), COLORS.Wood, Enum.Material.Wood)
-		tree(town, at * CFrame.new(0, 1.2, 0), 0.55)
+		cylinder(town, "Planter", 1.2, 4, at * CFrame.new(0, 0.6, 0), PLANTERS[i])
+		soft(cylinder(town, "PlanterGrass", 0.1, 3.4, at * CFrame.new(0, 1.22, 0), COLORS.Lawn))
+		tree(town, at * CFrame.new(0, 1.2, 0), 0.55, i % 2 == 0)
 	end
 	for _, side in { -1, 1 } do
 		local at = ground * CFrame.new(side * 15, 0.4, 0)
@@ -1092,36 +1248,39 @@ local function buildTownScenery(count: number): Model
 			if math.abs(x) > 1 then
 				lamp(town, ground * CFrame.new(x, 0.4, side * (h - 1.6)), 8)
 			end
-			tree(town, ground * CFrame.new(x, 0, side * (h + size / 2)), 1.1)
+			tree(town, ground * CFrame.new(x, 0, side * (h + size / 2)), 1.1, column % 2 == 0)
 		end
 	end
 
-	-- Welcome arches at both ends of the street (the clinic's motto, design §5.1).
+	-- Welcome arches at both ends of the street (the clinic's motto, design §5.1): white posts with candy balls on
+	-- top and a glossy pink board.
 	for _, side in { -1, 1 } do
 		local x = side * (width / 2 - 5)
 		for _, zSide in { -1, 1 } do
-			part(town, "ArchPost", Vector3.new(1.6, 12, 1.6), ground * CFrame.new(x, 6, zSide * (h - 2)), COLORS.Fence)
+			part(town, "ArchPost", Vector3.new(1.6, 12, 1.6), ground * CFrame.new(x, 6, zSide * (h - 2)), WHITE)
+			soft(ball(town, "ArchCap", 1.8, ground * CFrame.new(x, 14.9, zSide * (h - 2)), CANDY.Yellow))
 		end
 		local beam = part(
 			town,
 			"ArchBeam",
 			Vector3.new(1.4, 3.4, h * 2 - 2),
 			ground * CFrame.new(x, 12.4, 0),
-			COLORS.Board,
-			Enum.Material.Wood
+			darken(CANDY.Pink, 0.15)
 		)
 		local gui = Instance.new("SurfaceGui")
 		gui.Name = "WelcomeGui"
 		gui.Face = if side < 0 then Enum.NormalId.Right else Enum.NormalId.Left -- faces the town centre
 		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 		gui.PixelsPerStud = 30
-		gui.LightInfluence = 0.2
-		label(
+		gui.LightInfluence = 0
+		candyBoard(gui, CANDY.Pink, 6, 16, 4)
+		candyLabel(
 			gui,
 			"Motto",
 			"Everyone welcome. Even the weird ones.",
-			UDim2.fromScale(0.94, 0.8),
-			UDim2.fromScale(0.03, 0.1)
+			UDim2.fromScale(0.94, 0.7),
+			UDim2.fromScale(0.03, 0.15),
+			4
 		)
 		gui.Parent = beam
 	end

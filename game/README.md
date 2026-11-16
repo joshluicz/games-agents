@@ -15,7 +15,7 @@ rojo plugin install    # once
 rojo serve             # then in Studio: Rojo plugin → Connect → Play
 ```
 - **No kit models yet?** The server builds a placeholder town of 6 plots at `Config.Town.Origin` (0, 0, 300), each
-  with a First-Aid Stand, so you can play right away. The brother's `Workspace.Shop` is never touched.
+  with a First-Aid Stand, so you can play right away.
 - **Saving in Studio** needs **Game Settings → Security → Enable Studio Access to API Services**.
 - **Max Players = 6** (Game Settings → Places), one per plot. A 7th player can still visit and help.
 - ⛔ **Never edit a Rojo-synced script inside Studio.** The next sync overwrites it.
@@ -29,6 +29,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | File | Does |
 |---|---|
 | `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs |
+| `shared/Palette.luau` | The candy-pop colours and fonts shared by the world and the UI (`memory-20261116-007`). Change colours here |
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids) |
 | `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes`. Server helpers: `serve` (rate limit plus pcall), `allow`, `toast`, `toastAll` |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
@@ -60,7 +61,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Story.luau` | The three regulars: who's due, their speech bubble, the reward when a story ends |
 | `server/Daily.luau` | `Workspace.UtcDay` and `TodaysVisitor`, banked daily goals, the mailbox. Wires `ClaimGoal` and `ClaimMailbox` |
 | `server/DayReport.luau` | Counts each player's cures and new pages, and sends the Day Report when night ends |
-| `server/DayNight.luau` | The day/night cycle (`IsNight`, `PhaseEndsAt`) and softer night lighting |
+| `server/DayNight.luau` | The day/night cycle (`IsNight`, `PhaseEndsAt`) and the candy-pop lighting grade (the `CandyColor` ColorCorrection, Atmosphere, Bloom), set from code by day and by night |
 | `server/Stations.luau` | A hold-to-make prompt on every `Station_*`, with the hold time checked on the server |
 | `server/Patients.luau` | A queue per plot, the `Treat` prompt on the Counter, beds, patience, night patients, variants, visitors and regulars |
 | `server/CreatureBuilder.luau` | A creature Model from its `Look`, or a clone of `ServerStorage.Creatures.<PatientId>` |
@@ -85,7 +86,6 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/Feel/CureFX.luau` | Cure sparkles, the "💰 +n" / "⭐ +n" pop, the NEW PAGE banner, new-room and placed-decor celebrations, hearts on your sign |
 | `client/Feel/Atmosphere.luau` | Snow while `IsWinter`, fireflies at night, gentle decor sway, the ✨/💤 calm-effects button |
 | `client/Music.client.luau` | Background music (`Config.Music`), day and night playlists, the 🎵 mute button next to ✨ |
-| `client/RoofFade.client.luau` | Fades a Model named `Roof` inside the old `Workspace.Shop` while you're inside it |
 
 ### Tests
 | File | Does |

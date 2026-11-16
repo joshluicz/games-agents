@@ -10,7 +10,7 @@ type.
 
 **Where:** Roblox Studio on your Mac. When a step says **Ctrl**, press **Cmd**.
 
-This replaces the old shop guide (`build-the-shop.md`). Your old shop stays exactly where it is (see
+This replaces the old shop guide (`build-the-shop.md`). The old shop was deleted on 2026-11-16 (see
 [The old Shop](#the-old-shop)).
 
 ---
@@ -430,11 +430,8 @@ The street is on the **-Z** side. Put the gate, the Sign, PatientSpawn and Patie
 ---
 
 ## The old Shop
-Your old **Shop** (in Workspace) stays exactly where it is. **The new code never touches it.** No customers go there
-anymore, and the clinic town is built far away from it, at about 300 studs. Don't delete it. It's your work, and you
-and Joshua can decide later what it becomes (a building in the town, or nothing).
-
-⛔ Don't put clinic stuff inside **Shop**, and don't name anything else **Shop**.
+Joshua deleted the old **Shop** model on 2026-11-16 (version 15 and earlier still have it, in **File → Version History**).
+The clinic town is the whole game now.
 
 ---
 

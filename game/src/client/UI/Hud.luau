@@ -11,9 +11,15 @@
 -- Everything is drawn from the Snapshot, player attributes and Workspace attributes. The client never decides
 -- anything: buttons only open panels, and panels only ask the server.
 --
+-- The look is candy pop (memory-20261116-007): every chip is its own bright colour with a glossy top, a thick dark
+-- outline and big outlined display-font numbers. 💰 Cash yellow · ⭐ star-to-orange with a candy bar · the clock
+-- orange by day and purple by night · Today's Visitor pink (lime once cured) · 🛒 pink · 📖 purple · 📬 blue ·
+-- 🎯 lime. The numbers bump when they change; every motion honours Hud.calm().
+--
 -- Shared helpers (the other UI modules require this module for them; none of them needs Hud.init to have run):
---   Hud.modal(ctx, spec): Modal        a panel or popup shell: dim, paper card with a soft shadow, title, ✖,
---                                      pop in/out, one Panel open at a time, gamepad focus and ButtonB to close
+--   Hud.modal(ctx, spec): Modal        a panel or popup shell: dim, paper card with a dark drop shadow, a coloured
+--                                      title band (spec.Accent, or the colour of its HUD button), ✖, pop in/out,
+--                                      one Panel open at a time, gamepad focus and ButtonB to close
 --   Hud.ask(remote, ...): (ok, msg)    InvokeServer that never throws and gives up after ASK_TIMEOUT seconds
 --   Hud.portrait(look, dark?): Frame   a cute 2D creature face drawn from a Data `Look` (dark = "not met yet")
 --   Hud.lookOf(id): Look?              the Look of a PatientId or RegularId
@@ -43,6 +49,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local PatientsData = require(Shared:WaitForChild("Data"):WaitForChild("Patients")) :: any
 local RegularsData = require(Shared:WaitForChild("Data"):WaitForChild("Regulars")) :: any
 local Kit = require(script.Parent.Kit)
@@ -54,6 +61,7 @@ export type Layer = "Panel" | "Popup"
 export type ModalSpec = {
 	Name: string,
 	Title: string?, -- header text: an emoji and at most two words
+	Accent: Color3?, -- the header band's colour; default the colour of the HUD button that opens it, else Secondary
 	Layer: Layer?, -- "Panel" (default): only one open at a time · "Popup": stacks above panels
 	MaxSize: Vector2?, -- default Theme PanelMaxWidth x PanelMaxHeight
 	Scale: Vector2?, -- share of the safe area, default 0.94 x 0.94
@@ -83,10 +91,28 @@ export type Modal = {
 -- Small helpers
 ------------------------------------------------------------------------------------------------------------------
 
-local SHADOW_OFFSET = 6
+local SHADOW_OFFSET = 8
 local DIM_BLEED = 400 -- the dim reaches past the safe area so the whole screen darkens (decoration may bleed)
 local FLOAT_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local POP_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+-- The big bottom buttons, each its own candy Kind. The panel each one opens wears the same colour on its header.
+type Tab = { Name: string, Icon: string, Caption: string, Kind: string, Color: Color3 }
+local TABS: { Tab } = {
+	{ Name = "Shop", Icon = "🛒", Caption = "Shop", Kind = "Pink", Color = Theme.Colors.Pink },
+	{ Name = "Book", Icon = "📖", Caption = "Book", Kind = "Purple", Color = Theme.Colors.Purple },
+	{ Name = "Mailbox", Icon = "📭", Caption = "Mail", Kind = "Secondary", Color = Theme.Colors.Secondary },
+	{ Name = "Goals", Icon = "🎯", Caption = "Goals", Kind = "Good", Color = Theme.Colors.Good },
+}
+
+local function tabColor(name: string): Color3?
+	for _, tab in TABS do
+		if tab.Name == name then
+			return tab.Color
+		end
+	end
+	return nil
+end
 
 local function commas(n: number): string
 	local digits = tostring(math.floor(math.abs(n)))
@@ -268,8 +294,8 @@ function Hud.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 	shadow.Name = "Shadow"
 	shadow.Position = UDim2.fromOffset(0, SHADOW_OFFSET)
 	shadow.Size = UDim2.fromScale(1, 1)
-	shadow.BackgroundColor3 = Theme.Colors.Shade
-	shadow.BackgroundTransparency = 0.72
+	shadow.BackgroundColor3 = Theme.Colors.Outline -- a hard, dark sticker shadow
+	shadow.BackgroundTransparency = 0.5
 	shadow.BorderSizePixel = 0
 	shadow.ZIndex = 0
 	Kit.corner(shadow, Theme.Size.CornerLarge)
@@ -278,6 +304,7 @@ function Hud.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 	local panel = Kit.panel({
 		Name = "Panel",
 		Title = spec.Title,
+		Accent = spec.Accent or tabColor(spec.Name),
 		AnchorPoint = Vector2.zero,
 		Position = UDim2.fromScale(0, 0),
 		Size = UDim2.fromScale(1, 1),
@@ -431,10 +458,12 @@ end
 -- Creature portraits: a friendly face from a Data `Look` (the same recipe CreatureBuilder uses in 3D)
 ------------------------------------------------------------------------------------------------------------------
 
-local SILHOUETTE = Color3.fromRGB(92, 76, 98)
-local CHEEK = Color3.fromRGB(255, 138, 160)
-local PUPIL = Color3.fromRGB(46, 34, 40)
-local WHITE = Color3.new(1, 1, 1)
+-- Candy pop: every shape gets the dark Outline, like the rest of the UI.
+local SILHOUETTE = Palette.InkSoft -- "not met yet"
+local CHEEK = Kit.lighten(Palette.Candy.Pink, 0.3)
+local PUPIL = Palette.Outline
+local WHITE = Palette.White
+local NO_BODY = Kit.lighten(Palette.Candy.Pink, 0.5) -- a Look without a body colour
 
 type ShapeSpec = { W: number, H: number, Round: number }
 local SHAPES: { [string]: ShapeSpec } = {
@@ -479,11 +508,11 @@ local function blob(
 	return frame
 end
 
-local function outline(frame: Frame, color: Color3)
+local function outline(frame: Frame)
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = Kit.shade(color, 0.3)
+	stroke.Color = Palette.Outline
 	stroke.Thickness = 2
-	stroke.Transparency = 0.2
+	stroke.LineJoinMode = Enum.LineJoinMode.Round
 	stroke.Parent = frame
 end
 
@@ -528,7 +557,7 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 
 	local l = if type(look) == "table" then look else {}
 	local shape = SHAPES[l.Shape] or SHAPES.Ball
-	local bodyColor = if dark then SILHOUETTE else hex(l.Body, Color3.fromRGB(255, 200, 220))
+	local bodyColor = if dark then SILHOUETTE else hex(l.Body, NO_BODY)
 	local accent = if dark then Kit.shade(SILHOUETTE, 0.15) else hex(l.Accent, WHITE)
 	local cx, cy, w, h = 0.5, 0.6, shape.W, shape.H
 	local top = cy - h / 2
@@ -540,7 +569,7 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 		if ears == "Round" then
 			local ear =
 				blob(frame, "Ear", bodyColor, Vector2.new(cx + side * w * 0.34, top + 0.03), Vector2.one * 0.22, 1)
-			outline(ear, bodyColor)
+			outline(ear)
 			blob(ear, "Inner", accent, Vector2.new(0.5, 0.5), Vector2.one * 0.55, 1)
 		elseif ears == "Floppy" then
 			local ear = blob(
@@ -553,7 +582,7 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 				0.5,
 				side * -18
 			)
-			outline(ear, accent)
+			outline(ear)
 		elseif ears == "Pointy" then
 			local ear = blob(
 				frame,
@@ -565,7 +594,7 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 				0.18,
 				45
 			)
-			outline(ear, bodyColor)
+			outline(ear)
 		elseif ears == "Long" then
 			local ear = blob(
 				frame,
@@ -577,7 +606,7 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 				0.5,
 				side * 10
 			)
-			outline(ear, bodyColor)
+			outline(ear)
 			blob(ear, "Inner", accent, Vector2.new(0.5, 0.45), Vector2.new(0.5, 0.7), 1)
 		elseif ears == "Tufts" then
 			blob(frame, "Ear", accent, Vector2.new(cx + side * w * 0.34, top + 0.02), Vector2.one * 0.13, 1, 0.2, 45)
@@ -595,7 +624,7 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 				0.5,
 				side * 28
 			)
-			outline(wing, accent)
+			outline(wing)
 		elseif extra == "Flippers" then
 			blob(
 				frame,
@@ -611,20 +640,20 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 	end
 	if l.Extra == "Tail" then
 		local tail = blob(frame, "Tail", accent, Vector2.new(right + 0.02, cy + h * 0.25), Vector2.one * 0.17, 1)
-		outline(tail, accent)
+		outline(tail)
 	elseif l.Extra == "Spout" then
 		local spout =
 			blob(frame, "Spout", bodyColor, Vector2.new(right + 0.06, cy), Vector2.new(0.24, 0.11), 1, 0.5, -30)
-		outline(spout, bodyColor)
+		outline(spout)
 	end
 	if l.Shape == "Drop" then
 		local tip = blob(frame, "Tip", bodyColor, Vector2.new(cx, top + 0.03), Vector2.one * 0.26, 1, 0.22, 45)
-		outline(tip, bodyColor)
+		outline(tip)
 	end
 
 	-- The body (z 2).
 	local body = blob(frame, "Body", bodyColor, Vector2.new(cx, cy), Vector2.new(w, h), 2, shape.Round)
-	outline(body, bodyColor)
+	outline(body)
 
 	-- On the head (z 6).
 	local topKind = l.Top
@@ -661,7 +690,9 @@ function Hud.portrait(look: any, dark: boolean?): Frame
 	if dark then
 		local mystery = emoji(frame, "?", Vector2.new(cx, cy + 0.02), Vector2.one * 0.42, 7)
 		mystery.Name = "Mystery"
-		mystery.TextColor3 = Color3.fromRGB(236, 228, 240)
+		mystery.Font = Theme.DisplayFont
+		mystery.TextColor3 = Theme.Colors.OnColor
+		Kit.outline(mystery)
 		return frame
 	end
 
@@ -776,10 +807,38 @@ end
 -- The HUD itself
 ------------------------------------------------------------------------------------------------------------------
 
+-- Candy fills are a touch lighter than the base colour, like Kit's buttons, so the gradient can deepen them.
+local function candy(color: Color3): Color3
+	return Kit.lighten(color, 0.08)
+end
+
+-- The gloss: a soft white highlight across a chip's top, inset `inset` px from each end (decoration layer,
+-- ZIndex 0, like Kit's buttons: it draws over the chip's fill and under its other children).
+local function gloss(gui: GuiObject, inset: number): Frame
+	local shine = Instance.new("Frame")
+	shine.Name = "Gloss"
+	shine.ZIndex = 0
+	shine.BackgroundColor3 = Palette.White
+	shine.BackgroundTransparency = 0.5
+	shine.BorderSizePixel = 0
+	shine.Position = UDim2.fromOffset(inset, 3)
+	shine.Size = UDim2.new(1, -inset * 2, 0.42, 0)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = shine
+	local fade = Instance.new("UIGradient")
+	fade.Rotation = 90
+	fade.Transparency = NumberSequence.new(0.15, 1)
+	fade.Parent = shine
+	shine.Parent = gui
+	return shine
+end
+
+-- A candy chip: a bright fill (props.Color, or a top-to-bottom props.Gradient of two colours), a glossy top and a
+-- thick dark outline, a full pill at any height.
 local function pill(props: { [string]: any }): Frame
 	local frame = Instance.new(if props.Button then "TextButton" else "Frame") :: any
 	frame.Name = props.Name
-	frame.BackgroundColor3 = props.Color or Theme.Colors.Card
 	frame.BorderSizePixel = 0
 	frame.Size = props.Size or UDim2.fromOffset(120, 46)
 	frame.LayoutOrder = props.LayoutOrder or 0
@@ -787,15 +846,49 @@ local function pill(props: { [string]: any }): Frame
 		frame.Text = ""
 		frame.AutoButtonColor = false
 	end
-	Kit.corner(frame, math.floor(frame.Size.Y.Offset / 2)) -- a full pill at any height
-	local stroke = Kit.stroke(frame, Theme.Colors.Stroke, 2.5)
-	stroke.Transparency = 0.2
-	local gradient = Instance.new("UIGradient")
-	gradient.Rotation = 90
-	gradient.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(232, 232, 232))
-	gradient.Parent = frame
+	local height = frame.Size.Y.Offset
+	Kit.corner(frame, math.floor(height / 2))
+	Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke)
+	if type(props.Gradient) == "table" then
+		frame.BackgroundColor3 = Palette.White
+		local gradient = Instance.new("UIGradient")
+		gradient.Name = "CandyGradient"
+		gradient.Rotation = 90
+		gradient.Color = ColorSequence.new(candy(props.Gradient[1]), props.Gradient[2])
+		gradient.Parent = frame
+	else
+		frame.BackgroundColor3 = candy(props.Color or Theme.Colors.Secondary)
+		Palette.candyGradient(frame)
+	end
+	gloss(frame, math.floor(height * 0.3))
 	frame.Parent = props.Parent
 	return frame
+end
+
+local function paint(gui: GuiObject, color: Color3)
+	gui.BackgroundColor3 = candy(color)
+end
+
+-- A big outlined display-font number (white with a dark stroke) on a chip.
+local function bigNumber(parent: Instance, name: string, position: UDim2, size: UDim2, max: number): TextLabel
+	local label = Kit.label({
+		Name = name,
+		Text = "",
+		Outlined = true,
+		TextScaled = true,
+		TextWrapped = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = position,
+		Size = size,
+		Parent = parent,
+	})
+	Kit.outline(label, Theme.Size.Stroke)
+	local limit = Instance.new("UITextSizeConstraint")
+	limit.MaxTextSize = max
+	limit.MinTextSize = 12
+	limit.Parent = label
+	return label
 end
 
 local function iconLabel(parent: Instance, text: string, position: UDim2, px: number): TextLabel
@@ -808,13 +901,6 @@ local function iconLabel(parent: Instance, text: string, position: UDim2, px: nu
 		Size = UDim2.fromOffset(px, px),
 		Parent = parent,
 	})
-end
-
-local function textSizeLimit(label: TextLabel, max: number)
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MaxTextSize = max
-	limit.MinTextSize = 12
-	limit.Parent = label
 end
 
 local function splitCarry(raw: any): { string }
@@ -1014,7 +1100,7 @@ local function goalReady(data: any, state: Types.Snapshot): boolean
 	return false
 end
 
--- A number label that counts to its new value and shows a floating "+n" (or "-n").
+-- A number label that counts to its new value, bumps, and shows a floating "+n" (or "-n").
 type Counter = { set: (value: number, animate: boolean) -> () }
 local function counter(holder: GuiObject, label: TextLabel, prefix: string): Counter
 	local value = Instance.new("NumberValue")
@@ -1033,23 +1119,23 @@ local function counter(holder: GuiObject, label: TextLabel, prefix: string): Cou
 		local text = Kit.label({
 			Name = "Delta",
 			Text = (if delta > 0 then "+" else "-") .. Hud.format(math.abs(delta)),
-			TextSize = Theme.TextSize.Body,
+			Outlined = true,
+			TextSize = Theme.TextSize.Title,
 			TextColor3 = if delta > 0 then Theme.Colors.Good else Theme.Colors.Danger,
-			TextStrokeColor3 = Color3.new(1, 1, 1),
-			TextStrokeTransparency = 0,
 			TextWrapped = false,
 			AnchorPoint = Vector2.new(0, 0.5),
 			Position = UDim2.fromOffset(at.X + holder.AbsoluteSize.X / 2 + 6, at.Y),
-			Size = UDim2.fromOffset(90, 30),
+			Size = UDim2.fromOffset(150, 40),
 			TextXAlignment = Enum.TextXAlignment.Left,
 			ZIndex = 10,
 			Parent = layer,
 		})
+		local stroke = Kit.outline(text, Theme.Size.Stroke)
 		local rise = TweenService:Create(text, FLOAT_INFO, {
 			Position = UDim2.fromOffset(at.X + holder.AbsoluteSize.X / 2 + 6, at.Y - 34),
 			TextTransparency = 1,
-			TextStrokeTransparency = 1,
 		})
+		TweenService:Create(stroke, FLOAT_INFO, { Transparency = 1 }):Play()
 		rise.Completed:Once(function()
 			text:Destroy()
 		end)
@@ -1080,9 +1166,7 @@ local function counter(holder: GuiObject, label: TextLabel, prefix: string): Cou
 			tween = created
 			created:Play()
 			floater(delta)
-			if delta > 0 then
-				Hud.pop(holder, 1.1)
-			end
+			Kit.bump(label)
 		end,
 	}
 end
@@ -1111,58 +1195,53 @@ function Hud.init(ctx: Types.Ctx)
 	walletList.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	walletList.VerticalAlignment = Enum.VerticalAlignment.Top
 
-	local cashPill = pill({ Name = "Cash", Parent = wallet, LayoutOrder = 1, Size = UDim2.fromOffset(150, 46) })
-	iconLabel(cashPill, "💰", UDim2.new(0, 8, 0.5, 0), 32)
-	local cashText = Kit.label({
-		Name = "Amount",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 46, 0.5, 0),
-		Size = UDim2.new(1, -58, 0, 30),
-		Parent = cashPill,
+	local cashPill = pill({
+		Name = "Cash",
+		Parent = wallet,
+		LayoutOrder = 1,
+		Color = Theme.Colors.Cash,
+		Size = UDim2.fromOffset(170, 52),
 	})
-	textSizeLimit(cashText, 28)
+	iconLabel(cashPill, "💰", UDim2.new(0, 8, 0.5, 0), 36)
+	local cashText = bigNumber(cashPill, "Amount", UDim2.new(0, 50, 0.5, 1), UDim2.new(1, -64, 0, 36), 34)
 	targets.Cash = cashPill
 	local cash = counter(cashPill, cashText, "")
 
-	-- Tappable (shows what's next), so it gets the full 56 px tap height.
+	-- Tappable (shows what's next), so it gets the full 56 px tap height. Star yellow melting into orange.
 	local starsPill = pill({
 		Name = "Stars",
 		Parent = wallet,
 		LayoutOrder = 2,
+		Gradient = { Theme.Colors.Star, Theme.Colors.Primary },
 		Size = UDim2.fromOffset(210, Theme.Size.ButtonHeight),
 		Button = true,
 	})
-	iconLabel(starsPill, "⭐", UDim2.new(0, 8, 0.5, 0), 30)
-	local starsText = Kit.label({
-		Name = "Amount",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 42, 0.5, 0),
-		Size = UDim2.fromOffset(50, 28),
-		Parent = starsPill,
-	})
-	textSizeLimit(starsText, 26)
+	iconLabel(starsPill, "⭐", UDim2.new(0, 8, 0.5, 0), 34)
+	local starsText = bigNumber(starsPill, "Amount", UDim2.new(0, 46, 0.5, 1), UDim2.fromOffset(50, 34), 32)
 	targets.Stars = starsPill
 	local stars = counter(starsPill, starsText, "")
 
+	-- The candy bar: a dark outlined slot with a glossy star-yellow fill.
 	local track = Instance.new("Frame")
 	track.Name = "Track"
 	track.AnchorPoint = Vector2.new(0, 0.5)
-	track.Position = UDim2.new(0, 96, 0.5, 0)
-	track.Size = UDim2.new(1, -96 - 44, 0, 14)
-	track.BackgroundColor3 = Theme.Colors.Quiet
+	track.Position = UDim2.new(0, 100, 0.5, 0)
+	track.Size = UDim2.new(1, -100 - 44, 0, 18)
+	track.BackgroundColor3 = Theme.Colors.Outline
+	track.BackgroundTransparency = 0.35
 	track.BorderSizePixel = 0
-	Kit.corner(track, 7)
+	Kit.corner(track, 9)
+	Kit.stroke(track, Theme.Colors.Outline, 2.5)
 	track.Parent = starsPill
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
 	fill.Size = UDim2.fromScale(0, 1)
-	fill.BackgroundColor3 = Theme.Colors.Star
+	fill.BackgroundColor3 = candy(Theme.Colors.Star)
 	fill.BorderSizePixel = 0
-	Kit.corner(fill, 7)
+	fill.ClipsDescendants = true -- an empty bar shows no sliver of gloss
+	Kit.corner(fill, 9)
+	Palette.candyGradient(fill)
+	gloss(fill, 4)
 	fill.Parent = track
 	local nextIcon = Kit.label({
 		Name = "Next",
@@ -1170,7 +1249,7 @@ function Hud.init(ctx: Types.Ctx)
 		TextScaled = true,
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -8, 0.5, 0),
-		Size = UDim2.fromOffset(30, 30),
+		Size = UDim2.fromOffset(32, 32),
 		Parent = starsPill,
 	})
 	local nextTip = ""
@@ -1189,66 +1268,83 @@ function Hud.init(ctx: Types.Ctx)
 	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	sideList.VerticalAlignment = Enum.VerticalAlignment.Top
 
-	local timerPill = pill({ Name = "Timer", Parent = side, LayoutOrder = 1, Size = UDim2.fromOffset(124, 46) })
-	local phaseIcon = iconLabel(timerPill, "☀️", UDim2.new(0, 8, 0.5, 0), 32)
-	local timeText = Kit.label({
-		Name = "Time",
-		Text = "",
-		TextScaled = true,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 44, 0.5, 0),
-		Size = UDim2.new(1, -54, 0, 28),
-		Parent = timerPill,
+	-- Orange by day, purple by night (renderPhase).
+	local timerPill = pill({
+		Name = "Timer",
+		Parent = side,
+		LayoutOrder = 1,
+		Color = Theme.Colors.Primary,
+		Size = UDim2.fromOffset(136, 52),
 	})
-	textSizeLimit(timeText, 26)
+	local phaseIcon = iconLabel(timerPill, "☀️", UDim2.new(0, 8, 0.5, 0), 36)
+	local timeText = bigNumber(timerPill, "Time", UDim2.new(0, 50, 0.5, 1), UDim2.new(1, -64, 0, 34), 32)
+	-- The night pay sticker: a tilted yellow tag on the clock's corner.
 	local nightBadge = Kit.label({
 		Name = "NightPay",
 		Text = "×" .. tostring(ctx.Config.NightPayMultiplier or 2),
+		Outlined = true,
 		TextSize = Theme.TextSize.Small,
-		TextColor3 = Theme.Colors.Ink,
-		BackgroundColor3 = Theme.Colors.Cash,
+		TextWrapped = false,
+		BackgroundColor3 = candy(Theme.Colors.Cash),
 		BackgroundTransparency = 0,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromOffset(8, 4),
-		Size = UDim2.fromOffset(34, 22),
+		Size = UDim2.fromOffset(40, 26),
+		Rotation = -10,
 		Visible = false,
 		ZIndex = 3,
 		Parent = timerPill,
 	})
-	Kit.corner(nightBadge, 11)
+	Kit.corner(nightBadge, 13)
+	Kit.stroke(nightBadge, Theme.Colors.Outline, 2.5)
 
+	-- Pink while the visitor can come; lime with ✅ once it's cured today.
 	local visitorChip = pill({
 		Name = "Visitor",
 		Parent = side,
 		LayoutOrder = 2,
-		Size = UDim2.fromOffset(92, Theme.Size.ButtonHeight),
+		Color = Theme.Colors.Pink,
+		Size = UDim2.fromOffset(96, Theme.Size.ButtonHeight),
 		Button = true,
 	})
 	visitorChip.Visible = false
-	local visitorMark = iconLabel(visitorChip, "⭐", UDim2.new(0, 8, 0.5, 0), 26) -- ✅ once cured today
+	local visitorMark = iconLabel(visitorChip, "⭐", UDim2.new(0, 8, 0.5, 0), 30) -- ✅ once cured today
+	local faceDisc = Instance.new("Frame") -- a white outlined disc, so any creature colour reads on the pink
+	faceDisc.Name = "FaceDisc"
+	faceDisc.AnchorPoint = Vector2.new(1, 0.5)
+	faceDisc.Position = UDim2.new(1, -6, 0.5, 0)
+	faceDisc.Size = UDim2.fromOffset(44, 44)
+	faceDisc.BackgroundColor3 = Palette.White
+	faceDisc.BorderSizePixel = 0
+	Kit.corner(faceDisc, 22)
+	Kit.stroke(faceDisc, Theme.Colors.Outline, 2.5)
+	faceDisc.Parent = visitorChip
 	local visitorFace = Instance.new("Frame")
 	visitorFace.Name = "Face"
 	visitorFace.BackgroundTransparency = 1
-	visitorFace.AnchorPoint = Vector2.new(1, 0.5)
-	visitorFace.Position = UDim2.new(1, -8, 0.5, 0)
-	visitorFace.Size = UDim2.fromOffset(44, 44)
-	visitorFace.Parent = visitorChip
+	visitorFace.Size = UDim2.fromScale(1, 1)
+	visitorFace.Parent = faceDisc
 	local shownVisitor = ""
 
 	-- Rare status chips sit under the wallet: the right edge's middle belongs to the 🎵 and ✨ buttons (Feel).
 	local function chip(name: string, text: string, color: Color3, order: number): Frame
-		local frame = pill({ Name = name, Parent = wallet, LayoutOrder = order, Size = UDim2.fromOffset(180, 40) })
-		frame.BackgroundColor3 = color
+		local frame = pill({
+			Name = name,
+			Parent = wallet,
+			LayoutOrder = order,
+			Color = color,
+			Size = UDim2.fromOffset(200, 40),
+		})
 		Kit.label({
 			Name = "Text",
 			Text = text,
+			Outlined = true,
+			Font = Theme.Font, -- the round body font: a few words must stay at 18 px or more
 			TextScaled = true,
-			TextColor3 = Theme.Colors.OnColor,
-			TextStrokeColor3 = Kit.shade(color, 0.5),
-			TextStrokeTransparency = 0.5,
+			TextWrapped = false,
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.new(1, -20, 0, 24),
+			Size = UDim2.new(1, -24, 0, 26),
 			Parent = frame,
 		})
 		frame.Visible = false
@@ -1271,19 +1367,39 @@ function Hud.init(ctx: Types.Ctx)
 	bar.Parent = gui
 	Kit.list(bar, Enum.FillDirection.Horizontal, gap)
 
+	-- The "something new" dot, made bigger, with a white "!" so it reads on every candy colour (pink included).
+	local function badge(button: GuiObject)
+		local dot = button:FindFirstChild("Dot")
+		if not (dot and dot:IsA("GuiObject")) then
+			return
+		end
+		dot.Size = UDim2.fromOffset(Theme.Size.Dot + 6, Theme.Size.Dot + 6)
+		local mark = Kit.label({
+			Name = "Mark",
+			Text = "!",
+			Outlined = true,
+			TextSize = Theme.TextSize.Small,
+			TextWrapped = false,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = dot.ZIndex + 1,
+			Parent = dot,
+		})
+		Kit.outline(mark, 2)
+	end
+
 	local buttons: { [string]: TextButton } = {}
 	local shopTab: string? = nil -- the Shop opens on the tab its dot is about
-	for index, spec in
-		{
-			{ "Shop", "🛒", "Shop" },
-			{ "Book", "📖", "Book" },
-			{ "Mailbox", "📭", "Mail" },
-			{ "Goals", "🎯", "Goals" },
-		}
-	do
-		local name, icon, caption = spec[1], spec[2], spec[3]
-		local button =
-			Kit.iconButton({ Name = name, Icon = icon, Caption = caption, LayoutOrder = index, Parent = bar })
+	for index, tab in TABS do
+		local name = tab.Name
+		local button = Kit.iconButton({
+			Name = name,
+			Icon = tab.Icon,
+			Caption = tab.Caption,
+			Kind = tab.Kind,
+			LayoutOrder = index,
+			Parent = bar,
+		})
+		badge(button)
 		button.Activated:Connect(function()
 			if name == "Shop" then
 				ctx.fire("Open", name, shopTab)
@@ -1306,6 +1422,7 @@ function Hud.init(ctx: Types.Ctx)
 	hands.Parent = gui
 	Kit.list(hands, Enum.FillDirection.Horizontal, 6)
 
+	-- Each hand: a candy tile in the colour of the station that made what's in it, or a see-through empty slot.
 	local slots: { Frame } = {}
 	local lastItems: { string } = {}
 	local function slot(index: number): Frame
@@ -1315,7 +1432,9 @@ function Hud.init(ctx: Types.Ctx)
 		frame.Size = UDim2.fromOffset(50, 50)
 		frame.BorderSizePixel = 0
 		Kit.corner(frame, 14)
-		Kit.stroke(frame, Theme.Colors.Stroke, 2.5)
+		Kit.stroke(frame, Theme.Colors.Outline, Theme.Size.Stroke).Name = "Outline"
+		Palette.candyGradient(frame)
+		gloss(frame, 7)
 		Kit.label({
 			Name = "Icon",
 			Text = "",
@@ -1343,25 +1462,26 @@ function Hud.init(ctx: Types.Ctx)
 			local itemId = items[index]
 			local item = itemId and rawget(data.Items, itemId)
 			local icon = frame:FindFirstChild("Icon") :: TextLabel
-			local stroke = frame:FindFirstChildOfClass("UIStroke") :: UIStroke
+			local stroke = frame:FindFirstChild("Outline") :: UIStroke
+			local shine = frame:FindFirstChild("Gloss") :: Frame
 			if item then
 				local station = data.Stations[item.Station]
 				icon.Text = item.Icon
-				frame.BackgroundColor3 = Theme.Colors.Card
+				paint(frame, if station then station.Color else Theme.Colors.Secondary)
 				frame.BackgroundTransparency = 0
-				stroke.Color = if station then station.Color else Theme.Colors.Stroke
-				stroke.Thickness = 3.5
+				stroke.Thickness = Theme.Size.Stroke
 				stroke.Transparency = 0
+				shine.Visible = true
 				if lastItems[index] ~= itemId then
 					Hud.pop(frame, 1.35)
 				end
 			else
 				icon.Text = ""
 				frame.BackgroundColor3 = Theme.Colors.Paper
-				frame.BackgroundTransparency = 0.45
-				stroke.Color = Theme.Colors.Stroke
-				stroke.Thickness = 2
-				stroke.Transparency = 0.55
+				frame.BackgroundTransparency = 0.5
+				stroke.Thickness = 2.5
+				stroke.Transparency = 0.45
+				shine.Visible = false
 			end
 		end
 		lastItems = items
@@ -1387,8 +1507,7 @@ function Hud.init(ctx: Types.Ctx)
 		local night = Workspace:GetAttribute("IsNight") == true
 		phaseIcon.Text = if night then "🌙" else "☀️"
 		nightBadge.Visible = night
-		timerPill.BackgroundColor3 = if night then Theme.Colors.Night else Theme.Colors.Card
-		timeText.TextColor3 = if night then Theme.Colors.NightText else Theme.Colors.Ink
+		paint(timerPill, if night then Theme.Colors.Purple else Theme.Colors.Primary)
 	end
 	Workspace:GetAttributeChangedSignal("IsNight"):Connect(function()
 		renderPhase()
@@ -1509,6 +1628,7 @@ function Hud.init(ctx: Types.Ctx)
 		-- Only for a clinic it can come to ("None": no plot, or no station here can treat it), and ✅ once cured.
 		local status = state.VisitorStatus
 		visitorMark.Text = if status == "Done" then "✅" else "⭐"
+		paint(visitorChip, if status == "Done" then Theme.Colors.Good else Theme.Colors.Pink)
 		visitorChip.Visible = look ~= nil and (status == "Coming" or status == "Done")
 
 		if isServerState then

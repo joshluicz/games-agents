@@ -53,7 +53,7 @@ Config.AutosaveSeconds = 90
 -- Remotes: per player, per remote
 Config.RemoteRatePerSecond = 10
 
--- Town: two rows of three plots facing a central street. Far from the brother's Workspace.Shop.
+-- Town: two rows of three plots facing a central street.
 Config.Town = {
 	Origin = Vector3.new(0, 0, 300),
 	PlotSize = 70,

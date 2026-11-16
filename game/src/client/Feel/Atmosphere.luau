@@ -21,7 +21,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Types = require(Shared:WaitForChild("Types"))
+local Palette = require(Shared:WaitForChild("Palette"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
 local Kit = require(UI:WaitForChild("Kit"))
@@ -105,9 +107,10 @@ local function makeSnow(): (Part, ParticleEmitter)
 	local snow = Instance.new("ParticleEmitter")
 	snow.Name = "Flakes"
 	snow.Texture = SOFT_DOT
-	snow.Color = ColorSequence.new(Color3.fromRGB(240, 248, 255))
-	snow.LightEmission = 0.2
-	snow.LightInfluence = 0.7
+	-- Candy pop: pure white flakes with a little glow, so they stay bright at night too.
+	snow.Color = ColorSequence.new(Palette.White)
+	snow.LightEmission = 0.35
+	snow.LightInfluence = 0.4
 	snow.Size = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 0.32, 0.1),
 		NumberSequenceKeypoint.new(1, 0.26, 0.08),
@@ -138,7 +141,8 @@ local function makeFireflies(): (Part, ParticleEmitter)
 	local flies = Instance.new("ParticleEmitter")
 	flies.Name = "Fireflies"
 	flies.Texture = SOFT_DOT
-	flies.Color = ColorSequence.new(Color3.fromRGB(255, 236, 140), Color3.fromRGB(210, 255, 150))
+	-- Candy yellow glowing into lime over each firefly's life (a slow drift, never a flash).
+	flies.Color = ColorSequence.new(Palette.Candy.Yellow, Palette.Candy.Lime)
 	flies.LightEmission = 1
 	flies.LightInfluence = 0
 	flies.Size = NumberSequence.new({
@@ -301,18 +305,22 @@ local function makeToggle()
 	local button = Kit.iconButton({
 		Name = "Effects",
 		Icon = "✨",
+		Kind = "Cyan",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -Theme.Size.Margin, TOGGLE_Y, 0),
 		Size = UDim2.fromOffset(TOGGLE_SIZE, TOGGLE_SIZE),
 		Parent = gui,
 	})
 	local icon = button:FindFirstChild("Icon") :: TextLabel?
+	-- Candy cyan with full effects; the Quiet fill while calm.
+	local kitColor = button:GetAttribute("KitColor")
+	local onColor: Color3 = if typeof(kitColor) == "Color3" then kitColor else Theme.Colors.Cyan
 	local function show()
 		local quiet = calm()
 		if icon then
 			icon.Text = if quiet then "💤" else "✨"
 		end
-		button.BackgroundColor3 = if quiet then Theme.Colors.Quiet else Theme.Colors.Card
+		button.BackgroundColor3 = if quiet then Theme.Colors.Quiet else onColor
 		button:SetAttribute("KitColor", button.BackgroundColor3)
 	end
 	button.Activated:Connect(function()

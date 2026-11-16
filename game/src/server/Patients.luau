@@ -44,6 +44,7 @@ local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 local Types = require(Shared.Types)
+local Palette = require(Shared.Palette)
 local Prices = require(Shared.Logic.Prices)
 local AilmentsData = require(Shared.Data.Ailments)
 local ItemsData = require(Shared.Data.Items)
@@ -92,10 +93,11 @@ local LEAN = 0.14 -- radians forward at the top of a hop
 local SHAKE_SECONDS = 0.55
 local RING_STEPS = 48 -- the ring moves in 7.5 degree steps, so it replicates a few times a second at most
 
-local RING_CALM = Color3.fromRGB(126, 214, 155)
-local RING_HURRY = Color3.fromRGB(255, 212, 92)
-local RING_LOW = Color3.fromRGB(255, 138, 122)
-local RING_HEAL = Color3.fromRGB(255, 158, 199)
+-- The patience ring, candy pop (memory-20261116-007): bright green, then yellow, then red; pink while healing.
+local RING_CALM = Palette.Candy.Lime
+local RING_HURRY = Palette.Candy.Yellow
+local RING_LOW = Palette.Candy.Red
+local RING_HEAL = Palette.Candy.Pink
 
 local ICON_TREATED = "💗"
 local ICON_SLEEP = "💤"
