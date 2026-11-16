@@ -1,8 +1,9 @@
 --!strict
 -- Room unlocks and the one clear "next goal" (build plan §B6, design §5.5). Pure: no Roblox services, no requires.
 --   Progress.canBuyRoom(data, room, roomId, isWinter?): (ok, message)
---       checks, in order: owned · in season · Clinic Stars · cash. The message is short (6 words or fewer) and
---       says what's missing: "Already yours!", "❄️ Winter only!", "Need ⭐10", "Need 💰150". "" when ok.
+--       checks, in order: owned · in season · hospital level (room.Level vs data.Level, nil = 1) · Clinic Stars ·
+--       cash. The message is short (6 words or fewer) and says what's missing: "Already yours!", "❄️ Winter only!",
+--       "Needs 🏥 Lv 3", "Need ⭐10", "Need 💰150". "" when ok.
 --   Progress.nextGoal(data, rooms, upgrades, isWinter?): { Kind, Id }
 --       Kind "Room": the unowned room with the fewest StarsNeeded (rooms.Order breaks ties), skipping free rooms and
 --       rooms out of season. Then Kind "Upgrade": the cheapest next upgrade level. Then Kind "None", Id "".
@@ -17,6 +18,7 @@ export type Room = {
 	Price: number,
 	StarsNeeded: number,
 	Season: string?,
+	Level: number?, -- the hospital level it needs (depth update; nil = 1)
 }
 export type Goal = { Kind: string, Id: string }
 
@@ -24,6 +26,7 @@ local Progress = {}
 
 Progress.CASH_ICON = "💰" -- the same coin bag the HUD wallet, CureFX pops and room previews show
 Progress.STAR_ICON = "⭐"
+Progress.LEVEL_ICON = "🏥"
 Progress.MAX_SLOT_KEY_LENGTH = 48
 
 local function count(value: any): number
@@ -77,6 +80,10 @@ function Progress.canBuyRoom(data: any, room: Room?, roomId: string, isWinter: b
 	end
 	if not inSeason(room, isWinter) then
 		return false, "❄️ Winter only!"
+	end
+	local levelNeeded = count(room.Level)
+	if levelNeeded > math.max(1, count(data.Level)) then
+		return false, "Needs " .. Progress.LEVEL_ICON .. " Lv " .. levelNeeded
 	end
 	local starsNeeded = count(room.StarsNeeded)
 	if count(data.Stars) < starsNeeded then

@@ -17,11 +17,24 @@ export type DecorId = string -- Data/Decor
 export type UpgradeId = string -- Data/Upgrades: "Speed" | "Tray" | "Chairs" | "Tips"
 export type VariantId = string -- Data/Variants: "Sparkly" | "Frosty"
 export type SlotKey = string -- a decor slot: "<RoomId>:<n>", e.g. "Stand:1"
+export type NurseId = string -- Data/Nurses
+-- Data/Rarities: Mythic only during Night Rush, Secret only during Golden Hour (memory-20261116-013)
+export type Rarity = "Common" | "Rare" | "Epic" | "Legendary" | "Mythic" | "Secret"
+export type NurseRole = "Maker" | "Healer" | "Cheerer"
+export type JournalMark = "Seen" | "Hired" -- Data.NurseIndex: a silhouette until seen, full colour once hired
+export type Rating = "OK" | "Good" | "Perfect" -- a mini-game's rating (Logic/MiniGame); OK still cures
+export type GameId = "Pour" | "Patch" | "Scrub" | "Cool" -- the mini-game for Potion, Plaster, Bubbles, Cocoa
 
 ------------------------------------------------------------------------------------------------------------------
 -- Data rows (match Shared/Data)
 ------------------------------------------------------------------------------------------------------------------
-export type Ailment = { Name: string, Icon: string, Color: Color3, Station: StationId }
+export type Ailment = {
+	Name: string,
+	Icon: string,
+	Color: Color3,
+	Station: StationId,
+	Recipe: { ItemId }, -- 1-3 items, item 1 = the station's own item; cut by the hospital level (Logic/Recipe)
+}
 export type Station = { Name: string, Icon: string, Item: ItemId, Color: Color3 }
 export type Item = { Name: string, Icon: string, Station: StationId }
 export type Look = {
@@ -44,6 +57,7 @@ export type Regular = {
 	Beats: { Beat },
 	Reward: string, -- DecorId or RoomId
 	RewardKind: "Decor" | "Room",
+	Recipe: { ItemId }, -- their own recipe (First-Aid Stand items only)
 	Look: Look,
 }
 export type Room = {
@@ -57,6 +71,7 @@ export type Room = {
 	DecorSlots: number,
 	Wing: WingId,
 	Season: string?, -- "Winter" = buyable only while Workspace.IsWinter
+	Level: number?, -- the hospital level it needs (nil = 1): the Garden needs 3
 }
 export type Upgrade = { Name: string, Icon: string, Hint: string, Prices: { number } }
 export type DecorLook = { Kind: string, Color: string, Accent: string, Glow: boolean? }
@@ -72,18 +87,41 @@ export type GoalDef = {
 }
 export type Wing = { Name: string, Icon: string, SetReward: DecorId }
 export type Variant = { Name: string, Icon: string, WinterOnly: boolean }
+export type RarityInfo = {
+	Name: string,
+	Icon: string,
+	Color: string, -- hex
+	Frame: string, -- "Grey" | "Blue" | "Purple" | "Rainbow" | "Cosmic" | "Gold" (Kit.rarityFrame)
+	Shout: boolean, -- a server-wide shout and a glow when one steps on the belt (Epic and up)
+	Event: string?, -- "NightRush" | "GoldenHour": only rolled during that event
+	Journal: { Cash: number, Decor: DecorId }, -- the reward for hiring every nurse of this rarity
+}
+export type Nurse = { Name: string, Icon: string, Rarity: Rarity, Role: NurseRole, Look: Look }
+export type LevelRow = {
+	Name: string,
+	Icon: string,
+	Stars: number, -- the Clinic Stars needed (a gate, not spent)
+	Cash: number, -- spent
+	Slots: number, -- nurses on duty
+	Beds: number, -- beds in the main building (the Stand's own bed included)
+	Queue: number, -- patients in line
+	RecipeCap: number, -- recipes are cut to this many items
+	Floors: number,
+	Unlocks: { string }, -- short chips for the Shop: an emoji and two or three words
+}
 
 ------------------------------------------------------------------------------------------------------------------
--- Save schema v2 (Logic/Schema, build plan §B3)
+-- Save schema v3 (Logic/Schema; creature-clinic build plan §B3, depth-update build plan §B1)
 ------------------------------------------------------------------------------------------------------------------
 export type BookPage = { Cured: number, Variants: { [VariantId]: boolean } }
 export type StoryEntry = { Beat: number, LastBeatDay: number }
 export type Goal = { Id: string, Progress: number, Day: number }
 export type DailyData = { Goals: { Goal }, LastGrantDay: number }
 export type DecorData = { Owned: { [DecorId]: boolean }, Placed: { [SlotKey]: DecorId } }
+export type NurseEntry = { Level: number, Copies: number } -- Level = min(Copies, Config.Nurses.MaxLevel)
 
 export type Data = {
-	Version: number, -- 2
+	Version: number, -- 3
 	Cash: number,
 	Stars: number,
 	Cured: number,
@@ -99,6 +137,13 @@ export type Data = {
 	VisitorDay: number, -- the UTC day this clinic last cured Today's Visitor (0 = never)
 	HeartsReceived: number, -- hearts left on this clinic's sign, all time (cosmetic)
 	Tutorial: number, -- the first-session tutorial step (Logic/Tutorial): 1 = the welcome .. 8, 9 = done
+	-- Depth update (v3)
+	Level: number, -- hospital level 1..5 (Data/Levels)
+	Nurses: { [NurseId]: NurseEntry }, -- hired nurses
+	Equipped: { NurseId }, -- on duty: unique, owned, at most Level of them (slots)
+	NurseIndex: { [NurseId]: JournalMark }, -- the Nurse Journal
+	JournalSets: { [string]: boolean }, -- Rarity -> true: the journal group's reward was granted
+	Simple: boolean, -- Simple mode: every mini-game is one tap rated Good
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -125,6 +170,13 @@ export type Snapshot = {
 	-- snapshot says 0 = not known yet, so the HUD stays calm until the server answers.
 	Tutorial: number,
 	TutorialCures: number, -- step 6 only: cures so far of the 2 more (0..2)
+	-- Depth update: copies of the save fields (slots = Logic/Levels.slots(Data.Levels, Level))
+	Level: number,
+	Nurses: { [NurseId]: NurseEntry },
+	Equipped: { NurseId },
+	NurseIndex: { [NurseId]: JournalMark },
+	JournalSets: { [string]: boolean },
+	Simple: boolean,
 }
 
 export type VisitorStatus = "Coming" | "Done" | "None"
@@ -148,7 +200,65 @@ export type DayReportInfo = {
 	Next: NextGoal,
 }
 
-export type PurchaseKind = "Upgrade" | "Room" | "Decor"
+export type PurchaseKind = "Upgrade" | "Room" | "Decor" | "Level" -- "Level": Economy.Purchased only (LevelUp)
+
+-- The treat flow (depth-update build plan §B3). TreatStart (server -> the treating player):
+export type TreatSession = {
+	Session: number, -- the only id TreatResult accepts (one open session per player)
+	PatientId: PatientId,
+	Items: { ItemId }, -- what is being given now, in recipe order
+	Games: { GameId }, -- one per item
+	Simple: boolean, -- the client shows one tap per game; the server rates each Good
+	Combo: number, -- the player's combo before this session
+	Position: Vector3, -- above the patient
+	Timeout: number, -- seconds; then the server settles the session as all OK by itself
+}
+-- TreatResult's third return value when ok
+export type TreatOutcome = { Ratings: { Rating }, Tip: number, Combo: number, Complete: boolean }
+
+-- NurseNews (server -> one player)
+export type NurseNews = {
+	Kind: "Seen" | "Hired" | "Equipped",
+	NurseId: NurseId,
+	Level: number?, -- Hired
+	New: boolean?, -- Hired: the first copy
+	On: boolean?, -- Equipped
+}
+
+-- Shout (server -> everyone)
+export type ShoutInfo = {
+	Kind: "Arrival" | "Hired" | "Golden",
+	RiderId: number?, -- Arrival
+	NurseId: NurseId?, -- Arrival, Hired
+	Rarity: Rarity?, -- Arrival, Hired
+	By: string?, -- Hired: the hirer's DisplayName
+	On: boolean?, -- Golden: started (true) or ended
+	EndsAt: number?, -- Golden: the GetServerTimeNow() time it ends
+}
+
+-- Celebrate (server -> one player; the client fires it too, for rooms)
+export type CelebrateInfo = {
+	Kind: "LevelUp" | "NewNurse" | "JournalSet" | "Room",
+	Title: string, -- 3 words or fewer
+	Icon: string,
+	Rarity: Rarity?,
+	NurseId: NurseId?,
+	Level: number?,
+	Cash: number?,
+	Decor: DecorId?,
+}
+
+-- The client bus "Banner" spec (BeltView fires it, Toasts shows it)
+export type BannerSpec = {
+	Id: string, -- a banner with the same Id replaces the old one
+	Icon: string,
+	Text: string, -- 6 words or fewer
+	Color: Color3?,
+	EndsAt: number?, -- GetServerTimeNow() time: show a countdown to it
+	Seconds: number?, -- how long it stays (0 = hide it now; nil = until EndsAt, else a few seconds)
+}
+
+export type Cheer = { Patience: number, Tip: number } -- multipliers, 1 = no Cheerer on duty
 
 ------------------------------------------------------------------------------------------------------------------
 -- Server-side shapes (build plan §B5)
@@ -190,6 +300,9 @@ export type ClientData = {
 	DailyGoals: { GoalDef },
 	Wings: { [WingId]: Wing },
 	Variants: { [VariantId]: Variant },
+	Nurses: { [NurseId]: Nurse },
+	Rarities: { [string]: RarityInfo }, -- by Rarity
+	Levels: { LevelRow }, -- an array: Levels[level]
 }
 
 export type Ctx = {

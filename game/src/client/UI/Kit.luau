@@ -23,6 +23,12 @@
 --                                                  the parent's other children). Still with reduced motion.
 --   Kit.bump(gui)                                  a quick springy grow-and-settle (a number changed, a reward)
 --   Kit.gloss(gui, inset?): Frame                  the white top highlight Kit buttons have, for your own chips
+-- Depth update (build plan §B9; the Foundation's first versions, T6 makes them juicy and keeps the signatures):
+--   Kit.countUp(label, to, format?, seconds?)      rolls a number label from its last value up (or down) to `to`;
+--                                                  the attribute CountValue remembers it. Instant with reduced motion
+--   Kit.celebrate(parent, colour?): () -> ()       rays (and, from T6, confetti) behind a reward; returns stop
+--   Kit.rarityFrame(gui, rarity): () -> ()         the rarity's frame: a UIStroke "RarityFrame" in its colour
+--                                                  (Data/Rarities; T6 adds the shimmer); returns stop
 -- ZIndex 0 is the decoration layer inside a Kit button or panel (Gloss, Shine, Header, Rays): it draws over the
 -- parent's own fill but under every other child, so give your own children ZIndex 1 or more (the default).
 --   Kit.Clicked: Signal (button)                   fires on every Kit button press (Sounds plays a click)
@@ -36,6 +42,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Palette = require(Shared:WaitForChild("Palette"))
 local Signal = require(Shared:WaitForChild("Signal"))
+local Rarities = require(Shared:WaitForChild("Data"):WaitForChild("Rarities")) :: any
 local Theme = require(script.Parent.Theme)
 
 type Props = { [string]: any }
@@ -552,6 +559,69 @@ function Kit.rays(parent: GuiObject, color: Color3?): Frame
 		end
 	end)
 	return rays
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- Depth update (build plan §B9). First versions from the Foundation; T6 owns them.
+------------------------------------------------------------------------------------------------------------------
+
+local function plainNumber(n: number): string
+	return tostring(math.floor(n + 0.5))
+end
+
+-- Rolls a number label to `to` over `seconds` (default 0.6). The label's attribute CountValue remembers the last
+-- number, so the next call rolls from there. `format` turns the number into text (default: a whole number).
+function Kit.countUp(label: TextLabel, to: number, format: ((number) -> string)?, seconds: number?)
+	local show = format or plainNumber
+	local from = label:GetAttribute("CountValue")
+	label:SetAttribute("CountValue", to)
+	local token = (tonumber(label:GetAttribute("CountToken")) or 0) + 1
+	label:SetAttribute("CountToken", token)
+	if type(from) ~= "number" or from == to or Kit.reducedMotion() then
+		label.Text = show(to)
+		return
+	end
+	local duration = math.max(seconds or 0.6, 0.05)
+	task.spawn(function()
+		local started = os.clock()
+		while label.Parent and label:GetAttribute("CountToken") == token do
+			local t = math.min((os.clock() - started) / duration, 1)
+			local eased = TweenService:GetValue(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			label.Text = show(from + (to - from) * eased)
+			if t >= 1 then
+				break
+			end
+			task.wait()
+		end
+	end)
+end
+
+-- A reward's backdrop: Kit.rays behind `parent` (T6 adds confetti). Returns stop.
+function Kit.celebrate(parent: GuiObject, color: Color3?): () -> ()
+	local rays = Kit.rays(parent, color)
+	return function()
+		rays:Destroy()
+	end
+end
+
+-- The rarity's frame on a card or chip: a UIStroke named RarityFrame in the rarity's colour (Data/Rarities). An
+-- unknown rarity gets the Common grey. Returns stop (removes it).
+function Kit.rarityFrame(gui: GuiObject, rarity: string): () -> ()
+	local existing = gui:FindFirstChild("RarityFrame")
+	if existing then
+		existing:Destroy()
+	end
+	local info = rawget(Rarities, rarity) or rawget(Rarities, "Common")
+	local color = if info then Color3.fromHex(info.Color) else Theme.Colors.Quiet
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "RarityFrame"
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Color = color
+	stroke.Thickness = Theme.Size.Stroke + 1
+	stroke.Parent = gui
+	return function()
+		stroke:Destroy()
+	end
 end
 
 return Kit

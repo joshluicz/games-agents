@@ -1,6 +1,7 @@
 --!strict
 -- Decor: preset items for the decor slots in your rooms (build plan §B2). Lune-safe (no Roblox types).
--- Price = nil means earned only, and EarnedBy says how: "Book" (a wing's set), "Story" (a regular) or "Referral".
+-- Price = nil means earned only, and EarnedBy says how: "Book" (a wing's set), "Story" (a regular), "Referral" or
+-- "Journal" (a Nurse Journal rarity group, Data/Rarities Journal.Decor).
 -- Nothing here is random or paid with Robux.
 --
 -- Look: the DecorBuilder recipe (Task 7). A model at ServerStorage.ClinicKit.Decor.<DecorId> replaces it.
@@ -115,6 +116,44 @@ local ENTRIES: { [DecorId]: Decor } = {
 		Look = { Kind = "Lantern", Color = "#FFE27A", Accent = "#FFB547", Glow = true },
 	},
 
+	-- Earned: completing a Nurse Journal rarity group (Data/Rarities Journal.Decor; Server/Nurses)
+	PlasterRug = {
+		Name = "Plaster Rug",
+		Icon = "🩹",
+		EarnedBy = "Journal",
+		Look = { Kind = "Rug", Color = "#FFB3C7", Accent = "#FFFFFF" },
+	},
+	HeartLamp = {
+		Name = "Heart Lamp",
+		Icon = "💗",
+		EarnedBy = "Journal",
+		Look = { Kind = "Lamp", Color = "#FF6F91", Accent = "#FFE3EC", Glow = true },
+	},
+	StarFountain = {
+		Name = "Star Fountain",
+		Icon = "⭐",
+		EarnedBy = "Journal",
+		Look = { Kind = "Fountain", Color = "#C9A7FF", Accent = "#FFE066" },
+	},
+	RainbowArch = {
+		Name = "Rainbow Arch",
+		Icon = "🌈",
+		EarnedBy = "Journal",
+		Look = { Kind = "Arch", Color = "#FFFFFF", Accent = "#7FD4FF" },
+	},
+	MoonGlobe = {
+		Name = "Moon Globe",
+		Icon = "🔮",
+		EarnedBy = "Journal",
+		Look = { Kind = "Globe", Color = "#3B347A", Accent = "#FFE9A8", Glow = true },
+	},
+	GoldenStatue = {
+		Name = "Golden Statue",
+		Icon = "🏆",
+		EarnedBy = "Journal",
+		Look = { Kind = "Statue", Color = "#FFD84A", Accent = "#FFF6D8" },
+	},
+
 	-- Earned: a friend referral, once, for both players (Visits)
 	FriendBench = {
 		Name = "Friend Bench",
@@ -139,6 +178,12 @@ local ORDER = {
 	"SproutMascot",
 	"LuckyKettle",
 	"CometLantern",
+	"PlasterRug",
+	"HeartLamp",
+	"StarFountain",
+	"RainbowArch",
+	"MoonGlobe",
+	"GoldenStatue",
 	"FriendBench",
 }
 

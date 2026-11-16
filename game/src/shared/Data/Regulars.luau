@@ -6,6 +6,8 @@
 -- `Patient` is the creature id: CreatureBuilder.build(Patient) uses this entry's `Look` (same recipe as
 -- Data/Patients, with the same candy-pop colours) or a model at ServerStorage.Creatures.<Patient>.
 -- `Ailment` must be treatable at the First-Aid Stand (Remedy or Plaster), so every clinic can cure them.
+-- `Recipe` is their own (depth update §1: "regulars their own"): First-Aid Stand items only, item 1 = the ailment's
+-- station item. The hospital level cuts it like any recipe (Lv 1 -> 1 item), so these are the game's 3-item recipes.
 
 export type RegularId = string
 export type Beat = { Emote: string, Bubble: string }
@@ -27,6 +29,7 @@ export type Regular = {
 	Beats: { Beat }, -- exactly 5
 	Reward: string, -- DecorId or RoomId, granted when the story finishes
 	RewardKind: "Decor" | "Room",
+	Recipe: { string }, -- ItemIds, 1-3 (Stand items only)
 	Look: Look,
 }
 
@@ -47,6 +50,7 @@ local ENTRIES: { [RegularId]: Regular } = {
 		},
 		Reward = "SproutMascot",
 		RewardKind = "Decor",
+		Recipe = { "Potion" },
 		Look = {
 			Shape = "Bean",
 			Body = "#A6EA38",
@@ -74,6 +78,7 @@ local ENTRIES: { [RegularId]: Regular } = {
 		},
 		Reward = "LuckyKettle",
 		RewardKind = "Decor",
+		Recipe = { "Potion", "Plaster", "Potion" },
 		Look = {
 			Shape = "Ball",
 			Body = "#FF5A62",
@@ -101,6 +106,7 @@ local ENTRIES: { [RegularId]: Regular } = {
 		},
 		Reward = "CometLantern",
 		RewardKind = "Decor",
+		Recipe = { "Plaster", "Potion", "Plaster" },
 		Look = {
 			Shape = "Ball",
 			Body = "#FFD52E",

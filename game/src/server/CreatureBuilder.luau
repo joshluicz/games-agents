@@ -15,6 +15,15 @@
 --   CreatureBuilder.effectAt(position, kind)         a one-off burst that outlives the creature:
 --                                                    "Cure" | "Puff" (sad) | "Pop" (leaving)
 --
+--   Depth update (build plan §B8; Foundation added these, T7 owns the file and keeps both signatures):
+--   CreatureBuilder.buildLook(look, name?): Model    a plain creature from any Look (Data/Nurses uses the same
+--                                                    recipe): the placeholder body, Root and welds, IconAnchor,
+--                                                    no badge, no effects. NurseBuilder starts from it.
+--   CreatureBuilder.setRecipe(badge, items, done)    show a patient's recipe on its badge: small item icons that tick
+--                                                    off as they're given (items = ItemIds, done = booleans). T7
+--                                                    draws it; until then it only keeps the Need chip on the first
+--                                                    missing item.
+--
 -- Model layout (Patients relies on it):
 --   PrimaryPart `Root`: an invisible anchored part at the bottom centre. The pivot IS Root.CFrame, and its
 --   LookVector is where the face looks. Every other part is welded to Root (unanchored, massless, no collision,
@@ -1079,6 +1088,38 @@ function CreatureBuilder.build(patientId: string, variant: string?): Model
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic -- streams in whole, never half a creature
 	model:SetAttribute("PatientId", patientId)
 	return model
+end
+
+function CreatureBuilder.buildLook(look: any, name: string?): Model
+	local recipe: Look = if type(look) == "table" then look else DEFAULT_LOOK
+	local model = placeholder(recipe, false)
+	local root, height = addRoot(model)
+	weldAll(model, root)
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "IconAnchor"
+	anchor.Position = Vector3.new(0, height + 0.25, 0)
+	anchor.Parent = root
+	model.Name = name or "Creature"
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	return model
+end
+
+-- Foundation version (T7 replaces it): the Need chip shows the first item still missing.
+function CreatureBuilder.setRecipe(badge: Badge, items: { string }, done: { boolean })
+	local first: string? = nil
+	for index, itemId in items do
+		if not done[index] then
+			first = itemId
+			break
+		end
+	end
+	local item = if first then Items[first] else nil
+	local need = badge.Need
+	local icon = need:FindFirstChild("NeedIcon", true)
+	if icon and icon:IsA("TextLabel") then
+		icon.Text = if item then item.Icon else ""
+	end
+	need.Visible = item ~= nil
 end
 
 function CreatureBuilder.badge(model: Model): Badge?

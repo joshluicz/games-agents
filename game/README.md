@@ -5,6 +5,10 @@ creatures. **Git owns the scripts and Studio owns the world.** Rojo syncs `src/`
 models live in the place file (`ServerStorage.ClinicKit`, `ServerStorage.Creatures`).
 - Design: `docs/plan/2026-11-16-creature-clinic-design.md`.
 - Build plan and **contracts** (names, attributes, APIs): `docs/plan/2026-11-16-creature-clinic-build-plan.md` §B.
+- **Depth update (Update 1)**: recipes + mini-games, the Nurse Belt and Journal, hospital levels, juice, perf. Design
+  `docs/plan/2026-11-16-depth-update-design.md`; contracts, file ownership and the playtest list
+  `docs/plan/2026-11-16-depth-update-build-plan.md` (§A owners, §B contracts). Modules marked *(depth)* below are
+  new in it; while it's being built, some are Foundation stubs with their final API (the plan's §B8/§B9).
 - The brother's building guide: `docs/guides/build-the-clinic.md`. Quick Words: `docs/guides/quick-words.md`.
 
 ## Run it (Joshua, Windows)
@@ -31,10 +35,10 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs |
 | `shared/Palette.luau` | The candy-pop colours and fonts shared by the world and the UI (`memory-20261116-007`). Change colours here |
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids) |
-| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
+| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`; *(depth)* events `TreatStart`, `NurseNews`, `Shout`, `Celebrate` and functions `TreatResult`, `SetSimple`, `HireNurse`, `EquipNurse`, `LevelUp`). Server helpers: `serve` (rate limit plus pcall; a table third return value is passed on), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
-| `shared/Data/*.luau` | **Content**: `Ailments`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`. Keyed maps carry `.Order`, and everything is frozen |
-| `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done), `isNewer(saved)` |
+| `shared/Data/*.luau` | **Content**: `Ailments` (with each `Recipe`), `Stations`, `Items`, `Patients`, `Regulars` (their own `Recipe`), `Rooms` (`Level`: the Garden needs Lv 3), `Upgrades`, `Decor` (incl. the six Journal rewards), `DailyGoals`, `Wings`, `Variants`, *(depth)* `Nurses` (16 placeholder-named nurses), `Rarities` (Common..Secret, colours, Journal rewards), `Levels` (an array, Lv 1-5). Keyed maps carry `.Order`, and everything is frozen |
+| `shared/Logic/Schema.luau` | Save schema **v3**: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done; a v2 save gets the hospital `Level` its rooms imply, no nurses and an empty journal), `isNewer(saved)`, `levelFromRooms(rooms)` |
 | `shared/Logic/Tutorial.luau` | The first-session tutorial's rules: the steps (1 welcome .. 8 Book, 9 done), `advance(step, event)`, `resume` after a rejoin, who Patients may send (`spawnPlan`, `queueCap`), the shop top-up (`cheapest`, `topUp`) |
 | `shared/Logic/Pay.luau` | Cash and ⭐ for a cure |
 | `shared/Logic/Prices.luau` | Upgrade prices, hold time, tray capacity, patience |
@@ -42,6 +46,11 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `shared/Logic/Book.luau` | Patient Book stamps and set completion |
 | `shared/Logic/Story.luau` | Regulars: who's unlocked, whether a beat is due today, advancing a beat |
 | `shared/Logic/Daily.luau` | UTC day, Today's Visitor, banked goals, mailbox |
+| `shared/Logic/Recipe.luau` *(depth)* | A patient's recipe: cut by level, the done mask, what's missing, what the items in hand can fill |
+| `shared/Logic/MiniGame.luau` *(depth)* | Mini-game ratings, the server's plausibility check, the combo and capped tips |
+| `shared/Logic/Belt.luau` *(depth)* | The Nurse Belt: odds (Night Rush, Golden Hour), rolls, pity, picks, prices by level, Golden Hour windows, rider position |
+| `shared/Logic/Levels.luau` *(depth)* | Hospital levels: the next level's cost, slots, beds, queue, recipe cap, room gates |
+| `shared/Logic/Nurse.luau` *(depth)* | Owned nurses: copies and levels, stats by rarity and level, equip slots, the Journal and its set rewards |
 
 `Logic/*` is **pure**: no Roblox services and no requires, so Lune can test it. The server passes `Config` in as
 `cfg`.
@@ -70,6 +79,11 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Cure.luau` | One cure, in order: pay, cash, ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` |
 | `server/Visits.luau` | Hearts on the sign (once per owner per UTC day), the owner's `OpenHelpers` toggle, the friend referral reward |
+| `server/Treatment.luau` *(depth)* | Treat sessions at the Counter: `TreatStart`/`TreatResult`, mini-game ratings, tips and the combo, Simple mode (`SetSimple`), Healer deliveries |
+| `server/Levels.luau` *(depth)* | Hospital levels: `LevelUp`, the plot's `Building`, slots/queue/recipe cap/beds by level |
+| `server/Nurses.luau` *(depth)* | Owned nurses: `EquipNurse`, nurse workers on the plot (Maker, Healer, Cheerer), the nurse tray, the Journal |
+| `server/NurseBelt.luau` *(depth)* | The shared Nurse Belt in town: arrivals, odds, Night Rush, Golden Hour, pity, `HireNurse`, the sign |
+| `server/NurseBuilder.luau` *(depth)* | A nurse Model from its Look (via `CreatureBuilder.buildLook`) |
 
 ### Client
 | File | Does |
@@ -89,20 +103,27 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/Feel/CureFX.luau` | Cure sparkles, the "💰 +n" / "⭐ +n" pop, the NEW PAGE banner, new-room and placed-decor celebrations, hearts on your sign |
 | `client/Feel/Atmosphere.luau` | Snow while `IsWinter`, fireflies at night, gentle decor sway, the calm-effects setting (`ReduceEffects`; its switch is in the HUD's ⚙️) |
 | `client/Music.client.luau` | Background music (`Config.Music`), day and night playlists, muted by `MusicMuted` (its switch is in the HUD's ⚙️) |
+| `client/UI/Celebrate.luau` *(depth)* | Big celebration screens on the bus `Celebrate` (level-up, a new nurse, a Journal set, a room) |
+| `client/UI/MiniGames.luau` *(depth)* | The treatment mini-games (Pour, Patch, Scrub, Cool) on `TreatStart`, then `TreatResult` |
+| `client/UI/NursePanel.luau` *(depth)* | The 👩‍⚕️ panel: the Nurse Journal, equip/unequip |
+| `client/UI/BeltView.luau` *(depth)* | Smooth belt riders, their Hire billboards (the price for you), Golden Hour and Night Rush banners |
+| `client/Feel/CreatureMotion.luau` *(depth)* | Draws creatures' hops on the client from their attributes (the server stops moving them every frame) |
 
 ### Tests
 | File | Does |
 |---|---|
 | `tests/run.luau` | Runs every `tests/*.spec.luau`, prints PASS/FAIL and exits 1 on any failure |
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
-| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial` |
+| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, *(depth)* `Recipe`, `MiniGame`, `Belt`, `Levels`, `Nurse` |
 
 ## Boot order
 **Server (`Main.server.luau`):**
 1. `Remotes` is required first, so every remote exists before anything else runs.
 2. The collision groups `Patients` and `Players` are set up. Patients walk through players and each other.
-3. Then `start()`, in this order: `PlayerData` → `State` → `Events` → `Plots` → `Carry` → `Economy` → `Progress` →
-   `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Stations` → `Patients` → `Visits` → `DayNight`.
+3. Then `start()`, in this order: `PlayerData` → `State` → `Events` → `Plots` → `Carry` → `Economy` → `Levels` →
+   `Progress` → `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Stations` → `Nurses` → `Treatment` →
+   `Patients` → `NurseBelt` → `Visits` → `DayNight`. Requires never loop: Patients → Treatment → Nurses → Levels;
+   NurseBelt → Nurses. `NurseBuilder` is a library.
    - `Tutorial` starts before `Stations` and `Patients`, so its quiet toasts and listeners are set before any
      patient comes. `Stations`, `Patients` and `Cure` call its hooks; it requires none of them.
    - `Plots.start()` builds the whole town (`PlotBuilder.buildTown`), with a `Room_Stand` on every plot, before
@@ -113,8 +134,9 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 4. It prints `[Main] Clinic is open.`
 
 **Client (`Main.client.luau`):** waits for `game.Loaded` and builds `ctx`. Then it loads `UI.Toasts`, `Hud`, `Shop`,
-`BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter` and `Tutorial`, then `Feel.Sounds`, `CureFX` and
-`Atmosphere`. Each one is loaded in its own pcall, and its `init(ctx)` runs. A missing or broken module warns
+`BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter`, `Celebrate`, `MiniGames`, `NursePanel`, `BeltView`
+and `Tutorial`, then `Feel.Sounds`, `CureFX`, `Atmosphere` and `CreatureMotion`. The server events `TreatStart`,
+`NurseNews`, `Shout` and `Celebrate` are forwarded to the client bus under the same names. Each one is loaded in its own pcall, and its `init(ctx)` runs. A missing or broken module warns
 `[Client] ...` and is skipped. `Music.client` and `RoofFade.client` are separate LocalScripts. Until the server's
 first snapshot arrives, `ctx.State.Tutorial` is 0 ("not known yet"), so the HUD starts calm (only 💰).
 

@@ -14,6 +14,9 @@ local Decor = require("../src/shared/Data/Decor")
 local DailyGoals = require("../src/shared/Data/DailyGoals")
 local Wings = require("../src/shared/Data/Wings")
 local Variants = require("../src/shared/Data/Variants")
+local Nurses = require("../src/shared/Data/Nurses")
+local Rarities = require("../src/shared/Data/Rarities")
+local fs = require("@lune/fs")
 
 local STATIONS = { Remedy = true, Plaster = true, Bath = true, Cocoa = true }
 local AILMENTS = {
@@ -28,6 +31,30 @@ local AILMENTS = {
 	Chills = "Cocoa",
 	FrozenNose = "Cocoa",
 }
+
+-- Data/Ailments uses Color3 (Roblox-only), so its recipes are read from the file's text: one entry per line,
+--   Hiccups = ailment("Hiccups", "❗", "Remedy", { "Potion" }),
+local function ailmentRecipes(): { [string]: { string } }
+	local source: string? = nil
+	for _, path in
+		{ "src/shared/Data/Ailments.luau", "game/src/shared/Data/Ailments.luau", "../src/shared/Data/Ailments.luau" }
+	do
+		if fs.isFile(path) then
+			source = fs.readFile(path)
+			break
+		end
+	end
+	assert(source, "could not find Data/Ailments.luau")
+	local out: { [string]: { string } } = {}
+	for id, items in string.gmatch(source, "(%w+) = ailment%([^{}]-{([^}]*)}%)") do
+		local recipe = {}
+		for item in string.gmatch(items, '"(%w+)"') do
+			table.insert(recipe, item)
+		end
+		out[id] = recipe
+	end
+	return out
+end
 
 local function words(text: string): number
 	local count = 0
@@ -64,6 +91,8 @@ T.describe("Data", function()
 				Decor = Decor,
 				Wings = Wings,
 				Variants = Variants,
+				Nurses = Nurses,
+				Rarities = Rarities,
 			} :: { [string]: any }
 		do
 			local ok, err = pcall(function()
@@ -156,7 +185,8 @@ T.describe("Data", function()
 				error(id .. " must have exactly one of Price or EarnedBy")
 			end
 			if earned then
-				expect(item.EarnedBy == "Book" or item.EarnedBy == "Story" or item.EarnedBy == "Referral").toBe(true)
+				local by = item.EarnedBy
+				expect(by == "Book" or by == "Story" or by == "Referral" or by == "Journal").toBe(true)
 			end
 		end
 		expect(Decor.FriendBench.EarnedBy).toBe("Referral")
@@ -187,6 +217,94 @@ T.describe("Data", function()
 	test("items come from known stations", function()
 		for _, item in Items do
 			expect(STATIONS[item.Station]).toBe(true)
+		end
+	end)
+
+	test("every ailment has a recipe of 1-3 known items, led by its station's item", function()
+		local recipes = ailmentRecipes()
+		local wingSize = { Starter = 1, Bath = 2, Winter = 2, Night = 2 }
+		for ailmentId, station in AILMENTS do
+			local recipe = recipes[ailmentId]
+			if not recipe then
+				error("no recipe found for " .. ailmentId)
+			end
+			expect(#recipe >= 1 and #recipe <= 3).toBe(true)
+			expect(Items[recipe[1]].Station).toBe(station)
+			for _, item in recipe do
+				expect(Items[item] ~= nil).toBe(true)
+			end
+		end
+		-- By wing (design §1): the ailment's patients set its recipe length.
+		for _, patientId in Patients.Order do
+			local patient = Patients[patientId]
+			local recipe = recipes[patient.Ailment]
+			if #recipe ~= wingSize[patient.Wing] then
+				error(patientId .. " (" .. patient.Wing .. ") has a " .. #recipe .. "-item recipe")
+			end
+			-- Night patients come to every clinic: First-Aid Stand items only.
+			if patient.Night then
+				for _, item in recipe do
+					expect(item == "Potion" or item == "Plaster").toBe(true)
+				end
+			end
+		end
+	end)
+
+	test("regulars have their own recipes of Stand items, led by their ailment's item", function()
+		local recipes = ailmentRecipes()
+		for _, id in Regulars.Order do
+			local recipe = Regulars[id].Recipe
+			expect(#recipe >= 1 and #recipe <= 3).toBe(true)
+			expect(recipe[1]).toBe(recipes[Regulars[id].Ailment][1])
+			for _, item in recipe do
+				expect(item == "Potion" or item == "Plaster").toBe(true)
+			end
+		end
+		expect(#Regulars.ShySprout.Recipe).toBe(1) -- the first regular stays simple
+	end)
+
+	test("the nurse cast: 16 original nurses, 5/4/3/2/1/1 by rarity, each with a role and a look", function()
+		expect(#Nurses.Order).toBe(16)
+		local byRarity = {}
+		local SHAPES = { Ball = true, Bean = true, Blob = true, Box = true, Drop = true }
+		local ROLES = { Maker = true, Healer = true, Cheerer = true }
+		for id, nurse in Nurses do
+			expect(Rarities[nurse.Rarity] ~= nil).toBe(true)
+			byRarity[nurse.Rarity] = (byRarity[nurse.Rarity] or 0) + 1
+			if not ROLES[nurse.Role] then
+				error(id .. " has an unknown role " .. tostring(nurse.Role))
+			end
+			expect(SHAPES[nurse.Look.Shape]).toBe(true)
+			expect(string.match(nurse.Look.Body, "^#%x%x%x%x%x%x$") ~= nil).toBe(true)
+			expect(string.match(nurse.Look.Accent, "^#%x%x%x%x%x%x$") ~= nil).toBe(true)
+			expect(#nurse.Name > 0 and words(nurse.Name) <= 3).toBe(true)
+			expect(#nurse.Icon > 0).toBe(true)
+			expect(Patients[id]).toBeNil() -- no id clash with a patient
+		end
+		expect(byRarity).toEqual({ Common = 5, Rare = 4, Epic = 3, Legendary = 2, Mythic = 1, Secret = 1 })
+		-- Order runs by rarity, lowest first
+		local last = 0
+		for _, id in Nurses.Order do
+			local rank = table.find(Rarities.Order, Nurses[id].Rarity) :: number
+			expect(rank >= last).toBe(true)
+			last = rank
+		end
+	end)
+
+	test("rarities: lowest first, Epic+ shout, events only on Mythic and Secret, journal decor is earned", function()
+		expect(Rarities.Order).toEqual({ "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret" })
+		expect(Rarities.Mythic.Event).toBe("NightRush")
+		expect(Rarities.Secret.Event).toBe("GoldenHour")
+		local lastCash = 0
+		for _, id in Rarities.Order do
+			local rarity = Rarities[id]
+			if id ~= "Mythic" and id ~= "Secret" then
+				expect(rarity.Event).toBeNil()
+			end
+			expect(string.match(rarity.Color, "^#%x%x%x%x%x%x$") ~= nil).toBe(true)
+			expect(Decor[rarity.Journal.Decor].EarnedBy).toBe("Journal")
+			expect(rarity.Journal.Cash > lastCash).toBe(true)
+			lastCash = rarity.Journal.Cash
 		end
 	end)
 end)

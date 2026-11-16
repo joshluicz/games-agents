@@ -6,10 +6,14 @@
 --   top right     ☀️/🌙 day-night timer (×2 at night) · ⭐ Today's Visitor (tap: what it means), only when it
 --                 can come to your clinic, ✅ once cured today (the Snapshot's VisitorStatus)
 --   right middle  ⚙️ settings: a small panel with the comfort switches 🎵 music and ✨ calm effects (the client-only
---                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion)
+--                 attributes MusicMuted, read by Music.client, and ReduceEffects, read by Feel and Kit.reducedMotion),
+--                 and 👆 Simple mode (the saved Data.Simple, asked of the server with SetSimple: every treatment
+--                 mini-game becomes one tap; depth update)
 --   bottom centre your hands (the `Carry` attribute: only what you hold, nothing when your hands are empty) above
---                 the 🛒 📖 📬 🎯 buttons, each with a dot when something waits there (a room you can buy or decor to
---                 place · new pages · mail · a goal)
+--                 the 🛒 📖 📬 🎯 👩‍⚕️ buttons, each with a dot when something waits there (a room you can buy or decor
+--                 to place · new pages · mail · a goal · Nurse Journal news)
+-- The 👩‍⚕️ Nurses button, its dot (bus "NursesNew") and the Simple switch are the depth update Foundation's minimal
+-- hook (build plan §B9): it fires ctx.fire("Open", "Nurses") and UI/NursePanel does the rest.
 -- It reveals itself to a new player (first-session declutter, docs/plan/2026-11-16-first-session-design.md §A3),
 -- driven by the Snapshot's Tutorial step: at first only 💰; ⭐ after the first cure; 🛒 at the shop step and 📖 at
 -- the Book step (its pointer needs it), each with a bounce; 📬 🎯, the clock and the visitor chip when the tutorial
@@ -27,7 +31,8 @@
 --   Hud.modal(ctx, spec): Modal        a panel or popup shell: dim, paper card with a dark drop shadow, a coloured
 --                                      title band (spec.Accent, or the colour of its HUD button), ✖, pop in/out,
 --                                      one Panel open at a time, gamepad focus and ButtonB to close
---   Hud.ask(remote, ...): (ok, msg)    InvokeServer that never throws and gives up after ASK_TIMEOUT seconds
+--   Hud.ask(remote, ...): (ok, msg, payload?)   InvokeServer that never throws and gives up after ASK_TIMEOUT
+--                                      seconds; payload is a table third value (TreatResult's TreatOutcome)
 --   Hud.portrait(look, dark?): Frame   a cute 2D creature face drawn from a Data `Look` (dark = "not met yet")
 --   Hud.lookOf(id): Look?              the Look of a PatientId or RegularId
 --   Hud.decorSlots(data, state)        every "<RoomId>:<n>" decor slot in your rooms, and what's in it
@@ -40,12 +45,13 @@
 --   Hud.sound(name, volume?)           a Feel/Sounds cue over the bus
 --   Hud.format(n): string              1,234 · 1.2M past a million
 --   Hud.target(name): GuiObject?       a HUD piece by name ("Cash", "Stars", "Shop", "Book", "Mailbox", "Goals",
---                                      "Settings", "Hands"), for pointers (UI/Tutorial) and flying icons
+--                                      "Nurses", "Settings", "Hands"), for pointers (UI/Tutorial) and flying icons
 --   Hud.isOpen(name?): boolean         a modal is open (that one, or any)
 --
 -- Client bus (ctx.on / ctx.fire):
 --   listens  "BookNew" (count)                      BookPanel: unseen new pages, for the 📖 dot
---   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals"
+--   listens  "NursesNew" (count)                    NursePanel: unseen Nurse Journal news, for the 👩‍⚕️ dot
+--   fires    "Open" (name, tab?)                    name = "Shop" | "Book" | "Mailbox" | "Goals" | "Nurses"
 --   fires    "ModalOpened" (name) · "ModalClosed" (name)
 --   fires    "Sound" (name, volume?)                Whoosh on open, Nope on a shake, Pop when icons land
 
@@ -114,6 +120,7 @@ local TABS: { Tab } = {
 	{ Name = "Book", Icon = "📖", Caption = "Book", Kind = "Purple", Color = Theme.Colors.Purple },
 	{ Name = "Mailbox", Icon = "📭", Caption = "Mail", Kind = "Secondary", Color = Theme.Colors.Secondary },
 	{ Name = "Goals", Icon = "🎯", Caption = "Goals", Kind = "Good", Color = Theme.Colors.Good },
+	{ Name = "Nurses", Icon = "👩‍⚕️", Caption = "Nurses", Kind = "Cyan", Color = Theme.Colors.Cyan }, -- depth update
 }
 
 local function tabColor(name: string): Color3?
@@ -1082,25 +1089,29 @@ end
 -- be "". A server that errors, or doesn't answer within ASK_TIMEOUT seconds, counts as not ok (the call still
 -- finishes in the background; the caller just stops waiting for it).
 local ASK_TIMEOUT = 10
-function Hud.ask(remote: RemoteFunction, ...: any): (boolean, string)
+function Hud.ask(remote: RemoteFunction, ...: any): (boolean, string, any)
 	local args = table.pack(...)
 	local thread = coroutine.running()
 	local done = false
-	local function finish(ok: boolean, message: string)
+	local function finish(ok: boolean, message: string, payload: any?)
 		if not done then
 			done = true
-			task.spawn(thread, ok, message)
+			task.spawn(thread, ok, message, payload)
 		end
 	end
 	-- Deferred, so this thread is already waiting below even if the call fails at once.
 	task.defer(function()
-		local called, result, message = pcall(function()
+		local called, result, message, payload = pcall(function()
 			return remote:InvokeServer(table.unpack(args, 1, args.n))
 		end)
 		if not called then
 			finish(false, "Oops! Try again.")
 		else
-			finish(result == true, if type(message) == "string" then message else "")
+			finish(
+				result == true,
+				if type(message) == "string" then message else "",
+				if type(payload) == "table" then payload else nil
+			)
 		end
 	end)
 	task.delay(ASK_TIMEOUT, function()
@@ -1387,7 +1398,7 @@ function Hud.init(ctx: Types.Ctx)
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.BackgroundTransparency = 1
 	bar.Position = UDim2.new(0.5, 0, 1, -margin)
-	bar.Size = UDim2.fromOffset(size * 4 + gap * 3, size)
+	bar.Size = UDim2.fromOffset(size * #TABS + gap * (#TABS - 1), size)
 	bar.Parent = gui
 	Kit.list(bar, Enum.FillDirection.Horizontal, gap)
 
@@ -1439,6 +1450,7 @@ function Hud.init(ctx: Types.Ctx)
 	targets.Book = buttons.Book
 	targets.Mailbox = buttons.Mailbox
 	targets.Goals = buttons.Goals
+	targets.Nurses = buttons.Nurses
 
 	local hands = Instance.new("Frame")
 	hands.Name = "Hands"
@@ -1547,7 +1559,7 @@ function Hud.init(ctx: Types.Ctx)
 		Name = "Settings",
 		Title = "⚙️ Settings",
 		Accent = Theme.Colors.Cyan,
-		MaxSize = Vector2.new(380, 280),
+		MaxSize = Vector2.new(380, 350),
 	})
 	local switches = Instance.new("Frame")
 	switches.Name = "Switches"
@@ -1569,6 +1581,7 @@ function Hud.init(ctx: Types.Ctx)
 	end
 	local musicSwitch = switch("Music", "Pink", 1)
 	local effectsSwitch = switch("Effects", "Cyan", 2)
+	local simpleSwitch = switch("Simple", "Good", 3) -- depth update: Simple mode (saved; the server rates it)
 	settings.Focus = musicSwitch
 	local function paintSwitch(button: TextButton, on: boolean, color: Color3)
 		local switchFill = if on then Kit.lighten(color, 0.08) else Theme.Colors.Quiet
@@ -1586,6 +1599,9 @@ function Hud.init(ctx: Types.Ctx)
 		local calmNow = calmOn()
 		effectsSwitch.Text = if calmNow then "💤 Calm effects" else "✨ Full effects"
 		paintSwitch(effectsSwitch, not calmNow, Theme.Colors.Cyan)
+		local simple = ctx.State.Simple == true
+		simpleSwitch.Text = if simple then "👆 Simple taps" else "🎮 Mini-games"
+		paintSwitch(simpleSwitch, not simple, Theme.Colors.Good)
 	end
 	musicSwitch.Activated:Connect(function()
 		player:SetAttribute("MusicMuted", player:GetAttribute("MusicMuted") ~= true)
@@ -1594,6 +1610,22 @@ function Hud.init(ctx: Types.Ctx)
 	effectsSwitch.Activated:Connect(function()
 		player:SetAttribute("ReduceEffects", not calmOn())
 		Hud.pop(effectsSwitch, 1.06)
+	end)
+	local askingSimple = false
+	simpleSwitch.Activated:Connect(function()
+		if askingSimple then
+			return
+		end
+		askingSimple = true
+		Hud.pop(simpleSwitch, 1.06)
+		local ok, message = Hud.ask(ctx.Remotes.SetSimple, ctx.State.Simple ~= true)
+		askingSimple = false
+		if not ok and message ~= "" then
+			ctx.toast(message)
+		end
+	end)
+	ctx.onState(function()
+		renderSettings()
 	end)
 	player:GetAttributeChangedSignal("MusicMuted"):Connect(renderSettings)
 	player:GetAttributeChangedSignal("ReduceEffects"):Connect(renderSettings)
@@ -1672,6 +1704,9 @@ function Hud.init(ctx: Types.Ctx)
 	ctx.on("BookNew", function(count: any)
 		Kit.setDot(buttons.Book, type(count) == "number" and count > 0)
 	end)
+	ctx.on("NursesNew", function(count: any)
+		Kit.setDot(buttons.Nurses, type(count) == "number" and count > 0)
+	end)
 
 	-- No clinic for a while after loading (all six taken): say so, but don't flash it during the normal assign.
 	local plotToken = 0
@@ -1728,7 +1763,7 @@ function Hud.init(ctx: Types.Ctx)
 		local appeared = showPiece(starsPill, reveal.Stars, animate, 1.25)
 		appeared = showPiece(buttons.Shop, reveal.Shop, animate, 1.45) or appeared -- the shop step's bounce
 		appeared = showPiece(buttons.Book, reveal.Book, animate, 1.45) or appeared -- the Book step's
-		for _, name in { "Mailbox", "Goals" } do
+		for _, name in { "Mailbox", "Goals", "Nurses" } do
 			appeared = showPiece(buttons[name], reveal.Rest, animate, 1.3) or appeared
 		end
 		appeared = showPiece(side, reveal.Rest, animate, 1.12) or appeared

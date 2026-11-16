@@ -20,12 +20,23 @@
 --   "Claimed" ("Mailbox" | "Goal", goalId?)    a claim the server said yes to (Mailbox)
 --   "Sound" (name, volumeScale?)               plays a Feel/Sounds cue
 --   "SetReduceEffects" (on) · "SetMusicMuted" (on)   the comfort switches (Feel/Atmosphere, Music.client)
+-- Depth update (docs/plan/2026-11-16-depth-update-build-plan.md §B9). The server events TreatStart, NurseNews, Shout
+-- and Celebrate are forwarded to the bus under the same names (payload types in Shared/Types):
+--   "TreatStart" (session)                     play these mini-games (UI.MiniGames)
+--   "MiniGameRated" (game, rating)             one mini-game ended, the client's own rating (UI.MiniGames -> Feel)
+--   "TreatDone" (outcome, session)             the server's TreatResult reply: ratings, tip, combo (UI.MiniGames)
+--   "NurseNews" (info) · "NursesNew" (count)   a nurse seen/hired/equipped · unseen Journal news (UI.NursePanel ->
+--                                              the Hud's 👩‍⚕️ dot)
+--   "Shout" (info)                             belt news for everyone (UI.BeltView turns it into a Banner)
+--   "Banner" (spec)                            a big top banner, optional countdown (UI.BeltView -> UI.Toasts)
+--   "Celebrate" (info)                         rays + confetti + a big title (UI.Celebrate)
+--   "Open" ("Nurses") · "Open" ("Shop", "Hospital")   the Nurses panel; the Shop's Hospital tab
 -- Client-only LocalPlayer attributes (set on this client, never by the server, never replicated): ReduceEffects
 -- (the ✨/💤 calm-effects switch in the Hud's ⚙️ panel; Kit.reducedMotion() honours it) and MusicMuted (🎵/🔇).
 -- The first snapshot: until the server's arrives, ctx.State is a default one with Tutorial = 0 ("not known yet"),
 -- so the HUD starts calm (only 💰) and no tutorial card shows.
 -- Module order: UI.Toasts first, then the rest of UI (UI.Tutorial last), then Feel. Theme and Kit are libraries,
--- not inited.
+-- not inited. ctx.Data also has the depth update's Nurses, Rarities and Levels (Levels is an array).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -48,9 +59,24 @@ local Signal = require(Shared:WaitForChild("Signal"))
 local Types = require(Shared:WaitForChild("Types"))
 local Schema = require(Shared:WaitForChild("Logic"):WaitForChild("Schema"))
 
-local UI_MODULES =
-	{ "Toasts", "Hud", "Shop", "BookPanel", "DayReportPanel", "Mailbox", "Guide", "PromptFilter", "Tutorial" }
-local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere" }
+local UI_MODULES = {
+	"Toasts",
+	"Hud",
+	"Shop",
+	"BookPanel",
+	"DayReportPanel",
+	"Mailbox",
+	"Guide",
+	"PromptFilter",
+	"Celebrate",
+	"MiniGames",
+	"NursePanel",
+	"BeltView",
+	"Tutorial",
+}
+local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureMotion" }
+-- Server events forwarded to the bus under the same name (build plan §B9)
+local FORWARDED_EVENTS = { "TreatStart", "NurseNews", "Shout", "Celebrate" }
 local DATA_NAMES = {
 	"Ailments",
 	"Stations",
@@ -63,6 +89,9 @@ local DATA_NAMES = {
 	"DailyGoals",
 	"Wings",
 	"Variants",
+	"Nurses",
+	"Rarities",
+	"Levels",
 }
 
 local dataFolder = Shared:WaitForChild("Data")
@@ -90,6 +119,12 @@ local function defaultSnapshot(): Types.Snapshot
 		IsWinter = false,
 		Tutorial = 0, -- not known yet (Logic/Tutorial: 1..8 = in the tutorial, 9 = done)
 		TutorialCures = 0,
+		Level = data.Level,
+		Nurses = data.Nurses,
+		Equipped = data.Equipped,
+		NurseIndex = data.NurseIndex,
+		JournalSets = data.JournalSets,
+		Simple = data.Simple,
 	}
 end
 
@@ -236,6 +271,15 @@ Remotes.Toast.OnClientEvent:Connect(function(text: any)
 		ctx.toast(text)
 	end
 end)
+
+for _, name in FORWARDED_EVENTS do
+	local remote = (Remotes :: any)[name] :: RemoteEvent
+	remote.OnClientEvent:Connect(function(payload: any)
+		if type(payload) == "table" then
+			ctx.fire(name, payload)
+		end
+	end)
+end
 
 local gotPush = false
 Remotes.State.OnClientEvent:Connect(function(snapshot: any)

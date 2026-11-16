@@ -8,6 +8,8 @@
 -- for state that lives outside the save.
 -- Tutorial is the saved step (Data.Tutorial); TutorialCures is Server/Tutorial's step-6 count, kept on the player
 -- as an attribute (it isn't saved: a rejoin in step 6 counts 2 more from 0).
+-- Depth update (build plan §B2): Level, Nurses, Equipped, NurseIndex, JournalSets and Simple are copies of the save
+-- fields of the same names. Slots aren't sent: the client reads them from Data/Levels.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -73,6 +75,12 @@ function State.snapshot(player: Player): Types.Snapshot
 		IsWinter = Workspace:GetAttribute("IsWinter") == true,
 		Tutorial = data.Tutorial,
 		TutorialCures = if type(tutorialCures) == "number" then tutorialCures else 0,
+		Level = data.Level,
+		Nurses = deepCopy(data.Nurses),
+		Equipped = deepCopy(data.Equipped),
+		NurseIndex = deepCopy(data.NurseIndex),
+		JournalSets = deepCopy(data.JournalSets),
+		Simple = data.Simple,
 	}
 end
 
