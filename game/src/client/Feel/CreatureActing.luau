@@ -7,8 +7,11 @@
 -- (or wings, flippers) on Core.ArmRJoint / ArmLJoint and its tail on Core.TailJoint. This module sets those
 -- Motor6Ds' Transform each frame on this client only (Transform never replicates), so the body leans, hops, shivers
 -- and waves while the server keeps moving Root. It never writes Root.CFrame. The server only sets attributes on the
--- patient Model: Ailment, State ("Arriving" | "Waiting" | "Treated" | "Recovering" | "Cured" | "Sad") and
--- PatienceFraction (0..1, in 0.05 steps).
+-- patient Model: Ailment, State ("Arriving" | "Waiting" | "Treating" | "Treated" | "Recovering" | "Cured" | "Sad")
+-- and PatienceFraction (0..1, in 0.05 steps). "Treating" (the depth update's mini-games at the Counter): it holds
+-- still and only breathes, its props stay on, and it acts again if it goes back to "Waiting" for the rest of its
+-- recipe. Feel/CreatureMotion moves Root (hops, head-shakes, scale) at the same time; the two never touch each
+-- other's parts.
 --   Arriving / Waiting  its ailment's props (Feel/CreatureProps) and a beat every few seconds: a hiccup hop, a
 --                       sneeze, a cough, a dizzy sway with circling stars, a sniffle... Waiting with patience at or
 --                       under AilmentActing.Attention.Wave: a wave now and then; at or under Alert: both arms, a

@@ -1,5 +1,5 @@
 --!strict
--- Save schema v2 (build plan §B3, Task 0).
+-- Save schema v3 (build plan §B3, Task 0; depth-update build plan §B1).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
@@ -7,8 +7,19 @@ local expect, test = T.expect, T.test
 local Schema = require("../src/shared/Logic/Schema")
 
 T.describe("Schema.default", function()
-	test("is Version 2", function()
-		expect(Schema.default().Version).toBe(2)
+	test("is Version 3", function()
+		expect(Schema.default().Version).toBe(3)
+		expect(Schema.VERSION).toBe(3)
+	end)
+
+	test("starts at hospital level 1 with no nurses, an empty journal and Simple off", function()
+		local data = Schema.default()
+		expect(data.Level).toBe(1)
+		expect(data.Nurses).toEqual({})
+		expect(data.Equipped).toEqual({})
+		expect(data.NurseIndex).toEqual({})
+		expect(data.JournalSets).toEqual({})
+		expect(data.Simple).toBe(false)
 	end)
 
 	test("owns the Stand", function()
@@ -37,7 +48,7 @@ end)
 T.describe("Schema.reconcile", function()
 	test("migrates a v1 shop save", function()
 		local data = Schema.reconcile({ Cash = 50, Served = 7, Upgrades = { Speed = 2, Tray = 1, Tips = 3 } })
-		expect(data.Version).toBe(2)
+		expect(data.Version).toBe(3)
 		expect(data.Cash).toBe(50)
 		expect(data.Cured).toBe(7)
 		expect(data.Upgrades.Speed).toBe(2)
@@ -64,7 +75,7 @@ T.describe("Schema.reconcile", function()
 		expect(data.Cured).toBe(0)
 	end)
 
-	test("keeps a valid v2 save unchanged", function()
+	test("keeps a valid v3 save unchanged (every field from both updates)", function()
 		local saved = Schema.default()
 		saved.Cash = 321
 		saved.Stars = 12
@@ -87,8 +98,85 @@ T.describe("Schema.reconcile", function()
 		saved.Boosts = { StarRush = 420 }
 		saved.Stats = { Seeded = 1, Cures = 40, ["Made:Remedy"] = 22 }
 		saved.Badges = { Healer = 1 }
+		saved.Level = 2
+		saved.Nurses = { PuffPup = { Level = 2, Copies = 3 } }
+		saved.Equipped = { "PuffPup" }
+		saved.NurseIndex = { PuffPup = "Hired", MintMouse = "Seen" }
+		saved.JournalSets = { Common = true }
+		saved.Simple = true
 		expect(Schema.reconcile(saved)).toEqual(saved)
 		expect(Schema.reconcile(saved, 20500)).toEqual(saved) -- nothing is in the future
+	end)
+
+	test("a live v2 save (play time, boosts, stats, badges, weekly cures) migrates to v3 keeping all of it", function()
+		-- What a live server wrote before the depth update: Version 2, every field the playtime, badges and
+		-- leaderboards updates added, and none of the depth update's.
+		local v2 = {
+			Version = 2,
+			Cash = 1234,
+			Stars = 50,
+			Cured = 420,
+			Upgrades = { Speed = 2, Tray = 1, Chairs = 3, Tips = 2 },
+			Rooms = { Stand = true, BathRoom = true, Ward = true },
+			Decor = { Owned = { InternRug = true, PottedFern = true }, Placed = { ["Stand:1"] = "InternRug" } },
+			Book = { DumplingFrog = { Cured = 12, Variants = { Sparkly = true } } },
+			Story = { ShySprout = { Beat = 3, LastBeatDay = 20499 } },
+			Daily = { Goals = { { Id = "Cure5", Progress = 4, Day = 20500 } }, LastGrantDay = 20500 },
+			Mailbox = { LastSeenDay = 20500 },
+			HeartsGiven = { Day = 20500, Plots = { ["311718381"] = true } },
+			ReferralRewarded = true,
+			VisitorDay = 20498,
+			HeartsReceived = 9,
+			Tutorial = 9,
+			WeekCures = { Week = 2968, Count = 37 },
+			Playtime = { Day = 20500, TodaySeconds = 1500, TotalSeconds = 40000, Claimed = { 1, 2, 3, 4 }, Rank = 3 },
+			Boosts = { StarRush = 300, LuckyTips = 90 },
+			Stats = { Seeded = 1, Cures = 420, NightCures = 31, ["Made:Remedy"] = 150 },
+			Badges = { Healer = 2, NightShift = 2, Potions = 2 },
+		}
+		local data = Schema.reconcile(v2, 20500)
+		expect(data.Version).toBe(3)
+		for _, field in
+			{
+				"Cash",
+				"Stars",
+				"Cured",
+				"Upgrades",
+				"Rooms",
+				"Decor",
+				"Book",
+				"Story",
+				"Daily",
+				"Mailbox",
+				"HeartsGiven",
+				"ReferralRewarded",
+				"VisitorDay",
+				"HeartsReceived",
+				"Tutorial",
+				"WeekCures",
+				"Playtime",
+				"Boosts",
+				"Stats",
+				"Badges",
+			}
+		do
+			local ok, err = pcall(function()
+				expect((data :: any)[field]).toEqual((v2 :: any)[field])
+			end)
+			if not ok then
+				error(field .. ": " .. tostring(err))
+			end
+		end
+		-- and the depth update's fields arrive at their migration values
+		expect(data.Level).toBe(2) -- the Ward implies Lv 2
+		expect(data.Nurses).toEqual({})
+		expect(data.Equipped).toEqual({})
+		expect(data.NurseIndex).toEqual({})
+		expect(data.JournalSets).toEqual({})
+		expect(data.Simple).toBe(false)
+		-- a second pass (the v3 save written back) changes nothing
+		expect(Schema.reconcile(data, 20500)).toEqual(data)
+		expect(Schema.isNewer(v2)).toBe(false)
 	end)
 
 	test("gives an older v2 save the new fields at their defaults", function()
@@ -226,6 +314,90 @@ T.describe("Schema.reconcile", function()
 			expect(Schema.reconcile({ Version = 2, Cured = 0, Tutorial = bad }).Tutorial).toBe(1)
 			expect(Schema.reconcile({ Version = 2, Cured = 4, Tutorial = bad }).Tutorial).toBe(9)
 		end
+	end)
+
+	test("a v2 save starts at the level its rooms imply", function()
+		expect(Schema.reconcile({ Version = 2, Cured = 3 }).Level).toBe(1)
+		expect(Schema.reconcile({ Version = 2, Rooms = { Stand = true, BathRoom = true } }).Level).toBe(1)
+		expect(Schema.reconcile({ Version = 2, Rooms = { BathRoom = true, Ward = true } }).Level).toBe(2)
+		expect(Schema.reconcile({ Version = 2, Rooms = { WinterWing = true } }).Level).toBe(2)
+		expect(Schema.reconcile({ Version = 2, Rooms = { Garden = true } }).Level).toBe(3)
+		local everything = { Stand = true, BathRoom = true, Ward = true, WinterWing = true, Garden = true }
+		expect(Schema.reconcile({ Version = 2, Rooms = everything }).Level).toBe(3)
+	end)
+
+	test("a v2 save gets no nurses, an empty journal and Simple off", function()
+		local data = Schema.reconcile({ Version = 2, Cash = 40, Cured = 9 })
+		expect(data.Nurses).toEqual({})
+		expect(data.Equipped).toEqual({})
+		expect(data.NurseIndex).toEqual({})
+		expect(data.JournalSets).toEqual({})
+		expect(data.Simple).toBe(false)
+	end)
+
+	test("keeps a saved level, clamped to 1..5; junk falls back to the rooms", function()
+		expect(Schema.reconcile({ Version = 3, Level = 4 }).Level).toBe(4)
+		expect(Schema.reconcile({ Version = 3, Level = 99 }).Level).toBe(5)
+		for _, bad in { 0, -2, 2.5, 0 / 0, math.huge, "3", true } :: { any } do
+			expect(Schema.reconcile({ Version = 3, Level = bad, Rooms = { Ward = true } }).Level).toBe(2)
+		end
+	end)
+
+	test("cleans nurse entries: copies at least 1, level 1..min(5, copies)", function()
+		local data = Schema.reconcile({
+			Version = 3,
+			Nurses = {
+				PuffPup = { Level = 2, Copies = 3 },
+				MintMouse = { Level = 9, Copies = 7 },
+				BeanBear = { Level = 4, Copies = 2 },
+				DewDuck = { Copies = "x" },
+				[5] = { Level = 1, Copies = 1 },
+				HumHamster = "junk",
+			},
+		})
+		expect(data.Nurses).toEqual({
+			PuffPup = { Level = 2, Copies = 3 },
+			MintMouse = { Level = 5, Copies = 7 },
+			BeanBear = { Level = 2, Copies = 2 },
+			DewDuck = { Level = 1, Copies = 1 },
+		})
+	end)
+
+	test("equipped nurses are owned, unique and at most the level's slots", function()
+		local data = Schema.reconcile({
+			Version = 3,
+			Level = 2,
+			Nurses = { PuffPup = { Level = 1, Copies = 1 }, MintMouse = { Level = 1, Copies = 1 } },
+			Equipped = { "PuffPup", "PuffPup", "NotMine", 7, "MintMouse" },
+		})
+		expect(data.Equipped).toEqual({ "PuffPup", "MintMouse" })
+		local one = Schema.reconcile({
+			Version = 3,
+			Level = 1,
+			Nurses = { PuffPup = { Level = 1, Copies = 1 }, MintMouse = { Level = 1, Copies = 1 } },
+			Equipped = { "MintMouse", "PuffPup" },
+		})
+		expect(one.Equipped).toEqual({ "MintMouse" })
+	end)
+
+	test("the journal keeps Seen and Hired only, and every owned nurse is Hired", function()
+		local data = Schema.reconcile({
+			Version = 3,
+			Nurses = { PuffPup = { Level = 1, Copies = 1 } },
+			NurseIndex = { PuffPup = "Seen", MintMouse = "Seen", BeanBear = "Hired", DewDuck = "Maybe", [3] = "Seen" },
+			JournalSets = { Common = true, Rare = "yes" },
+			Simple = true,
+		})
+		expect(data.NurseIndex).toEqual({ PuffPup = "Hired", MintMouse = "Seen", BeanBear = "Hired" })
+		expect(data.JournalSets).toEqual({ Common = true })
+		expect(data.Simple).toBe(true)
+	end)
+
+	test("levelFromRooms matches the room table", function()
+		expect(Schema.levelFromRooms(nil)).toBe(1)
+		expect(Schema.levelFromRooms({ Stand = true })).toBe(1)
+		expect(Schema.levelFromRooms({ Ward = true })).toBe(2)
+		expect(Schema.levelFromRooms({ Garden = true, BathRoom = true })).toBe(3)
 	end)
 
 	test("always owns the Stand", function()

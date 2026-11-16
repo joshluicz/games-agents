@@ -82,6 +82,8 @@ describe("Leaderboard values", function()
 
 	test("Level and Journal only once the save has them", function()
 		local data = save()
+		data.Level = nil -- a save from before the depth update (Schema v2) has neither
+		data.NurseIndex = nil
 		expect(Leaderboard.valueOf("Level", data, 2968)).toBeNil()
 		expect(Leaderboard.valueOf("Journal", data, 2968, { JournalTotal = 16 })).toBeNil()
 		data.Level = 3
@@ -112,8 +114,12 @@ describe("Leaderboard values", function()
 	end)
 
 	test("values: unknown boards and boards the save can't fill are skipped", function()
-		local values = Leaderboard.values({ "Nope", "Level", "Cured" }, save(), 2968, 1)
+		local old = save()
+		old.Level = nil -- a pre-depth (v2) save: no hospital level to rank
+		local values = Leaderboard.values({ "Nope", "Level", "Journal", "Cured" }, old, 2968, 1)
 		expect(values).toEqual({ Board_Cured_v1 = 40 })
+		-- a v3 save has a Level (1 at least), so that board applies to it
+		expect(Leaderboard.values({ "Level" }, save(), 2968, 1)).toEqual({ Board_Level_v1 = 1 })
 	end)
 end)
 

@@ -1,11 +1,16 @@
 --!strict
--- The payoff moments (build plan Task 7). Client only; nothing here changes game state.
+-- The payoff moments (build plan Task 7; depth update T6). Client only; nothing here changes game state.
 --   Cured remote   sparkles, candy confetti, a ring and little hearts at the patient, a "+💰 n" / "+⭐ n" pop that
---                  floats up, and a chime. A NEW PAGE banner when the Book got a new page.
---   A new room     sparkles and confetti across its floor, a NEW ROOM banner and a fanfare (when your Rooms grow).
+--                  floats up, and a chime; then the coins (and the owner's stars) fly from the patient into the HUD's
+--                  💰 and ⭐ pills (Hud.fly), which roll up as they land. A NEW PAGE banner when the Book got a page.
+--   A new room     sparkles and confetti across its floor, and the big NEW ROOM celebration screen (the bus
+--                  "Celebrate" with Kind "Room", plus Room = <RoomId> for its name; UI/Celebrate shows it).
 --   A set done     a SET COMPLETE banner when a Book wing's set reward lands in your Decor.Owned.
 --   Decor placed   a puff of sparkles and confetti, and a soft thud where it lands (when your Decor.Placed changes).
 --   A heart        a 💖 floats off your clinic sign when someone leaves you a heart.
+-- Mini-games (bus events from UI/MiniGames): "TreatStart" remembers where the patient is; "MiniGameRated" puts a
+-- sparkle over it for a Good and a bigger burst for a Perfect (an OK gets nothing extra: it still cures); "TreatDone"
+-- with a tip pops "💰 +n" (and the 🔥 combo) over the patient and flies the coins into 💰.
 --
 -- Candy pop (memory-20261116-007): saturated colours, chunky outlined text, banners with the reward's icon on
 -- turning rays. Still kind to kids on phones: nothing flashes or strobes, no camera shake, and every motion honours
@@ -13,7 +18,7 @@
 -- the device's Reduced Motion setting) cuts the particles and the confetti, drops the ring, the pop scale and the
 -- banner shine, and holds the rays still.
 --
--- Bus events fired: "Sound" (Chime, Sparkle, Fanfare, Pop, Thud, Heart): Feel/Sounds plays them.
+-- Bus events fired: "Sound" (Chime, Sparkle, Fanfare, Pop, Thud, Heart): Feel/Sounds plays them; "Celebrate" (Room).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,6 +31,7 @@ local Palette = require(Shared:WaitForChild("Palette"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
 local Kit = require(UI:WaitForChild("Kit"))
+local Hud = require(UI:WaitForChild("Hud"))
 
 local CureFX = {}
 
@@ -532,6 +538,14 @@ local function onCured(info: any)
 		burst(position + Vector3.new(0, 1.5, 0), PALETTES[mood :: string], if variant then 18 else 14)
 		floaters(position + Vector3.new(0, 2, 0), { "💖", "✨", "💖" })
 		moneyPop(position, lines)
+		-- The pay flies home: coins into 💰 (the helper), stars into ⭐ (the owner).
+		local from = position + Vector3.new(0, 3, 0)
+		if iHelped and cash > 0 then
+			task.delay(0.25, Hud.fly, from, "💰", "Cash", Kit.Juice.coins(cash))
+		end
+		if (ownClinic or not iHelped) and stars > 0 then
+			task.delay(0.4, Hud.fly, from, "⭐", "Stars", math.clamp(stars + 2, 3, 6))
+		end
 	end
 
 	sound("Pop")
@@ -585,8 +599,8 @@ local function celebrateRoom(roomId: string)
 	if not room then
 		return
 	end
-	sound("Fanfare")
-	banner({ Icon = room.Icon, Title = "NEW ROOM!", Sub = "🎉 " .. room.Name, Accent = Theme.Colors.Good })
+	-- The big celebration screen (UI/Celebrate plays its fanfare). Room is an extra field Celebrate reads for the name.
+	ctx.fire("Celebrate", { Kind = "Room", Title = "New room!", Icon = room.Icon, Room = roomId })
 
 	local plot = myPlot()
 	local rooms = plot and plot:FindFirstChild("Rooms")
@@ -736,14 +750,85 @@ local function watchHearts()
 	end)
 end
 
+------------------------------------------------------------------------------------------------------------------
+-- Mini-games: a sparkle per good rating over the patient, and the tip flying home
+------------------------------------------------------------------------------------------------------------------
+
+local sessionAt: { [number]: Vector3 } = {} -- TreatSession.Session -> above the patient (the last few)
+local lastSession: number? = nil
+
+local function onTreatStart(session: any)
+	if type(session) ~= "table" or type(session.Session) ~= "number" or typeof(session.Position) ~= "Vector3" then
+		return
+	end
+	sessionAt[session.Session] = session.Position
+	lastSession = session.Session
+	-- Keep only a handful (one open session per player, so a few is plenty).
+	local count = 0
+	for _ in sessionAt do
+		count += 1
+	end
+	if count > 6 then
+		for id in table.clone(sessionAt) do
+			if id ~= lastSession then
+				sessionAt[id] = nil
+			end
+		end
+	end
+end
+
+local function onRated(_game: any, rating: any)
+	local position = if lastSession then sessionAt[lastSession] else nil
+	if not position then
+		return
+	end
+	if rating == "Perfect" then
+		burst(position + Vector3.new(0, 1, 0), PALETTES.Sparkly, 16, 70)
+		floaters(position + Vector3.new(0, 1.5, 0), { "⭐", "✨", "⭐" })
+	elseif rating == "Good" then
+		burst(position + Vector3.new(0, 1, 0), PALETTES.Default, 7, 55)
+	end
+end
+
+local function onTreatDone(outcome: any, session: any)
+	if type(outcome) ~= "table" then
+		return
+	end
+	local id = if type(session) == "table" and type(session.Session) == "number" then session.Session else nil
+	local position = if id then sessionAt[id] else nil
+	if not position and type(session) == "table" and typeof(session.Position) == "Vector3" then
+		position = session.Position
+	end
+	local tip = if type(outcome.Tip) == "number" then math.floor(outcome.Tip) else 0
+	if position and tip > 0 then
+		local lines = { { Text = "💰 +" .. tip, Color = Theme.Colors.Cash } }
+		local combo = if type(outcome.Combo) == "number" then math.floor(outcome.Combo) else 0
+		if combo >= 2 then
+			table.insert(lines, { Text = "🔥 ×" .. combo, Color = Theme.Colors.Primary })
+		end
+		moneyPop(position + Vector3.new(0, 1, 0), lines)
+		task.delay(0.2, Hud.fly, position + Vector3.new(0, 3, 0), "💰", "Cash", Kit.Juice.coins(tip))
+	end
+	if id and outcome.Complete == true then
+		sessionAt[id] = nil
+	end
+end
+
+local function guarded(name: string, fn: (...any) -> ()): (...any) -> ()
+	return function(...)
+		local ok, err = pcall(fn, ...)
+		if not ok then
+			warn("[CureFX] " .. name .. " failed:", err)
+		end
+	end
+end
+
 function CureFX.init(context: Types.Ctx)
 	ctx = context
-	ctx.Remotes.Cured.OnClientEvent:Connect(function(info: any)
-		local ok, err = pcall(onCured, info)
-		if not ok then
-			warn("[CureFX] cure effect failed:", err)
-		end
-	end)
+	ctx.Remotes.Cured.OnClientEvent:Connect(guarded("cure effect", onCured))
+	ctx.on("TreatStart", guarded("TreatStart", onTreatStart))
+	ctx.on("MiniGameRated", guarded("MiniGameRated", onRated))
+	ctx.on("TreatDone", guarded("TreatDone", onTreatDone))
 	watchSnapshots()
 	watchHearts()
 end

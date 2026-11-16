@@ -2,12 +2,17 @@
 -- Cash, upgrades and the shop (build plan §B5). Server only: the client asks, the server decides.
 --   Economy.addCash(p, n): boolean          adds a whole amount > 0 (fractions round down)
 --   Economy.spendCash(p, n): boolean        takes n (fractions round up) only if the player has it all
+--   Economy.charge(p, n, apply): boolean    takes n and runs apply(data) in ONE PlayerData.update (no yield
+--                                           between), only if the player has it all. Server/Levels' level-up uses it
 --   Economy.level(p, upgradeId): number     the player's upgrade level (0 if unknown or not loaded)
---   Economy.purchase(p, kind, id): (ok, message)   kind "Upgrade" | "Room" | "Decor"; validates everything
+--   Economy.purchase(p, kind, id): (ok, message)   kind "Upgrade" | "Room" | "Decor"; validates everything. A room
+--                                           also needs its hospital level (Rooms.Level: the Garden needs Lv 3),
+--                                           checked by Logic/Progress.canBuyRoom from the save's Level
 --   Economy.placeDecor(p, slotKey, decorId?): (ok, message)   the PlaceDecor request; nil decorId puts it away
 --   Economy.toast(p, text) · Economy.toastAll(text)
---   Economy.Purchased                       signal (p, kind, id) after a purchase lands (Carry can watch Tray)
---   start() wires the Purchase and PlaceDecor remotes
+--   Economy.Purchased                       signal (p, kind, id) after a purchase lands (Carry can watch Tray);
+--                                           kind "Level" with id "<new level>" comes from Server/Levels
+--   start() wires the Purchase and PlaceDecor remotes (LevelUp is Server/Levels')
 --
 -- Security (roblox-networking): Remotes.serve rate-limits each remote (Config.RemoteRatePerSecond per player)
 -- and pcalls the handler. Here every argument is checked cheapest first: type and length, a known id (rawget,
@@ -120,6 +125,14 @@ local function charge(player: Player, price: number, apply: (Types.Data) -> ()):
 	end)
 end
 
+-- The same, for other server systems (Server/Levels): a whole price >= 0 (fractions round up).
+function Economy.charge(player: Player, price: number, apply: (Types.Data) -> ()): boolean
+	if not isPlayer(player) or not finite(price) or price < 0 or type(apply) ~= "function" then
+		return false
+	end
+	return charge(player, math.ceil(price), apply)
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- Cash
 ------------------------------------------------------------------------------------------------------------------
@@ -199,6 +212,7 @@ local function buyRoom(player: Player, data: Types.Data, id: string): (boolean, 
 	if not Plots.getPlot(player) then
 		return false, MSG.NoPlot
 	end
+	-- Owned, season, hospital level (room.Level vs data.Level: "Needs 🏥 Lv 3"), ⭐ gate, then cash.
 	local ok, message = ProgressLogic.canBuyRoom(data, room, id, isWinter())
 	if not ok then
 		return false, message

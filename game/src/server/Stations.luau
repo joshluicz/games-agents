@@ -20,8 +20,11 @@
 -- carries the attributes `StationId` and `ItemId`.
 --
 -- A full tray never blocks the clinic. Treatments are free, so making something with a full tray swaps out the
--- oldest item that's different ("🔄 🧪 ➜ 🩹"): a kid holding the wrong thing just makes the right one. Only a
--- tray already full of this very item refuses ("Tray full!"), since a swap would change nothing.
+-- oldest item that's different ("🔄 🧪 ➜ 🩹"): a kid holding the wrong thing just makes the right one. With
+-- recipes (depth update §1) it first gives up an item nobody in this clinic's line needs (the plot's QueueNeeds,
+-- set by Patients), so a recipe's other item is kept whenever there's a spare one to drop (a tray of 1 still swaps:
+-- give the first item, then make the next). Only a tray already full of this very item refuses ("Tray full!"),
+-- since a swap would change nothing.
 --
 -- Feedback is immediate: a refusal (a locked clinic, a tray full of this item) toasts when the hold BEGINS, so
 -- nobody holds for nothing. Toasts are short (≤ 6 words, icon first) and the same toast is sent at most once
@@ -45,6 +48,7 @@ local Palette = require(Shared.Palette)
 local ItemData = require(Shared.Data.Items)
 local StationData = require(Shared.Data.Stations)
 local Prices = require(Shared.Logic.Prices)
+local Recipe = require(Shared.Logic.Recipe)
 local Carry = require(script.Parent.Carry)
 local Daily = require(script.Parent.Daily)
 local Plots = require(script.Parent.Plots)
@@ -98,18 +102,49 @@ local function toast(player: Player, text: string)
 	Remotes.toast(player, text)
 end
 
--- The item a full tray gives up to make room for `itemId`: the oldest one that's different. nil when the tray
--- has room, or holds nothing but `itemId` (swapping would change nothing).
-local function swapOut(player: Player, itemId: string): string?
+------------------------------------------------------------------------------------------------------------------
+-- Pure helpers (no Roblox services; a scratch Lune harness loads this block on its own)
+------------------------------------------------------------------------------------------------------------------
+
+-- PURE-BEGIN
+local Pure = {}
+
+-- Which carried item to give up to make room for `itemId` (`carried` oldest first): the oldest one that's
+-- different and isn't covering something the line still needs (`needs`, duplicates counted), else the oldest one
+-- that's different. nil when every carried item is `itemId` (swapping would change nothing).
+function Pure.swapOut(carried: { string }, itemId: string, needs: { string }): string?
+	local wanted: { [string]: number } = {}
+	for _, need in needs do
+		wanted[need] = (wanted[need] or 0) + 1
+	end
+	local oldest: string? = nil
+	for _, item in carried do
+		if item ~= itemId then
+			oldest = oldest or item
+			local left = wanted[item]
+			if left and left > 0 then
+				wanted[item] = left - 1 -- this one is spoken for
+			else
+				return item -- nobody in line needs it
+			end
+		end
+	end
+	return oldest
+end
+-- PURE-END
+
+-- What everyone in this clinic's line still needs (Patients keeps the plot's QueueNeeds attribute).
+local function lineNeeds(plot: Plot?): { string }
+	return Recipe.split(if plot then plot.Model:GetAttribute("QueueNeeds") else nil)
+end
+
+-- The item a full tray gives up to make room for `itemId` (Pure.swapOut). nil when the tray has room, or holds
+-- nothing but `itemId`.
+local function swapOut(player: Player, itemId: string, plot: Plot?): string?
 	if not Carry.isFull(player) then
 		return nil
 	end
-	for _, carried in Carry.items(player) do
-		if carried ~= itemId then
-			return carried
-		end
-	end
-	return nil
+	return Pure.swapOut(Carry.items(player), itemId, lineNeeds(plot))
 end
 
 -- Why this player can't make `itemId` here right now, or nil if they can.
@@ -117,7 +152,7 @@ local function refusal(player: Player, plot: Plot, itemId: string): string?
 	if not plot.Owner or not Plots.canWork(player, plot) then
 		return NOT_YOURS
 	end
-	if Carry.isFull(player) and swapOut(player, itemId) == nil then
+	if Carry.isFull(player) and swapOut(player, itemId, plot) == nil then
 		return TRAY_FULL -- full of this very item already
 	end
 	return nil
@@ -255,7 +290,7 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 			return
 		end
 		-- A full tray swaps its oldest different item for this one (treatments are free, so nothing is lost).
-		local swapped = swapOut(player, itemId)
+		local swapped = swapOut(player, itemId, plot)
 		if swapped then
 			Carry.take(player, swapped)
 		end

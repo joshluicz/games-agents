@@ -9,6 +9,7 @@ Config.CurrencyName = "Cash" -- the leaderstats name, and what the HUD calls mon
 
 -- Pay (Logic/Pay)
 Config.BasePay = 12 -- cash for one cure before bonuses
+Config.RecipeItemBonus = 0.5 -- each recipe item after the first adds +50% (a 2-item cure pays x1.5, 3 items x2)
 Config.QuickServeBonus = 0.5 -- up to +50% for curing with most of the patience left
 Config.TipsPerLevel = 0.2 -- each Tip Jar level adds +20% cash
 Config.NightPayMultiplier = 2
@@ -26,7 +27,7 @@ Config.QueueSpacing = 7 -- studs between patients in the queue (creatures are pl
 Config.QueueDepth = 14 -- studs the line runs straight back from the counter before it turns sideways (3 fit straight)
 Config.CreatureSize = 1.6 -- every creature's size multiplier (about a player's height)
 Config.CreatureSizeJitter = 0.08 -- each patient is up to 8% smaller or bigger than its species (Logic/CreatureSize)
-Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7)
+Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7); Lv 1. Data/Levels SpawnSeconds is per level
 Config.RecoverSeconds = 4 -- time in bed (or in place) before the cure lands
 Config.QueuePatienceRate = 0.5 -- patience drains at this speed behind the front of the line (1 = full speed)
 Config.GuestPatienceMultiplier = 1.5 -- regulars and Today's Visitor wait this much longer
@@ -121,6 +122,77 @@ Config.Music = {
 	Night = {
 		80900515881139, -- Moonlight Through the Restaurant Window
 	},
+}
+
+------------------------------------------------------------------------------------------------------------------
+-- Depth update (docs/plan/2026-11-16-depth-update-build-plan.md §B6). Claude's tuning, open to change.
+------------------------------------------------------------------------------------------------------------------
+
+-- Treating v2: one short mini-game per recipe item (Logic/MiniGame). Ratings are OK / Good / Perfect and OK still
+-- cures (no fail states). A Perfect tips a little cash and builds the combo; tips are cash only and capped per cure.
+Config.MiniGame = {
+	PerfectTip = 3, -- cash per Perfect, before the combo multiplier
+	TipCapPerCure = 15, -- the most tip cash one patient can give, however many Perfects
+	Combo = { -- Perfects in a row (a non-Perfect resets it): the tip multiplier from At on
+		{ At = 3, Multiplier = 1.2 },
+		{ At = 6, Multiplier = 1.5 },
+		{ At = 10, Multiplier = 2 },
+	},
+	-- Server plausibility: a report sooner than Slack x the games' minimum time is rated all OK.
+	MinSeconds = { Pour = 1.2, Patch = 1, Scrub = 1.5, Cool = 1.5 },
+	SimpleMinSeconds = 0.25, -- Simple mode: one tap per game
+	Slack = 0.8,
+	-- A session nobody reports on settles as all OK after SessionSeconds + PerGameSeconds x games.
+	SessionSeconds = 12,
+	PerGameSeconds = 6,
+	-- The games themselves (client; MiniGame.rate reads these so they tune in one place)
+	Pour = { FillSeconds = 2.4, BandMin = 0.7, BandMax = 0.86, GoodSlack = 0.12 }, -- hold, let go in the band
+	Patch = { Spots = 3, Seconds = 4.5, Good = 2 }, -- tap the sore spots
+	Scrub = { Seconds = 4, Perfect = 6, Good = 3 }, -- pop the bubbles
+	Cool = { Blows = 3, Good = 2, PulseSeconds = 1.2, Window = 0.3 }, -- blow when the steam ring is biggest
+}
+
+-- The treat flow (Server/Treatment)
+Config.Treat = {
+	ItemPatience = 0.25, -- each recipe item given back fills this share of the patient's patience
+	Distance = 20, -- studs from the Counter: a TreatResult from farther away is rated all OK
+}
+
+-- The Nurse Belt: one shared conveyor in the town plaza (memory-20261116-012/-013, Logic/Belt, Server/NurseBelt).
+-- Cash only. Every odd, event odds included, is printed on the belt's sign.
+Config.Belt = {
+	Offset = Vector3.new(24, 0, 0), -- the belt's start from Town.Origin; riders move toward +X
+	Length = 44, -- studs
+	ArriveSeconds = 6, -- a nurse steps on this often
+	RideSeconds = 30, -- start to end; nobody hires it: it hops off the end
+	ReplaceSeconds = 1.5, -- a hired Common or Rare is replaced this soon
+	Odds = { Common = 70, Rare = 24, Epic = 5, Legendary = 1 }, -- percent
+	NightRushBoost = 2, -- during the in-game night, Rare, Epic and Legendary odds x this (Common takes the rest)
+	NightRushMythic = 0.5, -- percent: Mythic, only during Night Rush
+	GoldenSecret = 1, -- percent: Secret, only during Golden Hour
+	GoldenEverySeconds = 1200, -- Golden Hour starts every 20 minutes of server uptime...
+	GoldenSeconds = 120, -- ...and lasts 2 minutes
+	PityArrivals = 8, -- after this many arrivals in a row without a Rare+, the next is Rare+ (server-wide)
+	HireCooldown = 3, -- seconds per player
+	HireDistance = 40, -- studs from the rider (a tap on its billboard reaches this far)
+	SeenDistance = 100, -- studs: a player this close to a rider has seen it (the Journal's silhouette fills in)
+	ServerStepSeconds = 1, -- the server moves riders this often; clients glide them every frame
+	MaxRiders = 8, -- a safety cap on riders at once
+	Prices = { Common = 100, Rare = 400, Epic = 1500, Legendary = 6000, Mythic = 20000, Secret = 50000 },
+	PriceScale = { 1, 1.1, 1.2, 1.3, 1.4 }, -- x by hospital level, so newcomers can always afford Commons (open: §E5)
+}
+
+-- Nurses on your plot (Logic/Nurse, Server/Nurses). Speed and strength scale with rarity x level (1-5).
+Config.Nurses = {
+	MaxLevel = 5, -- hiring the same nurse again adds a level, up to this
+	TrayMax = 4, -- items Makers keep ready in the plot's nurse tray
+	MinSeconds = 3, -- no nurse works faster than this
+	FasterPerLevel = 0.08, -- each level above 1 takes this share off a Maker's or Healer's seconds
+	MakerSeconds = { Common = 14, Rare = 12, Epic = 10, Legendary = 8, Mythic = 7, Secret = 6 },
+	HealerSeconds = { Common = 16, Rare = 14, Epic = 12, Legendary = 10, Mythic = 9, Secret = 8 },
+	CheerPatience = { Common = 0.1, Rare = 0.15, Epic = 0.2, Legendary = 0.3, Mythic = 0.35, Secret = 0.4 },
+	CheerTip = { Common = 0.05, Rare = 0.08, Epic = 0.12, Legendary = 0.18, Mythic = 0.22, Secret = 0.25 },
+	CheerPerLevel = 0.03, -- each level above 1 adds this to both Cheerer bonuses
 }
 
 -- Game passes. 0 = not created. Nothing paid exists in this build (plan: Global Constraints), and the

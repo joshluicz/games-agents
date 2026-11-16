@@ -1,15 +1,31 @@
 --!strict
--- Save schema v2 (build plan §B3). Pure: no Roblox services, no requires, so Lune can test it.
+-- Save schema v3 (build plan §B3; depth-update build plan §B1). Pure: no Roblox services, no requires, so Lune
+-- can test it.
 --   Schema.default(): Data            a fresh save
 --   Schema.reconcile(saved: any, today: number?): Data  repairs anything loaded from a DataStore into a valid
---   v2 save:
+--   v3 save:
 --     · v1 shop-sim saves { Cash, Served, Upgrades } migrate: Served -> Cured; Speed, Tray and Tips are kept
 --     · unknown fields are dropped, and bad types or non-finite numbers are replaced by defaults
 --     · with `today` (the real UTC day), every saved day field later than today is pulled back to today, so a
 --       Studio test that moved Workspace.UtcDay forward can't lock a real save out of its mailbox, goals or story
 --     · the result never shares a table with `saved`
 --   Schema.isNewer(saved: any): boolean  the save was written by a newer schema (never write it back down)
+--   Schema.levelFromRooms(rooms): number  the hospital level a save's rooms imply (for saves from before levels)
 --   Schema.TUTORIAL_FIRST / TUTORIAL_DONE   the Tutorial values for the welcome and for done
+--
+-- v3 (the depth update) adds Level, Nurses, Equipped, NurseIndex, JournalSets and Simple. The version went up so an
+-- older server, still running while the update rolls out, loads a v3 save read-only (isNewer) instead of saving it
+-- back without its nurses. Every v2 save migrates: Level from its rooms (levelFromRooms), no nurses, an empty
+-- journal, Simple off.
+--   Level        1..MAX_LEVEL. Missing or junk: the level the rooms imply. ROOM_LEVELS gives, for each room, the
+--                highest level whose ⭐ gate is at or below the room's own ⭐ gate (Logic/Levels.impliedByRoom
+--                computes the same from Data; Levels.spec checks they match). No rooms: 1.
+--   Nurses       { [NurseId]: { Level, Copies } }: Copies an integer >= 1 (junk -> 1), Level an integer in
+--                1..min(MAX_NURSE_LEVEL, Copies) (junk -> that top). Unknown ids are kept, like Book pages.
+--   Equipped     { NurseId } in order: strings, no repeats, each one owned (in Nurses), at most Level of them.
+--   NurseIndex   { [NurseId]: "Seen" | "Hired" }: anything else dropped; every owned nurse is "Hired".
+--   JournalSets  { [Rarity]: true }: the journal rarity groups whose reward was granted.
+--   Simple       Simple mode (true only when saved exactly true).
 --
 -- Fields added inside v2 (missing in older v2 saves, so they reconcile to their defaults):
 --   VisitorDay      the UTC day this clinic last cured Today's Visitor (0 = never): once per player per day,
@@ -33,6 +49,7 @@ export type BookPage = { Cured: number, Variants: { [string]: boolean } }
 export type StoryEntry = { Beat: number, LastBeatDay: number }
 export type Goal = { Id: string, Progress: number, Day: number }
 export type Playtime = { Day: number, TodaySeconds: number, TotalSeconds: number, Claimed: { number }, Rank: number }
+export type NurseEntry = { Level: number, Copies: number }
 export type Data = {
 	Version: number,
 	Cash: number,
@@ -55,11 +72,17 @@ export type Data = {
 	Boosts: { [string]: number },
 	Stats: { [string]: number },
 	Badges: { [string]: number },
+	Level: number,
+	Nurses: { [string]: NurseEntry },
+	Equipped: { string },
+	NurseIndex: { [string]: string },
+	JournalSets: { [string]: boolean },
+	Simple: boolean,
 }
 
 local Schema = {}
 
-Schema.VERSION = 2
+Schema.VERSION = 3
 Schema.UPGRADES = table.freeze({ "Speed", "Tray", "Chairs", "Tips" })
 Schema.MAX_GOALS = 10 -- a safety cap on banked goals in a save; the real cap is Config.MaxBankedGoals
 Schema.MAX_GIFTS = 32 -- a safety cap on play gift indexes; the real list is Data/Playtime.Gifts
@@ -71,6 +94,11 @@ Schema.MAX_KEY_LENGTH = 40
 -- Logic/Tutorial's WELCOME and DONE, repeated because Schema has no requires (Tutorial.spec checks they match).
 Schema.TUTORIAL_FIRST = 1
 Schema.TUTORIAL_DONE = 9
+-- Data/Levels and Config.Nurses values, repeated because Schema has no requires (Levels.spec checks they match).
+Schema.MAX_LEVEL = 5
+Schema.MAX_NURSE_LEVEL = 5
+Schema.MAX_NURSES = 64 -- a safety cap on nurse entries in a save (the roster has 16)
+Schema.ROOM_LEVELS = table.freeze({ BathRoom = 1, Ward = 2, WinterWing = 2, Garden = 3 })
 
 function Schema.default(): Data
 	local upgrades: { [string]: number } = {}
@@ -99,6 +127,12 @@ function Schema.default(): Data
 		Boosts = {},
 		Stats = { Seeded = 1 }, -- nothing older to count from
 		Badges = {},
+		Level = 1,
+		Nurses = {},
+		Equipped = {},
+		NurseIndex = {},
+		JournalSets = {},
+		Simple = false,
 	}
 end
 
@@ -256,6 +290,76 @@ local function reconcilePlaytime(value: any, today: number?): Playtime
 	return out
 end
 
+function Schema.levelFromRooms(rooms: any): number
+	local level = 1
+	if isTable(rooms) then
+		for roomId, implied in Schema.ROOM_LEVELS do
+			if rooms[roomId] == true then
+				level = math.max(level, implied)
+			end
+		end
+	end
+	return level
+end
+
+local function isInteger(value: any): boolean
+	return type(value) == "number" and value == value and value % 1 == 0 and math.abs(value) < 1e9
+end
+
+local function reconcileNurses(value: any): { [string]: NurseEntry }
+	local out: { [string]: NurseEntry } = {}
+	if not isTable(value) then
+		return out
+	end
+	local kept = 0
+	for nurseId, entry in value do
+		if kept >= Schema.MAX_NURSES then
+			break
+		end
+		if type(nurseId) == "string" and #nurseId > 0 and #nurseId <= 40 and isTable(entry) then
+			local copies = count(entry.Copies, 1) or 1
+			local top = math.min(Schema.MAX_NURSE_LEVEL, copies)
+			local level = if isInteger(entry.Level) then math.clamp(entry.Level, 1, top) else top
+			out[nurseId] = { Level = level, Copies = copies }
+			kept += 1
+		end
+	end
+	return out
+end
+
+local function reconcileEquipped(value: any, nurses: { [string]: NurseEntry }, slots: number): { string }
+	local out: { string } = {}
+	if not isTable(value) then
+		return out
+	end
+	local seen: { [string]: boolean } = {}
+	for _, nurseId in ipairs(value) do
+		if #out >= slots then
+			break
+		end
+		if type(nurseId) == "string" and nurses[nurseId] and not seen[nurseId] then
+			seen[nurseId] = true
+			table.insert(out, nurseId)
+		end
+	end
+	return out
+end
+
+local function reconcileIndex(value: any, nurses: { [string]: NurseEntry }): { [string]: string }
+	local out: { [string]: string } = {}
+	if isTable(value) then
+		for nurseId, mark in value do
+			if type(nurseId) == "string" and #nurseId <= 40 and (mark == "Seen" or mark == "Hired") then
+				out[nurseId] = mark
+			end
+		end
+	end
+	for nurseId in nurses do
+		out[nurseId] = "Hired"
+	end
+	return out
+end
+
 -- Pulls every saved day field that's later than `today` back to today.
 local function clampDays(data: Data, today: number)
 	local function clamp(day: number): number
@@ -346,6 +450,17 @@ function Schema.reconcile(saved: any, today: number?): Data
 	data.Boosts = numberMap(saved.Boosts, 0, Schema.MAX_BOOST_SECONDS, true)
 	data.Stats = numberMap(saved.Stats, 0, math.huge, false)
 	data.Badges = numberMap(saved.Badges, 0, Schema.MAX_TIER, true)
+
+	-- The depth update (v3). A v2 save has no Level: it starts at the level its rooms imply.
+	local level = saved.Level
+	data.Level = if isInteger(level) and level >= 1
+		then math.min(level, Schema.MAX_LEVEL)
+		else Schema.levelFromRooms(data.Rooms)
+	data.Nurses = reconcileNurses(saved.Nurses)
+	data.Equipped = reconcileEquipped(saved.Equipped, data.Nurses, data.Level)
+	data.NurseIndex = reconcileIndex(saved.NurseIndex, data.Nurses)
+	data.JournalSets = trueSet(saved.JournalSets)
+	data.Simple = saved.Simple == true
 
 	local realDay = count(today, 0)
 	if realDay then

@@ -1,11 +1,14 @@
 --!strict
 -- Room unlocks and the one clear "next goal" (build plan §B6, design §5.5). Pure: no Roblox services, no requires.
 --   Progress.canBuyRoom(data, room, roomId, isWinter?): (ok, message)
---       checks, in order: owned · in season · Clinic Stars · cash. The message is short (6 words or fewer) and
---       says what's missing: "Already yours!", "❄️ Winter only!", "Need ⭐10", "Need 💰150". "" when ok.
+--       checks, in order: owned · in season · hospital level (room.Level vs data.Level, nil = 1) · Clinic Stars ·
+--       cash. The message is short (6 words or fewer) and says what's missing: "Already yours!", "❄️ Winter only!",
+--       "Needs 🏥 Lv 3", "Need ⭐10", "Need 💰150". "" when ok.
 --   Progress.nextGoal(data, rooms, upgrades, isWinter?): { Kind, Id }
---       Kind "Room": the unowned room with the fewest StarsNeeded (rooms.Order breaks ties), skipping free rooms and
---       rooms out of season. Then Kind "Upgrade": the cheapest next upgrade level. Then Kind "None", Id "".
+--       Kind "Room": the unowned room with the fewest StarsNeeded (rooms.Order breaks ties), skipping free rooms,
+--       rooms out of season and rooms above the hospital level (Progress.levelAllows). Then Kind "Upgrade": the
+--       cheapest next upgrade level. Then Kind "None", Id "".
+--   Progress.levelAllows(data, room): boolean   the save's hospital level (nil = 1) reaches room.Level (nil = 1)
 --   Progress.unlockedBetween(rooms, before, after): { RoomId }
 --       rooms whose StarsNeeded was crossed going from `before` to `after` stars (for the "unlocked!" toast)
 --   Progress.parseSlotKey(rooms, slotKey): (RoomId?, n?)
@@ -17,6 +20,7 @@ export type Room = {
 	Price: number,
 	StarsNeeded: number,
 	Season: string?,
+	Level: number?, -- the hospital level it needs (depth update; nil = 1)
 }
 export type Goal = { Kind: string, Id: string }
 
@@ -24,6 +28,7 @@ local Progress = {}
 
 Progress.CASH_ICON = "💰" -- the same coin bag the HUD wallet, CureFX pops and room previews show
 Progress.STAR_ICON = "⭐"
+Progress.LEVEL_ICON = "🏥"
 Progress.MAX_SLOT_KEY_LENGTH = 48
 
 local function count(value: any): number
@@ -68,6 +73,12 @@ local function ordered(map: any): { string }
 	return ids
 end
 
+function Progress.levelAllows(data: any, room: any): boolean
+	local level = if type(data) == "table" then count(data.Level) else 0
+	local needed = if type(room) == "table" then count(room.Level) else 0
+	return needed <= math.max(1, level)
+end
+
 function Progress.canBuyRoom(data: any, room: Room?, roomId: string, isWinter: boolean?): (boolean, string)
 	if type(data) ~= "table" or type(room) ~= "table" or type(roomId) ~= "string" then
 		return false, "Coming soon!"
@@ -77,6 +88,10 @@ function Progress.canBuyRoom(data: any, room: Room?, roomId: string, isWinter: b
 	end
 	if not inSeason(room, isWinter) then
 		return false, "❄️ Winter only!"
+	end
+	local levelNeeded = count(room.Level)
+	if levelNeeded > math.max(1, count(data.Level)) then
+		return false, "Needs " .. Progress.LEVEL_ICON .. " Lv " .. levelNeeded
 	end
 	local starsNeeded = count(room.StarsNeeded)
 	if count(data.Stars) < starsNeeded then
@@ -99,7 +114,13 @@ function Progress.nextGoal(data: any, rooms: any, upgrades: any, isWinter: boole
 	for _, roomId in ordered(rooms) do
 		local room = rawget(rooms, roomId)
 		local stars = count(room.StarsNeeded)
-		if count(room.Price) > 0 and not owns(data, roomId) and inSeason(room, isWinter) and stars < bestStars then
+		if
+			count(room.Price) > 0
+			and not owns(data, roomId)
+			and inSeason(room, isWinter)
+			and Progress.levelAllows(data, room)
+			and stars < bestStars
+		then
 			bestRoom, bestStars = roomId, stars
 		end
 	end

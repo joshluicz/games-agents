@@ -6,9 +6,12 @@
 --    outline runs from you to where to go next, with a bouncing candy map pin over it (a disc in the target's
 --    colour, a thick dark outline, a white middle with the icon). The bounce stops while Hud.calm():
 --      the front patient waits and you don't carry its treatment  -> the matching Station_* (its icon, its colour)
---      you carry the right item                                    -> the Counter (the patient's ailment icon)
+--      you carry the right item (any item in the plot's FrontNeeds) -> the Counter (the patient's ailment icon)
 --    Only on your own plot. It is all local (a client-only Part, Beam and BillboardGui), survives respawn, and
---    removes itself for good once you reach the goal. A player in the first-session tutorial keeps it through
+--    removes itself for good once you reach the goal. It looks again every STEP_SECONDS while it shows (you walk,
+--    the patient hops); with nothing to show it rests (the pin's bounce paused) until something it reads changes
+--    (your plot, what you carry, your cures, the snapshot, the plot's FrontStation/FrontNeeds) or IDLE_SECONDS pass. A player
+--    in the first-session tutorial keeps it through
 --    the tutorial's step 6 (Snapshot.Tutorial) instead, and UI/Tutorial steers it (Guide.setSteer):
 --      Guide.setSteer(fn?)   fn(plot) returns nil (the usual arrow: station, then Counter), false (no arrow now),
 --                            or { Part: BasePart, Icon: string, Color: Color3, Height: number? } (point there;
@@ -17,11 +20,12 @@
 --    server's own hold time with every boost), or Logic/Prices.makeSeconds(Snapshot.Upgrades.Speed) without it, so the
 --    ring matches your Faster Hands level and boosts. The server
 --    sets the slowest time (Speed 0) and times each hold against the MAKER's own level (Stations), so this only
---    makes the ring honest. Prompts are found by the `StationPrompt` tag (Stations.PROMPT_TAG), with any prompt
---    under a `Station_*` part inside Workspace.Clinics as a fallback.
+--    makes the ring honest. Prompts are found by the `StationPrompt` tag (Stations.PROMPT_TAG; Stations tags every
+--    one it makes), so nothing here listens to every part added to the town.
 --
 -- Reading patients (all set by the server's Patients module, read-only here): the plot's FrontStation attribute
--- (the StationId the front patient needs while it waits, "" otherwise), and on each patient Model in
+-- (the StationId of the front patient's first missing item while it waits, "" otherwise) and FrontNeeds (every
+-- item it still needs, comma-joined), and on each patient Model in
 -- Plot_<n>.Patients: PatientId, Ailment, QueueIndex (1 = front) and State ("Waiting" = can be treated). Without
 -- them it falls back to the model's name as the PatientId and the patient standing nearest QueueStart.
 
@@ -50,6 +54,7 @@ end
 
 local GUIDE_UNTIL_CURED = 3
 local STEP_SECONDS = 0.2
+local IDLE_SECONDS = 1 -- with nothing to show, look again after this at the latest
 local NEAR_STUDS = 8 -- closer than this, the arc hides (you're there) but the bubble stays
 local FRONT_STUDS = 8 -- fallback: a patient this close to QueueStart counts as the front one
 local UP = CFrame.Angles(0, 0, math.pi / 2) -- turns an Attachment's axis (X) to point up, so the arc bows upward
@@ -77,23 +82,6 @@ end
 
 local PROMPT_TAG = "StationPrompt" -- Stations.PROMPT_TAG (a server module, so not required here)
 
-local function isStationPrompt(prompt: ProximityPrompt): boolean
-	if CollectionService:HasTag(prompt, PROMPT_TAG) then
-		return true
-	end
-	local node: Instance? = prompt.Parent
-	for _ = 1, 3 do
-		if not node then
-			return false
-		end
-		if string.sub(node.Name, 1, 8) == "Station_" then
-			return true
-		end
-		node = node.Parent
-	end
-	return false
-end
-
 local function startHoldTimes(ctx: Types.Ctx)
 	local seconds = Prices.makeSeconds(0, ctx.Config)
 	-- Playtime branch: the server's own number per station (Snapshot.MakeSeconds: Faster Hands and every MakeSpeed
@@ -110,7 +98,7 @@ local function startHoldTimes(ctx: Types.Ctx)
 	end
 
 	local function track(instance: Instance)
-		if not instance:IsA("ProximityPrompt") or prompts[instance] or not isStationPrompt(instance) then
+		if not instance:IsA("ProximityPrompt") or prompts[instance] then
 			return
 		end
 		prompts[instance] = true
@@ -138,19 +126,11 @@ local function startHoldTimes(ctx: Types.Ctx)
 		end
 	end)
 
-	-- Tagged prompts (they also arrive later through streaming and new rooms) ...
+	-- Tagged prompts (they also arrive later through streaming and new rooms).
 	CollectionService:GetInstanceAddedSignal(PROMPT_TAG):Connect(track)
 	for _, tagged in CollectionService:GetTagged(PROMPT_TAG) do
 		track(tagged)
 	end
-	-- ... and, as a fallback, any prompt under a Station_* part in the town.
-	task.spawn(function()
-		local clinics = Workspace:WaitForChild("Clinics")
-		clinics.DescendantAdded:Connect(track)
-		for _, descendant in clinics:GetDescendants() do
-			track(descendant)
-		end
-	end)
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -356,8 +336,21 @@ local function startArrow(ctx: Types.Ctx)
 	paintPin(Theme.Colors.Primary)
 	marker.Parent = Workspace
 
-	-- The bob follows the calm setting live: it stops (and rests) as soon as Hud.calm() turns on.
+	-- The bob follows the calm setting live: it stops (and rests) as soon as Hud.calm() turns on. It only plays
+	-- while the pin shows (a hidden pin's endless tween would still run every frame).
 	local bounce: Tween? = nil
+	local function playBounce()
+		local current = bounce
+		if current then
+			if bubble.Enabled then
+				if current.PlaybackState ~= Enum.PlaybackState.Playing then
+					current:Play()
+				end
+			elseif current.PlaybackState == Enum.PlaybackState.Playing then
+				current:Pause()
+			end
+		end
+	end
 	local function syncBounce()
 		local still = Hud.calm()
 		if still and bounce then
@@ -366,13 +359,12 @@ local function startArrow(ctx: Types.Ctx)
 			bubble.StudsOffset = REST_OFFSET
 		elseif not still and not bounce then
 			bubble.StudsOffset = REST_OFFSET
-			local created = TweenService:Create(
+			bounce = TweenService:Create(
 				bubble,
 				TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
 				{ StudsOffset = BOUNCE_OFFSET }
 			)
-			bounce = created
-			created:Play()
+			playBounce()
 		end
 	end
 	syncBounce()
@@ -402,6 +394,7 @@ local function startArrow(ctx: Types.Ctx)
 		setArc(false)
 		bubble.Enabled = false
 		shownKey = ""
+		playBounce()
 	end
 
 	local function show(part: BasePart, iconText: string, color: Color3, height: number?)
@@ -421,6 +414,7 @@ local function startArrow(ctx: Types.Ctx)
 			end
 		end
 		bubble.Enabled = true
+		playBounce()
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local near = root ~= nil and root:IsA("BasePart") and (root.Position - part.Position).Magnitude < NEAR_STUDS
@@ -473,7 +467,19 @@ local function startArrow(ctx: Types.Ctx)
 			hide()
 			return
 		end
-		local carrying = table.find(splitCarry(player:GetAttribute("Carry")), station.Item) ~= nil
+		-- Carrying any item the front patient still needs (FrontNeeds: a later recipe item counts too, Treat takes it)
+		-- means the Counter is next.
+		local carried = splitCarry(player:GetAttribute("Carry"))
+		local carrying = table.find(carried, station.Item) ~= nil
+		local frontNeeds = plot:GetAttribute("FrontNeeds")
+		if not carrying and type(frontNeeds) == "string" then
+			for itemId in string.gmatch(frontNeeds, "[^,]+") do
+				if table.find(carried, itemId) then
+					carrying = true
+					break
+				end
+			end
+		end
 		if carrying then
 			local counter = plot:FindFirstChild("Counter")
 			if counter and counter:IsA("BasePart") then
@@ -490,18 +496,77 @@ local function startArrow(ctx: Types.Ctx)
 		hide()
 	end
 
+	-- Resting with nothing to show: the loop sleeps until something it reads changes (or IDLE_SECONDS pass).
+	local waiting: thread? = nil
+	local function wake()
+		local thread = waiting
+		if thread then
+			waiting = nil
+			task.spawn(thread)
+		end
+	end
+	local function idle(seconds: number)
+		waiting = coroutine.running()
+		local timer = task.delay(seconds, wake)
+		coroutine.yield()
+		waiting = nil
+		pcall(task.cancel, timer) -- woken early: the timer mustn't wake a later rest (fails harmlessly if it ran)
+	end
+	local wakers: { RBXScriptConnection } = {}
+	for _, name in { "PlotIndex", "Carry", "Cured" } do
+		table.insert(wakers, player:GetAttributeChangedSignal(name):Connect(wake))
+	end
+	local stopState = ctx.onState(function()
+		wake()
+	end)
+	local watchedPlot: Instance? = nil
+	local plotConnections: { RBXScriptConnection } = {}
+	local function watchPlot()
+		local plotIndex = player:GetAttribute("PlotIndex")
+		local clinics = Workspace:FindFirstChild("Clinics")
+		local plot = if type(plotIndex) == "number" and clinics
+			then clinics:FindFirstChild("Plot_" .. plotIndex)
+			else nil
+		if plot ~= watchedPlot then
+			watchedPlot = plot
+			for _, connection in plotConnections do
+				connection:Disconnect()
+			end
+			table.clear(plotConnections)
+			if plot then
+				for _, name in { "FrontStation", "FrontNeeds" } do
+					table.insert(plotConnections, plot:GetAttributeChangedSignal(name):Connect(wake))
+				end
+			end
+		end
+	end
+
 	task.spawn(function()
 		while not done() do
-			local ok, err = pcall(step)
+			local ok, err = pcall(function()
+				watchPlot()
+				step()
+			end)
 			if not ok then
 				warn("[Guide] " .. tostring(err))
 				hide()
 			end
-			task.wait(STEP_SECONDS)
+			if bubble.Enabled then
+				task.wait(STEP_SECONDS)
+			else
+				idle(IDLE_SECONDS)
+			end
 		end
 		-- Goal reached: clean up for good.
 		characterConnection:Disconnect()
 		calmConnection:Disconnect()
+		for _, connection in wakers do
+			connection:Disconnect()
+		end
+		stopState()
+		for _, connection in plotConnections do
+			connection:Disconnect()
+		end
 		if bounce then
 			bounce:Cancel()
 		end

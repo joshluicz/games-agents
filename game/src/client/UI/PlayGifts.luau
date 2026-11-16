@@ -13,7 +13,7 @@
 -- Opening calls ClaimPlayGift(index); the server checks everything and decides what you get, the panel only shows it.
 -- Nothing here counts down to something you could miss: time only moves while you play, and a new UTC day just
 -- refills the gifts. No Robux, no streaks.
--- Bus: fires "Claimed" ("PlayGift", index) after the server says yes, and "Celebrate" (icon, text, colour) when the
+-- Bus: fires "Claimed" ("PlayGift", index) after the server says yes, and "Cheer" (icon, text, colour) when the
 -- Snapshot's Doctor rank goes up (BadgeBook shows the banner).
 -- Phones: the content scrolls, the cards go two to a row on a narrow panel, and every button is >= 56 px tall.
 
@@ -456,7 +456,7 @@ function PlayGifts.init(ctx: Types.Ctx)
 		if shownRank ~= nil and rank > shownRank then
 			local reached = ranks[rank]
 			if reached then
-				ctx.fire("Celebrate", reached.Icon, reached.Name .. "!", RANK_COLOR)
+				ctx.fire("Cheer", reached.Icon, reached.Name .. "!", RANK_COLOR)
 			end
 		end
 		shownRank = rank
