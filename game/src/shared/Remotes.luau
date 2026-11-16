@@ -8,6 +8,8 @@
 --   TutorialAck()   the welcome card was tapped (or shown 4 s). Server/Tutorial: it only ever moves step 1 -> 2
 --   Admin(action, arg?)   the 🛠️ Admin panel. Server/Admin checks the caller is an admin on every call (a
 --                   non-admin gets false and nothing happens) and validates action and arg (Logic/Admin)
+--   GetBoards() -> Payload?   the 🏆 leaderboards from the server's cache, with your own rank (Server/Leaderboards;
+--                   never a DataStore call, nil when rate-limited)
 --
 -- Server helpers (call only on the server):
 --   Remotes.serve(name, handler)  wires a RemoteFunction with the rate limit and error safety built in
@@ -26,7 +28,8 @@ local Config = require(script.Parent.Config)
 
 local FOLDER_NAME = "Remotes"
 local EVENTS = { "Toast", "State", "Cured", "DayReport" }
-local FUNCTIONS = { "Purchase", "PlaceDecor", "ClaimGoal", "ClaimMailbox", "GetState", "TutorialAck", "Admin" }
+local FUNCTIONS =
+	{ "Purchase", "PlaceDecor", "ClaimGoal", "ClaimMailbox", "GetState", "TutorialAck", "Admin", "GetBoards" }
 
 local IS_SERVER = RunService:IsServer()
 
@@ -72,6 +75,7 @@ local Remotes = {
 	GetState = folder:WaitForChild("GetState") :: RemoteFunction,
 	TutorialAck = folder:WaitForChild("TutorialAck") :: RemoteFunction,
 	Admin = folder:WaitForChild("Admin") :: RemoteFunction,
+	GetBoards = folder:WaitForChild("GetBoards") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.

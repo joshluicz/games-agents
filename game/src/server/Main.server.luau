@@ -54,6 +54,7 @@ local START_ORDER = {
 	"Stations",
 	"Patients",
 	"Visits",
+	"Leaderboards", -- after Plots (the town is built) and Visits; reads PlayerData's saves
 	"DayNight",
 	"Admin", -- last: the 🛠️ Admin remote calls into the systems above
 }

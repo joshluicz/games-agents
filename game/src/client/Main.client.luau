@@ -11,9 +11,10 @@
 --   ctx.on(event, fn) / ctx.fire(event, ...)   a tiny client bus between modules; on() returns a disconnect
 -- Bus events:
 --   "Toast" (text)                             every toast, server or local; UI.Toasts shows them
---   "Open" (name, tab?)                        name = "Shop" | "Book" | "Mailbox" | "Goals" | "Admin"; Shop tab =
---                                              "Upgrades" | "Rooms" | "Decor" (Hud buttons, DayReportPanel's Go
---                                              button; "Admin" from the ⚙️ panel's 🛠️, admins only)
+--   "Open" (name, tab?)                        name = "Shop" | "Book" | "Mailbox" | "Goals" | "Boards" | "Admin";
+--                                              Shop tab = "Upgrades" | "Rooms" | "Decor" (Hud buttons,
+--                                              DayReportPanel's Go button; "Boards" from the HUD's 🏆 Top; "Admin"
+--                                              from the ⚙️ panel's 🛠️, admins only)
 --   "ModalOpened" (name) · "ModalClosed" (name)   a panel opened or closed (Hud.modal)
 --   "BookNew" (count)                          unseen new Book pages, for the 📖 dot (BookPanel -> Hud)
 --   "Purchased" (kind, id)                     a Purchase the server said yes to (Shop)
@@ -59,6 +60,7 @@ local UI_MODULES = {
 	"Guide",
 	"PromptFilter",
 	"AdminPanel",
+	"Boards",
 	"Tutorial",
 }
 local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere" }

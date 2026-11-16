@@ -5,7 +5,8 @@
 --
 -- In order (each step is guarded, so a broken system downstream never stops the payout before it):
 --   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic)
---   2. Economy.addCash(helper)    the helper earns the cash (and their Cured count goes up)
+--   2. Economy.addCash(helper)    the helper earns the cash (and their Cured count goes up, and this UTC week's
+--                                 count for the weekly leaderboard: Logic/Leaderboard.addWeekCure)
 --   3. Progress.addStars(owner)   the clinic's owner earns the Clinic Stars (design §5.9: friends' cures count)
 --   4. Book.stamp(helper)         the helper's Patient Book
 --   5. Daily.onCure(helper, ctx)  the helper's daily goals
@@ -30,6 +31,7 @@ local Patients = require(Shared.Data.Patients)
 local Regulars = require(Shared.Data.Regulars)
 local Variants = require(Shared.Data.Variants)
 local Pay = require(Shared.Logic.Pay)
+local Leaderboard = require(Shared.Logic.Leaderboard)
 local PlayerData = require(script.Parent.PlayerData)
 local Economy = require(script.Parent.Economy)
 local Progress = require(script.Parent.Progress)
@@ -120,8 +122,10 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 	-- 2. The helper's cash and Cured count
 	if helperHere then
 		safely("Economy.addCash", Economy.addCash, helper, reward.Cash)
+		local week = Leaderboard.week(os.time())
 		PlayerData.update(helper, function(d)
 			d.Cured += 1
+			Leaderboard.addWeekCure(d.WeekCures, week)
 		end)
 	end
 

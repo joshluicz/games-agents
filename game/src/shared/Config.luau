@@ -52,6 +52,24 @@ Config.DataStoreName = "PlayerData_v2"
 Config.LegacyDataStoreName = "PlayerData_v1" -- read once to migrate shop-sim saves
 Config.AutosaveSeconds = 90
 
+-- Leaderboards (Server/Leaderboards, game/README.md "Leaderboards"). One OrderedDataStore per board, named
+-- "Board_<Id>_v<Version>"; the weekly board's name adds "_w<UTC week>", so it starts empty every Monday 00:00 UTC.
+-- Bump Version to start every board fresh. Admins (the owner and Config.AdminUserIds) are never on a board.
+Config.Leaderboards = {
+	Version = 1,
+	Boards = { "Cured", "Stars", "Hearts", "Week" }, -- the 🏆 panel's tabs, in order (Logic/Leaderboard.BOARDS)
+	WorldBoards = { "Cured", "Stars", "Hearts", "Week" }, -- the plaza boards, left to right (at most 4)
+	WriteSeconds = 150, -- a player's values are written at most this often (only what changed), and when they leave
+	RefreshSeconds = 120, -- each board is read this often (one request), and shared by everyone in the server
+	RetrySeconds = 30, -- the wait after a failed request; it doubles each time up to MaxBackoffSeconds
+	MaxBackoffSeconds = 600,
+	Depth = 100, -- rows read per board: your rank shows up to #100, then "#100+"
+	Shown = 10, -- rows on each board
+	NameCacheSeconds = 3600, -- names of players not in this server are looked up again after this
+	MinBudget = 1, -- a read or write waits while its DataStore budget has fewer requests left than this (the
+	-- saves use other request kinds, so nothing else competes for these)
+}
+
 -- Remotes: per player, per remote
 Config.RemoteRatePerSecond = 10
 
