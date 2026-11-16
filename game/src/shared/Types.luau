@@ -81,6 +81,16 @@ export type StoryEntry = { Beat: number, LastBeatDay: number }
 export type Goal = { Id: string, Progress: number, Day: number }
 export type DailyData = { Goals: { Goal }, LastGrantDay: number }
 export type DecorData = { Owned: { [DecorId]: boolean }, Placed: { [SlotKey]: DecorId } }
+-- Time-played rewards (Logic/Playtime): active play today (on Day) and all time, gifts opened on Day, rank rewarded.
+export type PlaytimeData = {
+	Day: number,
+	TodaySeconds: number,
+	TotalSeconds: number,
+	Claimed: { number },
+	Rank: number,
+}
+export type BoostId = string -- Data/Boosts
+export type BadgeId = string -- Data/Badges.List[n].Id
 
 export type Data = {
 	Version: number, -- 2
@@ -99,6 +109,10 @@ export type Data = {
 	VisitorDay: number, -- the UTC day this clinic last cured Today's Visitor (0 = never)
 	HeartsReceived: number, -- hearts left on this clinic's sign, all time (cosmetic)
 	Tutorial: number, -- the first-session tutorial step (Logic/Tutorial): 1 = the welcome .. 8, 9 = done
+	Playtime: PlaytimeData,
+	Boosts: { [BoostId]: number }, -- timed boosts still running: seconds of active play left
+	Stats: { [string]: number }, -- badge counters (Logic/Badges); "Seeded" = 1 once worked out from an older save
+	Badges: { [BadgeId]: number }, -- the badge tier rewarded so far (0..6)
 }
 
 ------------------------------------------------------------------------------------------------------------------
@@ -125,6 +139,20 @@ export type Snapshot = {
 	-- snapshot says 0 = not known yet, so the HUD stays calm until the server answers.
 	Tutorial: number,
 	TutorialCures: number, -- step 6 only: cures so far of the 2 more (0..2)
+	-- Time played, boosts and badges (Server/Playtime, Boosts, Badges). Playtime is the SAVED part: the live seconds
+	-- (with what's counted since the last save) are the player attributes PlayToday and PlayTotal.
+	Playtime: PlaytimeData,
+	Boosts: BoostList,
+	MakeSeconds: { [StationId]: number }, -- your hold time at each station, every boost included (Guide)
+	Stats: { [string]: number },
+	Badges: { [BadgeId]: number },
+}
+
+-- Server/Boosts.list: the timed boosts running (Left = saved seconds; subtract PlayTotal - Playtime.TotalSeconds for
+-- the live value) and the permanent percent of each kind that applies everywhere (capped).
+export type BoostList = {
+	Timed: { { Id: BoostId, Left: number } },
+	Permanent: { [string]: number },
 }
 
 export type VisitorStatus = "Coming" | "Done" | "None"
@@ -190,6 +218,9 @@ export type ClientData = {
 	DailyGoals: { GoalDef },
 	Wings: { [WingId]: Wing },
 	Variants: { [VariantId]: Variant },
+	Playtime: any, -- Data/Playtime: { Gifts, Ranks, Trainee }
+	Boosts: any, -- Data/Boosts: timed boosts by id, with .Order
+	Badges: any, -- Data/Badges: { Tiers, Categories, List }
 }
 
 export type Ctx = {

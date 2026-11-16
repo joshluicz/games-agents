@@ -13,8 +13,9 @@
 --      Guide.setSteer(fn?)   fn(plot) returns nil (the usual arrow: station, then Counter), false (no arrow now),
 --                            or { Part: BasePart, Icon: string, Color: Color3, Height: number? } (point there;
 --                            Height = the world Y of the pin's foot, default just above the part)
--- 2. Station hold time. Every station prompt's HoldDuration is set locally from
---    Logic/Prices.makeSeconds(Snapshot.Upgrades.Speed), so the ring matches your Faster Hands level. The server
+-- 2. Station hold time. Every station prompt's HoldDuration is set locally from Snapshot.MakeSeconds[StationId] (the
+--    server's own hold time with every boost), or Logic/Prices.makeSeconds(Snapshot.Upgrades.Speed) without it, so the
+--    ring matches your Faster Hands level and boosts. The server
 --    sets the slowest time (Speed 0) and times each hold against the MAKER's own level (Stations), so this only
 --    makes the ring honest. Prompts are found by the `StationPrompt` tag (Stations.PROMPT_TAG), with any prompt
 --    under a `Station_*` part inside Workspace.Clinics as a fallback.
@@ -95,11 +96,16 @@ end
 
 local function startHoldTimes(ctx: Types.Ctx)
 	local seconds = Prices.makeSeconds(0, ctx.Config)
+	-- Playtime branch: the server's own number per station (Snapshot.MakeSeconds: Faster Hands and every MakeSpeed
+	-- boost), so the ring matches what Stations times. Without it, Faster Hands alone as before.
+	local perStation: { [string]: number } = {}
 	local prompts: { [ProximityPrompt]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 	local function apply(prompt: ProximityPrompt)
-		if math.abs(prompt.HoldDuration - seconds) > 0.001 then
-			prompt.HoldDuration = seconds
+		local stationId = prompt:GetAttribute("StationId")
+		local wanted = if type(stationId) == "string" then perStation[stationId] or seconds else seconds
+		if math.abs(prompt.HoldDuration - wanted) > 0.001 then
+			prompt.HoldDuration = wanted
 		end
 	end
 
@@ -117,12 +123,18 @@ local function startHoldTimes(ctx: Types.Ctx)
 
 	ctx.onState(function(state: Types.Snapshot)
 		local level = (state.Upgrades or {}).Speed or 0
-		local wanted = Prices.makeSeconds(level, ctx.Config)
-		if wanted ~= seconds then
-			seconds = wanted
-			for prompt in prompts do
-				apply(prompt)
+		seconds = Prices.makeSeconds(level, ctx.Config)
+		local fromServer: { [string]: number } = {}
+		if type(state.MakeSeconds) == "table" then
+			for stationId, value in state.MakeSeconds do
+				if type(stationId) == "string" and type(value) == "number" and value > 0 and value < 60 then
+					fromServer[stationId] = value
+				end
 			end
+		end
+		perStation = fromServer
+		for prompt in prompts do
+			apply(prompt)
 		end
 	end)
 

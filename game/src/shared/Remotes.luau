@@ -7,6 +7,8 @@
 --   Purchase(kind, id) · PlaceDecor(slotKey, decorId?) · ClaimGoal(index) · ClaimMailbox() · GetState() -> Snapshot
 --   TutorialAck()   the welcome card was tapped (or shown 4 s). Server/Tutorial: it only ever moves step 1 -> 2
 --   Discard(itemId)     throw one held item away (the ✖ on the HUD hand); Server/Stations, rate-limited
+--   ClaimPlayGift(index)  open a daily play gift (1..#Data/Playtime.Gifts) that today's active play unlocked;
+--                   Server/Playtime
 --   Admin(action, arg?)   the 🛠️ Admin panel. Server/Admin checks the caller is an admin on every call (a
 --                   non-admin gets false and nothing happens) and validates action and arg (Logic/Admin)
 --
@@ -18,6 +20,8 @@
 --                                 player is quiet (Server/Tutorial: the first-session tutorial is running)
 --   Remotes.toastAll(text)        news for everyone in the server, skipping quiet players
 --   Remotes.setQuiet(fn) / Remotes.isQuiet(player)   who is quiet right now (Server/Tutorial sets fn)
+--   Remotes.setActivity(fn)       fn(player) runs on every allowed call to a served remote: the player is acting,
+--                                 so not idle (Server/Playtime sets it)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,8 +31,17 @@ local Config = require(script.Parent.Config)
 
 local FOLDER_NAME = "Remotes"
 local EVENTS = { "Toast", "State", "Cured", "DayReport" }
-local FUNCTIONS =
-	{ "Purchase", "PlaceDecor", "ClaimGoal", "ClaimMailbox", "GetState", "TutorialAck", "Admin", "Discard" }
+local FUNCTIONS = {
+	"Purchase",
+	"PlaceDecor",
+	"ClaimGoal",
+	"ClaimMailbox",
+	"GetState",
+	"TutorialAck",
+	"Admin",
+	"Discard",
+	"ClaimPlayGift",
+}
 
 local IS_SERVER = RunService:IsServer()
 
@@ -75,6 +88,7 @@ local Remotes = {
 	TutorialAck = folder:WaitForChild("TutorialAck") :: RemoteFunction,
 	Admin = folder:WaitForChild("Admin") :: RemoteFunction,
 	Discard = folder:WaitForChild("Discard") :: RemoteFunction,
+	ClaimPlayGift = folder:WaitForChild("ClaimPlayGift") :: RemoteFunction,
 }
 
 -- Short, friendly replies. On-screen words stay at 6 or fewer.
@@ -87,6 +101,7 @@ Remotes.OOPS = "Oops! Try again."
 
 type Bucket = { Tokens: number, At: number }
 local buckets: { [Player]: { [string]: Bucket } } = {}
+local activityHook: ((Player) -> ())? = nil
 
 local function assertServer(what: string)
 	assert(IS_SERVER, "Remotes." .. what .. " is server-only")
@@ -128,6 +143,10 @@ function Remotes.serve(name: string, handler: (Player, ...any) -> (boolean, stri
 		if not Remotes.allow(player, name) then
 			return false, Remotes.TOO_FAST
 		end
+		local hook = activityHook
+		if hook then
+			pcall(hook, player)
+		end
 		local ok, result, message = pcall(handler, player, ...)
 		if not ok then
 			warn("[Remotes] " .. name .. " handler failed:", result)
@@ -159,6 +178,11 @@ function Remotes.isQuiet(player: Player): boolean
 	end
 	local ok, quiet = pcall(check, player)
 	return ok and quiet == true
+end
+
+function Remotes.setActivity(fn: ((Player) -> ())?)
+	assertServer("setActivity")
+	activityHook = fn
 end
 
 function Remotes.news(player: Player, text: string)

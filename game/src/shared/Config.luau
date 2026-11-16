@@ -47,6 +47,27 @@ Config.Winter = { Start = "2026-12-01", End = "2027-01-10" }
 Config.MailboxGiftCash = 25 -- once per UTC day, the same however long you were away
 Config.MaxBankedGoals = 3 -- daily goals bank up to this many; they never expire
 
+-- Time played (Server/Playtime; the gifts and ranks themselves are in Data/Playtime)
+Config.PlaytimeIdleSeconds = 300 -- no moving and no acting for this long: play time (and timed boosts) pause
+
+-- Boosts (Logic/Boosts; the timed ones are in Data/Boosts). Caps are the most the PERMANENT boosts (ranks and badge
+-- tiers) can add up to, in percent; timed boosts add on top. A kind with no cap here has none.
+Config.BoostCaps = { Cash = 50, Tips = 50, Stars = 50, MakeSpeed = 40, Patience = 50 }
+Config.BoostMaxMinutes = 60 -- one timed boost never holds more than this (getting it again extends it up to here)
+Config.BoostMinMakeSeconds = 0.3 -- MakeSpeed boosts never make a hold shorter than this
+
+-- Roblox badges (BadgeService), created by hand in Creator Hub (game/README.md "Roblox badges"). 0 = not created
+-- yet: that badge is skipped. Only the Doctor ranks and Gold Healer, so the list stays short.
+Config.Badges = {
+	Intern = 0,
+	Resident = 0,
+	Doctor = 0,
+	SeniorDoctor = 0,
+	Chief = 0,
+	Legend = 0,
+	HealerGold = 0,
+}
+
 -- Saving
 Config.DataStoreName = "PlayerData_v2"
 Config.LegacyDataStoreName = "PlayerData_v1" -- read once to migrate shop-sim saves

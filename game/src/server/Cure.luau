@@ -4,8 +4,11 @@
 --   Cure.resolve(ctx: Types.CureCtx): Result?
 --
 -- In order (each step is guarded, so a broken system downstream never stops the payout before it):
---   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic)
---   2. Economy.addCash(helper)    the helper earns the cash (and their Cured count goes up)
+--   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic). Boosts
+--                                 (Server/Boosts): the helper's Cash and Tips boosts (they earn the cash) and the
+--                                 owner's Stars boost (they earn the stars), scoped to night and the patient's wing
+--   2. Economy.addCash(helper)    the helper earns the cash (and their Cured count goes up), then Badges.onCure
+--                                 counts the cure for the badges (Server/Badges)
 --   3. Progress.addStars(owner)   the clinic's owner earns the Clinic Stars (design §5.9: friends' cures count)
 --   4. Book.stamp(helper)         the helper's Patient Book
 --   5. Daily.onCure(helper, ctx)  the helper's daily goals
@@ -38,6 +41,8 @@ local Daily = require(script.Parent.Daily)
 local Story = require(script.Parent.Story)
 local DayReport = require(script.Parent.DayReport)
 local Tutorial = require(script.Parent.Tutorial)
+local Boosts = require(script.Parent.Boosts) -- playtime branch: boosts on pay
+local Badges = require(script.Parent.Badges) -- playtime branch: badge counters
 
 export type Result = { Cash: number, Stars: number, NewPage: boolean }
 
@@ -106,6 +111,15 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 	local sameHelper = helper == owner
 
 	-- 1. Pay
+	-- >>> playtime branch: boosts (Server/Boosts). Helper: Cash and Tips; owner: Stars.
+	local cashBoost, tipsBoost, starsBoost = 1, 0, 1
+	safely("Boosts", function()
+		local scopes = Boosts.cureScopes(cure)
+		cashBoost = if helperHere then Boosts.multiplier(helper, "Cash", scopes) else 1
+		tipsBoost = if helperHere then Boosts.percent(helper, "Tips", scopes) / 100 else 0
+		starsBoost = if ownerHere then Boosts.multiplier(owner, "Stars", scopes) else 1
+	end)
+	-- <<< playtime branch
 	local reward = Pay.reward({
 		BasePay = Config.BasePay,
 		Tips = if ownerHere then Economy.level(owner, "Tips") else 0,
@@ -115,6 +129,9 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 		Visitor = cure.Visitor,
 		Regular = cure.Regular ~= nil,
 		Cfg = Config,
+		CashBoost = cashBoost, -- playtime branch
+		TipsBoost = tipsBoost, -- playtime branch
+		StarsBoost = starsBoost, -- playtime branch
 	})
 
 	-- 2. The helper's cash and Cured count
@@ -124,6 +141,7 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 			d.Cured += 1
 		end)
 	end
+	safely("Badges.onCure", Badges.onCure, cure) -- playtime branch: badge counters (helper and owner)
 
 	-- 3. The owner's Clinic Stars
 	if ownerHere then

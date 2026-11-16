@@ -981,7 +981,8 @@ local function plotCFrame(index: number, count: number): CFrame
 end
 
 -- The clinic sign: a glossy board in the plot's accent inside an accent frame, white posts, and the owner's name in
--- white outlined display text. OwnerName and HeartCount stay direct children of SignGui (Plots and Visits set them).
+-- white outlined display text. OwnerName and HeartCount stay direct children of SignGui (Plots and Visits set them),
+-- and so does RankBadge, the owner's Doctor rank on a white pill beside the hearts (Server/Playtime sets it).
 local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color3)
 	local sign = part(model, "Sign", Vector3.new(9, 3.4, 0.5), cf * CFrame.new(-13, 3.4, -33.6), darken(accent, 0.15))
 	soft(part(scenery, "SignTrim", Vector3.new(9.8, 4.2, 0.4), cf * CFrame.new(-13, 3.4, -33.2), accent))
@@ -998,7 +999,32 @@ local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color
 	gui.MaxDistance = 150
 	candyBoard(gui, accent, 8, 18, 5)
 	candyLabel(gui, "OwnerName", "✨ Free clinic", UDim2.fromScale(0.86, 0.5), UDim2.fromScale(0.07, 0.1), 4)
-	candyLabel(gui, "HeartCount", "", UDim2.fromScale(0.86, 0.28), UDim2.fromScale(0.07, 0.62), 3)
+	candyLabel(gui, "HeartCount", "", UDim2.fromScale(0.4, 0.28), UDim2.fromScale(0.07, 0.62), 3)
+	local rank = Instance.new("TextLabel")
+	rank.Name = "RankBadge"
+	rank.BackgroundColor3 = WHITE
+	rank.BackgroundTransparency = 0.05
+	rank.Position = UDim2.fromScale(0.5, 0.6)
+	rank.Size = UDim2.fromScale(0.43, 0.3)
+	rank.Font = Palette.DisplayFont
+	rank.TextColor3 = Palette.Ink
+	rank.TextScaled = true
+	rank.Text = ""
+	rank.Visible = false
+	rank.ZIndex = 3
+	rounded(rank, UDim.new(0.5, 0))
+	local rim = Instance.new("UIStroke")
+	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	rim.Color = Palette.Outline
+	rim.Thickness = 3
+	rim.Parent = rank
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0.06, 0)
+	pad.PaddingRight = UDim.new(0.06, 0)
+	pad.PaddingTop = UDim.new(0.1, 0)
+	pad.PaddingBottom = UDim.new(0.1, 0)
+	pad.Parent = rank
+	rank.Parent = gui
 	gui.Parent = sign
 end
 

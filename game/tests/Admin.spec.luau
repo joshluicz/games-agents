@@ -7,6 +7,7 @@ local expect, test = T.expect, T.test
 
 local Admin = require("../src/shared/Logic/Admin")
 local Patients = require("../src/shared/Data/Patients")
+local Boosts = require("../src/shared/Data/Boosts")
 
 local OWNER = 2228783124
 local FRIEND = 111
@@ -76,6 +77,10 @@ T.describe("Admin.valid", function()
 				"SkipToNight",
 				"SkipToDay",
 				"ToggleWinter",
+				"AddPlayToday",
+				"AddPlayTotal",
+				"AddCureStat",
+				"MaxBadges",
 			}
 		do
 			expect(Admin.valid(action, nil, Patients)).toBe(true)
@@ -113,6 +118,17 @@ T.describe("Admin.valid", function()
 		expect(Admin.valid("SpawnPatient", 5, Patients)).toBe(false)
 	end)
 
+	test("a boost takes a Data/Boosts id only", function()
+		for _, boostId in Boosts.Order do
+			expect(Admin.valid("AddBoost", boostId, Patients, Boosts)).toBe(true)
+		end
+		expect(Admin.valid("AddBoost", "Order", Patients, Boosts)).toBe(false)
+		expect(Admin.valid("AddBoost", "Robux", Patients, Boosts)).toBe(false)
+		expect(Admin.valid("AddBoost", nil, Patients, Boosts)).toBe(false)
+		expect(Admin.valid("AddBoost", 3, Patients, Boosts)).toBe(false)
+		expect(Admin.valid("AddBoost", "StarRush", Patients)).toBe(false) -- no boosts map: nothing is valid
+	end)
+
 	test("unknown or junk actions are refused", function()
 		for _, junk in { "GiveRobux", "", "__index", "addcash", 5, nil, {} } do
 			expect(Admin.valid(junk, nil, Patients)).toBe(false)
@@ -137,7 +153,7 @@ T.describe("Admin server-wide actions", function()
 	end)
 
 	test("every action says what argument it takes", function()
-		local kinds = { None = true, Cash = true, Stars = true, PatientId = true }
+		local kinds = { None = true, Cash = true, Stars = true, PatientId = true, BoostId = true }
 		for _, found in Admin.ACTIONS do
 			expect(kinds[found.Arg]).toBe(true)
 		end

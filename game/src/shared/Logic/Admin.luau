@@ -7,15 +7,16 @@
 --                                         a UserId in UserIds (Config.AdminUserIds, checked first), the game's owner
 --                                         (CreatorIsUser and userId == CreatorId), a UserId in Resolved (the
 --                                         Config.AdminNames the server looked up), or anyone while Studio
---   Admin.valid(action, arg, patients): boolean   a known action with exactly the argument it takes: nil for most,
---                                         one of CASH or STARS for AddCash and AddStars, a Data/Patients id for
---                                         SpawnPatient (`patients` is that map; rawget, so its `Order` is no id)
+--   Admin.valid(action, arg, patients, boosts?): boolean   a known action with exactly the argument it takes: nil
+--                                         for most, one of CASH or STARS for AddCash and AddStars, a Data/Patients id
+--                                         for SpawnPatient (`patients` is that map; rawget, so its `Order` is no id),
+--                                         a Data/Boosts id for AddBoost (`boosts` is that map)
 --   Admin.serverWide(action): boolean     the action changes the whole server (night, day, winter)
 --   Admin.serverWideAllowed(studio, players): boolean   only alone in the server (players <= 1), or in Studio
 --   Admin.ACTIONS                         every action: { Arg = ArgKind, ServerWide = boolean }
 --   Admin.CASH · Admin.STARS              the only amounts the cash and star buttons may add
 
-export type ArgKind = "None" | "Cash" | "Stars" | "PatientId"
+export type ArgKind = "None" | "Cash" | "Stars" | "PatientId" | "BoostId"
 export type Spec = { Arg: ArgKind, ServerWide: boolean }
 export type Who = {
 	Studio: boolean,
@@ -47,6 +48,12 @@ Admin.ACTIONS = table.freeze({
 	CompleteBook = spec("None", false),
 	StoriesDue = spec("None", false),
 	SpawnPatient = spec("PatientId", false),
+	-- Time played, boosts and badges (your own save)
+	AddPlayToday = spec("None", false), -- +10 minutes of play today (the gifts)
+	AddPlayTotal = spec("None", false), -- +5 hours of play all time (the Doctor ranks, ⏱️ Dedication)
+	AddCureStat = spec("None", false), -- +100 to the 🏥 Healer counter
+	MaxBadges = spec("None", false), -- every badge to its top tier, with its rewards
+	AddBoost = spec("BoostId", false), -- a timed boost, as a play gift gives it
 	-- The whole server
 	SkipToNight = spec("None", true),
 	SkipToDay = spec("None", true),
@@ -83,7 +90,15 @@ function Admin.isAdmin(userId: any, who: Who): boolean
 	return type(who.Resolved) == "table" and who.Resolved[userId] == true
 end
 
-function Admin.valid(action: any, arg: any, patients: any): boolean
+local function knownId(arg: any, map: any): boolean
+	return type(arg) == "string"
+		and #arg > 0
+		and #arg <= Admin.MAX_ID_LENGTH
+		and type(map) == "table"
+		and type(rawget(map, arg)) == "table"
+end
+
+function Admin.valid(action: any, arg: any, patients: any, boosts: any?): boolean
 	local found = specOf(action)
 	if not found then
 		return false
@@ -96,11 +111,9 @@ function Admin.valid(action: any, arg: any, patients: any): boolean
 	elseif kind == "Stars" then
 		return oneOf(arg, Admin.STARS)
 	elseif kind == "PatientId" then
-		return type(arg) == "string"
-			and #arg > 0
-			and #arg <= Admin.MAX_ID_LENGTH
-			and type(patients) == "table"
-			and type(rawget(patients, arg)) == "table"
+		return knownId(arg, patients)
+	elseif kind == "BoostId" then
+		return knownId(arg, boosts)
 	end
 	return false
 end

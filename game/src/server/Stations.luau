@@ -29,6 +29,10 @@
 --
 -- After every make, Tutorial.onMade(player, itemId, plot): the first-session tutorial moves on when a new
 -- player makes what their first patient needs at their own clinic.
+--
+-- Playtime branch: the hold time is Server/Boosts.makeSeconds(maker, stationId): Faster Hands, then the maker's
+-- MakeSpeed boosts (Quick Hands, the station's badge, Dedication). The Snapshot's MakeSeconds carries the same number
+-- per station, so the client's ring matches (Guide). After every make, Badges.onMade counts it for the station badge.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -43,9 +47,10 @@ local StationData = require(Shared.Data.Stations)
 local Prices = require(Shared.Logic.Prices)
 local Carry = require(script.Parent.Carry)
 local Daily = require(script.Parent.Daily)
-local Economy = require(script.Parent.Economy)
 local Plots = require(script.Parent.Plots)
 local Tutorial = require(script.Parent.Tutorial)
+local Boosts = require(script.Parent.Boosts) -- playtime branch: MakeSpeed boosts
+local Badges = require(script.Parent.Badges) -- playtime branch: station badges
 
 type Plot = Types.Plot
 
@@ -134,8 +139,13 @@ local function isNear(player: Player, part: BasePart): boolean
 	return (root.Position - part.Position).Magnitude <= ACTIVATION_DISTANCE + DISTANCE_SLACK
 end
 
-local function makeSeconds(player: Player): number
-	return Prices.makeSeconds(Economy.level(player, "Speed"), Config)
+-- Playtime branch: Faster Hands, then the maker's MakeSpeed boosts at this station (Server/Boosts).
+local function makeSeconds(player: Player, stationId: string): number
+	local ok, seconds = pcall(Boosts.makeSeconds, player, stationId)
+	if ok and type(seconds) == "number" and seconds > 0 then
+		return seconds
+	end
+	return Prices.makeSeconds(0, Config) -- never shorter than it should be
 end
 
 -- A Station_<id> is a Part by contract; a kit might use a Model, so fall back to its main part.
@@ -226,7 +236,7 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 			return -- no hold on THIS prompt: a spoofed or overlapping trigger
 		end
 		local now = os.clock()
-		local needed = makeSeconds(player)
+		local needed = makeSeconds(player, stationId)
 		if now - hold.Started > needed + STALE_AFTER then
 			return
 		end
@@ -270,6 +280,10 @@ local function wireStation(plot: Plot, part: BasePart, stationId: string)
 		local ok, err = pcall(Daily.onMake, player, itemId)
 		if not ok then
 			warn("[Stations] Daily.onMake failed:", err)
+		end
+		local badgeOk, badgeErr = pcall(Badges.onMade, player, stationId) -- playtime branch
+		if not badgeOk then
+			warn("[Stations] Badges.onMade failed:", badgeErr)
 		end
 		local tutorialOk, tutorialErr = pcall(Tutorial.onMade, player, itemId, plot)
 		if not tutorialOk then

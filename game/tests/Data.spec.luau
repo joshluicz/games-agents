@@ -156,7 +156,8 @@ T.describe("Data", function()
 				error(id .. " must have exactly one of Price or EarnedBy")
 			end
 			if earned then
-				expect(item.EarnedBy == "Book" or item.EarnedBy == "Story" or item.EarnedBy == "Referral").toBe(true)
+				local how = item.EarnedBy
+				expect(how == "Book" or how == "Story" or how == "Referral" or how == "Playtime").toBe(true)
 			end
 		end
 		expect(Decor.FriendBench.EarnedBy).toBe("Referral")

@@ -11,14 +11,16 @@
 --   ctx.on(event, fn) / ctx.fire(event, ...)   a tiny client bus between modules; on() returns a disconnect
 -- Bus events:
 --   "Toast" (text)                             every toast, server or local; UI.Toasts shows them
---   "Open" (name, tab?)                        name = "Shop" | "Book" | "Mailbox" | "Goals" | "Admin"; Shop tab =
+--   "Open" (name, tab?)                        name = "Shop" | "Book" | "Mailbox" | "Goals" | "Gifts" | "Badges" |
+--                                              "Admin"; Shop tab =
 --                                              "Upgrades" | "Rooms" | "Decor" (Hud buttons, DayReportPanel's Go
 --                                              button; "Admin" from the ⚙️ panel's 🛠️, admins only)
 --   "ModalOpened" (name) · "ModalClosed" (name)   a panel opened or closed (Hud.modal)
 --   "BookNew" (count)                          unseen new Book pages, for the 📖 dot (BookPanel -> Hud)
 --   "Purchased" (kind, id)                     a Purchase the server said yes to (Shop)
 --   "DecorPlaced" (slotKey, decorId?)          a PlaceDecor the server said yes to (Shop; nil = put away)
---   "Claimed" ("Mailbox" | "Goal", goalId?)    a claim the server said yes to (Mailbox)
+--   "Claimed" ("Mailbox" | "Goal" | "PlayGift", id?)   a claim the server said yes to (Mailbox, PlayGifts)
+--   "Celebrate" (icon, text, color?)           a big reward banner: a badge tier, a Doctor rank (BadgeBook shows it)
 --   "Sound" (name, volumeScale?)               plays a Feel/Sounds cue
 --   "SetReduceEffects" (on) · "SetMusicMuted" (on)   the comfort switches (Feel/Atmosphere, Music.client)
 -- Client-only LocalPlayer attributes (set on this client, never by the server, never replicated): ReduceEffects
@@ -56,6 +58,8 @@ local UI_MODULES = {
 	"BookPanel",
 	"DayReportPanel",
 	"Mailbox",
+	"PlayGifts",
+	"BadgeBook",
 	"Guide",
 	"PromptFilter",
 	"AdminPanel",
@@ -74,6 +78,9 @@ local DATA_NAMES = {
 	"DailyGoals",
 	"Wings",
 	"Variants",
+	"Playtime",
+	"Boosts",
+	"Badges",
 }
 
 local dataFolder = Shared:WaitForChild("Data")
@@ -101,6 +108,11 @@ local function defaultSnapshot(): Types.Snapshot
 		IsWinter = false,
 		Tutorial = 0, -- not known yet (Logic/Tutorial: 1..8 = in the tutorial, 9 = done)
 		TutorialCures = 0,
+		Playtime = data.Playtime,
+		Boosts = { Timed = {}, Permanent = {} },
+		MakeSeconds = {},
+		Stats = data.Stats,
+		Badges = data.Badges,
 	}
 end
 

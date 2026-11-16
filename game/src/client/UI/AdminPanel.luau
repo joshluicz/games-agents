@@ -8,7 +8,8 @@
 -- here is trusted, and nothing on screen changes until the server's next Snapshot.
 --
 -- Two pages in one panel:
---   the actions    your own save (💰 ⭐ rooms, decor, the Book, stories, goals and mail, the tutorial, a patient),
+--   the actions    your own save (💰 ⭐ rooms, decor, the Book, stories, goals and mail, play time, badges and
+--                  boosts, the tutorial, a patient),
 --                  then the whole server's night, day and winter (the server allows those only when you're alone in
 --                  it, or in Studio; otherwise its reply says why)
 --   the patients   "🤧 Spawn patient…": tap a creature and it's next in your own line
@@ -36,7 +37,7 @@ local PATIENT_ROW = 68
 local GAP = 8
 
 -- One button: an Admin remote call (Action, Arg), or Opens the patient page.
-type Act = { Text: string, Kind: string, Action: string?, Arg: number?, Opens: string? }
+type Act = { Text: string, Kind: string, Action: string?, Arg: (number | string)?, Opens: string? }
 type Section = { Title: string, Rows: { { Act } } }
 
 local SECTIONS: { Section } = {
@@ -62,6 +63,24 @@ local SECTIONS: { Section } = {
 			{
 				{ Text = "🎯 Reset goals + 📬", Kind = "Good", Action = "ResetDaily" },
 				{ Text = "🤧 Spawn patient…", Kind = "Cyan", Opens = "Patients" },
+			},
+		},
+	},
+	{
+		Title = "⏱️ Play time · badges · boosts",
+		Rows = {
+			{
+				{ Text = "🎁 +10 min today", Kind = "Pink", Action = "AddPlayToday" },
+				{ Text = "⏱️ +5 h total", Kind = "Purple", Action = "AddPlayTotal" },
+			},
+			{
+				{ Text = "🏥 +100 cures", Kind = "Secondary", Action = "AddCureStat" },
+				{ Text = "🏅 Max badges", Kind = "Primary", Action = "MaxBadges" },
+			},
+			{
+				{ Text = "🌠 Star Rush", Kind = "Purple", Action = "AddBoost", Arg = "StarRush" },
+				{ Text = "⚡ Quick Hands", Kind = "Cyan", Action = "AddBoost", Arg = "QuickHands" },
+				{ Text = "🍀 Lucky Tips", Kind = "Good", Action = "AddBoost", Arg = "LuckyTips" },
 			},
 		},
 	},

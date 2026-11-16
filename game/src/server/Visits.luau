@@ -27,6 +27,7 @@ local Decor = require(Shared.Data.Decor)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
 local Daily = require(script.Parent.Daily)
+local Badges = require(script.Parent.Badges) -- playtime branch: hearts count for ❤️ Friendly
 
 local Visits = {}
 
@@ -216,6 +217,7 @@ local function onHeart(plot: Types.Plot, prompts: SignPrompts, player: Player)
 		total = d.HeartsReceived
 	end)
 	plot.Model:SetAttribute("Hearts", total)
+	pcall(Badges.onHeart, player) -- playtime branch
 	sparkle(prompts)
 	Remotes.toast(player, "❤️ Heart sent!")
 	Remotes.news(owner, "❤️ " .. player.DisplayName .. " loves your clinic!")

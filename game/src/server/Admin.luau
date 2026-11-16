@@ -20,7 +20,9 @@
 --   your own save      AddCash (1000 | 10000) · AddStars (10 | 100) · UnlockRooms (free, every room) · AllDecor ·
 --                      FinishTutorial · RestartTutorial (also empties your line and respawns you, so the welcome
 --                      plays) · ResetDaily (today's goals and the mailbox) · CompleteBook · StoriesDue ·
---                      SpawnPatient (a Data/Patients id: it's next in your own line)
+--                      SpawnPatient (a Data/Patients id: it's next in your own line) · AddPlayToday (+10 min of play
+--                      today: the gifts) · AddPlayTotal (+5 h all time: Doctor ranks) · AddCureStat (+100 to the
+--                      🏥 Healer counter) · MaxBadges (every badge to Mythic, with rewards) · AddBoost (a Data/Boosts id)
 --   the whole server   SkipToNight · SkipToDay (Workspace.SkipPhase, as in DayNight) · ToggleWinter
 --                      (Workspace.ForceWinter, as in Events)
 -- Everything goes through the systems' own APIs (Economy, Progress, Plots, Book, Story, Daily, Tutorial, Patients),
@@ -37,6 +39,7 @@ local AdminLogic = require(Shared.Logic.Admin)
 local Rooms = require(Shared.Data.Rooms)
 local Decor = require(Shared.Data.Decor)
 local PatientsData = require(Shared.Data.Patients)
+local BoostData = require(Shared.Data.Boosts)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
 local Economy = require(script.Parent.Economy)
@@ -47,6 +50,9 @@ local Daily = require(script.Parent.Daily)
 local Tutorial = require(script.Parent.Tutorial)
 local Patients = require(script.Parent.Patients)
 local Events = require(script.Parent.Events)
+local Playtime = require(script.Parent.Playtime)
+local Badges = require(script.Parent.Badges)
+local Boosts = require(script.Parent.Boosts)
 
 local Admin = {}
 
@@ -264,6 +270,42 @@ local RUN: { [string]: Run } = {
 		return Patients.sendNext(player, patientId)
 	end,
 
+	AddPlayToday = function(player)
+		if not Playtime.addToday(player, 600) then
+			return false, LOADING
+		end
+		return true, "🎁 +10 min played today!"
+	end,
+
+	AddPlayTotal = function(player)
+		if not Playtime.addTotal(player, 5 * 3600) then
+			return false, LOADING
+		end
+		return true, "⏱️ +5 h played!"
+	end,
+
+	AddCureStat = function(player)
+		if not Badges.add(player, { Cures = 100 }) then
+			return false, LOADING
+		end
+		return true, "🏥 +100 cures counted!"
+	end,
+
+	MaxBadges = function(player)
+		if not Badges.maxAll(player) then
+			return false, LOADING
+		end
+		return true, "🏅 Every badge maxed!"
+	end,
+
+	AddBoost = function(player, boostId)
+		if not Boosts.addTimed(player, boostId) then
+			return false, LOADING
+		end
+		local boost = BoostData[boostId]
+		return true, boost.Icon .. " " .. boost.Name .. "!"
+	end,
+
 	SkipToNight = function()
 		return skipTo(true)
 	end,
@@ -299,7 +341,7 @@ local function handle(player: Player, action: any, arg: any): (boolean, string)
 		refuse(player)
 		return false, ""
 	end
-	if not AdminLogic.valid(action, arg, PatientsData) then
+	if not AdminLogic.valid(action, arg, PatientsData, BoostData) then
 		return false, Remotes.OOPS
 	end
 	local run = RUN[action :: string]

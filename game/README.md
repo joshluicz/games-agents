@@ -28,15 +28,18 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 ### Shared (server and client)
 | File | Does |
 |---|---|
-| `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs. Also who's an admin: `AdminUserIds`, `AdminNames` ([Admin panel](#admin-panel)) |
+| `shared/Config.luau` | **Every tuning number**: pay, patience, queue, hold times, day and night length, the winter window, autosave, town layout, music, pass IDs. Also who's an admin: `AdminUserIds`, `AdminNames` ([Admin panel](#admin-panel)); the idle time, boost caps and the Roblox badge ids ([Play gifts...](#play-gifts-doctor-ranks-boosts-and-badges)): `PlaytimeIdleSeconds`, `BoostCaps`, `BoostMaxMinutes`, `BoostMinMakeSeconds`, `Badges` |
 | `shared/Palette.luau` | The candy-pop colours and fonts shared by the world and the UI (`memory-20261116-007`). Change colours here |
 | `shared/Types.luau` | The shared type names (`Data`, `Snapshot`, `Plot`, `Ctx`, ids) |
-| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck` and `Admin`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet) |
+| `shared/Remotes.luau` | Creates `ReplicatedStorage.Remotes` (incl. `TutorialAck`, `Admin` and `ClaimPlayGift`). Server helpers: `serve` (rate limit plus pcall), `allow`, `toast` (always shown: replies and warnings), `news` (ambient news, held back while the player is quiet), `toastAll` (skips quiet players), `setQuiet`/`isQuiet` (Server/Tutorial makes a player in the tutorial quiet), `setActivity` (every served call marks the player active: Server/Playtime) |
 | `shared/Signal.luau` | A small signal that passes tables **by reference** (used instead of BindableEvents) |
-| `shared/Data/*.luau` | **Content**: `Ailments`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`. Keyed maps carry `.Order`, and everything is frozen |
-| `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done), `isNewer(saved)` |
+| `shared/Data/*.luau` | **Content**: `Ailments`, `Stations`, `Items`, `Patients`, `Regulars`, `Rooms`, `Upgrades`, `Decor`, `DailyGoals`, `Wings`, `Variants`, `Playtime` (the play gifts and Doctor ranks), `Boosts` (timed boosts), `Badges` (tiers, categories, the badge list). Keyed maps carry `.Order`, and everything is frozen |
+| `shared/Logic/Schema.luau` | Save schema v2: `default()`, `reconcile(saved, today?)` (migrates v1 shop saves, pulls future days back to today, gives a save without `Tutorial` its step: any cure means done; a save without `Playtime`/`Boosts`/`Stats`/`Badges` starts at 0 on today, with unseeded `Stats`), `isNewer(saved)` |
+| `shared/Logic/Playtime.luau` | The play gifts and ranks: rollover to a new UTC day, `add`, gift `state`/`ready`/`claim`/`nextGift`/`allOpened`, `rankFor`/`nextRank`/`newRanks`, `active` (idle), `duration`/`clock` text |
+| `shared/Logic/Boosts.luau` | Boost maths: permanent effects (scoped, capped) plus timed boosts (`extend`, `tick`, `soonest`), `percent`/`multiplier`, `summary`, `makeSeconds` |
+| `shared/Logic/Badges.luau` | Badge rules: `statValue` (counters and derived stats), `tierFor`, `progress`, `ups`, `reward`, `effects`, `boostAt`, `add`, `seed` (an old save's counters), `maxed` |
 | `shared/Logic/Tutorial.luau` | The first-session tutorial's rules: the steps (1 welcome .. 8 Book, 9 done), `advance(step, event)`, `resume` after a rejoin, who Patients may send (`spawnPlan`, `queueCap`), the shop top-up (`cheapest`, `topUp`) |
-| `shared/Logic/Pay.luau` | Cash and ⭐ for a cure |
+| `shared/Logic/Pay.luau` | Cash and ⭐ for a cure (with the optional `CashBoost`, `TipsBoost`, `StarsBoost` from Server/Boosts) |
 | `shared/Logic/Prices.luau` | Upgrade prices, hold time, tray capacity, patience |
 | `shared/Logic/Progress.luau` | Can this room be bought, and what's the next goal |
 | `shared/Logic/Book.luau` | Patient Book stamps and set completion |
@@ -52,11 +55,14 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `server/Main.server.luau` | Collision groups, then every system's `start()` in order ([Boot order](#boot-order)) |
 | `server/PlayerData.luau` | Loads and saves v2 with `UpdateAsync` under a session lock (a join waits out another server's lock until its lease ends), migrates `PlayerData_v1`, never saves after a failed load or over a newer-version save (`DataOk = false` plus a toast), autosaves, saves on leave (retried with backoff) and in `BindToClose`. Leaderstats `Cash` and `Stars`. The Studio-only `FreshSave` switch ([Test switches](#studio-rojo-connected)) |
-| `server/State.luau` | Builds each player's Snapshot (incl. `Tutorial`, the step, and `TutorialCures`), pushes it (debounced) and answers `GetState` |
+| `server/State.luau` | Builds each player's Snapshot (incl. `Tutorial`, the step, and `TutorialCures`; `Playtime`, `Stats`, `Badges`, `Boosts` (Server/Boosts.list) and `MakeSeconds` per station), pushes it (debounced) and answers `GetState` |
+| `server/Playtime.luau` | Counts **active** play once a second (at your own clinic, not idle for `Config.PlaytimeIdleSeconds`), the daily play gifts (`ClaimPlayGift`), the Doctor ranks (their decor, toast, Roblox badge and the sign's `RankBadge`), the `PlayToday`/`PlayTotal`/`PlayCounting` player attributes, the UTC-day rollover ([below](#play-gifts-doctor-ranks-boosts-and-badges)) |
+| `server/Boosts.luau` | `multiplier`/`percent` per kind and scope, `addTimed` (extends, capped), `list` for the Snapshot, `makeSeconds` per station, `cureScopes`. Permanent boosts from the rank and badge tiers, timed ones ticking with active play |
+| `server/Badges.luau` | Badge counters (`add`, `onCure`, `onMade`, `onHeart`), the tier-up check after every save change (rewards once, a toast), seeding an old save's counters, `maxAll` (Admin), `awardRoblox` (BadgeService, in a pcall) |
 | `server/Tutorial.luau` | The first-session tutorial ([below](#the-first-session-tutorial)): the saved step, moved on only by real server events, the one-time shop top-up, `TutorialAck`, and the quiet toasts while it runs |
 | `server/Events.luau` | Winter: `Config.Winter` dates or the `ForceWinter` Workspace attribute → `Workspace.IsWinter` |
 | `server/Plots.luau` | Assigns a plot once data loads, frees it on leave, rebuilds rooms and decor from the save, `canWork` (owner, friend or `OpenHelpers`), `unlockRoom`, `placeDecor`. Owners (re)spawn in front of the Counter, beside the line, facing the clinic |
-| `server/PlotBuilder.luau` | Builds the town, the plots and placeholder rooms, or clones the brother's `ServerStorage.ClinicKit` models. Night lamps (tag `ClinicNightLight`). Station icons and for-sale boards stop growing up close (`DistanceLowerLimit`) |
+| `server/PlotBuilder.luau` | Builds the town, the plots and placeholder rooms, or clones the brother's `ServerStorage.ClinicKit` models. Night lamps (tag `ClinicNightLight`). Station icons and for-sale boards stop growing up close (`DistanceLowerLimit`). The sign has `OwnerName`, `HeartCount` and `RankBadge` (the Doctor rank pill) |
 | `server/Carry.luau` | What each player is carrying (`Carry`, `CarryMax` attributes) and the icon above their head |
 | `server/Economy.luau` | Cash, upgrades and purchases. Wires `Purchase` and `PlaceDecor` |
 | `server/Progress.luau` | Clinic ⭐ Stars and the next goal |
@@ -65,13 +71,13 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `server/Daily.luau` | `Workspace.UtcDay` and `TodaysVisitor`, banked daily goals, the mailbox. Wires `ClaimGoal` and `ClaimMailbox` |
 | `server/DayReport.luau` | Counts each player's cures and new pages, and sends the Day Report when night ends |
 | `server/DayNight.luau` | The day/night cycle (`IsNight`, `PhaseEndsAt`) and the candy-pop lighting grade (the `CandyColor` ColorCorrection, Atmosphere, Bloom), set from code by day and by night |
-| `server/Stations.luau` | A hold-to-make prompt on every `Station_*`, with the hold time checked on the server |
-| `server/Patients.luau` | A queue per plot, the `Treat` prompt on the Counter, beds, patience, night patients, variants, visitors and regulars. During an owner's tutorial: its two patients, one at a time, no patience running out (steps 1-6), no regulars or visitor |
+| `server/Stations.luau` | A hold-to-make prompt on every `Station_*`, with the hold time checked on the server (`Boosts.makeSeconds`: Faster Hands, then MakeSpeed boosts); each make counts for its station badge |
+| `server/Patients.luau` | A queue per plot, the `Treat` prompt on the Counter, beds, patience (times the owner's Patience boosts), night patients, variants, visitors and regulars. During an owner's tutorial: its two patients, one at a time, no patience running out (steps 1-6), no regulars or visitor |
 | `server/CreatureBuilder.luau` | A creature Model from its `Look`, or a clone of `ServerStorage.Creatures.<PatientId>`. The badge and bubble stop growing up close (`DistanceLowerLimit`) |
-| `server/Cure.luau` | One cure, in order: pay, cash, ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
+| `server/Cure.luau` | One cure, in order: pay (with the helper's Cash/Tips and the owner's Stars boosts), cash, badge counters, ⭐, Book, daily goals, story, Day Report, the `Cured` remote, then the owner's tutorial |
 | `server/DecorBuilder.luau` | A decor Model from its `Look`, or a clone of `ServerStorage.ClinicKit.Decor.<DecorId>` |
-| `server/Visits.luau` | Hearts on the sign (once per owner per UTC day), the owner's `OpenHelpers` toggle, the friend referral reward |
-| `server/Admin.luau` | The 🛠️ Admin panel's server side ([Admin panel](#admin-panel)): decides who is an admin (sets the `IsAdmin` player attribute), looks up `Config.AdminNames` at startup, and wires the `Admin` remote: re-checks admin on every call, validates the action and its argument, logs `[Admin] <name> <action>`, then calls the systems' own APIs. Admin-only hooks it uses: `Tutorial.finish`/`restart`, `Patients.sendNext`/`reopen`, `Book.completeAll`, `Story.makeDue`, `Daily.resetToday` |
+| `server/Visits.luau` | Hearts on the sign (once per owner per UTC day; each one sent counts for ❤️ Friendly), the owner's `OpenHelpers` toggle, the friend referral reward |
+| `server/Admin.luau` | The 🛠️ Admin panel's server side ([Admin panel](#admin-panel)): decides who is an admin (sets the `IsAdmin` player attribute), looks up `Config.AdminNames` at startup, and wires the `Admin` remote: re-checks admin on every call, validates the action and its argument, logs `[Admin] <name> <action>`, then calls the systems' own APIs. Admin-only hooks it uses: `Tutorial.finish`/`restart`, `Patients.sendNext`/`reopen`, `Book.completeAll`, `Story.makeDue`, `Daily.resetToday`, `Playtime.addToday`/`addTotal`, `Badges.maxAll` |
 
 ### Client
 | File | Does |
@@ -79,12 +85,14 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `client/Main.client.luau` | Builds `ctx` (Remotes, Config, Data, State, `onState`, `toast`, `on`/`fire`), then loads each UI and Feel module in a pcall and calls `init(ctx)` |
 | `client/UI/Theme.luau` · `client/UI/Kit.luau` | The look tokens, and building blocks (panel, button with press bounce, label...). Libraries, not inited |
 | `client/UI/Toasts.luau` | The toast stack at the top centre |
-| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, what you hold (nothing when your hands are empty), the day/night timer, the big 🛒 📖 📬 🎯 buttons, and ⚙️ settings (the 🎵 music and ✨ calm-effects switches, plus 🛠️ Admin for admins only). A new player's HUD reveals itself with the tutorial step; everyone else sees it all |
+| `client/UI/Hud.luau` | Cash, ⭐ with a bar to the next unlock, the 🎁 play gifts button (a ring of 12 dots fills toward the next gift) under them, what you hold (nothing when your hands are empty), the day/night timer with timed boost chips beside it, the big 🛒 📖 📬 🎯 🏅 buttons, and ⚙️ settings (the 🎵 music and ✨ calm-effects switches, plus 🛠️ Admin for admins only). A new player's HUD reveals itself with the tutorial step (🎁, 🏅 and the boost chips come at its end); everyone else sees it all. Shared helpers `livePlay`, `liveBoosts`, `boostLine` |
+| `client/UI/PlayGifts.luau` | The 🎁 panel: the Doctor rank card ("Doctor rank: Resident", time played, next rank), your boosts, the six gift cards (🔒 time left · Open! · ✅) |
+| `client/UI/BadgeBook.luau` | The 🏅 Badge Book (category tabs, a card per badge with its tier frame, progress, next tier's boost and rewards), and the reward banner for tier-ups and Doctor ranks |
 | `client/UI/Shop.luau` | Upgrades, Rooms and Decor tabs, plus decor place mode |
 | `client/UI/BookPanel.luau` | The Patient Book: cards by wing, silhouettes for patients not yet seen |
 | `client/UI/DayReportPanel.luau` | The end-of-night pop-up (never during the tutorial) |
 | `client/UI/Mailbox.luau` | The daily gift and the goals list. The letter pops once a session, never over a panel, and after the tutorial ends |
-| `client/UI/Guide.luau` | The first-cures arrow: to the right station, then to the Counter (the tutorial steers it with `Guide.setSteer`). Also sets each station prompt's hold time from your own Faster Hands level |
+| `client/UI/Guide.luau` | The first-cures arrow: to the right station, then to the Counter (the tutorial steers it with `Guide.setSteer`). Also sets each station prompt's hold time from the Snapshot's `MakeSeconds` (your Faster Hands level and boosts, per station) |
 | `client/UI/Tutorial.luau` | The tutorial's step card, its pointer, the welcome title card and the first-join camera sweep; turns the camera to your clinic when you arrive |
 | `client/UI/PromptFilter.luau` | Hides world prompts that aren't for you: the helpers switch for visitors, "Send a heart" for the owner, and the Make and Treat prompts on clinics you can't work at (the server still checks) |
 | `client/UI/AdminPanel.luau` | The 🛠️ Admin panel ([Admin panel](#admin-panel)): buttons only, each one asks the `Admin` remote and toasts the reply; a second page picks a patient to spawn |
@@ -98,14 +106,17 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `tests/run.luau` | Runs every `tests/*.spec.luau`, prints PASS/FAIL and exits 1 on any failure |
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
-| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin` |
+| `tests/*.spec.luau` | `Schema`, `Data`, `Pay`, `Prices`, `Progress`, `Book`, `Story`, `Daily`, `Tutorial`, `Admin`, `Playtime`, `Boosts`, `Badges` |
 
 ## Boot order
 **Server (`Main.server.luau`):**
 1. `Remotes` is required first, so every remote exists before anything else runs.
 2. The collision groups `Patients` and `Players` are set up. Patients walk through players and each other.
 3. Then `start()`, in this order: `PlayerData` → `State` → `Events` → `Plots` → `Carry` → `Economy` → `Progress` →
-   `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Stations` → `Patients` → `Visits` → `DayNight` → `Admin`.
+   `Book` → `Story` → `Daily` → `DayReport` → `Tutorial` → `Boosts` → `Badges` → `Playtime` → `Stations` →
+   `Patients` → `Visits` → `DayNight` → `Admin`.
+   - `Playtime` starts after `Plots` and `Daily` (it needs a clinic and the UTC day) and hooks itself into `Boosts`
+     (`Boosts.hook`) and `Remotes` (`setActivity`).
    - `Tutorial` starts before `Stations` and `Patients`, so its quiet toasts and listeners are set before any
      patient comes. `Stations`, `Patients` and `Cure` call its hooks; it requires none of them.
    - `Plots.start()` builds the whole town (`PlotBuilder.buildTown`), with a `Room_Stand` on every plot, before
@@ -117,7 +128,8 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 4. It prints `[Main] Clinic is open.`
 
 **Client (`Main.client.luau`):** waits for `game.Loaded` and builds `ctx`. Then it loads `UI.Toasts`, `Hud`, `Shop`,
-`BookPanel`, `DayReportPanel`, `Mailbox`, `Guide`, `PromptFilter`, `AdminPanel` and `Tutorial`, then `Feel.Sounds`,
+`BookPanel`, `DayReportPanel`, `Mailbox`, `PlayGifts`, `BadgeBook`, `Guide`, `PromptFilter`, `AdminPanel` and
+`Tutorial`, then `Feel.Sounds`,
 `CureFX` and `Atmosphere`. Each one is loaded in its own pcall, and its `init(ctx)` runs. A missing or broken module
 warns `[Client] ...` and is skipped. `Music.client` and `RoofFade.client` are separate LocalScripts. Until the
 server's first snapshot arrives, `ctx.State.Tutorial` is 0 ("not known yet"), so the HUD starts calm (only 💰).
@@ -155,6 +167,108 @@ fresh save starts at 1. A save from before the tutorial (no `Tutorial` field) wi
 - **No skip button.** The HUD reveals itself with the step (see `client/UI/Hud.luau`). Only admins can jump it, from
   the [Admin panel](#admin-panel).
 
+## Play gifts, Doctor ranks, boosts and badges
+Rewards for playing, all earned in play: **no Robux, nothing random, no streaks, nothing to miss**
+(`docs/research/2026-11-16-kids-audience-and-rules.md`). Server: `server/Playtime.luau`, `Boosts.luau`, `Badges.luau`;
+rules: `shared/Logic/Playtime.luau`, `Boosts.luau`, `Badges.luau` (Lune specs of the same names); content:
+`shared/Data/Playtime.luau`, `Boosts.luau`, `Badges.luau`; UI: `client/UI/PlayGifts.luau`, `BadgeBook.luau`, the HUD.
+
+**Active play only.** Once a second the server counts a player's time while they're at their own clinic (a plot) and
+have moved (1 stud) or acted (any remote, any ProximityPrompt) in the last `Config.PlaytimeIdleSeconds` (300). Standing
+still pauses it, so it can't be farmed beyond normal play. The counted seconds are saved at most a minute apart (sooner
+when a gift unlocks, a rank is reached or a boost ends) and on leave; the HUD reads the live player attributes
+`PlayToday`, `PlayTotal` and `PlayCounting`.
+
+**Save fields** (`Logic/Schema`, inside v2; an older save starts at 0 on today):
+`Playtime = { Day, TodaySeconds, TotalSeconds, Claimed, Rank }` (today's and all-time active seconds, the gifts opened
+on `Day`, the rank rewarded), `Boosts = { [BoostId]: secondsLeft }`, `Stats = { [counter]: n }` (badge counters;
+`Seeded = 1` once worked out from an older save), `Badges = { [BadgeId]: tier }`.
+
+### Daily play gifts (`Data/Playtime.Gifts`)
+Six gifts unlock with active play on the current **UTC day**; tap 🎁 (under the wallet, after the tutorial), then
+**Open!** (`ClaimPlayGift(index)`, validated and rate-limited on the server). Leaving and rejoining keeps today's
+progress and opened gifts; a new UTC day refills them (mid-session too). After the sixth there's nothing more today.
+
+| # | After (play today) | Gift |
+|---|---|---|
+| 1 | 2 min | 💰20 |
+| 2 | 5 min | 💰30 ⭐1 + ⚡ Quick Hands |
+| 3 | 10 min | 💰50 ⭐1 |
+| 4 | 15 min | 💰60 ⭐2 + 🍀 Lucky Tips |
+| 5 | 25 min | 💰100 ⭐2 |
+| 6 | 40 min | 💝 💰150 ⭐3 + 🌠 Star Rush |
+
+### Doctor ranks (`Data/Playtime.Ranks`)
+All-time active play. Each rank gives, once: an exclusive decor (`EarnedBy = "Playtime"`, place it from 🛒 Decor), a
+toast and banner, its Roblox badge, and a permanent Cash boost (your current rank's, not added up). The rank shows on
+your clinic sign (`SignGui.RankBadge`; 🌱 Trainee before the first) and in the 🎁 panel ("Doctor rank: Resident ·
+4h 12m played · next: 🥼 Doctor at 10h").
+
+| Rank | Played | Decor | Cash boost | `Config.Badges` key |
+|---|---|---|---|---|
+| 🩹 Intern | 1 h | 🩹 Intern Rug | +2% | `Intern` |
+| 🩺 Resident | 3 h | 🪴 Resident Fern | +4% | `Resident` |
+| 🥼 Doctor | 10 h | 🏮 Doctor Lantern | +6% | `Doctor` |
+| 🎖️ Senior Doctor | 25 h | 🪑 Senior Bench | +8% | `SeniorDoctor` |
+| 🌟 Chief | 50 h | 🌟 Chief's Arch | +10% | `Chief` |
+| 🏆 Legend | 100 h | 🏆 Legend Statue | +15% | `Legend` |
+
+### Boosts (`Server/Boosts`, `Logic/Boosts`)
+Kinds: **Cash** (x the whole cure pay), **Tips** (added to the Tip Jar factor, so it works without a Tip Jar),
+**Stars** (x a cure's stars, rounded), **MakeSpeed** (hold time / (1 + p), never below `BoostMinMakeSeconds` 0.3 s),
+**Patience** (x how long patients wait). Applied on the server where rewards happen: `Cure` (the helper's Cash and Tips,
+the owner's Stars, scoped to night and the patient's wing), `Stations` (the maker's MakeSpeed for that station; the
+Snapshot's `MakeSeconds` makes the client ring match), `Patients` (the owner's Patience).
+- **Permanent:** the Doctor rank and every badge's tier. Capped per kind (`Config.BoostCaps`): **Cash ≤ +50%,
+  MakeSpeed ≤ +40%, Patience ≤ +50%, Tips ≤ +50%** (Stars ≤ +50%, though nothing permanent gives Stars yet).
+- **Timed** (`Data/Boosts`, from the gifts): ⚡ **Quick Hands** MakeSpeed +25% for 10 min · 🍀 **Lucky Tips** Tips
+  +50% for 15 min · 🌠 **Star Rush** Stars ×2 for 10 min. Saved, and they tick **only during active play** (never while
+  away). Getting one again extends it (to `BoostMaxMinutes` 60), never stacks it. They add on top of the capped part.
+- On screen: a chip per timed boost beside the clock (icon + play time left), and a "Your boosts" line in the 🎁 panel
+  and the 🏅 Book.
+
+### Badges (`Data/Badges`), Bronze → Silver → Gold → Diamond → Ruby → Mythic
+Each tier reached pays once (🥉 💰50 ⭐2 · 🥈 💰150 ⭐4 · 🥇 💰400 ⭐8 · 💎 💰1,000 ⭐15 · ♦️ 💰2,500 ⭐25 · 🔮 💰6,000
+⭐40) and grows the badge's permanent boost (per tier, so Gold = 3x). Checked after every save change; tiers never go
+down. An older save's counters are seeded once from `Cured`, the Patient Book (per wing, night, and one treatment made
+per cure) and Today's Visitor.
+
+| Badge | Counts | Tiers | Boost per tier |
+|---|---|---|---|
+| 🏥 Healer | cures (`Cures`) | 25 · 100 · 500 · 2,000 · 10,000 · 50,000 | +1% Cash |
+| 🔦 Night Shift | night cures | 5 · 25 · 100 · 400 · 1,500 · 6,000 | +5% Cash at night |
+| ⭐ Visitor | Today's Visitors cured (the owner) | 1 · 5 · 15 · 40 · 100 · 250 | +4% Patience |
+| 🏠 Builder | rooms bought + decor owned | 1 · 3 · 6 · 10 · 16 · 22 | +4% Tips |
+| ⏱️ Dedication | hours of active play | 1 · 5 · 15 · 40 · 100 · 250 | +2% MakeSpeed |
+| 🌳 Meadow | Meadow cures | 10 · 50 · 200 · 750 · 3,000 · 12,000 | +2% Cash for Meadow |
+| 🛁 Bubble Pond | Bubble Pond cures | 10 · 40 · 150 · 600 · 2,500 · 10,000 | +2% Cash for Bubble Pond |
+| ❄️ Snowy Hills | Snowy Hills cures | 5 · 25 · 100 · 400 · 1,500 · 6,000 | +2% Cash for Snowy Hills |
+| 🌙 Moonlit Woods | Moonlit Woods cures | 5 · 25 · 100 · 400 · 1,500 · 6,000 | +2% Cash for Moonlit Woods |
+| 🧪 Potions | potions made | 25 · 100 · 400 · 1,500 · 6,000 · 25,000 | +3% MakeSpeed 🧪 |
+| 🩹 Plasters | plasters made | 25 · 100 · 400 · 1,500 · 6,000 · 25,000 | +3% MakeSpeed 🩹 |
+| 🧼 Bubbles | warm baths run | 10 · 50 · 200 · 800 · 3,000 · 12,000 | +3% MakeSpeed 🛁 |
+| ☕ Cocoa | cocoa made | 10 · 40 · 150 · 600 · 2,500 · 10,000 | +3% MakeSpeed ☕ |
+| 💬 Storyteller | story beats heard | 1 · 3 · 6 · 9 · 12 · 15 | +3% Tips |
+| ❤️ Friendly | hearts sent + cures at a friend's clinic | 1 · 5 · 20 · 60 · 150 · 400 | +3% Patience |
+
+**A new badge** (perfect mini-games, nurses hired, hospital level...) is a row in `Data/Badges.List` plus, for a new
+counter, one `Badges.add(player, { Counter = 1 })` where it happens. The 🏅 Book draws it on its own.
+
+### Roblox badges (only the 6 Doctor ranks and Gold 🏥 Healer)
+The ids live in `Config.Badges`; **0 = not created yet, skipped**. Awarding is a pcall'd `BadgeService:AwardBadge`
+(after `UserHasBadgeAsync`), once per session, and every join re-checks the ranks and Gold Healer already reached, so a
+badge made later still reaches players who got there first. To make them (Joshua, both brothers agree on the art):
+1. [Creator Hub](https://create.roblox.com/dashboard/creations) → the experience → **Associated Items** → **Badges** →
+   **Create a Badge**.
+2. Upload a square image (original art, the size Creator Hub asks for), name it (e.g. "Intern"), a one-line
+   description (e.g. "Played 1 hour at your clinic"), and create it. Creator Hub shows whether a badge is free or costs
+   Robux before you confirm (check it there, it can change): spending any Robux needs both brothers' yes (CLAUDE.md
+   red line 4).
+3. Copy the badge's id (the number in its URL) into `Config.Badges` (`Intern = 123456789`, ...) and commit. Repeat for
+   `Resident`, `Doctor`, `SeniorDoctor`, `Chief`, `Legend` and `HealerGold`.
+4. Test in a live server: reach the rank with the 🛠️ "+5 h total" button and check the badge on your profile. Output
+   warns `[Badges] Could not award Roblox badge ...` on a wrong id (or where awarding isn't possible, such as Studio).
+
 ## Admin panel
 For the two developer accounts, to test progression quickly in the **live game** and in Studio:
 `server/Admin.luau` (rules in `shared/Logic/Admin.luau`, spec `tests/Admin.spec.luau`) and `client/UI/AdminPanel.luau`.
@@ -183,6 +297,11 @@ once per player). Replies come back as toasts.
 | 💌 Stories today | `StoriesDue` | every regular who told a beat today may tell the next one today; the gap between regulars ends |
 | 🎯 Reset goals + 📬 | `ResetDaily` | today starts over: goals handed out today go, today's goal comes again, the mailbox opens |
 | 🤧 Spawn patient… | `SpawnPatient` (a `Data/Patients` id) | a page of every patient: tap one and it's next in your own line, once there's room (up to 4 wait; it needs its station on your plot) |
+| 🎁 +10 min today | `AddPlayToday` | +600 s of play today: the next gifts unlock |
+| ⏱️ +5 h total | `AddPlayTotal` | +5 h of play all time: Doctor ranks (decor, badge, sign) and ⏱️ Dedication |
+| 🏥 +100 cures | `AddCureStat` | +100 to the 🏥 Healer counter (tiers and rewards as in play) |
+| 🏅 Max badges | `MaxBadges` | every badge to Mythic, with all its tier rewards (a lot of 💰 and ⭐) |
+| 🌠 Star Rush · ⚡ Quick Hands · 🍀 Lucky Tips | `AddBoost` (a `Data/Boosts` id) | that timed boost, as its gift gives it (extends, up to 60 min) |
 | ✅ Finish | `FinishTutorial` | the tutorial is done (step 9) |
 | 🔄 Restart | `RestartTutorial` | empties your line, back to the welcome card, and respawns you so the title card and sweep play |
 | 🌙 Night · ☀️ Day | `SkipToNight` · `SkipToDay` | the whole server: ends the current phase now (`SkipPhase`); day after night sends the Day Report |
@@ -212,6 +331,8 @@ once per player). Replies come back as toasts.
 - **Rated Minimal, no reading needed, mobile-first.** Icons and colour first, any words ≤ 6 (the tutorial's cards
   ≤ 8, per its design), buttons ≥ 56 px tall. Nothing timed against the player; every motion honours
   `Kit.reducedMotion()`.
+- **Rewards for playing never pressure.** Play gifts refill each UTC day with nothing lost for a day away; the 🎁 ring
+  and boost chips count only active play, so nothing runs out while you're gone; badges and ranks only go up.
 - **No streaks, no timed offers, no paid random items, nothing paid at all in this build.** `Config.GamePasses.DoubleCash`
   stays 0: the 2× Cash pass needs a rethink (OPEN #8, design §9), and anything paid needs both brothers' yes and the
   ownership note first (CLAUDE.md red lines 4 and 5).
@@ -252,13 +373,17 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   - Winter: `workspace:SetAttribute("ForceWinter", true)`.
   - End the current day or night now: `workspace:SetAttribute("SkipPhase", true)` (twice = a whole clinic day, so
     the Day Report pops). Or shorten `Config.DaySeconds` and `Config.NightSeconds`.
-  - UTC midnight: `workspace:SetAttribute("UtcDay", workspace:GetAttribute("UtcDay") + 1)`. Daily, Story and Events
-    all follow it (new visitor, a new goal, the mailbox opens). Setting it below the real day snaps back. This works
-    in Studio only: live servers always use the real day.
+  - UTC midnight: `workspace:SetAttribute("UtcDay", workspace:GetAttribute("UtcDay") + 1)`. Daily, Story, Events
+    and Playtime all follow it (new visitor, a new goal, the mailbox opens, the six play gifts refill and today's play
+    time starts again). Setting it below the real day snaps back. This works in Studio only: live servers always use
+    the real day.
+  - Idle: stand still for `Config.PlaytimeIdleSeconds` (lower it to 20 to test) and the 🎁 ring and boost chips stop;
+    move and they go on.
   - Force Today's Visitor: `workspace:SetAttribute("TodaysVisitor", "CloudSheep")` (lasts until the day changes).
   - The next story day without touching `UtcDay`: set a regular's `LastBeatDay` back by 1 in the save.
   - With **Studio Access to API Services** on, a forward-set `UtcDay` is written into the real save
-    (`LastGrantDay`, `Mailbox.LastSeenDay`, `HeartsGiven`, `VisitorDay`, a story's `LastBeatDay`). The next load
+    (`LastGrantDay`, `Mailbox.LastSeenDay`, `HeartsGiven`, `VisitorDay`, a story's `LastBeatDay`, `Playtime.Day`). The
+    next load
     pulls those days back to the real UTC day (`Schema.reconcile`), so the account isn't locked out, but it can
     still lose that day's mail or goal. A spare account, or API access off, is still the cleanest.
 - **Feel check:** a cure gives sparkles, a pop, a chime and the NEW PAGE banner; in ⚙️, the ✨ switch turns to 💤
@@ -272,6 +397,8 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
   print(R.PlaceDecor:InvokeServer("Stand:9", "CozyRug")) -- no such slot, or not owned
   print(R.ClaimGoal:InvokeServer(-1))
   print(R.TutorialAck:InvokeServer(8))                  -- only ever moves the welcome card (step 1) on
+  print(R.ClaimPlayGift:InvokeServer(6))                -- locked: "⏳ Keep playing!"
+  print(R.ClaimPlayGift:InvokeServer(0), R.ClaimPlayGift:InvokeServer("1"), R.ClaimPlayGift:InvokeServer(1.5))
   ```
 
 ## Playtest checklist (build plan §D)
@@ -304,6 +431,18 @@ Lune-safe modules can be required. `Data/Stations` and `Data/Ailments` use `Colo
 - [ ] 11. Hearts: a heart from a second client counts once a day, and the sign's count is still there after the owner
   rejoins. The OpenHelpers toggle works. A non-friend can't treat when it's closed.
 - [ ] 12. Rejoin keeps everything. Junk remote calls are rejected.
+- [ ] 13. **Play gifts:** after the tutorial 🎁 bounces in under the wallet and its dot ring fills as you play; it
+  stops when you stand still for `PlaytimeIdleSeconds`. At 2 min the dot shows and the 🎁 panel's first card shines;
+  Open! pays 💰20 with flying coins. Rejoin: the time and opened gifts are kept. 🛠️ "+10 min today" (x4) unlocks the
+  rest; the 5, 15 and 40 min gifts start ⚡ 🍀 🌠 chips beside the clock that count down only while you play. After
+  the sixth: "🎉 All gifts opened today!". Forward `UtcDay`: all six refill, today's time is 0:00.
+- [ ] 14. **Ranks:** 🛠️ "+5 h total": the banner and toast for 🩹 Intern and 🩺 Resident, their decor in 🛒 Decor,
+  the sign's pill shows 🩺 Resident, the 🎁 panel says "Doctor rank: Resident · 5h played · next: 🥼 Doctor at 10h".
+- [ ] 15. **Boosts:** with ⚡ Quick Hands the station ring is shorter and a hold that matches it makes the item (no
+  "Hold a little longer!"); 🌠 Star Rush doubles a cure's ⭐; the "Your boosts" line lists them.
+- [ ] 16. **Badges:** the 🏅 tab after the tutorial; tabs switch categories; 🛠️ "+100 cures" gives 🥉 then 🥈 Healer
+  with a banner, a toast and 💰⭐; the card's frame turns bronze then silver and says "🥇 Gold → +3% 💰". An existing
+  save with cures gets its seeded tiers on first join. 🛠️ "Max badges": one "15 badges up!" banner, every card Mythic.
 
 **Edge cases (build plan, Review Focus):**
 - [ ] The plot owner leaves mid-cure: patients, carry visuals and prompts on that plot clean up with no errors, a

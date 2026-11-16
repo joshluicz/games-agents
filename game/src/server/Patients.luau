@@ -16,8 +16,9 @@
 --      patients need the Winter Wing, and new Book pages are likelier. Variants: Sparkly at Config.SparklyChance,
 --      Frosty at Config.FrostyChance while Workspace.IsWinter (never on regulars). Regulars and the visitor
 --      wait longer (GuestPatienceMultiplier). Night-wing regulars count as night patients (glow, ctx.Night).
---   2. Wait in line in front of the Counter. Patience (Prices.patience with the owner's Comfy Chairs level)
---      drains while a patient stands in line: full speed at the front, slower behind. When it runs out the
+--   2. Wait in line in front of the Counter. Patience (Prices.patience with the owner's Comfy Chairs level, times
+--      the owner's Patience boosts from Server/Boosts) drains while a patient stands in line: full speed at the
+--      front, slower behind. When it runs out the
 --      patient leaves with a sad puff (a regular: Story.left, so they come back later). No penalty, ever.
 --   3. Treat. The `TreatPrompt` on the Counter treats the front patient: Plots.canWork, then Carry.take(the
 --      item its ailment needs). A wrong (or no) item gets a head-shake and a toast with the right station icon.
@@ -75,6 +76,7 @@ local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
 local Story = require(script.Parent.Story)
 local Tutorial = require(script.Parent.Tutorial)
+local Boosts = require(script.Parent.Boosts) -- playtime branch: the owner's Patience boosts
 
 type Plot = Types.Plot
 type Badge = CreatureBuilder.Badge
@@ -960,6 +962,12 @@ local function patienceFor(owner: Player, guest: boolean): number
 	local chairs = if data then data.Upgrades.Chairs or 0 else 0
 	local ok, seconds = pcall(Prices.patience, chairs, Config)
 	local base = if ok and type(seconds) == "number" and seconds > 0 then seconds else Config.PatienceSeconds
+	-- >>> playtime branch: the owner's Patience boosts (badge tiers, Server/Boosts)
+	local boostOk, boost = pcall(Boosts.multiplier, owner, "Patience")
+	if boostOk and type(boost) == "number" and boost >= 1 and boost < math.huge then
+		base *= boost
+	end
+	-- <<< playtime branch
 	return base * (if guest then GUEST_PATIENCE else 1)
 end
 
