@@ -1,0 +1,6 @@
+# Pinned tool versions. Run `rokit install` from this folder.
+# Latest stable releases on 2026-11-16 (GitHub release pages). Bump on purpose, then test.
+[tools]
+rojo = "rojo-rbx/rojo@7.7.1"
+selene = "Kampfkarren/selene@0.32.0"
+stylua = "JohnnyMorganz/StyLua@2.6.0"
