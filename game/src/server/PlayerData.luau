@@ -16,8 +16,9 @@
 --                                       true when the write landed. Never two writes for one player at once (it
 --                                       waits for one in flight). False when not loaded, leaving, or not saving.
 --                                       The Market saves the seller THEN the buyer; a rebirth saves at once
---   PlayerData.writeAfter(first, second, leaveOut?)   (integration; review fix) the ORDER of two saves. The Market
---                                       calls it (seller, buyer, Market.Pure.leaveOut(nurse, price)) on every sale.
+--   PlayerData.writeAfter(first, second, leaveOut?, key?)   (integration; review fix) the ORDER of two saves. The
+--                                       Market calls it (seller, buyer, Market.Pure.leaveOut(nurse, price, copies),
+--                                       nurse) on every sale.
 --                                       Until `first`'s changes made so far have landed in the store, every write of
 --                                       `second`'s (autosave, saveNow, a rebirth's, its leave-save) is written with
 --                                       the sale left out (the nurse gone, the price back); it waits a moment (up to
@@ -26,7 +27,16 @@
 --                                       crash, not if the seller's leave-save gives up or its lock is lost (then the
 --                                       seller keeps the nurse and the buyer the price), and two players trading both
 --                                       ways never wait on each other. A crash can lose a sale, never duplicate one.
---                                       Each call adds a dependency (two sales, two); one that landed is dropped
+--                                       Each call adds a dependency (two sales, two); one that landed is dropped.
+--                                       The buyer's LAST write (its leave-save) first lands the seller: it runs the
+--                                       seller's write itself and waits for it (landSellers, bounded by
+--                                       WRITE_AFTER_SECONDS; a seller whose own leave-save is under way is waited
+--                                       for), and leaves the sale out only if that fails. So a buyer who leaves right
+--                                       after a sale doesn't end with the nurse in neither save because the seller's
+--                                       write was merely late. BindToClose releases the players who wait for nobody
+--                                       first. `key` (the nurse id) says what the sale moved: a later sale by
+--                                       `second` waits for this one only if it has the same key (the same nurse sold
+--                                       on); without a key, every later sale does
 --
 -- Safety (roblox-datastores skill):
 --   · Writes use UpdateAsync with a session lock, so two servers never write over each other (fast rejoin,
@@ -82,6 +92,7 @@ local SAVING_OFF_TOAST = "⚠️ Saving is off"
 local WAITING_TOAST = "⏳ Opening your clinic..."
 local FRESH_SAVE = "FreshSave" -- the Workspace attribute (Studio test switch) and the player attribute it sets
 local WRITE_AFTER_SECONDS = 10 -- writeAfter: the longest a save waits for the other one to land
+local LAND_TRIES = 2 -- a leave-save runs a seller's write this often before it leaves that sale out
 
 ------------------------------------------------------------------------------------------------------------------
 -- writeAfter's rules (pure: no Roblox services, no upvalues; tests/PlayerData.spec loads this block on its own)
@@ -92,16 +103,70 @@ local Pure = {}
 
 -- One writeAfter(first, second, leaveOut): `second`'s save may hold the sale only once `first`'s changes up to
 -- Changes have landed in the store.
---   Session   first's session (Written, Saving and CanSave are read)
+--   Session   first's session (Written, Stored, Saving, CanSave, Owned and Final are read)
+--   Player    first's Player (a last write runs first's write itself: PlayerData's landSellers)
+--   Key       what the sale moved (the nurse id), if known: see Pure.landed
 --   Changes   first's Changes count when it was called (the sale's take is in it)
 --   From      second's Changes count then (the sale's give is in it, so everything before From is held in full)
 --   Until     os.clock() bound for a dependency without LeaveOut (one that is only waited for)
 --   LeaveOut  fn(snapshot): takes the sale back out of a COPY of second's save (the nurse goes, the price comes back)
-export type Dep = { Session: any, Changes: number, From: number, Until: number, LeaveOut: ((any) -> ())? }
+export type Dep = {
+	Session: any,
+	Player: any?,
+	Key: string?,
+	Changes: number,
+	From: number,
+	Until: number,
+	LeaveOut: ((any) -> ())?,
+}
 
+-- What a successful data write held (a session's Stored): the Changes count of its snapshot, and for the sales left
+-- out of it the Changes count held in full before the earliest one, per key (Left) and for those without a key (Any).
+export type Stored = { Changes: number, Any: number?, Left: { [string]: number } }
+
+-- first's take has landed in the store. Either everything up to it was held in full (Written), or (per dependency,
+-- when this sale has a Key) first's last stored snapshot reaches it and the only sales left out of that snapshot
+-- before it moved something else. A sale left out of first's save with the SAME key before the take is the nurse
+-- sold on: this one waits for that one in turn. So a seller who also bought some other nurse from a player whose
+-- save never lands doesn't hold its own buyers back.
 function Pure.landed(dep: Dep): boolean
 	local first = dep.Session
-	return type(first) == "table" and type(first.Written) == "number" and first.Written >= dep.Changes
+	if type(first) ~= "table" then
+		return false
+	end
+	if type(first.Written) == "number" and first.Written >= dep.Changes then
+		return true
+	end
+	local key, stored = dep.Key, first.Stored
+	if key == nil or type(stored) ~= "table" or type(stored.Changes) ~= "number" or stored.Changes < dep.Changes then
+		return false
+	end
+	if type(stored.Any) == "number" and stored.Any < dep.Changes then
+		return false
+	end
+	local left = if type(stored.Left) == "table" then stored.Left[key] else nil
+	return type(left) ~= "number" or left >= dep.Changes
+end
+
+-- The sales a LAST write (the leave-save) lands first: not landed yet, with a seller session that still holds its
+-- lock and may save. PlayerData runs each seller's write and waits for it (bounded), or waits for a seller whose own
+-- leave-save is under way (Final); only what is still not landed after that is left out of the last snapshot. Without
+-- this a buyer who leaves while the seller's save is merely late ends with the nurse in neither save.
+function Pure.toLand(deps: { Dep }): { Dep }
+	local list = {}
+	for _, dep in deps do
+		local first = dep.Session
+		if
+			dep.LeaveOut ~= nil
+			and not Pure.landed(dep)
+			and type(first) == "table"
+			and first.Owned == true
+			and first.CanSave == true
+		then
+			table.insert(list, dep)
+		end
+	end
+	return list
 end
 
 -- Worth waiting a moment before a write: an unmet dependency whose session has a write in flight (it may land it in
@@ -128,11 +193,13 @@ end
 -- deep copy of the save; nil = no data write). So the buyer's stored save holds a nurse only once the seller's stored
 -- save has lost it, whatever the write order, a crash, or a seller's save that never lands (its leave-save gave up,
 -- or it lost its lock: the seller keeps the nurse and the buyer's stored save keeps the price). Returns (ok, masked,
--- heldUpTo): ok false if a LeaveOut errored (write no data this time); masked whether anything was left out; heldUpTo
--- the Changes count this snapshot holds in full (Written may become it): everything before the earliest sale left
--- out, so a sale chained on this one (it sells the nurse on) waits for it in turn.
-function Pure.prepare(deps: { Dep }, snapshot: any, changes: number, now: number): (boolean, boolean, number)
+-- heldUpTo, stored): ok false if a LeaveOut errored (write no data this time); masked whether anything was left out;
+-- heldUpTo the Changes count this snapshot holds in full (Written may become it): everything before the earliest sale
+-- left out, so a sale chained on this one (it sells the nurse on) waits for it in turn; stored the same per key (the
+-- session's Stored once the write lands: Pure.landed).
+function Pure.prepare(deps: { Dep }, snapshot: any, changes: number, now: number): (boolean, boolean, number, Stored)
 	local ok, masked, held = true, false, changes
+	local stored: Stored = { Changes = changes, Any = nil, Left = {} }
 	for index = #deps, 1, -1 do
 		local dep = deps[index]
 		local leaveOut = dep.LeaveOut
@@ -144,12 +211,18 @@ function Pure.prepare(deps: { Dep }, snapshot: any, changes: number, now: number
 		elseif leaveOut ~= nil then
 			masked = true
 			held = math.min(held, dep.From - 1)
+			local key = dep.Key
+			if key ~= nil then
+				stored.Left[key] = math.min(stored.Left[key] or dep.From - 1, dep.From - 1)
+			else
+				stored.Any = math.min(stored.Any or dep.From - 1, dep.From - 1)
+			end
 			if snapshot ~= nil and not pcall(leaveOut, snapshot) then
 				ok = false
 			end
 		end
 	end
-	return ok, masked, held
+	return ok, masked, held, stored
 end
 -- PURE-END
 
@@ -166,6 +239,7 @@ type Session = {
 	Released: boolean, -- the player left: no more autosaves, the leave-save is under way
 	Final: boolean, -- the leave-save took its snapshot: later updates would be lost, so they're refused
 	Written: number, -- the Changes count the last successful data write held in full (writeAfter reads it)
+	Stored: Stored?, -- what the last successful data write held, per sale left out (Pure.landed reads it)
 	After: { Dep }, -- writeAfter: sales this save may hold only once their seller's write landed (Pure.prepare)
 }
 
@@ -338,13 +412,58 @@ local function readLegacy(player: Player): (boolean, any)
 	return false, lastError
 end
 
+local write: (player: Player, session: Session, release: boolean) -> (WriteResult, any)
+
+-- Before a LAST write takes its snapshot: land the sellers it still waits for (Pure.toLand), so the sale is in this
+-- write instead of left out of it for good. A seller whose own leave-save took its snapshot (Final) is waited for,
+-- between its retries too; any other gets its write run from here (its own sellers first: a nurse sold on), up to
+-- LAND_TRIES times. Everything is bounded by `deadline`, and `seen` stops two players who traded both ways from
+-- landing each other for ever. Never needed for "no nurse in two saves" (Pure.prepare sees to that): it is what keeps
+-- a nurse from ending in NEITHER save when the buyer leaves while the seller's write is only late.
+local function landSellers(session: Session, deadline: number, seen: { [any]: boolean })
+	seen[session] = true
+	for _, dep in Pure.toLand(session.After) do
+		local seller: Session = dep.Session
+		local sellerPlayer: Player? = dep.Player
+		if not seen[seller] then
+			local tries = 0
+			while os.clock() < deadline and not Pure.landed(dep) and seller.Owned and seller.CanSave do
+				if seller.Final then
+					task.wait(0.1) -- its leave-save is writing, or between two tries
+				elseif sellerPlayer and tries < LAND_TRIES then
+					tries += 1
+					if tries == 1 then
+						landSellers(seller, deadline, seen)
+					else
+						task.wait(1)
+					end
+					local done = false
+					task.spawn(function()
+						pcall(write, sellerPlayer, seller, false)
+						done = true
+					end)
+					while not done and os.clock() < deadline do
+						task.wait(0.1)
+					end
+				else
+					break
+				end
+			end
+		end
+	end
+end
+
 -- Writes the save (unless it can't), refreshes or releases the lock. Serialised per player.
 -- Returns "Ok", "Failed" (the request errored: safe to try again, it writes the whole save), "LostLock" or
 -- "Skipped" (nothing to do), plus the error for "Failed".
-local function write(player: Player, session: Session, release: boolean): (WriteResult, any)
+function write(player: Player, session: Session, release: boolean): (WriteResult, any)
 	local activeStore = store
 	if not activeStore or not session.Owned then
 		return "Skipped", nil
+	end
+	-- The last write: land the sellers of this save's pending sales first (yields, bounded).
+	if release and session.CanSave then
+		landSellers(session, os.clock() + WRITE_AFTER_SECONDS, {})
 	end
 	-- One write at a time; and a seller's write in flight may land a sale this save depends on in a moment, so wait
 	-- for it (bounded). Checked again after every wait: a writeAfter can arrive while this write waits its turn. The
@@ -365,7 +484,7 @@ local function write(player: Player, session: Session, release: boolean): (Write
 	end
 	local changes = session.Changes
 	local snapshot = if session.CanSave then deepCopy(session.Data) else nil
-	local prepared, masked, heldUpTo = Pure.prepare(session.After, snapshot, changes, os.clock())
+	local prepared, masked, heldUpTo, stored = Pure.prepare(session.After, snapshot, changes, os.clock())
 	if not prepared then
 		warn("[PlayerData] Couldn't leave a pending sale out of the save for", player.UserId, "- lock only this time")
 		snapshot = nil
@@ -405,6 +524,7 @@ local function write(player: Player, session: Session, release: boolean): (Write
 		session.LastWrite = os.clock()
 		if wroteData then
 			session.Written = math.max(session.Written, heldUpTo)
+			session.Stored = stored
 		end
 		-- An update() that ran while the request was in flight isn't in this snapshot: stay dirty for it. So is a sale
 		-- left out (masked): the next write holds it once its seller's write has landed.
@@ -533,6 +653,7 @@ local function load(player: Player)
 		Released = false,
 		Final = false,
 		Written = 0,
+		Stored = nil,
 		After = {},
 	}
 
@@ -590,6 +711,7 @@ local function release(player: Player)
 	if not done then
 		warn("[PlayerData] Leave-save crashed for", userId, crash)
 	end
+	session.CanSave = false -- gone: it never writes again (a buyer's leave-save stops waiting for it)
 	sessions[player] = nil
 	unhold(userId)
 end
@@ -657,14 +779,16 @@ end
 -- landed. `leaveOut(snapshot)` takes the sale back out of a copy of second's save; until first's write lands, every
 -- write of second's (autosave, saveNow, its leave-save) is written with it applied (Pure.prepare). Without it the
 -- dependency is only waited for, bounded by WRITE_AFTER_SECONDS. Each call adds one (two sales are two). Never yields.
--- Without both sessions it does nothing.
-function PlayerData.writeAfter(first: Player, second: Player, leaveOut: ((any) -> ())?)
+-- Without both sessions it does nothing. `key` names what moved (the nurse id; Pure.landed).
+function PlayerData.writeAfter(first: Player, second: Player, leaveOut: ((any) -> ())?, key: string?)
 	local a, b = sessions[first], sessions[second]
 	if not a or not b or a == b then
 		return
 	end
 	table.insert(b.After, {
 		Session = a,
+		Player = first,
+		Key = if type(key) == "string" then key else nil,
 		Changes = a.Changes,
 		From = b.Changes,
 		Until = os.clock() + WRITE_AFTER_SECONDS,
@@ -692,7 +816,17 @@ function PlayerData.start()
 	end)
 
 	game:BindToClose(function()
-		for player in sessions do
+		-- Sellers before their buyers: whoever waits for nobody's write starts first, so it has taken its last
+		-- snapshot by the time a buyer's leave-save looks (landSellers then only waits for it: no extra write).
+		local buyers: { Player } = {}
+		for player, session in sessions do
+			if #Pure.toLand(session.After) == 0 then
+				task.spawn(release, player)
+			else
+				table.insert(buyers, player)
+			end
+		end
+		for _, player in buyers do
 			task.spawn(release, player)
 		end
 		local started = os.clock()

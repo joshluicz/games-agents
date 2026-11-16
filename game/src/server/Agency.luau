@@ -31,6 +31,8 @@
 --       ONE update. The Journal keeps "Hired".
 --   Agency.restockNow(): (ok, message)   Admin "RefillAgency": a new stock now (it counts as a new restock index)
 --   Agency.Pure                          the pure helpers between the PURE markers (tests/AgencyServer.spec)
+-- AgencyBuy and SellNurse answer only within Config.KioskReach studs of the kiosk's prompt part, found in the built
+-- model at call time (0 = off, as shipped: see Config).
 -- Every reply is a message of 6 words or fewer; buy and sell also pass the fresh view back (Remotes.serve's payload).
 -- Requires Nurses, PlayerData and Levels; never Market. No module requires Agency (but Admin).
 
@@ -74,7 +76,26 @@ Pure.MSG = {
 	NotYours = "That nurse isn't yours!",
 	Listed = "🏷️ Unlist it first!",
 	Stays = "This one stays with you!",
+	Far = "🚶 Come closer!",
 }
+
+-- Within `reach` studs: a and b are positions (anything with X, Y and Z). Junk is never near.
+function Pure.near(a: any, b: any, reach: number): boolean
+	local function axis(value: any): boolean
+		return type(value) == "number" and value == value
+	end
+	local function spot(value: any): boolean
+		if type(value) ~= "table" and type(value) ~= "userdata" and type(value) ~= "vector" then
+			return false
+		end
+		return axis(value.X) and axis(value.Y) and axis(value.Z)
+	end
+	if not spot(a) or not spot(b) or not axis(reach) then
+		return false
+	end
+	local dx, dy, dz = a.X - b.X, a.Y - b.Y, a.Z - b.Z
+	return dx * dx + dy * dy + dz * dz <= reach * reach
+end
 
 local function finite(value: any): boolean
 	return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
@@ -750,6 +771,45 @@ function Agency.restockNow(): (boolean, string)
 	return true, "🏢 New nurses at the Agency!"
 end
 
+-- Standing at the kiosk (Config.KioskReach; 0 = off). The kiosk is found in the world at call time, wherever it was
+-- built or moved to: the part that holds its prompt, else the model's pivot.
+local function kioskSpot(): Vector3?
+	local model = Workspace:FindFirstChild(MODEL_NAME)
+	if not model then
+		return nil
+	end
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("ProximityPrompt") then
+			local holder = descendant.Parent
+			if holder and holder:IsA("BasePart") then
+				return holder.Position
+			elseif holder and holder:IsA("Attachment") then
+				return holder.WorldPosition
+			end
+		end
+	end
+	return if model:IsA("PVInstance") then model:GetPivot().Position else nil
+end
+
+-- True when the check is off, when there is no kiosk to stand at, or when the player's HumanoidRootPart is within
+-- Config.KioskReach studs of it. The server's own positions only: nothing from the client is read.
+local function nearKiosk(player: Player): boolean
+	local reach = (Config :: any).KioskReach
+	if type(reach) ~= "number" or reach <= 0 then
+		return true
+	end
+	local spot = kioskSpot()
+	if not spot then
+		return true
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (root and root:IsA("BasePart")) then
+		return false
+	end
+	return Pure.near(root.Position, spot, reach)
+end
+
 function Agency.start()
 	Remotes.serve("GetAgency", function(player: Player)
 		return true, "", Agency.view(player)
@@ -763,11 +823,17 @@ function Agency.start()
 		then
 			return false, Pure.MSG.Oops
 		end
+		if not nearKiosk(player) then
+			return false, Pure.MSG.Far
+		end
 		return Agency.buy(player, slot, nurseId, expect)
 	end)
 	Remotes.serve("SellNurse", function(player: Player, nurseId: any, expect: any)
 		if type(nurseId) ~= "string" or #nurseId > MAX_ID_LENGTH or type(expect) ~= "number" then
 			return false, Pure.MSG.Oops
+		end
+		if not nearKiosk(player) then
+			return false, Pure.MSG.Far
 		end
 		return Agency.sell(player, nurseId, expect)
 	end)
