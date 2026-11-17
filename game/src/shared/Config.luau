@@ -151,9 +151,13 @@ Config.MiniGame = {
 	MinSeconds = { Pour = 1.2, Patch = 1, Scrub = 1.5, Cool = 1.5, Pick = 0.6 },
 	SimpleMinSeconds = 0.25, -- Simple mode: one tap per game
 	Slack = 0.8,
-	-- A session nobody reports on settles as all OK after SessionSeconds + PerGameSeconds x games.
+	-- A session nobody reports on settles as all OK after SessionSeconds + PerGameSeconds x games ...
 	SessionSeconds = 12,
 	PerGameSeconds = 6,
+	-- ... + UntimedSeconds for every step that waits for a tap with no clock of its own (each Pick: the exam's tool,
+	-- the dispensary's bottle; and the dispensary's "Which one?"), so a slow child is never timed out of a choice:
+	-- an exam closes after 44 s, a dispense after 44 s (64 s when it asks "Which one?").
+	UntimedSeconds = 20,
 	-- The games themselves (client; MiniGame.rate reads these so they tune in one place)
 	Pour = { FillSeconds = 2.4, BandMin = 0.7, BandMax = 0.86, GoodSlack = 0.12 }, -- hold, let go in the band
 	Patch = { Spots = 3, Seconds = 4.5, Good = 2 }, -- tap the sore spots
@@ -185,7 +189,10 @@ Config.MiniGame = {
 
 -- The visit (Logic/Visit): the right exam tool glows for a player's first ExamsGlow exams (and always in Simple
 -- mode), so nobody is stuck on their first patients.
-Config.Visit = { ExamsGlow = 3 }
+-- BayRefill: the share of its patience a patient gets back when it sits down on a bay bed. A visit is three beats
+-- now (about 25 s for one doctor), so the wait in the waiting room (x0.5) must not eat the wait for the doctor too:
+-- a patient who reaches a bay starts that wait full.
+Config.Visit = { ExamsGlow = 3, BayRefill = 1 }
 
 -- The dispensary (Station_Remedy; design §9): the dispensing card offers up to Options medicines that bay patients
 -- still need (the oldest first), then shows Bottles bottles to pick from (the right one and Bottles - 1 others).

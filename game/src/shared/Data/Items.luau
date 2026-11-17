@@ -7,6 +7,9 @@
 --                    GameId of Logic/MiniGame). Maker nurses stock these into the nurse tray.
 --   Kind "Medicine"  made only by the player at the dispensary (station `Remedy`): pick the bottle, measure the dose.
 --                    Handing one over plays no game (no Game). Bottle is its bottle's colour (hex) on the shelf.
+-- Every item has an icon of its own (design §7): a plan chip, the dispensary prompt and the "This one needs ..." toast
+-- show an item by its icon alone, so two medicines never share one (🧴 cough syrup / 🍃 soothing cream, 💊 fever
+-- medicine / 🌼 pain relief).
 -- Nothing here is a needle or anything scary: plasters, ice, bandages, a cast, a bath, a hot drink and gentle
 -- medicines (design §2).
 
@@ -33,8 +36,8 @@ local ENTRIES: { [ItemId]: Item } = {
 	FeverMeds = { Name = "Fever medicine", Icon = "💊", Station = "Remedy", Kind = "Medicine", Bottle = "#FF7A59" },
 	EarDrops = { Name = "Ear drops", Icon = "💧", Station = "Remedy", Kind = "Medicine", Bottle = "#4DB8FF" },
 	Lozenges = { Name = "Throat lozenges", Icon = "🍬", Station = "Remedy", Kind = "Medicine", Bottle = "#FFC53D" },
-	Cream = { Name = "Soothing cream", Icon = "🧴", Station = "Remedy", Kind = "Medicine", Bottle = "#5FD3A8" },
-	PainRelief = { Name = "Pain relief", Icon = "💊", Station = "Remedy", Kind = "Medicine", Bottle = "#FF8FC7" },
+	Cream = { Name = "Soothing cream", Icon = "🍃", Station = "Remedy", Kind = "Medicine", Bottle = "#5FD3A8" },
+	PainRelief = { Name = "Pain relief", Icon = "🌼", Station = "Remedy", Kind = "Medicine", Bottle = "#FF8FC7" },
 }
 
 local ORDER = {

@@ -127,6 +127,12 @@ Pure.RAMP = 0.6 -- a half-flight's thickness (a tilted tile slab: a storey of he
 Pure.WINDOW = { Y0 = 3.5, Y1 = 7 } -- ribbon windows, from the storey's floor
 Pure.HATCH = { Sill = 3, Top = 7 } -- the dispensary's glass hatch over its counter
 Pure.COUCH = 1.8 -- an exam bay's Bed: its top, where the patient sits
+-- The lift's prompts. Upstairs they sit over the landing and reach Reach studs. The GROUND landing stands 2.5 studs
+-- from the X-ray room's back wall, and a prompt needs no line of sight, so there the PromptPoint stands Away studs
+-- along the hall from the landing's middle (+z, away from that wall) and reaches only GroundReach: far enough for
+-- anyone in the hall in front of the lift, too short for the X-ray bay's DoctorSpot behind the wall (where "Lift"
+-- would take the tap meant for Examine or Treat).
+Pure.LIFT_PROMPT = { Reach = 8, GroundReach = 4.5, Away = 1.5 }
 Pure.STATION = { Height = 4, Counter = 3.2 } -- a supply shelf; the dispensary counter and the cast table
 Pure.SEAT = { Height = 1.6, Back = 0.6, BackHeight = 4 } -- a waiting-room chair: the seat, its back
 Pure.PANEL = 0.2 -- a door panel's thickness, in its wall's middle
@@ -1185,21 +1191,23 @@ end
 -- The lift, the stairs and the floors
 ------------------------------------------------------------------------------------------------------------------
 
--- The two prompts every landing has, at a rider's chest height.
-local function liftPrompts(landing: BasePart)
+-- The two prompts every landing has, at a rider's chest height (Pure.LIFT_PROMPT: the ground landing's stand off
+-- the X-ray room's wall and reach less). A landing's X runs along the lift door, +z (landingMarker).
+local function liftPrompts(landing: BasePart, ground: boolean?)
 	if landing:FindFirstChild("PromptPoint") then
 		return
 	end
+	local reach = if ground then Pure.LIFT_PROMPT.GroundReach else Pure.LIFT_PROMPT.Reach
 	local point = Instance.new("Attachment")
 	point.Name = "PromptPoint"
-	point.Position = Vector3.new(0, 2.5, 0)
+	point.Position = Vector3.new(if ground then Pure.LIFT_PROMPT.Away else 0, 2.5, 0)
 	point.Parent = landing
 	local lift = Instance.new("ProximityPrompt")
 	lift.Name = "LiftPrompt"
 	lift.ActionText = "Lift"
 	lift.ObjectText = "🛗"
 	lift.HoldDuration = 0
-	lift.MaxActivationDistance = 8
+	lift.MaxActivationDistance = reach
 	lift.RequiresLineOfSight = false
 	CollectionService:AddTag(lift, HospitalBuilder.PROMPT_TAGS.Lift)
 	lift.Parent = point
@@ -1208,7 +1216,7 @@ local function liftPrompts(landing: BasePart)
 	escort.ActionText = "Ride with patient"
 	escort.ObjectText = "🛗"
 	escort.HoldDuration = 0
-	escort.MaxActivationDistance = 8
+	escort.MaxActivationDistance = reach
 	escort.RequiresLineOfSight = false
 	escort.KeyboardKeyCode = Enum.KeyCode.F -- beside the LiftPrompt's E
 	escort.GamepadKeyCode = Enum.KeyCode.ButtonY
@@ -1229,7 +1237,7 @@ local function landingMarker(parent: Instance, name: string, floor: number): Bas
 		Vector3.new(l.Size, 1, l.Size)
 	)
 	landing:SetAttribute("Floor", floor)
-	liftPrompts(landing)
+	liftPrompts(landing, floor == 0)
 	return landing
 end
 

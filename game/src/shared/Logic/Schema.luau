@@ -63,7 +63,9 @@
 --                   indexes 1..MAX_GIFTS once each, sorted; Day is pulled back to today like the other days
 --   Boosts          { [BoostId]: secondsLeft } the timed boosts still running (Logic/Boosts); at most MAX_BOOST_SECONDS
 --   Stats           { [counter]: number } badge counters (Logic/Badges). A fresh save is { Seeded = 1 }; a save
---                   without it gets {} and Server/Badges seeds it once from Cured and the Patient Book
+--                   without it gets {} and Server/Badges seeds it once from Cured and the Patient Book. Also
+--                   Stats.Exams, the player's first exams (Server/Patients: the exam card's glow); no save has it
+--                   until its first exam, so every older save starts at 0 (no version bump: a plain counter)
 --   Badges          { [BadgeId]: tier } the badge tier rewarded so far (0..MAX_TIER)
 
 export type BookPage = { Cured: number, Variants: { [string]: boolean } }

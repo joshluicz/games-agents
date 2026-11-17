@@ -365,6 +365,37 @@ T.describe("Hospital (doors)", function()
 			expect(D.SLIDE_SECONDS > 0 and D.SLIDE_SECONDS < 1).toBe(true)
 		end
 	)
+
+	test("nobody is sealed in: a player in a room that locked, or upstairs of a closed floor, is trapped", function()
+		local tops = B.SLAB_TOPS
+		expect(D.floorAt(3, tops)).toBe(0)
+		expect(D.floorAt(tops[1] + 3, tops)).toBe(1)
+		expect(D.floorAt(tops[2] + 3, tops)).toBe(2)
+		expect(D.floorAt(tops[4] + 3, tops)).toBe(4) -- the roof deck
+		expect(D.floorAt(0 / 0, tops)).toBe(0)
+		expect(D.floorAt(3, nil)).toBe(0)
+		-- an owner leaves a Lv 3 clinic (or rebirths): the Building is Lv 1 again and the X-ray room's door is solid
+		local xray, bath = B.ROOMS.XRay, B.ROOMS.BathRoom
+		local spot = B.doctorSpot(B.bay("X"))
+		expect(D.trapped(spot.X, 3, spot.Z, { xray }, 0, tops)).toBe(true)
+		expect(D.trapped(spot.X, 3, spot.Z, {}, 2, tops)).toBe(false) -- its door is open: nobody is moved
+		expect(D.trapped((bath.X0 + bath.X1) / 2, 3, (bath.Z0 + bath.Z1) / 2, { xray, bath }, 0, tops)).toBe(true)
+		-- the corridor outside the door, the lobby and reception are never a trap
+		local _, outside = B.doorPoints("XRay")
+		expect(D.trapped(outside.X, 3, outside.Z, { xray, bath }, 0, tops)).toBe(false)
+		expect(D.trapped(B.RECEPTION.Stop.X, 3, B.RECEPTION.Stop.Z, { xray, bath }, 0, tops)).toBe(false)
+		for _, r in { xray, bath, B.ROOMS.WinterWing, B.ROOMS.CozyWard } do
+			local s = B.RECEPTION.Stop
+			expect(s.X > r.X0 and s.X < r.X1 and s.Z > r.Z0 and s.Z < r.Z1).toBe(false) -- where the rescued land
+		end
+		-- upstairs: closed behind the stair gate and the lift's locked door under the level that opens it
+		expect(D.trapped(20, tops[1] + 3, 10, {}, 0, tops)).toBe(true) -- F1 at Lv 1
+		expect(D.trapped(20, tops[1] + 3, 10, {}, 1, tops)).toBe(false) -- F1 at Lv 2
+		expect(D.trapped(20, tops[3] + 3, 10, {}, 2, tops)).toBe(true) -- F3 at Lv 3
+		expect(D.trapped(20, tops[4] + 3, 10, {}, 4, tops)).toBe(false) -- the roof at Lv 5
+		expect(D.trapped(0 / 0, 3, 0, { xray }, 0, tops)).toBe(false)
+		expect(D.RESCUE_SECONDS <= 2).toBe(true)
+	end)
 end)
 
 ------------------------------------------------------------------------------------------------------------------
@@ -747,6 +778,28 @@ T.describe("Hospital (the built world)", function()
 			if floors >= 1 then
 				expect(building.Landing_0:GetAttribute("Floor")).toBe(0)
 				expect(building.Landing_0.PromptPoint.LiftPrompt.ActionText).toBe("Lift")
+				-- the ground landing is 2.5 studs from the X-ray room's back wall and a prompt needs no line of sight:
+				-- its prompts must not reach the X-ray bay's doctor spot (or anyone standing in that room), yet must
+				-- reach the landing itself and the hall in front of the lift
+				local point = building.Landing_0.PromptPoint
+				local reach = point.LiftPrompt.MaxActivationDistance
+				expect(point.EscortPrompt.MaxActivationDistance).toBe(reach)
+				local px, pz = B.LANDING.X, B.LANDING.Z + point.Position.X -- the landing's X runs along +z
+				local function away(x: number, z: number): number
+					return math.sqrt((x - px) ^ 2 + (z - pz) ^ 2)
+				end
+				local spot = B.doctorSpot(B.bay("X"))
+				expect(away(spot.X, spot.Z) > reach + 1).toBe(true)
+				expect(away(B.LANDING.X, B.ROOMS.XRay.Z1 - 1.3) > reach).toBe(true) -- hugging the wall behind it
+				expect(away(B.LANDING.X, B.LANDING.Z) < reach - 1).toBe(true)
+				expect(away(B.SHAFT.X0 - 1.5, (B.DOORS.LiftLobby.Z0 + B.DOORS.LiftLobby.Z1) / 2) < reach).toBe(true)
+				expect(pz < B.ROOMS.CorridorB.Z1 - 0.5).toBe(true) -- still in the hall
+				-- upstairs nothing stands behind the landing: the usual reach, over its middle
+				if floors >= 1 then
+					local up = building.Floor_1.Landing.PromptPoint
+					expect(up.Position.X).toBe(0)
+					expect(up.LiftPrompt.MaxActivationDistance > reach).toBe(true)
+				end
 			else
 				expect(building:FindFirstChild("Landing_0")).toBeNil()
 			end

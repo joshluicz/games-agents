@@ -268,7 +268,8 @@ export type Data = {
 	Playtime: PlaytimeData,
 	Boosts: { [BoostId]: number }, -- timed boosts still running: seconds of active play left
 	Stats: { [string]: number }, -- badge counters (Logic/Badges); "Seeded" = 1 once worked out from an older save;
-	-- "RoomsBefore" = the rooms rebirths reset (the 🏠 Builder badge)
+	-- "RoomsBefore" = the rooms rebirths reset (the 🏠 Builder badge); "Exams" = the player's first exams, counted
+	-- up to Config.Visit.ExamsGlow (the exam card's glow, Server/Patients)
 	Badges: { [BadgeId]: number }, -- the badge tier rewarded so far (0..6)
 	-- Depth update (v3)
 	Level: number, -- hospital level 1..5 (Data/Levels)
@@ -397,6 +398,9 @@ export type TreatSession = {
 	Expert: boolean?,
 	Tuning: { [GameId]: { [string]: number } }?,
 	Case: CaseId?, -- Treat: the case being treated (it is known by then). Never sent with an Exam
+	-- Treat: a handover. Games is {}: nothing to play, the client reports at once and shows only the ward pick
+	-- (TreatOutcome.Triage) when the server asks for one
+	Handover: boolean?,
 }
 -- TreatResult's third return value when ok
 export type TreatOutcome = {

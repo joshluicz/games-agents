@@ -13,6 +13,8 @@
 --     holds only its decor slots.
 --   · The Cozy Ward's 2 Beds are its 2 exam bays' beds (ExamBay_W1, ExamBay_W2: Shared/Logic/Building.BAYS with
 --     Room = "Ward"), not recovery beds: buying it means more patients at once, as its beds did before.
+--   · The Winter Wing's 1 Bed is its own recovery bed (Bed_1): a chills patient (Data/Cases Room = "WinterWing") no
+--     ward upstairs takes rests in it before it goes home (Server/Patients restInRoom).
 
 export type RoomId = string
 export type Room = {

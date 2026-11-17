@@ -397,8 +397,12 @@ T.describe("Data", function()
 
 	test("items: supplies with a game from their own station, medicines from the dispensary with a bottle", function()
 		local supplies, medicines = {}, {}
+		local icons: { [string]: string } = {}
 		for _, id in Items.Order do
 			local item = Items[id]
+			-- a plan chip, the dispensary prompt and the "needs ..." toast show an item by its icon alone
+			expect(icons[item.Icon]).toBeNil()
+			icons[item.Icon] = id
 			expect(STATIONS[item.Station]).toBe(true)
 			expect(type(item.Name) == "string" and item.Name ~= "").toBe(true)
 			expect(type(item.Icon) == "string" and item.Icon ~= "").toBe(true)

@@ -14,17 +14,21 @@
 --   a sparkle burst. Then Daily.onMake, Badges.onMade ("Made:<StationId>") and Tutorial.onMade.
 --   The dispensary (Station_Remedy, "Dispense"; Data/Stations Dispense): the medicines are made only by a player here
 --   (nurses never dispense). Holding opens a Dispense session (Server/Treatment) whose Options are the medicines bay
---   patients still need (Patients.neededMedicines, the oldest first, at most 3), less the copies this player already
---   carries. The session's Give puts the chosen medicine in your hands (the same full-tray swap as a supply), bursts
+--   patients still need (Patients.neededMedicines and the rest of Patients.bayView's needs, the oldest first), less
+--   the copies this player already carries and less a medicine their full tray holds nothing but, and only then cut
+--   to Config.Dispensary.Options (3): a fourth needed medicine comes up once one of the first three is in hand. The session's Give puts the chosen medicine in your hands (the same full-tray swap as a supply), bursts
 --   the sparkles and counts "Made:Remedy" (the old potion badge keeps climbing, shown "Pharmacist"), Daily.onMake and
 --   Tutorial.onMade. Nothing to dispense: "💊 No prescriptions yet" (also the prompt's ObjectText, kept up to date
---   every second; otherwise it shows the needed medicines' icons), or "🙌 Already in your hands!".
+--   every second; otherwise it shows the needed medicines' icons), "🙌 Already in your hands!", or "🙌 Tray full!
+--   Treat a patient." when the tray is full of the only medicine left to make (said when the hold begins, never
+--   after both games).
 --   Expert Dispensing (the clinic owner's Pharmacy2 rebirth unlock, Pure.pharmacyTier 2): the session's Dose band
 --   is wider (Treatment, spec.Expert).
---   Tips: a dispense pays its tip at once (Treatment), but only for a need nobody's dispense has tipped for yet (a
---   per-plot ledger of patient + medicine over Patients.bayView, Pure.claimTip). So two players dispensing the last
---   needed medicine both get it (a spare is just a held item to discard) and only one gets a tip, and throwing a
---   medicine away and dispensing it again never tips twice.
+--   Tips: a dispense pays its tip at once (Treatment), but only while fewer dispenses of that medicine have tipped
+--   than bay patients' needs of it were seen (a per-plot ledger over Patients.bayView: Pure.sync, Pure.claimTip). So
+--   each need tips once, whichever patient the bottle goes to; two players dispensing the last needed medicine both
+--   get it (a spare is just a held item to discard) and only one gets a tip, and throwing a medicine away and
+--   dispensing it again never tips twice.
 --
 -- Hold time, checked on the server (the old Kitchen pattern). A prompt's hold runs on the client, so the server
 -- times it itself: PromptButtonHoldBegan starts a hold (one at a time per player), and Triggered only counts when at
@@ -116,7 +120,7 @@ local holds: { [Player]: Hold } = {}
 local lastToast: { [Player]: { [string]: number } } = {}
 local prompts: { [ProximityPrompt]: Wired } = {}
 local wired: { [BasePart]: boolean } = {}
-local claimed: { [Plot]: { [string]: boolean } } = {} -- the dispense-tip ledger (Pure.claimTip)
+local claimed: { [Plot]: any } = {} -- the dispense-tip ledgers (Pure.ledger)
 local warned: { [string]: number } = {}
 
 ------------------------------------------------------------------------------------------------------------------
@@ -156,6 +160,7 @@ local Pure = {}
 Pure.MSG = table.freeze({
 	None = "💊 No prescriptions yet",
 	Have = "🙌 Already in your hands!",
+	Full = "🙌 Tray full! Treat a patient.",
 })
 
 -- Which carried item to give up to make room for `itemId` (`carried` oldest first): the oldest one that's
@@ -210,56 +215,99 @@ local function isMedicine(items: any, itemId: any): boolean
 	return type(row) == "table" and row.Kind == "Medicine"
 end
 
--- What the dispensing card offers this player: `needed` (Patients.neededMedicines: distinct, the oldest first) kept
--- to known medicines, less what they already carry. `rows` (Patients.bayView) counts each medicine's open needs over
--- the bay patients; a medicine whose every need is already in the player's hands is left out (a medicine the rows
--- don't mention is kept: `needed` says so). Returns the options and, when there are none, why: "None" (nothing is
--- needed) or "Have" (everything needed is in your hands).
-function Pure.dispenseOptions(needed: any, rows: any, carried: any, items: any): ({ string }, string)
+local function since(row: any): number
+	local value = row.Since
+	return if type(value) == "number" and value == value then value else math.huge
+end
+
+-- What the dispensing card offers this player. Every medicine a bay patient still needs: `needed`
+-- (Patients.neededMedicines: distinct, the oldest first, but cut to the card's size) and then the rest of the needs
+-- in `rows` (Patients.bayView, the longest wait first), kept to known medicines. Less what they already carry: `rows`
+-- counts each medicine's open needs, and one whose every need is already in the player's hands is left out (a medicine
+-- the rows don't mention is kept: `needed` says so). Less what can't land in their hands: with a `full` tray that
+-- holds nothing but that very medicine, a swap would change nothing. Only THEN cut to `max` (Config.Dispensary.Options,
+-- default 3), so a fourth needed medicine comes up as soon as one of the first three is in hand.
+-- Returns the options and, when there are none, why: "None" (nothing is needed), "Have" (everything needed is in
+-- your hands) or "Full" (the tray is full of it: hand one over first).
+function Pure.dispenseOptions(
+	needed: any,
+	rows: any,
+	carried: any,
+	items: any,
+	max: any,
+	full: any
+): ({ string }, string)
 	local list: { string } = {}
+	local function add(itemId: any)
+		if isMedicine(items, itemId) and not table.find(list, itemId) then
+			table.insert(list, itemId)
+		end
+	end
 	if type(needed) == "table" then
 		for _, itemId in needed do
-			if isMedicine(items, itemId) and not table.find(list, itemId) then
-				table.insert(list, itemId)
+			add(itemId)
+		end
+	end
+	local count: { [string]: number }? = nil
+	if type(rows) == "table" then
+		local counted: { [string]: number } = {}
+		local sorted: { any } = {}
+		for _, row in rows do
+			if type(row) == "table" and type(row.Needs) == "table" then
+				table.insert(sorted, row)
 			end
 		end
+		table.sort(sorted, function(x, y)
+			return since(x) < since(y)
+		end)
+		for _, row in sorted do
+			for _, itemId in row.Needs do
+				if type(itemId) == "string" then
+					counted[itemId] = (counted[itemId] or 0) + 1
+					add(itemId)
+				end
+			end
+		end
+		count = counted
 	end
 	if #list == 0 then
 		return {}, "None"
 	end
-	if type(rows) ~= "table" then
-		return list, ""
-	end
-	local count: { [string]: number } = {}
-	for _, row in rows do
-		if type(row) == "table" and type(row.Needs) == "table" then
-			for _, itemId in row.Needs do
-				if type(itemId) == "string" then
-					count[itemId] = (count[itemId] or 0) + 1
+	local hands: { string } = {}
+	if type(carried) == "table" then
+		for _, itemId in carried do
+			if type(itemId) == "string" then
+				table.insert(hands, itemId)
+				if count and count[itemId] then
+					count[itemId] -= 1
 				end
 			end
 		end
 	end
-	if type(carried) == "table" then
-		for _, itemId in carried do
-			if type(itemId) == "string" and count[itemId] then
-				count[itemId] -= 1
+	local limit = if type(max) == "number" and max == max and max >= 1 then math.floor(max) else 3
+	local out: { string } = {}
+	local blocked = 0
+	for _, itemId in list do
+		local left = if count then count[itemId] else nil
+		if left == nil or left > 0 then
+			local only = #hands > 0
+			for _, held in hands do
+				if held ~= itemId then
+					only = false
+					break
+				end
+			end
+			if full == true and only then
+				blocked += 1 -- a full tray of this very medicine: nothing to swap out
+			elseif #out < limit then
+				table.insert(out, itemId)
 			end
 		end
 	end
-	local out: { string } = {}
-	for _, itemId in list do
-		local left = count[itemId]
-		if left == nil or left > 0 then
-			table.insert(out, itemId)
-		end
+	if #out > 0 then
+		return out, ""
 	end
-	return out, if #out == 0 then "Have" else ""
-end
-
-local function since(row: any): number
-	local value = row.Since
-	return if type(value) == "number" and value == value then value else math.huge
+	return out, if blocked > 0 then "Full" else "Have"
 end
 
 local function patientKey(row: any): string?
@@ -270,52 +318,69 @@ local function patientKey(row: any): string?
 	return if type(id) == "string" and id ~= "" then id else nil
 end
 
--- The dispense-tip ledger. Claims the oldest bay patient's need of `itemId` that no dispense has tipped for yet
--- (`ledger`: "<patient>:<item>" keys, changed in place) and returns its key; nil = nothing left to tip for.
--- `rows` = Patients.bayView ({ PatientId, Needs, Since }).
-function Pure.claimTip(ledger: { [string]: boolean }, rows: any, itemId: any): string?
-	if type(rows) ~= "table" or type(itemId) ~= "string" then
-		return nil
-	end
-	local sorted: { any } = {}
-	for _, row in rows do
-		if patientKey(row) and type(row.Needs) == "table" then
-			table.insert(sorted, row)
-		end
-	end
-	table.sort(sorted, function(a, b)
-		return since(a) < since(b)
-	end)
-	for _, row in sorted do
-		if table.find(row.Needs, itemId) then
-			local key = (patientKey(row) :: string) .. ":" .. itemId
-			if not ledger[key] then
-				ledger[key] = true
-				return key
-			end
-		end
-	end
-	return nil
+-- The dispense-tip ledger: one tip per NEED, whichever patient the bottle goes to. Seen = every bay patient's
+-- medicine need the ledger has seen ("<patient>:<item>", kept while that patient is in a bay, given or not); Tips =
+-- per medicine, the dispenses that tipped. A dispense of `itemId` tips while fewer have tipped than needs were seen.
+-- So with two patients needing cough syrup two dispenses tip, in either order of handing over; two players
+-- dispensing the last needed medicine get one tip between them; and throwing a medicine away and dispensing it again
+-- never tips twice.
+type Ledger = { Seen: { [string]: boolean }, Tips: { [string]: number } }
+
+function Pure.ledger(): Ledger
+	return { Seen = {}, Tips = {} }
 end
 
--- Forgets the ledger's keys for patients who are no longer in a bay (`rows`, Patients.bayView). Junk rows: no change.
-function Pure.prune(ledger: { [string]: boolean }, rows: any)
+-- Brings the ledger up to date with the bays (`rows`, Patients.bayView): new needs are seen; a patient who left its
+-- bay takes its needs along, and each takes one tip of its medicine with it (the need and its tip are both history).
+-- Junk rows: no change.
+function Pure.sync(ledger: Ledger, rows: any)
 	if type(rows) ~= "table" then
 		return
 	end
 	local live: { [string]: boolean } = {}
 	for _, row in rows do
-		local key = patientKey(row)
-		if key then
-			live[key] = true
+		local patient = patientKey(row)
+		if patient then
+			live[patient] = true
+			if type(row.Needs) == "table" then
+				for _, itemId in row.Needs do
+					if type(itemId) == "string" then
+						ledger.Seen[patient .. ":" .. itemId] = true
+					end
+				end
+			end
 		end
 	end
-	for key in ledger do
-		local patient = string.match(key, "^(.*):[^:]*$")
+	for key in ledger.Seen do
+		local patient, itemId = string.match(key, "^(.*):([^:]*)$")
 		if not (patient and live[patient]) then
-			ledger[key] = nil
+			ledger.Seen[key] = nil
+			if itemId and ledger.Tips[itemId] then
+				local left = ledger.Tips[itemId] - 1
+				ledger.Tips[itemId] = if left > 0 then left else nil
+			end
 		end
 	end
+end
+
+-- Whether a dispense of `itemId` may tip now (and counts it when it may). Pure.sync first.
+function Pure.claimTip(ledger: Ledger, itemId: any): boolean
+	if type(itemId) ~= "string" then
+		return false
+	end
+	local needs = 0
+	local suffix = ":" .. itemId
+	for key in ledger.Seen do
+		if string.sub(key, -#suffix) == suffix then
+			needs += 1
+		end
+	end
+	local tipped = ledger.Tips[itemId] or 0
+	if tipped >= needs then
+		return false
+	end
+	ledger.Tips[itemId] = tipped + 1
+	return true
 end
 
 -- The dispensary prompt's ObjectText: the needed medicines' icons, or "💊 No prescriptions yet".
@@ -413,7 +478,14 @@ end
 
 -- The Dispense card's options for this player, and why there are none ("None" | "Have").
 local function dispenseOptions(player: Player, plot: Plot): ({ string }, string)
-	return Pure.dispenseOptions(ask("neededMedicines", plot), ask("bayView", plot), Carry.items(player), ItemData)
+	return Pure.dispenseOptions(
+		ask("neededMedicines", plot),
+		ask("bayView", plot),
+		Carry.items(player),
+		ItemData,
+		Config.Dispensary and Config.Dispensary.Options,
+		Carry.isFull(player)
+	)
 end
 
 local function iconOf(itemId: string): string
@@ -441,7 +513,7 @@ local function refusal(player: Player, w: Wired): string?
 		end
 		local options, why = dispenseOptions(player, plot)
 		if #options == 0 then
-			return if why == "Have" then Pure.MSG.Have else Pure.MSG.None
+			return if why == "Have" then Pure.MSG.Have elseif why == "Full" then Pure.MSG.Full else Pure.MSG.None
 		end
 		return nil
 	end
@@ -559,19 +631,25 @@ local function putInHands(player: Player, itemId: string, plot: Plot): boolean
 	return true
 end
 
--- Whether a dispense of `itemId` at this clinic may tip: it claims a need nobody's dispense has tipped for yet.
-local function claimTip(plot: Plot, itemId: string): boolean
+-- The plot's tip ledger, brought up to date with its bays. nil when the bays can't be read.
+local function ledgerOf(plot: Plot): any
 	local rows = ask("bayView", plot)
 	if type(rows) ~= "table" then
-		return false
+		return nil
 	end
 	local ledger = claimed[plot]
 	if not ledger then
-		ledger = {}
+		ledger = Pure.ledger()
 		claimed[plot] = ledger
 	end
-	Pure.prune(ledger, rows)
-	return Pure.claimTip(ledger, rows, itemId) ~= nil
+	Pure.sync(ledger, rows)
+	return ledger
+end
+
+-- Whether a dispense of `itemId` at this clinic may tip: a need is left that nobody's dispense has tipped for yet.
+local function claimTip(plot: Plot, itemId: string): boolean
+	local ledger = ledgerOf(plot)
+	return ledger ~= nil and Pure.claimTip(ledger, itemId)
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -789,6 +867,9 @@ local function refreshDispensaries()
 				else Pure.MSG.None
 			if prompt.ObjectText ~= text then
 				prompt.ObjectText = text
+			end
+			if w.Plot.Owner and claimed[w.Plot] then
+				ledgerOf(w.Plot) -- the tip ledger sees every need while it is open
 			end
 		end
 	end

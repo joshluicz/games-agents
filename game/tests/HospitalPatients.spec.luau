@@ -431,6 +431,23 @@ T.describe("Patients.Pure: the exam, the treat and the dispensary", function()
 		end
 	)
 
+	test("the glow counts EXAMS (Stats.Exams), never patients treated: an old save's first exams glow too", function()
+		expect(P.EXAMS_STAT).toBe("Exams")
+		-- a live save from before the Real Clinic: 50 treated, never examined anyone
+		local veteran = { Cured = 50, Stats = { Seeded = 1, Cures = 50 } }
+		expect(P.examsDone(veteran)).toBe(0)
+		local _, glow = P.examCard(Cases.Cough, 1, P.examsDone(veteran), false, 0.4, Config)
+		expect(glow).toBe(true)
+		expect(P.examsDone({ Cured = 0, Stats = { Exams = 3 } })).toBe(3)
+		local _, over = P.examCard(Cases.Cough, 1, 3, false, 0.4, Config)
+		expect(over).toBe(false)
+		for _, junk in { false, {}, { Stats = "x" }, { Stats = { Exams = -2 } }, { Stats = { Exams = 0 / 0 } } } do
+			expect(P.examsDone(junk)).toBe(0)
+		end
+		expect(P.examsDone(nil)).toBe(0)
+		expect(P.examsDone({ Stats = { Exams = 2.9 } })).toBe(2)
+	end)
+
 	test("plan: the helper's own items first, then the nurse tray; each fills one slot", function()
 		local carry, tray = P.plan({ "Ice", "Bandage" }, { false, false }, { "Bandage" }, { "Ice", "Bandage" })
 		expect(carry).toEqual({ 2 })

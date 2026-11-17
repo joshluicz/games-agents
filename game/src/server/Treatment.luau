@@ -20,6 +20,11 @@
 --        "Treat"     at a bay (nil = "Treat"): spec.Items are the supplies Patients already took (they're spent),
 --                    one game each (Data/Items Game, Logic/MiniGame.gameFor). A medicine has no game: it is handed
 --                    over with no session, so a Treat that names one is refused. spec.Case goes to the client
+--                    A HANDOVER (spec.Handover = true, Items {}): the medicine(s) whose handing over completes the
+--                    plan of a patient who stays, when its ward is the helper's to pick. No games at all
+--                    (TreatSession.Games {} and Handover true): the client answers at once and the session is only
+--                    there to carry the ward pick (Triage below) to the player; unanswered, it settles by itself
+--                    after Pure.HANDOVER_SECONDS. No tip, no combo change, no ability spent
 --        "Dispense"  at the dispensary (Server/Stations): spec.Options = the medicines bay patients still need (only
 --                    known medicines are kept, at most Config.Dispensary.Options). Games = { "Pick", "Dose" }. The
 --                    report's third value names the medicine (Choice); spec.Give(choice) puts it in the player's
@@ -61,7 +66,8 @@
 --        games' minimum time x Slack -> all OK), and all OK when the player is now farther than Config.Treat.Distance
 --        from spec.Counter (the bay's DoctorSpot, or the dispensary counter). A Dispense whose choice isn't one of its
 --        Options gives nothing and is rated all OK. Answers (true, "", Types.TreatOutcome).
---      · the timeout (MiniGame.timeout): all OK. A Dispense timeout gives nothing (hold Dispense again).
+--      · the timeout (MiniGame.timeout: generous, with Config.MiniGame.UntimedSeconds for every step that waits
+--        for a tap): all OK. A Dispense timeout gives nothing and says so ("💊 Hold Dispense to try again!").
 --      · the player leaves: an Exam or a Treat settles all OK with no tip and no combo change (the supplies given
 --        still count, the case is still found, so the bay patient waits for the next doctor); a Dispense is dropped
 --        and gives nothing (Review Focus 4).
@@ -128,6 +134,9 @@ export type Spec = {
 	Plan: { string }?, -- Exam: the patient's own plan, revealed with the case (TreatOutcome.Plan; never sent before)
 	Options: { string }?, -- Dispense: the medicines to choose from (Patients.neededMedicines)
 	Expert: boolean?, -- Dispense: Expert Dispensing (the clinic's Pharmacy2 unlock): a wider Dose band
+	-- Treat: a handover (Items {}): no games; the session only carries the ward pick for a plan a handed-over
+	-- medicine completes
+	Handover: boolean?,
 	-- Dispense: puts the chosen medicine in the player's hands. Returns (given, may tip). Called at most once, and
 	-- only for a choice that is one of Options, from a player who is still here
 	Give: ((itemId: string) -> (boolean, boolean))?,
@@ -162,6 +171,7 @@ local MAX_CHEER_TIP = 3 -- a sanity cap on the plot's tip multiplier (Cheerers g
 local TRIAGE_POLL = 0.1 -- waitTriage looks for the pick this often
 local RIGHT_FLOOR = "✅ Right floor!"
 local WRONG_FLOOR = "Oops, not this floor!"
+local DISPENSE_AGAIN = "💊 Hold Dispense to try again!"
 
 local sessions: { [Player]: Session } = {}
 local pending: { [Player]: Pending } = {}
@@ -179,6 +189,7 @@ local Pure = {}
 Pure.EXAM_TOOLS_MAX = 4 -- tools on an exam card (Logic/Visit.examTools gives 3)
 Pure.OPTIONS_MAX = 3 -- medicines on a dispensing card when Config.Dispensary.Options is junk
 Pure.EXPERT_BAND = 1.5 -- Expert Dispensing when Config.Dispensary.ExpertBand is junk
+Pure.HANDOVER_SECONDS = 4 -- a handover session nobody answers settles by itself this soon (it has no games)
 
 -- n copies of a rating
 function Pure.all(rating: Rating, n: number): { Rating }
@@ -245,8 +256,11 @@ function Pure.ease(value: any): number
 end
 
 -- A Treat's games: one per supply (Data/Items Game). nil when there is none, or when one has no game (a medicine is
--- handed over with no session; an unknown item never plays).
-function Pure.games(items: any, itemData: any): { string }?
+-- handed over with no games; an unknown item never plays). A handover (`handover` true) has no items and no games: {}.
+function Pure.games(items: any, itemData: any, handover: boolean?): { string }?
+	if handover == true then
+		return if items == nil or (type(items) == "table" and #items == 0) then {} else nil
+	end
 	if type(items) ~= "table" or #items == 0 then
 		return nil
 	end
@@ -545,6 +559,9 @@ local function settle(session: Session, how: string, reported: any, choiceArg: a
 			ratings = Pure.all("OK", #session.Games)
 		end
 		given, tipping = false, false
+		if how == "Timeout" and here then
+			Remotes.toast(player, DISPENSE_AGAIN) -- never a silent empty hand
+		end
 		local give = spec.Give
 		if choice and here and give then
 			local ok, gave, mayTip = pcall(give, choice)
@@ -625,7 +642,7 @@ local function plan(spec: Spec): (string?, { string }?, { Tools: { string }, Ans
 		if type(spec.Settle) ~= "function" then
 			return nil, nil, nil, {}
 		end
-		return kind, Pure.games(spec.Items, ItemsData), nil, {}
+		return kind, Pure.games(spec.Items, ItemsData, spec.Handover == true), nil, {}
 	elseif kind == "Dispense" then
 		local options = Pure.options(spec.Options, ItemsData, Config.Dispensary and Config.Dispensary.Options)
 		if #options == 0 or type(spec.Give) ~= "function" then
@@ -652,7 +669,8 @@ function Treatment.open(player: Player, spec: Spec): number?
 	end
 	local games: { string } = planned
 	lastId += 1
-	local auto = consumePerfects(spec.Plot, games)
+	local handover = kind == "Treat" and #games == 0
+	local auto = if handover then {} else consumePerfects(spec.Plot, games) -- (no game: no ability is spent)
 	local session: Session = {
 		Id = lastId,
 		Player = player,
@@ -668,7 +686,10 @@ function Treatment.open(player: Player, spec: Spec): number?
 		Open = true,
 	}
 	sessions[player] = session
-	local timeout = MiniGame.timeout(games, Config)
+	-- (a Dispense with several options first asks "Which one?": one more step that waits for a tap)
+	local timeout = if handover
+		then Pure.HANDOVER_SECONDS
+		else MiniGame.timeout(games, Config, if kind == "Dispense" and #options > 1 then 1 else 0)
 	session.Timer = task.delay(timeout, function()
 		session.Timer = nil
 		if session.Open then
@@ -678,7 +699,7 @@ function Treatment.open(player: Player, spec: Spec): number?
 	local payload: Types.TreatSession = {
 		Session = session.Id,
 		PatientId = if kind == "Dispense" then "" else spec.PatientId,
-		Items = if kind == "Treat" then table.clone(spec.Items :: { string }) else {},
+		Items = if kind == "Treat" and spec.Items then table.clone(spec.Items) else {},
 		Games = table.clone(games) :: any,
 		Simple = session.Simple,
 		Combo = Treatment.combo(player),
@@ -706,6 +727,9 @@ function Treatment.open(player: Player, spec: Spec): number?
 		end
 	elseif type(spec.Case) == "string" then
 		payload.Case = spec.Case -- a Treat: the case is known by now
+	end
+	if handover then
+		payload.Handover = true
 	end
 	Remotes.TreatStart:FireClient(player, payload)
 	return session.Id

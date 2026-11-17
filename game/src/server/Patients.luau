@@ -29,8 +29,9 @@
 --      bay's Bed.
 --   3. Examine. The bay's BayPrompt (on its DoctorSpot, tag TreatPrompt) says "Examine": Treatment.open Kind "Exam"
 --      with Tools (Logic/Visit.examTools: 3 unlocked tools, the right one among them), Answer, Glow
---      (Logic/Visit.glow: the player's first Config.Visit.ExamsGlow exams by their saved Cured count, and always in
---      Simple mode) and Case. Its settle, whatever the ratings, reveals the case (examine): Case, Plan and PlanDone
+--      (Logic/Visit.glow: the player's first Config.Visit.ExamsGlow exams by their own saved count Stats.Exams, never
+--      the patients treated, so a save from before the Real Clinic gets the glow too; always in Simple mode and
+--      through the player's tutorial) and Case. Its settle, whatever the ratings, reveals the case (examine): Case, Plan and PlanDone
 --      are set and the plan shows on the badge. Patience pauses while it plays.
 --   4. Treat. The prompt now says "Treat". The plan steps the helper carries (Logic/Recipe.match on Carry, then the
 --      plot's nurse tray) are taken: they're spent now. Medicines are handed over at once, with no game; supplies open
@@ -41,14 +42,17 @@
 --      level): it pays (Cure.resolve: cash to the helper, stars to the owner) on the bed, gets up (the bay frees as
 --      it stands) and walks out of the front doors to PatientExit. A Stay case first rests in a ward bed upstairs
 --      (Floor_<n>.BedSpot_<k>.Bed_<k> whose Ward is its own; the other ward's when its own is full; straight home
---      when every bed is taken, Pure.destination). From Lv 3 the helper whose game finished the plan picks the ward
---      first ("Injury Ward or Rest Ward?": Treatment.waitTriage; right +10%; a Receptionist or Simple mode sends it at
---      once with the bonus; a plan finished by handing over a medicine has no game to ask from, so it goes by itself).
+--      when every bed is taken, Pure.destination; a chills patient no ward takes rests in the Winter Wing's own
+--      Bed_1 on the ground floor instead, with no lift: restInRoom). From Lv 3 the helper whose game finished the
+--      plan picks the ward first ("Injury Ward or Rest Ward?": Treatment.waitTriage; right +10%; a Receptionist or
+--      Simple mode sends it at once with the bonus; a plan a handed-over medicine completes asks too, through a
+--      no-game handover session).
 --      It waits at the ground landing for a Porter or, when a worker stands near, a player's escort (Lift.waitEscort;
 --      +20% cash, rest x0.5), rides the lift (Lift.carry), rests (Pure.rest: Config.RecoverSeconds x escort x Ward
 --      Comfort x the team), pays, rides down and walks out.
 --   6. Patience (Logic/Visit.PATIENCE): it drains at x0.5 in the waiting room and x1 on a bay bed waiting for the
---      doctor, never while walking or during a game; slower with a Cheerer (the plot's CheerPatience) and, for 🚑/🚁
+--      doctor (sitting down on the bay bed fills it up again first: Config.Visit.BayRefill), never while walking or
+--      during a game; slower with a Cheerer (the plot's CheerPatience) and, for 🚑/🚁
 --      patients, with the A&E team and a Medic. Running out is a sad puff where it sits, never a penalty (a regular:
 --      Story.left, so they come back later).
 -- Several bays run at once. "The front patient" (what nurses, abilities, the guide pin and the tutorial point at) is
@@ -203,71 +207,79 @@ local Patients = {}
 -- Tuning
 ------------------------------------------------------------------------------------------------------------------
 
+-- Luau allows a chunk 200 local registers, and this module has more top-level names than that. So the tuning
+-- constants live in K and the small helpers in U: two locals instead of about a hundred. A new constant or helper
+-- goes in one of them, never in a new top-level local (tests/Compile.spec compiles every src file to check).
+local K = {}
+local U = {}
+
 -- Optional Config keys (these defaults apply until Config has them).
 local Tuning = Config :: any
-local GUEST_PATIENCE: number = tonumber(Tuning.GuestPatienceMultiplier) or 1.5 -- regulars and Today's Visitor
-local FIRST_PATIENT_SECONDS: number = tonumber(Tuning.FirstPatientSeconds) or 2 -- after you get your plot
-local DISPENSARY_OPTIONS: number =
-	math.max(1, math.floor(tonumber(Tuning.Dispensary and Tuning.Dispensary.Options) or 3))
+K.GUEST_PATIENCE = tonumber(Tuning.GuestPatienceMultiplier) or 1.5 -- regulars and Today's Visitor
+K.FIRST_PATIENT_SECONDS = tonumber(Tuning.FirstPatientSeconds) or 2 -- after you get your plot
+K.DISPENSARY_OPTIONS = math.max(1, math.floor(tonumber(Tuning.Dispensary and Tuning.Dispensary.Options) or 3))
 
-local TICK = 0.2 -- patience, spawning, bays and the recovery ring update this often
-local REFILL_SECONDS = 2 -- a freed place in the waiting room is refilled no sooner than this
-local NIGHT_WEIGHT = 3 -- night patients are this much likelier at night
-local NEW_PAGE_WEIGHT = 2.5 -- patients not yet in the owner's Book are likelier
-local REPEAT_WEIGHT = 0.35 -- the same patient twice in a row is less likely
+K.TICK = 0.2 -- patience, spawning, bays and the recovery ring update this often
+K.REFILL_SECONDS = 2 -- a freed place in the waiting room is refilled no sooner than this
+K.NIGHT_WEIGHT = 3 -- night patients are this much likelier at night
+K.NEW_PAGE_WEIGHT = 2.5 -- patients not yet in the owner's Book are likelier
+K.REPEAT_WEIGHT = 0.35 -- the same patient twice in a row is less likely
 -- The tutorial's two patients: a Starter-wing day patient with the first Lv 1 case whose plan starts at this station.
-local TUTORIAL_STATION: { [string]: string } = { First = "Remedy", Second = "Plaster" }
-local TUTORIAL_WING = "Starter"
+K.TUTORIAL_STATION = { First = "Remedy", Second = "Plaster" } :: { [string]: string }
+K.TUTORIAL_WING = "Starter"
 
-local PROMPT_DISTANCE = 8 -- a bay's prompt reaches this far (the next bay's DoctorSpot is 6.5 away; the nearest shows)
-local PROMPT_HEIGHT = 2.6 -- studs above the floor
-local DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
-local TREAT_COOLDOWN = 0.3 -- per player
-local MAX_CHEER_PATIENCE = 3 -- a sanity cap on the plot's CheerPatience (Cheerers give at most ~1.5)
-local MAX_CHEER_TIP = 3 -- and on its CheerTip (the visit's cash, Logic/Pay)
-local ITEM_PATIENCE = Config.Treat.ItemPatience -- each plan step given (and the exam) refills this share of the patience
-local CHECK_IN_SECONDS = 0.6 -- a patient stands at reception this long before it sits down
-local URGENT_HEAD = 1e6 -- seconds an urgent patient counts as having waited already: it takes the next free bay
-local LAYOUT_SECONDS = 3 -- the bays, stations and ward beds are looked up again at least this often
-local RAY_UP = 3.5 -- the floor under a point is found with a ray from this far above that floor's slab
+K.PROMPT_DISTANCE = 8 -- a bay's prompt reaches this far (the next bay's DoctorSpot is 6.5 away; the nearest shows)
+K.PROMPT_HEIGHT = 2.6 -- studs above the floor
+K.DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
+K.TREAT_COOLDOWN = 0.3 -- per player
+K.MAX_CHEER_PATIENCE = 3 -- a sanity cap on the plot's CheerPatience (Cheerers give at most ~1.5)
+K.MAX_CHEER_TIP = 3 -- and on its CheerTip (the visit's cash, Logic/Pay)
+K.ITEM_PATIENCE = Config.Treat.ItemPatience -- each plan step given (and the exam) refills this share of the patience
+-- ... and sitting down on a bay bed refills this share (the waiting room's wait is forgotten)
+K.BAY_REFILL = math.clamp(tonumber(Config.Visit and (Config.Visit :: any).BayRefill) or 1, 0, 1)
+K.ROOM_BED_FOOT = 1.6 -- a room bed's foot spot: this far past the mattress (as a ward bed's)
+K.CHECK_IN_SECONDS = 0.6 -- a patient stands at reception this long before it sits down
+K.URGENT_HEAD = 1e6 -- seconds an urgent patient counts as having waited already: it takes the next free bay
+K.LAYOUT_SECONDS = 3 -- the bays, stations and ward beds are looked up again at least this often
+K.RAY_UP = 3.5 -- the floor under a point is found with a ray from this far above that floor's slab
 
 -- Feel
-local HOP_LENGTH = 3.6
-local HOP_SECONDS = 0.3
-local HOP_HEIGHT = 0.9
-local LEAN = 0.14 -- radians forward at the top of a hop
-local SIT_HEIGHT = 1.8 -- a hop onto (or off) a seat or a bed
-local SIT_SECONDS = 0.45
-local RING_STEPS = 48 -- the ring moves in 7.5 degree steps, so it replicates a few times a second at most
-local PATIENCE_STEPS = 20 -- the PatienceFraction attribute moves in 0.05 steps (about 20 changes in a whole wait)
+K.HOP_LENGTH = 3.6
+K.HOP_SECONDS = 0.3
+K.HOP_HEIGHT = 0.9
+K.LEAN = 0.14 -- radians forward at the top of a hop
+K.SIT_HEIGHT = 1.8 -- a hop onto (or off) a seat or a bed
+K.SIT_SECONDS = 0.45
+K.RING_STEPS = 48 -- the ring moves in 7.5 degree steps, so it replicates a few times a second at most
+K.PATIENCE_STEPS = 20 -- the PatienceFraction attribute moves in 0.05 steps (about 20 changes in a whole wait)
 
 -- The patience ring, candy pop (memory-20261116-007): bright green, then yellow, then red; pink while healing.
-local RING_CALM = Palette.Candy.Lime
-local RING_HURRY = Palette.Candy.Yellow
-local RING_LOW = Palette.Candy.Red
-local RING_HEAL = Palette.Candy.Pink
+K.RING_CALM = Palette.Candy.Lime
+K.RING_HURRY = Palette.Candy.Yellow
+K.RING_LOW = Palette.Candy.Red
+K.RING_HEAL = Palette.Candy.Pink
 
-local ICON_TREATED = "💗"
-local ICON_SLEEP = "💤"
-local ICON_HAPPY = "🥰"
-local ICON_SAD = "😔"
-local ICON_UNKNOWN = "❔"
+K.ICON_TREATED = "💗"
+K.ICON_SLEEP = "💤"
+K.ICON_HAPPY = "🥰"
+K.ICON_SAD = "😔"
+K.ICON_UNKNOWN = "❔"
 
 -- Progression v2: Hospital v2 (every rule's number is in Config: AE, VIP, Triage, Escort, Lift, WardComfort,
 -- AESpeed, GoldenChance; these are feel and safety only)
-local AE_LEVEL = 2 -- Data/Departments.AE.Opens: ambulances come from this hospital level
-local HELI_LEVEL = 5 -- Data/Departments.Roof.Opens: the helipad
-local HELI_LAND_SECONDS = 3.5 -- the helicopter lands first (Feel/HospitalFX: HELI_IN 3.2 s), then out steps its VIP
-local PLOT_MARGIN = 6 -- studs past the plot's edge that still count as the owner being at their clinic
-local POLL = 0.1 -- waiting on another system (the lift, a porter) looks this often
-local PORTER_SECONDS = 15 -- the most a patient waits for a Porter to walk over
-local CARRY_SECONDS = 8 -- the most a lift ride may take before the patient is put there anyway
-local ESCORT_SLACK = 2 -- seconds on top of Config.Lift.EscortWait before giving up on Lift.waitEscort
-local ESCORT_NEAR = 24 -- studs from the ground landing a worker must be for a patient to wait for an escort
-local MAX_SLOWER = 4 -- a sanity cap on how much slower an urgent patient's patience may drain
-local MAX_FORCED_URGENT = 3 -- admin calls waiting at once
+K.AE_LEVEL = 2 -- Data/Departments.AE.Opens: ambulances come from this hospital level
+K.HELI_LEVEL = 5 -- Data/Departments.Roof.Opens: the helipad
+K.HELI_LAND_SECONDS = 3.5 -- the helicopter lands first (Feel/HospitalFX: HELI_IN 3.2 s), then out steps its VIP
+K.PLOT_MARGIN = 6 -- studs past the plot's edge that still count as the owner being at their clinic
+K.POLL = 0.1 -- waiting on another system (the lift, a porter) looks this often
+K.PORTER_SECONDS = 15 -- the most a patient waits for a Porter to walk over
+K.CARRY_SECONDS = 8 -- the most a lift ride may take before the patient is put there anyway
+K.ESCORT_SLACK = 2 -- seconds on top of Config.Lift.EscortWait before giving up on Lift.waitEscort
+K.ESCORT_NEAR = 24 -- studs from the ground landing a worker must be for a patient to wait for an escort
+K.MAX_SLOWER = 4 -- a sanity cap on how much slower an urgent patient's patience may drain
+K.MAX_FORCED_URGENT = 3 -- admin calls waiting at once
 
-local LANDING: Point = { X = Building.LANDING.X, Z = Building.LANDING.Z } -- in front of the lift, on every floor
+K.LANDING = { X = Building.LANDING.X, Z = Building.LANDING.Z } :: Point -- in front of the lift, on every floor
 
 ------------------------------------------------------------------------------------------------------------------
 -- Types
@@ -285,7 +297,8 @@ type ScaleAnim = {
 -- One exam bay as built: its numbers (Logic/Building.BAYS), its ExamBay_<id> Model and the parts in it.
 type BaySpot = { Id: string, Kind: string, Info: BayInfo, Model: Model, Bed: BasePart?, Spot: BasePart? }
 -- One functional ward bed upstairs (Floor_<n>.BedSpot_<k>.Bed_<k>), keyed "<floor>:<k>".
-type WardBed = { Key: string, Part: BasePart, Floor: number, X: number, Ward: string }
+-- (Room: a bought room's own recovery bed on the ground floor, e.g. the Winter Wing's Bed_1; Ward is then "Room")
+type WardBed = { Key: string, Part: BasePart, Floor: number, X: number, Ward: string, Room: string? }
 -- What the plot's Building and Rooms hold, looked up when they change (scanLayout).
 type Layout = {
 	Building: Instance?,
@@ -295,6 +308,7 @@ type Layout = {
 	Bays: { [string]: BaySpot },
 	Stations: { [string]: boolean }, -- StationId -> open (Station_<id> with Open ~= false)
 	Beds: { [string]: WardBed },
+	RoomBeds: { [string]: WardBed }, -- RoomId -> that room's own recovery bed (Rooms.Room_<id> ... Bed_1)
 }
 
 -- The owner's perks and tree as patients use them (Logic/Rebirth.effects, cleaned)
@@ -394,7 +408,8 @@ type Patient = {
 	ArriveFloor: number, -- a VIP: the roof's floor number
 	Ward: string?, -- the ward it stays in (Logic/Visit.stayWard); nil = home
 	WardBed: WardBed?, -- the bed reserved for it
-	SpotKind: string, -- "Home" | "Wards" | "Rest": where it really rests (Pure.destination)
+	-- "Home" | "Wards" | "Rest": where it really rests (Pure.destination); "Room": its room's own bed (restInRoom)
+	SpotKind: string,
 	Floor: number, -- the floor it is on (0 = the ground)
 	Upstairs: boolean, -- standing on a floor above the ground right now
 	InBed: boolean, -- lying in its ward bed
@@ -433,7 +448,7 @@ local function report(label: string, err: any)
 	end
 end
 
-local function carrying(player: Player): { string }
+function U.carrying(player: Player): { string }
 	local ok, items = pcall(Carry.items, player)
 	if not ok then
 		report("Carry.items", items)
@@ -442,7 +457,7 @@ local function carrying(player: Player): { string }
 	return if type(items) == "table" then items else {}
 end
 
-local function takeItem(player: Player, itemId: string): boolean
+function U.takeItem(player: Player, itemId: string): boolean
 	local ok, taken = pcall(Carry.take, player, itemId)
 	if not ok then
 		report("Carry.take", taken)
@@ -451,7 +466,7 @@ local function takeItem(player: Player, itemId: string): boolean
 	return taken == true
 end
 
-local function giveBack(player: Player, itemId: string)
+function U.giveBack(player: Player, itemId: string)
 	local ok, err = pcall(Carry.add, player, itemId)
 	if not ok then
 		report("Carry.add", err)
@@ -477,7 +492,7 @@ local function takeFromTray(plot: Plot, itemId: string): boolean
 end
 
 -- Asks Server/Levels for one of the owner's numbers (level, queueCap, recipeCap, spawnSeconds); `fallback` on a bug.
-local function levelAsk(name: string, owner: Player, fallback: number): number
+function U.levelAsk(name: string, owner: Player, fallback: number): number
 	local fn = (Levels :: any)[name]
 	local ok, value = pcall(fn, owner)
 	if not ok then
@@ -488,7 +503,7 @@ local function levelAsk(name: string, owner: Player, fallback: number): number
 end
 
 -- Calls a Server/Tutorial hook; a tutorial bug never breaks a patient, and a hook it doesn't have is skipped.
-local function tutorialHook(name: string, ...: any)
+function U.tutorialHook(name: string, ...: any)
 	local fn = (Tutorial :: any)[name]
 	if type(fn) ~= "function" then
 		return
@@ -500,7 +515,7 @@ local function tutorialHook(name: string, ...: any)
 end
 
 -- Asks Server/Tutorial something; on a tutorial bug the answer is `fallback` (the normal game).
-local function tutorialAsk(name: string, fallback: any, ...: any): any
+function U.tutorialAsk(name: string, fallback: any, ...: any): any
 	local fn = (Tutorial :: any)[name]
 	if type(fn) ~= "function" then
 		return fallback
@@ -535,13 +550,13 @@ local function within(timeout: number, label: string, fn: any, ...: any): (boole
 	end)
 	local deadline = os.clock() + timeout
 	while not finished and os.clock() < deadline do
-		task.wait(POLL)
+		task.wait(K.POLL)
 	end
 	return finished, result
 end
 
 -- A number from another system: finite and clamped, junk -> `fallback`.
-local function clampNumber(value: any, low: number, high: number, fallback: number): number
+function U.clampNumber(value: any, low: number, high: number, fallback: number): number
 	if type(value) ~= "number" or value ~= value then
 		return fallback
 	end
@@ -549,7 +564,7 @@ local function clampNumber(value: any, low: number, high: number, fallback: numb
 end
 
 -- That floor's landing in front of the lift door (Lift.landing; nil without a lift).
-local function landingOf(plot: Plot, floor: number): CFrame?
+function U.landingOf(plot: Plot, floor: number): CFrame?
 	local ok, cf = pcall(Lift.landing, plot, floor)
 	if not ok then
 		report("Lift.landing", cf)
@@ -559,40 +574,40 @@ local function landingOf(plot: Plot, floor: number): CFrame?
 end
 
 -- The plot's team bonuses (Nurses.team): factors, 1 = none.
-local function teamOf(plot: Plot): { Cash: number, Recover: number, Urgent: number }
+function U.teamOf(plot: Plot): { Cash: number, Recover: number, Urgent: number }
 	local ok, team = pcall(Nurses.team, plot)
 	if not ok then
 		report("Nurses.team", team)
 	end
 	local t: any = if ok and type(team) == "table" then team else {}
 	return {
-		Cash = clampNumber(t.Cash, 1, Pay.MAX_EXTRA, 1),
-		Recover = clampNumber(t.Recover, 0.05, 1, 1),
-		Urgent = clampNumber(t.Urgent, 1, MAX_SLOWER, 1),
+		Cash = U.clampNumber(t.Cash, 1, Pay.MAX_EXTRA, 1),
+		Recover = U.clampNumber(t.Recover, 0.05, 1, 1),
+		Urgent = U.clampNumber(t.Urgent, 1, K.MAX_SLOWER, 1),
 	}
 end
 
 -- The best Receptionist on duty (Nurses.reception): patients come Arrive x as often; Triage = it sends them at once.
-local function receptionOf(plot: Plot): { Arrive: number, Triage: boolean }
+function U.receptionOf(plot: Plot): { Arrive: number, Triage: boolean }
 	local ok, reception = pcall(Nurses.reception, plot)
 	if not ok then
 		report("Nurses.reception", reception)
 	end
 	local r: any = if ok and type(reception) == "table" then reception else {}
-	return { Arrive = clampNumber(r.Arrive, 0.2, 1, 1), Triage = r.Triage == true }
+	return { Arrive = U.clampNumber(r.Arrive, 0.2, 1, 1), Triage = r.Triage == true }
 end
 
 -- The best Medic on duty (Nurses.medic): urgent patients' patience drains this much slower (1 = none).
-local function medicOf(plot: Plot): number
+function U.medicOf(plot: Plot): number
 	local ok, medic = pcall(Nurses.medic, plot)
 	if not ok then
 		report("Nurses.medic", medic)
 	end
-	return clampNumber(if ok and type(medic) == "table" then (medic :: any).Patience else nil, 1, MAX_SLOWER, 1)
+	return U.clampNumber(if ok and type(medic) == "table" then (medic :: any).Patience else nil, 1, K.MAX_SLOWER, 1)
 end
 
 -- A Calm Song is pausing every patience ring at this plot (Abilities.patiencePaused).
-local function abilityPaused(plot: Plot): boolean
+function U.abilityPaused(plot: Plot): boolean
 	local ok, paused = pcall(Abilities.patiencePaused, plot)
 	if not ok then
 		report("Abilities.patiencePaused", paused)
@@ -602,7 +617,7 @@ local function abilityPaused(plot: Plot): boolean
 end
 
 -- The owner's perks and tree, as patients use them (Logic/Rebirth.effects on the live save).
-local function effectsOf(owner: Player): Effects
+function U.effectsOf(owner: Player): Effects
 	local data = PlayerData.get(owner)
 	if not data then
 		return NEUTRAL_EFFECTS
@@ -616,22 +631,22 @@ local function effectsOf(owner: Player): Effects
 	end
 	local e: any = effects
 	return {
-		Arrive = clampNumber(e.Arrive, 0.2, 1, 1),
-		SirenPro = clampNumber(e.SirenPro, 1, 4, 1),
+		Arrive = U.clampNumber(e.Arrive, 0.2, 1, 1),
+		SirenPro = U.clampNumber(e.SirenPro, 1, 4, 1),
 		NightOwl = e.NightOwl == true,
 		TwinCounters = e.TwinCounters == true,
 	}
 end
 
 -- The owner's rebirths (Data.Rebirth.Count; 0 before any).
-local function rebirthsOf(owner: Player): number
+function U.rebirthsOf(owner: Player): number
 	local data = PlayerData.get(owner)
 	local rebirth = if data then (data :: any).Rebirth else nil
-	return math.floor(clampNumber(if type(rebirth) == "table" then rebirth.Count else nil, 0, 1e6, 0))
+	return math.floor(U.clampNumber(if type(rebirth) == "table" then rebirth.Count else nil, 0, 1e6, 0))
 end
 
 -- The rooms the owner's save owns ({ [RoomId]: true }).
-local function roomsOf(owner: Player): { [string]: boolean }
+function U.roomsOf(owner: Player): { [string]: boolean }
 	local data = PlayerData.get(owner)
 	local out: { [string]: boolean } = {}
 	local rooms = if data then (data :: any).Rooms else nil
@@ -781,6 +796,16 @@ function Pure.tutorialCase(stationId: string, plotState: any): string?
 		end
 	end
 	return nil
+end
+
+-- A player's exams so far: the saved counter Stats.Exams (Pure.EXAMS_STAT). It is the exam's OWN count, never the
+-- patients treated: a save from before the Real Clinic has treated plenty and examined nobody, so its first exams
+-- glow too. Junk -> 0.
+Pure.EXAMS_STAT = "Exams"
+function Pure.examsDone(data: any): number
+	local stats = if type(data) == "table" then data.Stats else nil
+	local value = if type(stats) == "table" then stats[Pure.EXAMS_STAT] else nil
+	return if type(value) == "number" and value == value and value > 0 then math.floor(value) else 0
 end
 
 -- The exam card: Logic/Visit.examTools over the tools in use at the level, and whether the right one glows
@@ -1149,11 +1174,11 @@ end
 ------------------------------------------------------------------------------------------------------------------
 
 -- A plot-local point on a floor, at that floor's nominal height.
-local function worldAt(state: PlotState, x: number, z: number, floor: number?): Vector3
+function U.worldAt(state: PlotState, x: number, z: number, floor: number?): Vector3
 	return state.Pivot * Vector3.new(x, Building.slabTop(floor or 0), z)
 end
 
-local function localOf(state: PlotState, position: Vector3): Point
+function U.localOf(state: PlotState, position: Vector3): Point
 	local here = state.Pivot:PointToObjectSpace(position)
 	return { X = here.X, Z = here.Z }
 end
@@ -1162,8 +1187,8 @@ end
 -- seat or a bed (solid parts only); the floor's nominal height when nothing is there.
 local function surface(state: PlotState, position: Vector3, floor: number?): Vector3
 	local nominal = state.Pivot.Position.Y + Building.slabTop(floor or 0)
-	local from = Vector3.new(position.X, nominal + RAY_UP, position.Z)
-	local hit = Workspace:Raycast(from, Vector3.new(0, -RAY_UP * 2, 0), state.FloorRay)
+	local from = Vector3.new(position.X, nominal + K.RAY_UP, position.Z)
+	local hit = Workspace:Raycast(from, Vector3.new(0, -K.RAY_UP * 2, 0), state.FloorRay)
 	return Vector3.new(position.X, if hit then hit.Position.Y else nominal, position.Z)
 end
 
@@ -1179,17 +1204,17 @@ local function facing(at: Vector3, dir: Vector3): CFrame
 end
 
 -- Markers are 2x1x2 and rest on what they mark: their bottom face is that surface, facing as they face.
-local function markerGround(marker: BasePart): CFrame
+function U.markerGround(marker: BasePart): CFrame
 	return marker.CFrame * CFrame.new(0, -marker.Size.Y / 2, 0)
 end
 
 -- A resting pivot standing on floor `floor` at `cf` (a lift landing, a spot), facing the way it faces.
-local function standAt(state: PlotState, cf: CFrame, floor: number): CFrame
+function U.standAt(state: PlotState, cf: CFrame, floor: number): CFrame
 	return facing(surface(state, cf.Position, floor), cf.LookVector)
 end
 
 -- The floor a part of the building is on: the nearest "Floor" attribute or Floor_<n> Model above it; 0 = the ground.
-local function floorOf(part: Instance, stop: Instance): number
+function U.floorOf(part: Instance, stop: Instance): number
 	local current: Instance? = part
 	while current and current ~= stop do
 		local value = current:GetAttribute("Floor")
@@ -1206,26 +1231,26 @@ local function floorOf(part: Instance, stop: Instance): number
 end
 
 -- A named marker anywhere in the plot's Building (StretcherSpot, HeliSpot, ...), or nil.
-local function buildingPart(state: PlotState, name: string): BasePart?
+function U.buildingPart(state: PlotState, name: string): BasePart?
 	local building = state.Plot.Model:FindFirstChild("Building")
 	local found = building and building:FindFirstChild(name, true)
 	return if found and found:IsA("BasePart") then found else nil
 end
 
 -- The owner stands at their clinic (their plot, any floor, give or take PLOT_MARGIN).
-local function ownerAtClinic(state: PlotState): boolean
+function U.ownerAtClinic(state: PlotState): boolean
 	local character = state.Owner.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not (root and root:IsA("BasePart")) then
 		return false
 	end
 	local here = state.Pivot:PointToObjectSpace(root.Position)
-	local half = Config.Town.PlotSize / 2 + PLOT_MARGIN
+	local half = Config.Town.PlotSize / 2 + K.PLOT_MARGIN
 	return math.abs(here.X) <= half and math.abs(here.Z) <= half
 end
 
 -- The names of the plot's room models (a bought or lost room changes it).
-local function roomsKey(state: PlotState): string
+function U.roomsKey(state: PlotState): string
 	local rooms = state.Plot.Model:FindFirstChild("Rooms")
 	if not rooms then
 		return ""
@@ -1242,7 +1267,19 @@ end
 local function scanLayout(state: PlotState, building: Instance?, key: string, now: number): Layout
 	local model = state.Plot.Model
 	local rooms = model:FindFirstChild("Rooms")
-	local layout: Layout = { Building = building, Key = key, At = now, Seats = {}, Bays = {}, Stations = {}, Beds = {} }
+	local layout: Layout =
+		{ Building = building, Key = key, At = now, Seats = {}, Bays = {}, Stations = {}, Beds = {}, RoomBeds = {} }
+	-- A bought room's own recovery bed (the Winter Wing's Bed_1): its case's patients rest there (restInRoom).
+	if rooms then
+		for _, room in rooms:GetChildren() do
+			local roomId = string.match(room.Name, "^Room_(%w+)$")
+			local bed = if roomId then room:FindFirstChild("Bed_1", true) else nil
+			if roomId and bed and bed:IsA("BasePart") then
+				layout.RoomBeds[roomId] =
+					{ Key = "Room:" .. roomId, Part = bed, Floor = 0, X = 0, Ward = "Room", Room = roomId }
+			end
+		end
+	end
 	if building then
 		for index in Building.SEATS do
 			local marker = building:FindFirstChild("WaitSeat_" .. index, true)
@@ -1331,20 +1368,20 @@ local function plotView(state: PlotState): any
 end
 
 -- A seat's pose: on the seat (its WaitSeat_<n> marker, else the seat's top under its numbers), facing out.
-local function seatPose(state: PlotState, index: number): CFrame
+function U.seatPose(state: PlotState, index: number): CFrame
 	local seat = Building.SEATS[index]
 	local dx, dz = Building.facing(seat.Face)
 	local marker = state.Layout.Seats[index]
 	local at = if marker and marker.Parent
-		then markerGround(marker).Position
-		else surface(state, worldAt(state, seat.X, seat.Z, 0), 0)
+		then U.markerGround(marker).Position
+		else surface(state, U.worldAt(state, seat.X, seat.Z, 0), 0)
 	return facing(at, worldDir(state, dx, dz))
 end
 
 -- On a bay bed (the Bed's top), facing its foot (the DoctorSpot).
-local function bayPose(state: PlotState, info: BayInfo): CFrame
+function U.bayPose(state: PlotState, info: BayInfo): CFrame
 	local dx, dz = Building.facing(info.Face)
-	local centre = worldAt(state, info.X, info.Z, 0)
+	local centre = U.worldAt(state, info.X, info.Z, 0)
 	local spot = state.Layout.Bays[info.Id]
 	local bed = spot and spot.Bed
 	local at = if bed and bed.Parent
@@ -1354,7 +1391,7 @@ local function bayPose(state: PlotState, info: BayInfo): CFrame
 end
 
 -- The bay's DoctorSpot in the world (where the doctor stands and the prompt is).
-local function spotWorld(state: PlotState, bayId: string): Vector3
+function U.spotWorld(state: PlotState, bayId: string): Vector3
 	local spot = state.Layout.Bays[bayId]
 	local part = spot and spot.Spot
 	if part and part.Parent then
@@ -1362,13 +1399,13 @@ local function spotWorld(state: PlotState, bayId: string): Vector3
 	end
 	local info = Building.bay(bayId)
 	local point = if info then Building.doctorSpot(info) else { X = 0, Z = 0 }
-	return worldAt(state, point.X, point.Z, 0) + Vector3.new(0, 1, 0)
+	return U.worldAt(state, point.X, point.Z, 0) + Vector3.new(0, 1, 0)
 end
 
 -- In a ward bed (the Bed's top), facing its foot (+z: the pillow is against the tower's street wall). Lying =
 -- leaning back onto the pillow.
-local function wardPose(state: PlotState, bed: WardBed, lying: boolean, scale: number): CFrame
-	local centre = worldAt(state, bed.X, Building.BED_Z, bed.Floor)
+function U.wardPose(state: PlotState, bed: WardBed, lying: boolean, scale: number): CFrame
+	local centre = U.worldAt(state, bed.X, Building.BED_Z, bed.Floor)
 	local part = bed.Part
 	local at = if part.Parent
 		then Vector3.new(part.Position.X, part.Position.Y + part.Size.Y / 2, part.Position.Z)
@@ -1381,10 +1418,10 @@ local function wardPose(state: PlotState, bed: WardBed, lying: boolean, scale: n
 end
 
 -- The free ward beds the lift reaches at this level: one of each ward (the lowest floor, then the lowest number).
-local function freeBeds(state: PlotState): { [string]: WardBed }
+function U.freeBeds(state: PlotState): { [string]: WardBed }
 	local out: { [string]: WardBed } = {}
 	local plot = state.Plot
-	if landingOf(plot, 0) == nil then
+	if U.landingOf(plot, 0) == nil then
 		return out
 	end
 	local reach: { [number]: boolean } = {}
@@ -1392,7 +1429,7 @@ local function freeBeds(state: PlotState): { [string]: WardBed }
 	for bedKey, bed in state.Layout.Beds do
 		if state.Beds[bedKey] == nil and bed.Part.Parent and bed.Floor <= open then
 			if reach[bed.Floor] == nil then
-				reach[bed.Floor] = landingOf(plot, bed.Floor) ~= nil
+				reach[bed.Floor] = U.landingOf(plot, bed.Floor) ~= nil
 			end
 			local best = out[bed.Ward]
 			if
@@ -1406,12 +1443,37 @@ local function freeBeds(state: PlotState): { [string]: WardBed }
 	return out
 end
 
+-- The free recovery bed of a bought room (`roomId` = a case's Room): the Winter Wing's own bed, for its chills
+-- patients. nil when the room isn't owned, has no bed, or its bed is taken.
+function U.freeRoomBed(state: PlotState, roomId: string?): WardBed?
+	if not roomId or state.Rooms[roomId] ~= true then
+		return nil
+	end
+	local bed = state.Layout.RoomBeds[roomId]
+	if bed and bed.Part.Parent and state.Beds[bed.Key] == nil then
+		return bed
+	end
+	return nil
+end
+
+-- In a room's own bed (the Bed's top). Its pillow end is +z (the room's back), so it faces its foot, -z. Lying =
+-- leaning back onto the pillow.
+function U.roomBedPose(state: PlotState, bed: WardBed, lying: boolean, scale: number): CFrame
+	local part = bed.Part
+	local at = Vector3.new(part.Position.X, part.Position.Y + part.Size.Y / 2, part.Position.Z)
+	local cf = facing(at, worldDir(state, 0, -1))
+	if lying then
+		return cf * CFrame.new(0, 0.35 * scale, 0) * CFrame.Angles(math.rad(58), 0, 0)
+	end
+	return cf
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- The animator: attributes the clients draw (Feel/CreatureMotion); the server only writes where each one ends
 ------------------------------------------------------------------------------------------------------------------
 
 -- The creature's scale right now, as the clients draw it (so a new grow/shrink starts from where the last one is).
-local function currentScale(p: Patient): number
+function U.currentScale(p: Patient): number
 	local anim = p.ScaleAnim
 	if not anim then
 		return p.Model:GetScale()
@@ -1429,7 +1491,7 @@ local function hop(p: Patient, to: CFrame, height: number, seconds: number, spin
 		return false
 	end
 	local duration = math.max(seconds, 0.15)
-	CreatureBuilder.hop(p.Model, p.Pivot, to, duration, height, spin or 0, if spin then 0 else LEAN)
+	CreatureBuilder.hop(p.Model, p.Pivot, to, duration, height, spin or 0, if spin then 0 else K.LEAN)
 	task.wait(duration)
 	if not alive(p) then
 		return false
@@ -1448,7 +1510,7 @@ local function scaleTo(
 	direction: Enum.EasingDirection
 )
 	local anim: ScaleAnim = {
-		From = math.max(currentScale(p), 0.02),
+		From = math.max(U.currentScale(p), 0.02),
 		To = math.max(target, 0.02),
 		Start = os.clock(),
 		Seconds = math.max(seconds, 0.05),
@@ -1479,10 +1541,10 @@ local function walk(p: Patient, points: { Vector3 }, floor: number?): boolean
 			if distance < 0.05 then
 				break
 			end
-			local stepLength = distance / math.ceil(distance / HOP_LENGTH)
+			local stepLength = distance / math.ceil(distance / K.HOP_LENGTH)
 			local direction = delta / distance
 			local landing = surface(state, from + direction * stepLength, floor)
-			local seconds = p.HopSeconds * math.sqrt(stepLength / HOP_LENGTH)
+			local seconds = p.HopSeconds * math.sqrt(stepLength / K.HOP_LENGTH)
 			if not hop(p, CFrame.lookAt(landing, landing + direction), p.HopHeight, seconds) then
 				return false
 			end
@@ -1496,14 +1558,14 @@ end
 local function walkTo(p: Patient, to: Point, floor: number?): boolean
 	local state = p.Plot
 	local k = floor or 0
-	local ok, path = pcall(Building.path, localOf(state, p.Pivot.Position), to, state.Level, k)
+	local ok, path = pcall(Building.path, U.localOf(state, p.Pivot.Position), to, state.Level, k)
 	if not ok then
 		report("Building.path", path)
 	end
 	local points: { Point } = if ok and type(path) == "table" then path else { to }
 	local world: { Vector3 } = {}
 	for _, point in points do
-		table.insert(world, worldAt(state, point.X, point.Z, k))
+		table.insert(world, U.worldAt(state, point.X, point.Z, k))
 	end
 	return walk(p, world, k)
 end
@@ -1531,16 +1593,16 @@ end
 
 local function ringColor(fraction: number): Color3
 	if fraction > 0.5 then
-		return RING_CALM
+		return K.RING_CALM
 	elseif fraction > 0.25 then
-		return RING_HURRY
+		return K.RING_HURRY
 	end
-	return RING_LOW
+	return K.RING_LOW
 end
 
 -- The PatienceFraction attribute for the client's acting (Feel/CreatureActing), only when its 0.05 step changes.
 local function showPatience(p: Patient, fraction: number)
-	local shown = math.ceil(math.clamp(fraction, 0, 1) * PATIENCE_STEPS) / PATIENCE_STEPS
+	local shown = math.ceil(math.clamp(fraction, 0, 1) * K.PATIENCE_STEPS) / K.PATIENCE_STEPS
 	if shown ~= p.PatienceShown then
 		p.PatienceShown = shown
 		p.Model:SetAttribute("PatienceFraction", shown)
@@ -1548,13 +1610,13 @@ local function showPatience(p: Patient, fraction: number)
 end
 
 local function showRing(p: Patient, fraction: number, color: Color3)
-	local stepIndex = math.floor(math.clamp(fraction, 0, 1) * RING_STEPS + 0.5)
+	local stepIndex = math.floor(math.clamp(fraction, 0, 1) * K.RING_STEPS + 0.5)
 	if stepIndex == p.RingStep and color == p.RingColor then
 		return
 	end
 	p.RingStep = stepIndex
 	p.RingColor = color
-	CreatureBuilder.setRing(p.Badge, stepIndex / RING_STEPS, color)
+	CreatureBuilder.setRing(p.Badge, stepIndex / K.RING_STEPS, color)
 end
 
 -- The plan on the model (Plan, PlanDone, Item and Station = the first missing step) and on the badge, once examined.
@@ -1725,7 +1787,7 @@ local function ensurePrompts(state: PlotState)
 			else
 				attachment = Instance.new("Attachment")
 				attachment.Name = "BayPromptAt"
-				attachment.Position = Vector3.new(0, PROMPT_HEIGHT - holder.Size.Y / 2, 0)
+				attachment.Position = Vector3.new(0, K.PROMPT_HEIGHT - holder.Size.Y / 2, 0)
 				attachment.Parent = holder
 			end
 			local existing = attachment:FindFirstChild("BayPrompt")
@@ -1738,7 +1800,7 @@ local function ensurePrompts(state: PlotState)
 				prompt.ActionText = "Examine"
 				prompt.ObjectText = ""
 				prompt.HoldDuration = 0 -- a tap: no precision timing
-				prompt.MaxActivationDistance = PROMPT_DISTANCE
+				prompt.MaxActivationDistance = K.PROMPT_DISTANCE
 				prompt.RequiresLineOfSight = false
 				prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
 				prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -1832,7 +1894,7 @@ local function dropSession(p: Patient, giveItemsBack: boolean)
 	end
 	if giveItemsBack and helper and carried then
 		for _, itemId in carried do
-			giveBack(helper, itemId)
+			U.giveBack(helper, itemId)
 		end
 	end
 end
@@ -1904,7 +1966,7 @@ local function payVisit(p: Patient)
 	local extra = Pure.extra({
 		Escorted = p.Escorted,
 		Triage = p.TriageBonus,
-		Team = teamOf(state.Plot).Cash,
+		Team = U.teamOf(state.Plot).Cash,
 		Comfort = comfort,
 	}, Config, Pay.MAX_EXTRA)
 	local ctx: Types.CureCtx = {
@@ -1918,7 +1980,7 @@ local function payVisit(p: Patient)
 		PatienceLeft = p.PatienceLeft,
 		Position = p.Root.Position + Vector3.new(0, 2.5 * p.BaseScale, 0),
 		Items = #p.Plan, -- a longer plan pays more
-		Cheer = Pure.cheer(state.Plot.Model:GetAttribute("CheerTip"), MAX_CHEER_TIP), -- the plot's Cheerer
+		Cheer = Pure.cheer(state.Plot.Model:GetAttribute("CheerTip"), K.MAX_CHEER_TIP), -- the plot's Cheerer
 		Urgent = if p.Urgent ~= "" then p.Urgent else nil, -- 🚑 x3 + 2 ⭐ · 🚁 x4 + 3 ⭐
 		Extra = extra,
 		Plot = state.Plot, -- Cure asks Abilities (Double Dose, Star Burst) about this plot
@@ -1943,7 +2005,7 @@ local function payAndSpin(p: Patient): boolean
 		payVisit(p)
 	end
 	CreatureBuilder.setMood(p.Model, "Happy")
-	p.Badge.Icon.Text = ICON_HAPPY
+	p.Badge.Icon.Text = K.ICON_HAPPY
 	p.Badge.Need.Visible = false
 	CreatureBuilder.effectAt(p.Root.Position + Vector3.new(0, 1.6 * p.BaseScale, 0), "Cure")
 	return hop(p, p.Pivot, 2.6, 0.6, math.pi * 2)
@@ -1957,7 +2019,7 @@ end
 local function liftTurn(p: Patient): boolean
 	local state = p.Plot
 	while state.LiftBusy and alive(p) do
-		task.wait(POLL)
+		task.wait(K.POLL)
 	end
 	if not alive(p) then
 		return false
@@ -1975,7 +2037,7 @@ local function ride(p: Patient, floor: number, to: CFrame, others: { Model }): b
 	for _, model in others do
 		table.insert(models, model)
 	end
-	local finished, carried = within(CARRY_SECONDS, "Lift.carry", Lift.carry, p.Plot.Plot, models, floor)
+	local finished, carried = within(K.CARRY_SECONDS, "Lift.carry", Lift.carry, p.Plot.Plot, models, floor)
 	if not alive(p) then
 		return false
 	end
@@ -1990,14 +2052,14 @@ local function ride(p: Patient, floor: number, to: CFrame, others: { Model }): b
 end
 
 -- A Porter's model on the plot (Nurses builds Plot.Nurses.Nurse_<NurseId>).
-local function porterModel(plot: Plot, nurseId: string): Model?
+function U.porterModel(plot: Plot, nurseId: string): Model?
 	local folder = plot.Model:FindFirstChild("Nurses")
 	local model = folder and folder:FindFirstChild("Nurse_" .. nurseId)
 	return if model and model:IsA("Model") then model else nil
 end
 
 -- A model stands within `studs` of `at` (a landing point): across the ground, and not a whole storey above or below.
-local function modelNear(model: Model, at: Vector3, studs: number): boolean
+function U.modelNear(model: Model, at: Vector3, studs: number): boolean
 	if not model:IsDescendantOf(Workspace) then
 		return false
 	end
@@ -2006,10 +2068,10 @@ local function modelNear(model: Model, at: Vector3, studs: number): boolean
 end
 
 -- Someone who can work this plot (Plots.canWork) stands near `at`: only then is an escort worth waiting for.
-local function workerNear(plot: Plot, at: Vector3, studs: number): boolean
+function U.workerNear(plot: Plot, at: Vector3, studs: number): boolean
 	for _, player in Players:GetPlayers() do
 		local character = player.Character
-		if character and modelNear(character, at, studs) and Plots.canWork(player, plot) then
+		if character and U.modelNear(character, at, studs) and Plots.canWork(player, plot) then
 			return true
 		end
 	end
@@ -2023,14 +2085,14 @@ end
 local function goUp(p: Patient, floor: number): boolean
 	local state = p.Plot
 	local plot = state.Plot
-	local ground, above = landingOf(plot, 0), landingOf(plot, floor)
+	local ground, above = U.landingOf(plot, 0), U.landingOf(plot, floor)
 	if not (ground and above) then
 		return false
 	end
-	if not walkTo(p, LANDING, 0) then
+	if not walkTo(p, K.LANDING, 0) then
 		return false
 	end
-	if not hop(p, standAt(state, ground, 0), p.HopHeight, p.HopSeconds) then
+	if not hop(p, U.standAt(state, ground, 0), p.HopHeight, p.HopSeconds) then
 		return false
 	end
 	-- Its escort first, then the lift: the lift is held only for the ride itself.
@@ -2040,11 +2102,11 @@ local function goUp(p: Patient, floor: number): boolean
 		report("Nurses.claimPorter", porter)
 	elseif type(porter) == "string" then
 		p.Porter = porter
-		local finished, arrived = within(PORTER_SECONDS, "Nurses.escort", Nurses.escort, plot, porter, ground)
+		local finished, arrived = within(K.PORTER_SECONDS, "Nurses.escort", Nurses.escort, plot, porter, ground)
 		if not alive(p) then
 			return false
 		end
-		local model = if finished and arrived == true then porterModel(plot, porter) else nil
+		local model = if finished and arrived == true then U.porterModel(plot, porter) else nil
 		if model then
 			table.insert(others, model)
 		else
@@ -2052,9 +2114,9 @@ local function goUp(p: Patient, floor: number): boolean
 		end
 	end
 	-- A player's escort is only waited for when someone who can work here stands near the ground landing.
-	if #others == 0 and workerNear(plot, ground.Position, ESCORT_NEAR) then
+	if #others == 0 and U.workerNear(plot, ground.Position, K.ESCORT_NEAR) then
 		local seconds = math.clamp(tonumber(Config.Lift.EscortWait) or 6, 0, 30)
-		local finished, rider = within(seconds + ESCORT_SLACK, "Lift.waitEscort", Lift.waitEscort, plot, seconds)
+		local finished, rider = within(seconds + K.ESCORT_SLACK, "Lift.waitEscort", Lift.waitEscort, plot, seconds)
 		if not alive(p) then
 			return false
 		end
@@ -2077,13 +2139,13 @@ local function goUp(p: Patient, floor: number): boolean
 	-- A player who walked off while the lift was busy stays behind (never pulled up from afar); a porter waits by it.
 	for index = #others, 1, -1 do
 		local model = others[index]
-		if Players:GetPlayerFromCharacter(model) and not modelNear(model, ground.Position, ESCORT_NEAR) then
+		if Players:GetPlayerFromCharacter(model) and not U.modelNear(model, ground.Position, K.ESCORT_NEAR) then
 			table.remove(others, index)
 		end
 	end
 	p.Escorted = #others > 0
 	p.Model:SetAttribute("Escorted", p.Escorted)
-	local rode = ride(p, floor, standAt(state, above, floor), others)
+	local rode = ride(p, floor, U.standAt(state, above, floor), others)
 	liftDone(p)
 	return rode
 end
@@ -2092,20 +2154,20 @@ end
 -- it away where it is).
 local function goDown(p: Patient): boolean
 	local state = p.Plot
-	local here, ground = landingOf(state.Plot, p.Floor), landingOf(state.Plot, 0)
+	local here, ground = U.landingOf(state.Plot, p.Floor), U.landingOf(state.Plot, 0)
 	if not (here and ground) then
 		return false
 	end
-	if not walkTo(p, LANDING, p.Floor) then
+	if not walkTo(p, K.LANDING, p.Floor) then
 		return false
 	end
-	if not hop(p, standAt(state, here, p.Floor), p.HopHeight, p.HopSeconds) then
+	if not hop(p, U.standAt(state, here, p.Floor), p.HopHeight, p.HopSeconds) then
 		return false
 	end
 	if not liftTurn(p) then
 		return false
 	end
-	local rode = ride(p, 0, standAt(state, ground, 0), {})
+	local rode = ride(p, 0, U.standAt(state, ground, 0), {})
 	liftDone(p)
 	return rode
 end
@@ -2136,8 +2198,8 @@ local function getUp(p: Patient): boolean
 		local front = Building.seatFront(info)
 		local dx, dz = Building.facing(info.Face)
 		p.OnSeat = false
-		local at = surface(state, worldAt(state, front.X, front.Z, 0), 0)
-		if not hop(p, facing(at, worldDir(state, dx, dz)), SIT_HEIGHT, SIT_SECONDS) then
+		local at = surface(state, U.worldAt(state, front.X, front.Z, 0), 0)
+		if not hop(p, facing(at, worldDir(state, dx, dz)), K.SIT_HEIGHT, K.SIT_SECONDS) then
 			return false
 		end
 		freeSeat(p)
@@ -2149,8 +2211,8 @@ local function getUp(p: Patient): boolean
 			local spot = Building.doctorSpot(info)
 			local dx, dz = Building.facing(info.Face)
 			p.OnBed = false
-			local at = surface(state, worldAt(state, spot.X, spot.Z, 0), 0)
-			if not hop(p, facing(at, worldDir(state, dx, dz)), SIT_HEIGHT, SIT_SECONDS) then
+			local at = surface(state, U.worldAt(state, spot.X, spot.Z, 0), 0)
+			if not hop(p, facing(at, worldDir(state, dx, dz)), K.SIT_HEIGHT, K.SIT_SECONDS) then
 				return false
 			end
 		end
@@ -2189,7 +2251,7 @@ local function leave(p: Patient)
 			return
 		end
 	end
-	local exit = markerGround(state.Plot.Exit)
+	local exit = U.markerGround(state.Plot.Exit)
 	if not walk(p, { exit.Position }, 0) then
 		return
 	end
@@ -2206,11 +2268,11 @@ end
 -- Patience ran out: droop, a soft sad puff where it sits, and gone. No penalty.
 local function sadLeave(p: Patient)
 	setState(p, "Sad")
-	p.Badge.Icon.Text = ICON_SAD
+	p.Badge.Icon.Text = K.ICON_SAD
 	p.Badge.Need.Visible = false
 	pcall(CreatureBuilder.setRecipe, p.Badge, {}, {}) -- the plan's chips go with the Need chip
 	p.Badge.Bubble.Enabled = false
-	showRing(p, 0, RING_LOW)
+	showRing(p, 0, K.RING_LOW)
 	CreatureBuilder.setMood(p.Model, "Sad")
 	setTilt(p, -0.22)
 	if not sleep(p, 0.8) then
@@ -2249,7 +2311,7 @@ local function rest(p: Patient): boolean
 	local state = p.Plot
 	setState(p, "Recovering")
 	CreatureBuilder.setMood(p.Model, "Sleep")
-	p.Badge.Icon.Text = ICON_SLEEP
+	p.Badge.Icon.Text = K.ICON_SLEEP
 	CreatureBuilder.setEffect(p.Model, "Heal", true)
 	CreatureBuilder.setEffect(p.Model, "HealLight", true)
 	local data = PlayerData.get(state.Owner)
@@ -2261,11 +2323,11 @@ local function rest(p: Patient): boolean
 	local started = os.clock()
 	while true do
 		local done = (os.clock() - started) / seconds
-		showRing(p, done, RING_HEAL)
+		showRing(p, done, K.RING_HEAL)
 		if done >= 1 then
 			break
 		end
-		if not sleep(p, TICK) then
+		if not sleep(p, K.TICK) then
 			return false
 		end
 	end
@@ -2280,7 +2342,7 @@ local function arrive(p: Patient): boolean
 	local state = p.Plot
 	if p.Incoming then
 		-- 🚁 The helicopter lands first (Feel/HospitalFX flies it in from HeliSpot's ArriveAt); then out it steps.
-		if not sleep(p, HELI_LAND_SECONDS) then
+		if not sleep(p, K.HELI_LAND_SECONDS) then
 			return false
 		end
 		p.Incoming = false
@@ -2292,16 +2354,16 @@ local function arrive(p: Patient): boolean
 	end
 	local inside = false -- in the building already (down the lift from the roof)
 	if p.Upstairs then
-		local roof, ground = landingOf(state.Plot, p.ArriveFloor), landingOf(state.Plot, 0)
+		local roof, ground = U.landingOf(state.Plot, p.ArriveFloor), U.landingOf(state.Plot, 0)
 		if roof and ground then
 			p.Floor = p.ArriveFloor
-			if not walkTo(p, LANDING, p.Floor) then
+			if not walkTo(p, K.LANDING, p.Floor) then
 				return false
 			end
-			if not hop(p, standAt(state, roof, p.Floor), p.HopHeight, p.HopSeconds) or not liftTurn(p) then
+			if not hop(p, U.standAt(state, roof, p.Floor), p.HopHeight, p.HopSeconds) or not liftTurn(p) then
 				return false
 			end
-			inside = ride(p, 0, standAt(state, ground, 0), {})
+			inside = ride(p, 0, U.standAt(state, ground, 0), {})
 			liftDone(p)
 			if not alive(p) then
 				return false
@@ -2309,7 +2371,7 @@ local function arrive(p: Patient): boolean
 		end
 		if not inside then
 			-- The lift went away under it: a pop, and in by the gate.
-			local gate = markerGround(state.Plot.Spawn)
+			local gate = U.markerGround(state.Plot.Spawn)
 			CreatureBuilder.effectAt(gate.Position + Vector3.new(0, 1.5 * p.BaseScale, 0), "Pop")
 			p.Pivot = gate
 			p.Root.CFrame = gate
@@ -2323,8 +2385,8 @@ local function arrive(p: Patient): boolean
 	if not inside then
 		-- In through the front doors (a 🚑 patient through the A&E door by its stretcher, once that door is open).
 		local door = "Front"
-		if p.Urgent == "AE" and state.Level >= AE_LEVEL then
-			local here = localOf(state, p.Pivot.Position)
+		if p.Urgent == "AE" and state.Level >= K.AE_LEVEL then
+			local here = U.localOf(state, p.Pivot.Position)
 			local _, aeOut = Building.doorPoints("AE")
 			local _, frontOut = Building.doorPoints("Front")
 			if aeOut and frontOut then
@@ -2347,18 +2409,21 @@ local function arrive(p: Patient): boolean
 			if not hop(p, facing(p.Pivot.Position, worldDir(state, 0, 1)), p.HopHeight * 0.5, p.HopSeconds) then
 				return false
 			end
-			if not sleep(p, CHECK_IN_SECONDS) then
+			if not sleep(p, K.CHECK_IN_SECONDS) then
 				return false
 			end
 		end
 	end
 	p.CheckedIn = true
-	p.Since = os.clock() - (if p.Urgent ~= "" then URGENT_HEAD else 0)
+	p.Since = os.clock() - (if p.Urgent ~= "" then K.URGENT_HEAD else 0)
 	return alive(p)
 end
 
--- To its seat (or straight to a bay that came free meanwhile). A patient whose bay closed gets up first. No free seat:
--- it waits standing where it is.
+-- To its seat, or straight to a bay: the free bays are handed out here and now (assignBays, the same rule as every
+-- tick: the longest wait first), so a patient who has just checked in while a bay stands free never walks to the
+-- waiting room and back (a 🚑 one goes from the A&E door to its bay, a 🚁 one from the lift to the X-ray bay). A
+-- patient whose bay closed gets up first. No free seat: it waits standing where it is.
+local assignBays: (state: PlotState) -> ()
 local function findSeat(p: Patient): boolean
 	local state = p.Plot
 	if p.Phase == "Requeue" then
@@ -2366,6 +2431,9 @@ local function findSeat(p: Patient): boolean
 			return false
 		end
 		p.Phase = "Arriving"
+	end
+	if p.Bay == nil and p.CheckedIn then
+		assignBays(state)
 	end
 	if p.Bay then
 		p.Phase = "ToBay"
@@ -2389,7 +2457,7 @@ local function findSeat(p: Patient): boolean
 			p.Phase = "ToBay"
 			return true
 		end
-		if not hop(p, seatPose(state, seat), SIT_HEIGHT, SIT_SECONDS) then
+		if not hop(p, U.seatPose(state, seat), K.SIT_HEIGHT, K.SIT_SECONDS) then
 			return false
 		end
 		p.OnSeat = true
@@ -2443,7 +2511,7 @@ local function goToBay(p: Patient): boolean
 		return false
 	end
 	freeSeat(p) -- (a seat it was still walking to)
-	state.NextSpawn = math.max(state.NextSpawn, os.clock() + REFILL_SECONDS)
+	state.NextSpawn = math.max(state.NextSpawn, os.clock() + K.REFILL_SECONDS)
 	refreshFront(state)
 	if not walkTo(p, Building.doctorSpot(info), 0) then
 		return false
@@ -2456,16 +2524,21 @@ local function goToBay(p: Patient): boolean
 		p.Phase = "Arriving"
 		return alive(p)
 	end
-	if not hop(p, bayPose(state, info), SIT_HEIGHT, SIT_SECONDS) then
+	if not hop(p, U.bayPose(state, info), K.SIT_HEIGHT, K.SIT_SECONDS) then
 		return false
 	end
 	p.OnBed = true
 	p.BaySince = os.clock()
+	-- On the bed at last: the wait in the waiting room is forgotten (Config.Visit.BayRefill of its patience back).
+	p.Patience = Pure.refill(p.Patience, p.PatienceMax, K.BAY_REFILL, 1)
+	local fraction = p.Patience / p.PatienceMax
+	showRing(p, fraction, ringColor(fraction))
+	showPatience(p, fraction)
 	p.Model:SetAttribute("Since", Workspace:GetServerTimeNow()) -- the clients' copy of the front order (UI/Guide)
 	p.Phase = "Bay"
 	setState(p, bayState(p))
 	refreshFront(state)
-	tutorialHook("onFrontArrived", state.Owner)
+	U.tutorialHook("onFrontArrived", state.Owner)
 	return alive(p)
 end
 
@@ -2486,13 +2559,71 @@ local function waitAtBay(p: Patient): boolean
 	return alive(p)
 end
 
--- The plan is complete: a happy bounce, then home (it pays on the bed) or a ward bed first.
+-- A rest in a bought room's own bed (the Winter Wing's, for a chills patient no ward takes): up from the bay, over to
+-- the bed's foot, a nap (the same rest as a ward bed's, no lift and no escort), then it pays and goes home. A bed that
+-- went away meanwhile (the room was lost): it pays where it stands.
+local function restInRoom(p: Patient, reserved: WardBed)
+	local state = p.Plot
+	setState(p, "ToWard")
+	if not getUp(p) then -- the bay frees as it stands
+		return
+	end
+	local roomId = reserved.Room or ""
+	local bed = state.Layout.RoomBeds[roomId] or reserved -- (a rebuilt room has a new bed part in the same place)
+	if bed.Part.Parent and state.Rooms[roomId] == true then
+		local at = U.localOf(state, bed.Part.Position)
+		local foot: Point = { X = at.X, Z = at.Z - bed.Part.Size.Z / 2 - K.ROOM_BED_FOOT }
+		if not walkTo(p, foot, 0) then
+			return
+		end
+		bed = state.Layout.RoomBeds[roomId] or bed
+		if bed.Part.Parent then
+			if not hop(p, U.roomBedPose(state, bed, true, p.BaseScale), 1.8, 0.5) then -- flop into bed
+				return
+			end
+			p.InBed = true
+		end
+		if not rest(p) then
+			return
+		end
+		if p.InBed and bed.Part.Parent then
+			if not hop(p, U.roomBedPose(state, bed, false, p.BaseScale), 1.2, 0.4) then -- sit up
+				return
+			end
+		end
+		if not payAndSpin(p) then
+			return
+		end
+		if p.InBed then
+			p.InBed = false
+			local stand = surface(state, U.worldAt(state, foot.X, foot.Z, 0), 0)
+			if not hop(p, facing(stand, worldDir(state, 0, -1)), 1.8, 0.45) then
+				return
+			end
+		end
+		releaseBed(p)
+		leave(p)
+		return
+	end
+	releaseBed(p)
+	p.SpotKind = "Home"
+	if not payAndSpin(p) then
+		return
+	end
+	leave(p)
+end
+
+-- The plan is complete: a happy bounce, then home (it pays on the bed) or a ward bed first (or its room's own bed).
 local function afterPlan(p: Patient)
 	local state = p.Plot
 	if not hop(p, p.Pivot, p.HopHeight * 0.9, 0.3) then -- a happy little bounce
 		return
 	end
 	local bed = p.WardBed
+	if bed and bed.Room then
+		restInRoom(p, bed)
+		return
+	end
 	if bed then
 		setState(p, "ToWard")
 		if not getUp(p) then -- the bay frees as it stands
@@ -2512,9 +2643,9 @@ local function afterPlan(p: Patient)
 			local porter = p.Porter
 			if porter then
 				-- Its Porter walks to the bed with it, then goes back to work.
-				local target = CFrame.new(worldAt(state, foot.X, foot.Z, bed.Floor))
+				local target = CFrame.new(U.worldAt(state, foot.X, foot.Z, bed.Floor))
 				task.spawn(function()
-					within(PORTER_SECONDS, "Nurses.escort", Nurses.escort, state.Plot, porter, target)
+					within(K.PORTER_SECONDS, "Nurses.escort", Nurses.escort, state.Plot, porter, target)
 					if p.Porter == porter then
 						releasePorter(p)
 					end
@@ -2525,7 +2656,7 @@ local function afterPlan(p: Patient)
 			end
 			bed = state.Layout.Beds[bed.Key] or bed -- (a rebuilt Building has new bed parts in the same places)
 			if bed.Part.Parent then
-				if not hop(p, wardPose(state, bed, true, p.BaseScale), 1.8, 0.5) then -- flop into bed
+				if not hop(p, U.wardPose(state, bed, true, p.BaseScale), 1.8, 0.5) then -- flop into bed
 					return
 				end
 				p.InBed = true
@@ -2534,7 +2665,7 @@ local function afterPlan(p: Patient)
 				return
 			end
 			if p.InBed then
-				if not hop(p, wardPose(state, bed, false, p.BaseScale), 1.2, 0.4) then -- sit up
+				if not hop(p, U.wardPose(state, bed, false, p.BaseScale), 1.2, 0.4) then -- sit up
 					return
 				end
 			end
@@ -2543,7 +2674,7 @@ local function afterPlan(p: Patient)
 			end
 			if p.InBed then
 				p.InBed = false
-				local at = surface(state, worldAt(state, foot.X, foot.Z, bed.Floor), bed.Floor)
+				local at = surface(state, U.worldAt(state, foot.X, foot.Z, bed.Floor), bed.Floor)
 				if not hop(p, facing(at, worldDir(state, 0, 1)), 1.8, 0.45) then
 					return
 				end
@@ -2621,7 +2752,8 @@ end
 -- now so two patients never take one bed; then the ward pick (Pure.triageMode): a Receptionist sends it at once with
 -- the bonus, so does Simple mode for a player who finished it (`byPlayer`), or the helper whose game (`session`)
 -- finished it picks (Treatment.waitTriage; the TriageAsk goes back to Treatment for the client's buttons). A plan a
--- handed-over medicine finished has no game to ask from: it goes by itself. Never yields; the patient's own thread
+-- handed-over medicine finishes comes here from its handover session (treatAt), so it asks too; with no session (a
+-- nurse, the C6 give, a handover that couldn't open one) it goes by itself. Never yields; the patient's own thread
 -- does the rest (afterPlan).
 local function finishPlan(
 	state: PlotState,
@@ -2638,7 +2770,7 @@ local function finishPlan(
 	local ask: Treatment.TriageAsk? = nil
 	p.SpotKind = "Home"
 	if p.Ward then
-		local free = freeBeds(state)
+		local free = U.freeBeds(state)
 		local kind = Pure.destination(p.Ward, { Wards = free.Wards ~= nil, Rest = free.Rest ~= nil })
 		local bed = free[kind]
 		if bed then
@@ -2662,19 +2794,29 @@ local function finishPlan(
 			ask = { Options = table.clone(options), Right = p.Ward :: string }
 		end
 	end
+	if p.WardBed == nil then
+		-- No ward takes it (below its ward's level, not a Stay case, or every ward bed taken): a patient of a bought
+		-- room's own case rests in that room's bed when it is free (a chills patient in the Winter Wing's bed).
+		local roomBed = U.freeRoomBed(state, p.Case.Room)
+		if roomBed then
+			state.Beds[roomBed.Key] = p
+			p.WardBed = roomBed
+			p.SpotKind = "Room"
+		end
+	end
 	p.RecoverIn = if p.SpotKind == "Wards" or p.SpotKind == "Rest"
 		then p.SpotKind
 		elseif p.Case.Room == "BathRoom" then "Hydro"
 		else "Reception"
 	-- Instant feedback; the patient's own thread gets up after its current hop (and pays first when it goes home).
 	setState(p, if p.WardBed then "ToWard" else "Done")
-	p.Badge.Icon.Text = ICON_TREATED
+	p.Badge.Icon.Text = K.ICON_TREATED
 	p.Badge.Need.Visible = false
 	p.Badge.Bubble.Enabled = false
-	showRing(p, 0, RING_HEAL)
+	showRing(p, 0, K.RING_HEAL)
 	CreatureBuilder.setMood(p.Model, "Happy")
 	refreshFront(state)
-	tutorialHook("onTreated", state.Owner)
+	U.tutorialHook("onTreated", state.Owner)
 	return ask
 end
 
@@ -2693,7 +2835,7 @@ local function giveItems(
 		return false, nil
 	end
 	p.Done = Recipe.apply(p.Done, indices)
-	p.Patience = Pure.refill(p.Patience, p.PatienceMax, ITEM_PATIENCE, #indices)
+	p.Patience = Pure.refill(p.Patience, p.PatienceMax, K.ITEM_PATIENCE, #indices)
 	showPlan(p)
 	if Recipe.complete(p.Plan, p.Done) then
 		local player = if byPlayer == nil then session ~= nil else byPlayer
@@ -2716,11 +2858,11 @@ local function examineNow(p: Patient, helper: Player?): string
 	end
 	local state = p.Plot
 	p.Examined = true
-	p.Icon = if type(p.Case.Icon) == "string" then p.Case.Icon else ICON_UNKNOWN
+	p.Icon = if type(p.Case.Icon) == "string" then p.Case.Icon else K.ICON_UNKNOWN
 	p.Badge.Icon.Text = p.Icon
 	p.Badge.Bubble.Enabled = false
 	p.Model:SetAttribute("Case", p.CaseId)
-	p.Patience = Pure.refill(p.Patience, p.PatienceMax, ITEM_PATIENCE, 1)
+	p.Patience = Pure.refill(p.Patience, p.PatienceMax, K.ITEM_PATIENCE, 1)
 	local fraction = p.Patience / p.PatienceMax
 	showRing(p, fraction, ringColor(fraction))
 	showPatience(p, fraction)
@@ -2739,8 +2881,23 @@ local function examineNow(p: Patient, helper: Player?): string
 		setState(p, bayState(p))
 	end
 	refreshFront(state)
-	tutorialHook("onExamined", state.Owner, helper) -- by anyone, a nurse included (`helper` nil)
+	U.tutorialHook("onExamined", state.Owner, helper) -- by anyone, a nurse included (`helper` nil)
 	return p.CaseId
+end
+
+-- One more exam for this player's glow (Stats.Exams), counted only while it still matters: once the glow is over
+-- the save isn't written again.
+local function countExam(player: Player)
+	local limit = tonumber(Config.Visit and Config.Visit.ExamsGlow) or Visit.EXAMS_GLOW
+	if Pure.examsDone(PlayerData.get(player)) >= limit then
+		return
+	end
+	local ok, err = pcall(PlayerData.update, player, function(d: Types.Data)
+		d.Stats[Pure.EXAMS_STAT] = Pure.examsDone(d) + 1
+	end)
+	if not ok then
+		report("PlayerData.update (Exams)", err)
+	end
 end
 
 -- Treatment settled the exam game on `p` (the player's report, the timeout, or the helper leaving): whatever the
@@ -2759,6 +2916,9 @@ local function settleExam(p: Patient, sessionId: number, tip: number): (boolean,
 		return false, nil
 	end
 	p.TipPaid += math.max(0, tip)
+	if helper then
+		countExam(helper)
+	end
 	examineNow(p, helper)
 	return false, nil
 end
@@ -2792,9 +2952,16 @@ end
 local function examAt(state: PlotState, p: Patient, player: Player)
 	local data = PlayerData.get(player)
 	local okSimple, simple = pcall(Treatment.simple, player)
-	local examsDone = if data then tonumber((data :: any).Cured) or 0 else 0
-	local tools, glow =
-		Pure.examCard(p.Case, state.Level, examsDone, okSimple and simple == true, rng:NextNumber(), Config)
+	-- The glow: the player's own first exams (Stats.Exams), Simple mode, and all through their tutorial (a Replay too).
+	local teaching = U.tutorialAsk("active", false, player) == true
+	local tools, glow = Pure.examCard(
+		p.Case,
+		state.Level,
+		Pure.examsDone(data),
+		teaching or (okSimple and simple == true),
+		rng:NextNumber(),
+		Config
+	)
 	local sessionId: number? = nil
 	local spec: Treatment.Spec = {
 		Plot = state.Plot,
@@ -2809,7 +2976,7 @@ local function examAt(state: PlotState, p: Patient, player: Player)
 		Symptom = p.Symptom,
 		Plan = p.Plan,
 		Position = above(p),
-		Counter = spotWorld(state, p.Bay or ""), -- a report from farther than Config.Treat.Distance is all OK
+		Counter = U.spotWorld(state, p.Bay or ""), -- a report from farther than Config.Treat.Distance is all OK
 		TipSoFar = p.TipPaid,
 		Settle = function(_ratings: { Types.Rating }, tip: number): (boolean, Treatment.TriageAsk?)
 			local id = sessionId
@@ -2840,7 +3007,7 @@ end
 local function refuse(p: Patient, player: Player, emptyHanded: boolean)
 	CreatureBuilder.shake(p.Model) -- drawn on the clients
 	local item = rawget(Items :: any, p.Item)
-	local icon = if type(item) == "table" then item.Icon else ICON_UNKNOWN
+	local icon = if type(item) == "table" then item.Icon else K.ICON_UNKNOWN
 	local hint: string
 	if not emptyHanded then
 		hint = "Oops! This one needs " .. icon
@@ -2852,11 +3019,32 @@ local function refuse(p: Patient, player: Player, emptyHanded: boolean)
 	Remotes.toast(player, hint)
 end
 
+-- Whether completing `p`'s plan now would ask `helper` for its ward (the same rule finishPlan applies: a patient who
+-- stays, two wards open, no Receptionist, a free bed in its own ward, not Simple mode).
+local function asksWard(state: PlotState, p: Patient, helper: Player): boolean
+	local ward = Visit.stayWard(p.Case, state.Level)
+	if not ward then
+		return false
+	end
+	local free = U.freeBeds(state)
+	local kind = Pure.destination(ward, { Wards = free.Wards ~= nil, Rest = free.Rest ~= nil })
+	local okSimple, simple = pcall(Treatment.simple, helper)
+	return Pure.triageMode(
+		Hospital.triageOptions(state.Level, LevelsData),
+		state.Receptionist.Triage,
+		true,
+		Pure.routed(ward, kind),
+		okSimple and simple == true
+	) == "Ask"
+end
+
 -- "Treat": the plan steps the helper carries, then the nurse tray's, are taken. Medicines are handed over at once
--- (no game); supplies open one Treat session (one game each).
+-- (no game); supplies open one Treat session (one game each). Medicines that complete the plan of a patient whose
+-- ward the helper picks go through a handover session: no game either, it only carries "Injury Ward or Rest Ward?"
+-- to the player (Treatment, spec.Handover), so a fever asks as a broken leg does.
 local function treatAt(state: PlotState, p: Patient, player: Player)
 	local plot = state.Plot
-	local carried = carrying(player)
+	local carried = U.carrying(player)
 	local fromCarry, fromTray = Pure.plan(p.Plan, p.Done, carried, trayItems(plot))
 	if #fromCarry + #fromTray == 0 then
 		refuse(p, player, #carried == 0)
@@ -2868,7 +3056,7 @@ local function treatAt(state: PlotState, p: Patient, player: Player)
 	local takenTray: { number } = {}
 	local tookAll = true
 	for _, index in fromCarry do
-		if takeItem(player, p.Plan[index]) then
+		if U.takeItem(player, p.Plan[index]) then
 			table.insert(takenCarry, index)
 		else
 			tookAll = false
@@ -2888,7 +3076,7 @@ local function treatAt(state: PlotState, p: Patient, player: Player)
 	p.Claimed = false
 	if not tookAll or not (alive(p) and needsDoctor(p) and p.Bay and state.BayOf[p.Bay] == p) then
 		for _, index in takenCarry do
-			giveBack(player, p.Plan[index]) -- the patient moved on while we checked
+			U.giveBack(player, p.Plan[index]) -- the patient moved on while we checked
 		end
 		return
 	end
@@ -2897,15 +3085,21 @@ local function treatAt(state: PlotState, p: Patient, player: Player)
 		table.insert(given, index)
 	end
 	local medicines, supplies = Pure.split(p.Plan, given)
-	if #supplies == 0 then
+	-- Medicines only, and they complete the plan of a patient whose ward is this player's to pick: a handover
+	-- session (no game) carries the pick. Otherwise they are simply handed over.
+	local handover = #supplies == 0
+		and Recipe.complete(p.Plan, Recipe.apply(p.Done, medicines))
+		and asksWard(state, p, player)
+	if #supplies == 0 and not handover then
 		giveItems(state, p, medicines, player, nil, true) -- handed over: no game
 		return
 	end
-	if #medicines > 0 then
+	if #medicines > 0 and not handover then
 		giveItems(state, p, medicines, player, nil, true) -- (the supplies are still missing: never complete here)
 	end
+	local inSession = if handover then medicines else supplies
 	local fromHands: { string } = {}
-	for _, index in supplies do
+	for _, index in inSession do
 		if table.find(takenCarry, index) then
 			table.insert(fromHands, p.Plan[index])
 		end
@@ -2916,10 +3110,11 @@ local function treatAt(state: PlotState, p: Patient, player: Player)
 		PatientId = p.PatientId,
 		Key = p.Id,
 		Kind = "Treat",
-		Items = Pure.itemsAt(p.Plan, supplies),
+		Items = if handover then {} else Pure.itemsAt(p.Plan, supplies),
+		Handover = handover,
 		Case = p.CaseId,
 		Position = above(p),
-		Counter = spotWorld(state, p.Bay or ""),
+		Counter = U.spotWorld(state, p.Bay or ""),
 		TipSoFar = p.TipPaid,
 		Settle = function(_ratings: { Types.Rating }, tip: number): (boolean, Treatment.TriageAsk?)
 			local id = sessionId
@@ -2934,8 +3129,12 @@ local function treatAt(state: PlotState, p: Patient, player: Player)
 		if not ok then
 			report("Treatment.open (Treat)", opened)
 		end
+		if handover then
+			giveItems(state, p, medicines, player, nil, true) -- no session to ask from: it goes by itself
+			return
+		end
 		for _, itemId in fromHands do
-			giveBack(player, itemId)
+			U.giveBack(player, itemId)
 		end
 		return
 	end
@@ -2943,7 +3142,7 @@ local function treatAt(state: PlotState, p: Patient, player: Player)
 	p.Session = opened
 	p.SessionHelper = player
 	p.SessionKind = "Treat"
-	p.SessionIndices = supplies
+	p.SessionIndices = inSession
 	p.SessionCarried = fromHands
 	setState(p, "Treating")
 	refreshFront(state)
@@ -2956,7 +3155,7 @@ local function nearBay(player: Player, state: PlotState, bayId: string): boolean
 	if not (root and root:IsA("BasePart")) then
 		return false
 	end
-	return (root.Position - spotWorld(state, bayId)).Magnitude <= PROMPT_DISTANCE + DISTANCE_SLACK
+	return (root.Position - U.spotWorld(state, bayId)).Magnitude <= K.PROMPT_DISTANCE + K.DISTANCE_SLACK
 end
 
 onBayPrompt = function(plot: Plot, bayId: string, player: Player)
@@ -2965,7 +3164,7 @@ onBayPrompt = function(plot: Plot, bayId: string, player: Player)
 		return
 	end
 	local now = os.clock()
-	if now - (lastTreat[player] or 0) < TREAT_COOLDOWN then
+	if now - (lastTreat[player] or 0) < K.TREAT_COOLDOWN then
 		return
 	end
 	lastTreat[player] = now
@@ -3063,7 +3262,7 @@ end
 -- Sparkly, Frosty in winter and 🌟 Golden at an R3+ clinic (Pure.variant). The Studio test switch
 -- workspace:SetAttribute("ForceGoldenPatient", true) makes every new patient at an R3+ clinic Golden; a live server
 -- ignores it.
-local function rollVariant(state: PlotState): string?
+function U.rollVariant(state: PlotState): string?
 	local force = RunService:IsStudio() and Workspace:GetAttribute("ForceGoldenPatient") == true
 	local golden = rawget(VariantsData :: any, "Golden")
 	local goldenRebirths = if type(golden) == "table" and type(golden.Rebirths) == "number"
@@ -3080,14 +3279,14 @@ local function rollVariant(state: PlotState): string?
 end
 
 -- Night patients come at night; with 🦉 Night Owl (the owner's perk) for Config.NightOwl of a night after morning.
-local function nightOpen(state: PlotState): boolean
+function U.nightOpen(state: PlotState): boolean
 	if Workspace:GetAttribute("IsNight") == true then
 		return true
 	end
 	return state.Effects.NightOwl and Hospital.nightOwl(nightEndedAt, os.clock(), Config)
 end
 
-local function patienceFor(owner: Player, guest: boolean): number
+function U.patienceFor(owner: Player, guest: boolean): number
 	local data = PlayerData.get(owner)
 	local chairs = if data then data.Upgrades.Chairs or 0 else 0
 	local ok, seconds = pcall(Prices.patience, chairs, Config)
@@ -3096,20 +3295,20 @@ local function patienceFor(owner: Player, guest: boolean): number
 	if boostOk and type(boost) == "number" and boost >= 1 and boost < math.huge then
 		base *= boost
 	end
-	return base * (if guest then GUEST_PATIENCE else 1)
+	return base * (if guest then K.GUEST_PATIENCE else 1)
 end
 
 -- How many plan steps this owner's patients have: their hospital level's cap, and 1 all through the tutorial.
-local function recipeCapFor(owner: Player): number
-	if tutorialAsk("active", false, owner) then
+function U.recipeCapFor(owner: Player): number
+	if U.tutorialAsk("active", false, owner) then
 		return 1
 	end
-	return levelAsk("recipeCap", owner, 1)
+	return U.levelAsk("recipeCap", owner, 1)
 end
 
 -- May a patient of this species come here by this way (its wing open, night, its wing's room)? Its case is a separate
 -- question (Pure.pickCase).
-local function speciesOpen(state: PlotState, entry: any, byAir: boolean, night: boolean): boolean
+function U.speciesOpen(state: PlotState, entry: any, byAir: boolean, night: boolean): boolean
 	if type(entry) ~= "table" then
 		return false
 	end
@@ -3123,7 +3322,7 @@ local function speciesOpen(state: PlotState, entry: any, byAir: boolean, night: 
 end
 
 -- In the waiting room (walking in, sitting, or getting back to a seat).
-local function waitingCount(state: PlotState): number
+function U.waitingCount(state: PlotState): number
 	local count = 0
 	for p in state.All do
 		if p.Phase == "Arriving" or p.Phase == "Seated" or p.Phase == "Requeue" then
@@ -3134,7 +3333,7 @@ local function waitingCount(state: PlotState): number
 end
 
 -- Every patient whose plan isn't done yet (the tutorial's one-at-a-time).
-local function activeCount(state: PlotState): number
+function U.activeCount(state: PlotState): number
 	local count = 0
 	for p in state.All do
 		local phase = p.Phase
@@ -3182,7 +3381,7 @@ local function spawnPatient(
 
 	-- Night patients, and Night-wing regulars (they only visit at night): glow, pay 2x, count for night goals.
 	local night = (entry ~= nil and entry.Night == true) or (regularEntry ~= nil and regularEntry.Wing == "Night")
-	local patience = patienceFor(state.Owner, regular ~= nil or visitor)
+	local patience = U.patienceFor(state.Owner, regular ~= nil or visitor)
 	local urgentKind = if urgent then urgent.Kind else ""
 	if urgent then
 		local data = PlayerData.get(state.Owner)
@@ -3191,7 +3390,7 @@ local function spawnPatient(
 	local wing = if regularEntry then regularEntry.Wing elseif entry then entry.Wing else "Starter"
 	local air = urgent ~= nil and urgent.Air
 	local rhythm = rng:NextNumber(0.9, 1.12) -- every creature hops to its own beat
-	local start = if urgent then urgent.Start else markerGround(state.Plot.Spawn)
+	local start = if urgent then urgent.Start else U.markerGround(state.Plot.Spawn)
 	local symptom = if type(case.Bubble) == "string" then case.Bubble else ""
 	local emote = Pure.bubbleParts(symptom)
 	lastVisitId += 1
@@ -3207,7 +3406,7 @@ local function spawnPatient(
 		CaseId = caseId,
 		Case = case,
 		Symptom = symptom,
-		Icon = if emote ~= "" then emote else ICON_UNKNOWN,
+		Icon = if emote ~= "" then emote else K.ICON_UNKNOWN,
 		Examined = false,
 		Plan = plan,
 		Done = Recipe.newDone(plan),
@@ -3223,8 +3422,8 @@ local function spawnPatient(
 		Root = root,
 		Badge = badge,
 		BaseScale = model:GetScale(),
-		HopHeight = HOP_HEIGHT * (if night then 1.35 else 1), -- night patients float a little
-		HopSeconds = HOP_SECONDS * rhythm * (if night then 1.15 else 1),
+		HopHeight = K.HOP_HEIGHT * (if night then 1.35 else 1), -- night patients float a little
+		HopSeconds = K.HOP_SECONDS * rhythm * (if night then 1.15 else 1),
 		Phase = "Arriving",
 		CheckedIn = false,
 		Since = math.huge,
@@ -3265,7 +3464,7 @@ local function spawnPatient(
 	}
 
 	CreatureBuilder.setMood(model, "Sick")
-	showRing(p, 1, RING_CALM)
+	showRing(p, 1, K.RING_CALM)
 	badge.Icon.Text = p.Icon
 	badge.Star.Visible = visitor
 	local okBadge, badgeErr = pcall(function()
@@ -3334,7 +3533,7 @@ local function spawnPatient(
 	return true
 end
 
-local function hasGuest(state: PlotState, regular: string?, visitor: boolean): boolean
+function U.hasGuest(state: PlotState, regular: string?, visitor: boolean): boolean
 	for p in state.All do
 		if (regular ~= nil and p.Regular == regular) or (visitor and p.Visitor) then
 			return true
@@ -3344,11 +3543,11 @@ local function hasGuest(state: PlotState, regular: string?, visitor: boolean): b
 end
 
 -- The tutorial's patient: a Starter-wing day species, a new Book page first. nil = there's none.
-local function tutorialSpecies(data: Types.Data): string?
+function U.tutorialSpecies(data: Types.Data): string?
 	local fresh: { string }, seen: { string } = {}, {}
 	for _, patientId in PatientsData.Order do
 		local entry: any = PatientsData[patientId]
-		if entry.Wing == TUTORIAL_WING and not entry.Night then
+		if entry.Wing == K.TUTORIAL_WING and not entry.Night then
 			local page = data.Book[patientId]
 			table.insert(if page and page.Cured > 0 then seen else fresh, patientId)
 		end
@@ -3368,27 +3567,27 @@ local function trySpawn(state: PlotState, plan: string)
 		return
 	end
 	local view = plotView(state)
-	local isNight = nightOpen(state) -- night patients (and 🦉 Night Owl's after morning)
+	local isNight = U.nightOpen(state) -- night patients (and 🦉 Night Owl's after morning)
 
 	-- 0. The tutorial's own two patients (no variant: nothing to explain yet). One step, always.
 	if plan == "First" or plan == "Second" then
 		if plan == "Second" then
 			state.SecondSpawned = true -- (a clinic that can't treat its case skips it: the usual pool, below)
 		end
-		local caseId = Pure.tutorialCase(TUTORIAL_STATION[plan], view)
-		local patientId = if caseId then tutorialSpecies(data) else nil
+		local caseId = Pure.tutorialCase(K.TUTORIAL_STATION[plan], view)
+		local patientId = if caseId then U.tutorialSpecies(data) else nil
 		if caseId and patientId then
 			spawnPatient(state, patientId, nil, false, nil, 1, caseId)
 			return
 		end
 	end
 	local guests = plan == "Normal" -- regulars and Today's Visitor wait until the tutorial is done
-	local cap = recipeCapFor(owner)
+	local cap = U.recipeCapFor(owner)
 
 	-- A species that may come now, and the case it brings (nil = it can't come).
 	local function caseFor(patientId: string): string?
 		local entry: any = rawget(PatientsData :: any, patientId)
-		if not speciesOpen(state, entry, false, isNight) then
+		if not U.speciesOpen(state, entry, false, isNight) then
 			return nil
 		end
 		return Pure.pickCase(entry.Wing, view, rng:NextNumber())
@@ -3414,7 +3613,7 @@ local function trySpawn(state: PlotState, plan: string)
 				)
 			then
 				report("regular " .. regular, "named by Story but its case can't be treated here")
-			elseif not hasGuest(state, regular, false) then -- (Story never names one who's already here)
+			elseif not U.hasGuest(state, regular, false) then -- (Story never names one who's already here)
 				spawnPatient(state, entry.Patient, regular, false, nil, cap, caseId :: string)
 				return
 			end
@@ -3422,7 +3621,7 @@ local function trySpawn(state: PlotState, plan: string)
 	end
 
 	-- 2. Today's Visitor. Only asked for when it can be treated here, so it's never handed out and wasted.
-	if guests and state.Spawned >= 2 and not hasGuest(state, nil, true) then
+	if guests and state.Spawned >= 2 and not U.hasGuest(state, nil, true) then
 		local todays = Workspace:GetAttribute("TodaysVisitor")
 		if type(todays) == "string" and todays ~= "" and caseFor(todays) then
 			local ok, visitor = pcall(Daily.visitorFor, owner)
@@ -3431,7 +3630,7 @@ local function trySpawn(state: PlotState, plan: string)
 			elseif type(visitor) == "string" then
 				local caseId = caseFor(visitor)
 				if caseId then
-					spawnPatient(state, visitor, nil, true, rollVariant(state), cap, caseId)
+					spawnPatient(state, visitor, nil, true, U.rollVariant(state), cap, caseId)
 					return
 				end
 			end
@@ -3443,14 +3642,14 @@ local function trySpawn(state: PlotState, plan: string)
 	local total = 0
 	for _, patientId in PatientsData.Order do
 		local entry: any = PatientsData[patientId]
-		if speciesOpen(state, entry, false, isNight) and Pure.pickCase(entry.Wing, view, 0) ~= nil then
-			local weight = if entry.Night then NIGHT_WEIGHT else 1
+		if U.speciesOpen(state, entry, false, isNight) and Pure.pickCase(entry.Wing, view, 0) ~= nil then
+			local weight = if entry.Night then K.NIGHT_WEIGHT else 1
 			local page = data.Book[patientId]
 			if not page or page.Cured <= 0 then
-				weight *= NEW_PAGE_WEIGHT
+				weight *= K.NEW_PAGE_WEIGHT
 			end
 			if patientId == state.LastPatient then
-				weight *= REPEAT_WEIGHT
+				weight *= K.REPEAT_WEIGHT
 			end
 			total += weight
 			table.insert(pool, { Id = patientId, Weight = weight })
@@ -3470,7 +3669,7 @@ local function trySpawn(state: PlotState, plan: string)
 	end
 	local caseId = caseFor(chosen)
 	if caseId then
-		spawnPatient(state, chosen, nil, false, rollVariant(state), cap, caseId)
+		spawnPatient(state, chosen, nil, false, U.rollVariant(state), cap, caseId)
 	end
 end
 
@@ -3479,7 +3678,7 @@ end
 ------------------------------------------------------------------------------------------------------------------
 
 -- A 🚑/🚁 patient's visit is under way here already: only one at a time comes by itself.
-local function urgentWaiting(state: PlotState): boolean
+function U.urgentWaiting(state: PlotState): boolean
 	for p in state.All do
 		local phase = p.Phase
 		if
@@ -3503,14 +3702,14 @@ local function callUrgent(state: PlotState, kind: string): boolean
 	end
 	local view = plotView(state)
 	local makes = Pure.makes(view.Stations)
-	local cap = recipeCapFor(owner)
+	local cap = U.recipeCapFor(owner)
 	local minItems = math.max(1, math.floor(tonumber(Config.AE.MinItems) or 2))
 	local byAir = kind == "VIP"
-	local night = nightOpen(state)
+	local night = U.nightOpen(state)
 	local pool: { { Id: string, Case: string, Plan: { string } } } = {}
 	for _, patientId in PatientsData.Order do
 		local entry: any = PatientsData[patientId]
-		if speciesOpen(state, entry, byAir, night) then
+		if U.speciesOpen(state, entry, byAir, night) then
 			local caseId = Pure.pickCase(entry.Wing, view, rng:NextNumber())
 			local case: any = if caseId then rawget(Cases :: any, caseId) else nil
 			local plan = if case then Pure.urgentFor(case.Plan, makes, cap, minItems) else nil
@@ -3523,13 +3722,13 @@ local function callUrgent(state: PlotState, kind: string): boolean
 		return false
 	end
 	local choice = pool[rng:NextInteger(1, #pool)]
-	local start = markerGround(state.Plot.Spawn) -- no bay or helipad (a kit building): in by the gate
+	local start = U.markerGround(state.Plot.Spawn) -- no bay or helipad (a kit building): in by the gate
 	local floor = 0
 	local serverNow = Workspace:GetServerTimeNow()
 	if kind == "AE" then
-		local stretcher = buildingPart(state, "StretcherSpot")
+		local stretcher = U.buildingPart(state, "StretcherSpot")
 		if stretcher then
-			start = standAt(state, stretcher.CFrame, 0)
+			start = U.standAt(state, stretcher.CFrame, 0)
 		end
 		local building = state.Plot.Model:FindFirstChild("Building")
 		local ambulance = building and building:FindFirstChild("Ambulance", true)
@@ -3537,19 +3736,19 @@ local function callUrgent(state: PlotState, kind: string): boolean
 			ambulance:SetAttribute("ArriveAt", serverNow) -- Feel/HospitalFX: lights and a siren
 		end
 	else
-		local heli = buildingPart(state, "HeliSpot")
+		local heli = U.buildingPart(state, "HeliSpot")
 		if heli then
 			heli:SetAttribute("ArriveAt", serverNow) -- Feel/HospitalFX: the helicopter flies in and lands
-			local roof = floorOf(heli, state.Plot.Model)
+			local roof = U.floorOf(heli, state.Plot.Model)
 			if roof == 0 then
 				roof = Hospital.floors(state.Level, LevelsData) -- the roof is the top floor (Data/Levels Floors)
 			end
-			if roof > 0 and landingOf(state.Plot, roof) and landingOf(state.Plot, 0) then
-				start, floor = standAt(state, heli.CFrame, roof), roof
+			if roof > 0 and U.landingOf(state.Plot, roof) and U.landingOf(state.Plot, 0) then
+				start, floor = U.standAt(state, heli.CFrame, roof), roof
 			end
 		end
 	end
-	return spawnPatient(state, choice.Id, nil, false, rollVariant(state), cap, choice.Case, {
+	return spawnPatient(state, choice.Id, nil, false, U.rollVariant(state), cap, choice.Case, {
 		Kind = kind,
 		Plan = choice.Plan,
 		Start = start,
@@ -3571,8 +3770,8 @@ local function tickUrgent(state: PlotState, now: number, room: boolean)
 		end
 		return
 	end
-	local aeOpen = state.Level >= AE_LEVEL
-	local vipOpen = state.Level >= HELI_LEVEL and RebirthLogic.has(state.Rebirths, "Helicopter")
+	local aeOpen = state.Level >= K.AE_LEVEL
+	local vipOpen = state.Level >= K.HELI_LEVEL and RebirthLogic.has(state.Rebirths, "Helicopter")
 	if not aeOpen then
 		state.NextAE = now + Config.AE.FirstSeconds
 	end
@@ -3582,7 +3781,7 @@ local function tickUrgent(state: PlotState, now: number, room: boolean)
 	if not room or not (aeOpen or vipOpen) then
 		return
 	end
-	if tutorialAsk("active", false, state.Owner) or urgentWaiting(state) or not ownerAtClinic(state) then
+	if U.tutorialAsk("active", false, state.Owner) or U.urgentWaiting(state) or not U.ownerAtClinic(state) then
 		return
 	end
 	if aeOpen and now >= state.NextAE then
@@ -3603,13 +3802,13 @@ end
 -- What the plot's patients use from the owner's save and the nurses, once a tick.
 local function refreshPlot(state: PlotState)
 	local owner = state.Owner
-	state.Level = levelAsk("level", owner, 1)
-	state.Rebirths = rebirthsOf(owner)
-	state.Effects = effectsOf(owner)
-	state.Team = teamOf(state.Plot)
-	state.Medic = medicOf(state.Plot)
-	state.Receptionist = receptionOf(state.Plot)
-	state.Rooms = roomsOf(owner)
+	state.Level = U.levelAsk("level", owner, 1)
+	state.Rebirths = U.rebirthsOf(owner)
+	state.Effects = U.effectsOf(owner)
+	state.Team = U.teamOf(state.Plot)
+	state.Medic = U.medicOf(state.Plot)
+	state.Receptionist = U.receptionOf(state.Plot)
+	state.Rooms = U.roomsOf(owner)
 end
 
 -- What a patient may stand on: the Building, the Ground and the Rooms (solid parts only).
@@ -3695,9 +3894,9 @@ end
 -- and put the prompts on the bays as they are now. When the bays OPEN by the numbers change, re-seat everyone.
 local function refreshLayout(state: PlotState, now: number)
 	local building = state.Plot.Model:FindFirstChild("Building")
-	local key = roomsKey(state) .. "|" .. state.Level
+	local key = U.roomsKey(state) .. "|" .. state.Level
 	local layout = state.Layout
-	if building ~= layout.Building or key ~= layout.Key or now - layout.At >= LAYOUT_SECONDS then
+	if building ~= layout.Building or key ~= layout.Key or now - layout.At >= K.LAYOUT_SECONDS then
 		state.Layout = scanLayout(state, building, key, now)
 		updateFloorRay(state)
 		ensurePrompts(state)
@@ -3717,7 +3916,7 @@ local function refreshLayout(state: PlotState, now: number)
 end
 
 -- Each usable empty bay takes the checked-in patient who has waited longest and fits it (Pure.assign).
-local function assignBays(state: PlotState)
+assignBays = function(state: PlotState)
 	local free: { { Id: string, Kind: string } } = {}
 	for _, info in Building.BAYS do
 		if state.BayOf[info.Id] == nil and bayUsable(state, info.Id) then
@@ -3768,17 +3967,17 @@ local function makeSad(state: PlotState, p: Patient)
 end
 
 local function tickPatience(state: PlotState, dt: number)
-	if tutorialAsk("calm", false, state.Owner) then
+	if U.tutorialAsk("calm", false, state.Owner) then
 		return -- the tutorial's steps 1-6: nobody runs out of patience, so the ring stays full
 	end
-	if state.PausedUntil > os.clock() or abilityPaused(state.Plot) then
+	if state.PausedUntil > os.clock() or U.abilityPaused(state.Plot) then
 		return -- 🎵 a Calm Song (Abilities PauseLine): every patience ring holds still
 	end
 	local outOfPatience: { Patient } = {}
 	-- A Cheerer on duty (Server/Nurses keeps the plot's CheerPatience) makes everyone's patience last longer.
-	local cheer = Pure.cheer(state.Plot.Model:GetAttribute("CheerPatience"), MAX_CHEER_PATIENCE)
+	local cheer = Pure.cheer(state.Plot.Model:GetAttribute("CheerPatience"), K.MAX_CHEER_PATIENCE)
 	-- 🚑/🚁 patients drain slower with the A&E team and a Medic on duty.
-	local slower = Pure.slower(state.Team.Urgent, state.Medic, MAX_SLOWER)
+	local slower = Pure.slower(state.Team.Urgent, state.Medic, K.MAX_SLOWER)
 	for p in state.All do
 		local rate: number? = nil
 		if p.Phase == "Seated" then
@@ -3809,26 +4008,27 @@ local function tick(state: PlotState, now: number, dt: number)
 	assignBays(state)
 	-- The waiting room holds the level's line (never past Config.MaxQueue); the tutorial's cap counts everyone whose
 	-- plan isn't done (one at a time). A higher level refills it sooner (spawnSeconds) and opens more bays.
-	local tutorialCap = tutorialAsk("queueCap", nil, state.Owner)
-	local levelCap = math.min(Config.MaxQueue, levelAsk("queueCap", state.Owner, Config.MaxQueue))
-	local room = waitingCount(state) < levelCap and (type(tutorialCap) ~= "number" or activeCount(state) < tutorialCap)
+	local tutorialCap = U.tutorialAsk("queueCap", nil, state.Owner)
+	local levelCap = math.min(Config.MaxQueue, U.levelAsk("queueCap", state.Owner, Config.MaxQueue))
+	local room = U.waitingCount(state) < levelCap
+		and (type(tutorialCap) ~= "number" or U.activeCount(state) < tutorialCap)
 	tickUrgent(state, now, room)
 	if now >= state.NextSpawn and room then
 		local forced = table.remove(state.Forced, 1)
 		local every = Hospital.arrival(
-			levelAsk("spawnSeconds", state.Owner, Config.SpawnEverySeconds),
+			U.levelAsk("spawnSeconds", state.Owner, Config.SpawnEverySeconds),
 			{ state.Effects.Arrive, state.Receptionist.Arrive }
 		)
 		if forced then
 			-- An admin's pick (Patients.sendNext) comes first; more picks follow REFILL_SECONDS apart.
-			state.NextSpawn = now + (if #state.Forced > 0 then REFILL_SECONDS else every * rng:NextNumber(0.85, 1.15))
+			state.NextSpawn = now + (if #state.Forced > 0 then K.REFILL_SECONDS else every * rng:NextNumber(0.85, 1.15))
 			local entry: any = rawget(PatientsData :: any, forced)
 			local caseId = if entry then Pure.pickCase(entry.Wing, plotView(state), rng:NextNumber()) else nil
 			if caseId then
-				spawnPatient(state, forced, nil, false, nil, recipeCapFor(state.Owner), caseId)
+				spawnPatient(state, forced, nil, false, nil, U.recipeCapFor(state.Owner), caseId)
 			end
 		else
-			local plan = tutorialAsk("spawnPlan", "Normal", state.Owner, next(state.All) == nil, state.SecondSpawned)
+			local plan = U.tutorialAsk("spawnPlan", "Normal", state.Owner, next(state.All) == nil, state.SecondSpawned)
 			-- A spawn the tutorial holds back keeps its turn, so the patient comes the moment the tutorial is ready.
 			if plan ~= "Wait" then
 				state.NextSpawn = now + every * rng:NextNumber(0.85, 1.15)
@@ -3842,7 +4042,7 @@ end
 local function plotLoop(state: PlotState)
 	local last = os.clock()
 	while state.Active do
-		task.wait(TICK)
+		task.wait(K.TICK)
 		if not state.Active then
 			return
 		end
@@ -3865,7 +4065,7 @@ end
 
 local function refill(p: Patient)
 	p.Patience = p.PatienceMax
-	showRing(p, 1, RING_CALM)
+	showRing(p, 1, K.RING_CALM)
 	showPatience(p, 1)
 end
 
@@ -3905,7 +4105,7 @@ local function onAbility(plotArg: any, _nurseId: any, _abilityId: any, kind: any
 			end
 		end
 	elseif kind == "PauseLine" then
-		state.PausedUntil = math.max(state.PausedUntil, os.clock() + clampNumber(value, 0, 60, 0))
+		state.PausedUntil = math.max(state.PausedUntil, os.clock() + U.clampNumber(value, 0, 60, 0))
 	end
 end
 
@@ -3942,19 +4142,28 @@ local function activate(owner: Player, plot: Plot)
 		Seats = {},
 		BayOf = {},
 		Beds = {},
-		Layout = { Building = nil, Key = "", At = -math.huge, Seats = {}, Bays = {}, Stations = {}, Beds = {} },
+		Layout = {
+			Building = nil,
+			Key = "",
+			At = -math.huge,
+			Seats = {},
+			Bays = {},
+			Stations = {},
+			Beds = {},
+			RoomBeds = {},
+		},
 		OpenKey = "",
 		Prompts = {},
-		Rooms = roomsOf(owner),
-		NextSpawn = now + FIRST_PATIENT_SECONDS,
+		Rooms = U.roomsOf(owner),
+		NextSpawn = now + K.FIRST_PATIENT_SECONDS,
 		Spawned = 0,
 		LastPatient = nil,
 		Loop = nil,
 		SecondSpawned = false,
 		Forced = {},
-		Level = levelAsk("level", owner, 1),
-		Rebirths = rebirthsOf(owner),
-		Effects = effectsOf(owner),
+		Level = U.levelAsk("level", owner, 1),
+		Rebirths = U.rebirthsOf(owner),
+		Effects = U.effectsOf(owner),
 		Team = { Cash = 1, Recover = 1, Urgent = 1 },
 		Medic = 1,
 		Receptionist = { Arrive = 1, Triage = false },
@@ -4078,7 +4287,7 @@ function Patients.bayView(
 end
 
 function Patients.neededMedicines(plotArg: any): { string }
-	return Pure.medicines(Patients.bayView(plotArg), DISPENSARY_OPTIONS)
+	return Pure.medicines(Patients.bayView(plotArg), K.DISPENSARY_OPTIONS)
 end
 
 function Patients.examine(plotArg: any, patientId: number, helper: Player?): string?
@@ -4166,10 +4375,10 @@ local function adminCall(owner: Player, kind: string, minLevel: number, icon: st
 	if not state then
 		return false, "🏠 No clinic yet!"
 	end
-	if levelAsk("level", owner, 1) < minLevel then
+	if U.levelAsk("level", owner, 1) < minLevel then
 		return false, "🏥 Lv " .. minLevel .. " first!"
 	end
-	if #state.ForceUrgent >= MAX_FORCED_URGENT then
+	if #state.ForceUrgent >= K.MAX_FORCED_URGENT then
 		return false, "⏳ Waiting room is full!"
 	end
 	table.insert(state.ForceUrgent, kind)
@@ -4178,12 +4387,12 @@ end
 
 -- 🚑 An ambulance as soon as the waiting room has room (Lv 2+).
 function Patients.adminAmbulance(owner: Player): (boolean, string)
-	return adminCall(owner, "AE", AE_LEVEL, "🚑")
+	return adminCall(owner, "AE", K.AE_LEVEL, "🚑")
 end
 
 -- 🚁 An air ambulance as soon as the waiting room has room (Lv 5; no R2 needed).
 function Patients.adminHelicopter(owner: Player): (boolean, string)
-	return adminCall(owner, "VIP", HELI_LEVEL, "🚁")
+	return adminCall(owner, "VIP", K.HELI_LEVEL, "🚁")
 end
 
 function Patients.start()

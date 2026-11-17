@@ -89,8 +89,12 @@ end
 
 local fired = {}
 local served = {}
+local toasts = {}
 local Remotes = {
 	OOPS = "Oops! Try again.",
+	toast = function(player, text)
+		table.insert(toasts, { Player = player, Text = text })
+	end,
 	TreatStart = {
 		FireClient = function(_, player, payload)
 			table.insert(fired, { Player = player, Payload = payload })
@@ -901,7 +905,73 @@ T.describe("Real Clinic sessions (mocked)", function()
 		expect(#gives).toBe(0)
 		expect(Treatment.busy(a)).toBe(false)
 		expect(TreatResult(a, id, { "Perfect", "Perfect" }, "CoughSyrup")).toBe(false)
+		-- never a silent empty hand: the player is told to hold Dispense again
+		local last = toasts[#toasts]
+		expect(last.Player).toBe(a)
+		expect(last.Text).toBe("💊 Hold Dispense to try again!")
 	end)
+
+	test("the timeout waits UntimedSeconds for every untimed tap (a Pick; the dispensary's 'Which one?')", function()
+		local a = newPlayer("D5b")
+		saves[a] = { Simple = false }
+		Config.MiniGame.UntimedSeconds = 20
+		local one = Treatment.open(a, dispenseSpec({ "CoughSyrup" }, {}))
+		expect(fired[#fired].Payload.Timeout).toBe(44) -- 12 + 2 x 6 + the bottle Pick
+		Treatment.drop(one)
+		local several = Treatment.open(a, dispenseSpec({ "CoughSyrup", "EarDrops" }, {}))
+		expect(fired[#fired].Payload.Timeout).toBe(64) -- ... + "Which one?"
+		Treatment.drop(several)
+		local exam = Treatment.open(a, examSpec(180, {}))
+		expect(fired[#fired].Payload.Timeout).toBe(44)
+		Treatment.drop(exam)
+		local treat = Treatment.open(a, spec({ "Bubbles", "Ice" }, {}))
+		expect(fired[#fired].Payload.Timeout).toBe(24) -- every supply game has its own clock
+		Treatment.drop(treat)
+		Config.MiniGame.UntimedSeconds = nil
+	end)
+
+	test(
+		"a handover: no games, no ability spent, the ward pick asked on the report; a medicine Treat is refused",
+		function()
+			local a = newPlayer("H1")
+			saves[a] = { Simple = false }
+			local settled = {}
+			local s = triageSpec({}, settled, REST_ASK)
+			s.Handover = true
+			s.Key = 190
+			local asks = perfectAsks
+			local id = Treatment.open(a, s)
+			expect(type(id)).toBe("number")
+			expect(perfectAsks).toBe(asks)
+			local payload = fired[#fired].Payload
+			expect(payload.Kind).toBe("Treat")
+			expect(payload.Games).toEqual({})
+			expect(payload.Items).toEqual({})
+			expect(payload.Handover).toBe(true)
+			expect(payload.Timeout).toBe(TrPure.HANDOVER_SECONDS)
+			expect(Treatment.working(190, plot)).toBe(true)
+			local combo = Treatment.combo(a)
+			local ok, _, outcome = TreatResult(a, id, {}) -- at once: there is nothing to play
+			expect(ok).toBe(true)
+			expect(outcome.Ratings).toEqual({})
+			expect(outcome.Tip).toBe(0)
+			expect(outcome.Combo).toBe(combo)
+			expect(outcome.Complete).toBe(true)
+			expect(outcome.Triage.Options).toEqual({ "Wards", "Rest" })
+			expect(#settled).toBe(1)
+			expect(Triage(a, id, "Rest")).toBe(true)
+			expect(TrPure.HANDOVER_SECONDS).toBe(4) -- unanswered, it settles by itself this soon
+			-- without Handover, a Treat with nothing to give is no session; nor is a handover that names items
+			expect(Treatment.open(a, triageSpec({}, {}, REST_ASK))).toBe(nil)
+			local named = triageSpec({ "Ice" }, {}, REST_ASK)
+			named.Handover = true
+			expect(Treatment.open(a, named)).toBe(nil)
+			expect(TrPure.games({}, ItemsData, true)).toEqual({})
+			expect(TrPure.games(nil, ItemsData, true)).toEqual({})
+			expect(TrPure.games({ "CoughSyrup" }, ItemsData, true)).toBe(nil)
+			expect(TrPure.games({}, ItemsData)).toBe(nil)
+		end
+	)
 
 	test("a Dispense that may not tip (already tipped for) still gives; one whose Give fails gives no tip", function()
 		local a = newPlayer("D6")
@@ -1011,32 +1081,114 @@ T.describe("The dispensary's rules (Server/Stations pure)", function()
 		options, why = StPure.dispenseOptions(needed, bay, { "CoughSyrup", "Lozenges", "CoughSyrup" }, ItemsData)
 		expect(options).toEqual({})
 		expect(why).toBe("Have")
-		options, why = StPure.dispenseOptions({}, bay, {}, ItemsData)
+		options, why = StPure.dispenseOptions({}, {}, {}, ItemsData)
 		expect(options).toEqual({})
 		expect(why).toBe("None")
-		options, why = StPure.dispenseOptions({ "Plaster", "Mystery", "Order" }, bay, {}, ItemsData)
+		options, why = StPure.dispenseOptions({}, { bay[3] }, {}, ItemsData)
+		expect(why).toBe("None") -- only an unexamined patient: no prescription yet
+		options, why = StPure.dispenseOptions({ "Plaster", "Mystery", "Order" }, {}, {}, ItemsData)
 		expect(why).toBe("None") -- supplies and junk are never on the card
 		options = StPure.dispenseOptions(needed, nil, { "CoughSyrup", "Lozenges" }, ItemsData)
 		expect(options).toEqual(needed) -- no bay view: trust the needs
 	end)
 
-	test("the tip ledger: one tip per patient's need, the oldest first; a spare dispense tips nothing", function()
-		local claimed = {}
-		expect(StPure.claimTip(claimed, bay, "CoughSyrup")).toBe("12:CoughSyrup") -- waited longest
-		expect(StPure.claimTip(claimed, bay, "CoughSyrup")).toBe("11:CoughSyrup")
-		expect(StPure.claimTip(claimed, bay, "CoughSyrup")).toBe(nil) -- both players dispensed: one spare, no tip
-		expect(StPure.claimTip(claimed, bay, "Lozenges")).toBe("12:Lozenges")
-		expect(StPure.claimTip(claimed, bay, "FeverMeds")).toBe(nil)
-		expect(StPure.claimTip(claimed, nil, "CoughSyrup")).toBe(nil)
-		-- patient 12 left its bay: its keys go; a new patient's need tips again
+	test("the card: the carried ones go BEFORE the cut to 3, so a fourth needed medicine comes up", function()
+		local busy = {
+			{ Bay = "1", PatientId = 21, Needs = { "CoughSyrup" }, Since = 10 },
+			{ Bay = "2", PatientId = 22, Needs = { "FeverMeds" }, Since = 20 },
+			{ Bay = "3", PatientId = 23, Needs = { "EarDrops" }, Since = 30 },
+			{ Bay = "4", PatientId = 24, Needs = { "PainRelief" }, Since = 40 },
+		}
+		local needed = { "CoughSyrup", "FeverMeds", "EarDrops" } -- Patients.neededMedicines: the oldest 3
+		local options, why = StPure.dispenseOptions(needed, busy, {}, ItemsData, 3, false)
+		expect(options).toEqual({ "CoughSyrup", "FeverMeds", "EarDrops" })
+		-- a tray of 4 holding the first three, one slot free: the fourth is offered, not "Already in your hands!"
+		options, why =
+			StPure.dispenseOptions(needed, busy, { "CoughSyrup", "FeverMeds", "EarDrops" }, ItemsData, 3, false)
+		expect(options).toEqual({ "PainRelief" })
+		expect(why).toBe("")
+		options = StPure.dispenseOptions(needed, busy, { "FeverMeds" }, ItemsData, 3, false)
+		expect(options).toEqual({ "CoughSyrup", "EarDrops", "PainRelief" })
+		-- the rest of the rows come the longest wait first, whatever order the rows are in
+		options = StPure.dispenseOptions({}, { busy[4], busy[2], busy[1] }, {}, ItemsData, 2, false)
+		expect(options).toEqual({ "CoughSyrup", "FeverMeds" })
+		options, why = StPure.dispenseOptions(
+			needed,
+			busy,
+			{ "CoughSyrup", "FeverMeds", "EarDrops", "PainRelief" },
+			ItemsData,
+			3,
+			true
+		)
+		expect(options).toEqual({})
+		expect(why).toBe("Have")
+	end)
+
+	test("the card: a full tray of the only medicine left is refused before the games ('Tray full')", function()
+		-- Lv 1, a tray of 1: bays 1 and 2 both need cough syrup, and one bottle is in hand already
+		local two = {
+			{ Bay = "1", PatientId = 31, Needs = { "CoughSyrup" }, Since = 10 },
+			{ Bay = "2", PatientId = 32, Needs = { "CoughSyrup" }, Since = 20 },
+		}
+		local options, why = StPure.dispenseOptions({ "CoughSyrup" }, two, { "CoughSyrup" }, ItemsData, 3, true)
+		expect(options).toEqual({})
+		expect(why).toBe("Full")
+		-- room in the tray: one more to make
+		options, why = StPure.dispenseOptions({ "CoughSyrup" }, two, { "CoughSyrup" }, ItemsData, 3, false)
+		expect(options).toEqual({ "CoughSyrup" })
+		-- a full tray with something else in it swaps that out, so it is still offered
+		options = StPure.dispenseOptions({ "CoughSyrup" }, two, { "CoughSyrup", "Plaster" }, ItemsData, 3, true)
+		expect(options).toEqual({ "CoughSyrup" })
+		-- full of cough syrup, but ear drops are needed too: those can swap in
+		local mixed = { two[1], two[2], { Bay = "3", PatientId = 33, Needs = { "EarDrops" }, Since = 30 } }
+		options, why = StPure.dispenseOptions({ "CoughSyrup", "EarDrops" }, mixed, { "CoughSyrup" }, ItemsData, 3, true)
+		expect(options).toEqual({ "EarDrops" })
+		expect(why).toBe("")
+		expect(StPure.MSG.Full).toBe("🙌 Tray full! Treat a patient.")
+	end)
+
+	test("the tip ledger: one tip per need, whoever gets the bottle; a spare dispense tips nothing", function()
+		local ledger = StPure.ledger()
+		StPure.sync(ledger, bay)
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(true)
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(true) -- two patients need it
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(false) -- both players dispensed: one spare, no tip
+		expect(StPure.claimTip(ledger, "Lozenges")).toBe(true)
+		expect(StPure.claimTip(ledger, "Lozenges")).toBe(false) -- thrown away and dispensed again: never twice
+		expect(StPure.claimTip(ledger, "FeverMeds")).toBe(false)
+		expect(StPure.claimTip(ledger, nil)).toBe(false)
+		-- patient 12 left its bay: its needs go, each with one tip; a new patient's need tips again
 		local later = { bay[1], { Bay = "2", PatientId = 14, Needs = { "CoughSyrup" }, Since = 60 } }
-		StPure.prune(claimed, later)
-		expect(claimed["12:CoughSyrup"]).toBe(nil)
-		expect(claimed["12:Lozenges"]).toBe(nil)
-		expect(claimed["11:CoughSyrup"]).toBe(true)
-		expect(StPure.claimTip(claimed, later, "CoughSyrup")).toBe("14:CoughSyrup")
-		StPure.prune(claimed, "junk") -- junk changes nothing
-		expect(claimed["14:CoughSyrup"]).toBe(true)
+		StPure.sync(ledger, later)
+		expect(ledger.Seen["12:CoughSyrup"]).toBe(nil)
+		expect(ledger.Seen["12:Lozenges"]).toBe(nil)
+		expect(ledger.Seen["11:CoughSyrup"]).toBe(true)
+		expect(ledger.Tips.Lozenges).toBe(nil)
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(true) -- patient 14's
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(false)
+		StPure.sync(ledger, "junk") -- junk changes nothing
+		expect(ledger.Seen["14:CoughSyrup"]).toBe(true)
+	end)
+
+	test("the tip ledger: the bottle may go to the younger patient; the older one's dispense still tips", function()
+		-- bays 1 (older) and 2 both need cough syrup
+		local older = { Bay = "1", PatientId = 41, Needs = { "CoughSyrup" }, Since = 10 }
+		local younger = { Bay = "2", PatientId = 42, Needs = { "CoughSyrup" }, Since = 20 }
+		local ledger = StPure.ledger()
+		StPure.sync(ledger, { older, younger })
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(true)
+		-- handed to the YOUNGER patient, who is treated and leaves its bay
+		StPure.sync(ledger, { older })
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(true) -- the first medicine the older one ever gets
+		expect(StPure.claimTip(ledger, "CoughSyrup")).toBe(false)
+		-- a need that was given stays seen while its patient is in the bay (a 2-step plan): no second tip for it
+		local twoStep = { Bay = "3", PatientId = 43, Needs = { "Lozenges", "CoughSyrup" }, Since = 30 }
+		local l2 = StPure.ledger()
+		StPure.sync(l2, { twoStep })
+		expect(StPure.claimTip(l2, "Lozenges")).toBe(true)
+		StPure.sync(l2, { { Bay = "3", PatientId = 43, Needs = { "CoughSyrup" }, Since = 30 } }) -- lozenges given
+		expect(StPure.claimTip(l2, "Lozenges")).toBe(false)
+		expect(StPure.claimTip(l2, "CoughSyrup")).toBe(true)
 	end)
 
 	test("the prompt's text: the needed medicines' icons, or no prescriptions yet", function()

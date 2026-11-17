@@ -261,6 +261,15 @@ T.describe("MiniGame: the Real Clinic's games (contract C5)", function()
 		expect(MiniGame.minSeconds({ "Pick", "Dose" }, false, CFG)).toBeCloseTo(1.8)
 		expect(MiniGame.minSeconds({ "Pick", "Dose" }, true, CFG)).toBeCloseTo(0.5)
 		expect(MiniGame.timeout({ "Pick", "Dose" }, CFG)).toBe(24)
+		-- a step that waits for a tap (each Pick, and `untimed` more) adds UntimedSeconds: nobody is timed out of a
+		-- choice
+		local slow = table.clone(CFG) :: any
+		slow.MiniGame = table.clone(CFG.MiniGame)
+		slow.MiniGame.UntimedSeconds = 20
+		expect(MiniGame.timeout({ "Pick", "Dose" }, slow)).toBe(44)
+		expect(MiniGame.timeout({ "Pick", "Dose" }, slow, 1)).toBe(64)
+		expect(MiniGame.timeout({ "Pick", "Listen" }, slow)).toBe(44)
+		expect(MiniGame.timeout({ "Plaster", "Ice" }, slow, 0 / 0)).toBe(24)
 		-- an exam too fast to be real is all OK; a fair one stands
 		local exam = { "Pick", "Listen" }
 		expect(MiniGame.accept({ "Perfect", "Perfect" }, exam, 1, false, CFG)).toEqual({ "OK", "OK" })

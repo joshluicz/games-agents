@@ -35,7 +35,11 @@
 --   MiniGame.minSeconds(games, simple, cfg)      the fastest a real session can end (Simple: one tap per game). A
 --                                                game's own MinSeconds (its tuning row), else its engine's
 --                                                (cfg.MiniGame.MinSeconds), else 1 s
---   MiniGame.timeout(games, cfg)                 when the server stops waiting and settles the session as all OK
+--   MiniGame.timeout(games, cfg, untimed?)       when the server stops waiting and settles the session as all OK:
+--                                                SessionSeconds + PerGameSeconds per game + UntimedSeconds for every
+--                                                step that waits for a tap however long it takes (each Pick game,
+--                                                plus `untimed` more: the dispensary's "Which one?"), so a slow child
+--                                                is never timed out of a choice (design §2: no fail state)
 --   MiniGame.accept(reported, games, elapsed, simple, cfg, auto?): { Rating }
 --                                                the server's view of a TreatResult report: Simple -> all Good; a
 --                                                report that isn't exactly one valid rating per game, or came sooner
@@ -209,9 +213,17 @@ function MiniGame.minSeconds(games: { string }, simple: boolean, cfg: any): numb
 	return total
 end
 
-function MiniGame.timeout(games: { string }, cfg: any): number
+function MiniGame.timeout(games: { string }, cfg: any, untimed: number?): number
 	local mini = settings(cfg)
-	return num(mini.SessionSeconds, 12) + num(mini.PerGameSeconds, 6) * #games
+	local waits = math.max(0, math.floor(num(untimed, 0)))
+	for _, game in games do
+		if MiniGame.engineOf(game) == "Pick" then
+			waits += 1
+		end
+	end
+	return num(mini.SessionSeconds, 12)
+		+ num(mini.PerGameSeconds, 6) * #games
+		+ math.max(0, num(mini.UntimedSeconds, 0)) * waits
 end
 
 local function all(rating: Rating, n: number): { Rating }

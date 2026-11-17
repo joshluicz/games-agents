@@ -66,6 +66,8 @@
 --          floor?": a huge button per department (Data/Departments icon: 🛏️ Injury Ward, 😴 Rest Ward) over the
 --          soft time bar (no digits). One tap asks Triage(session, dept): "✅ Right floor!" or "Oops, not this
 --          floor!" (it goes the right way anyway). No tap: the bar empties and the patient goes by itself.
+--          A HANDOVER session (TreatSession.Handover, Games {}: a handed-over medicine completed the plan of a
+--          patient who stays) plays nothing: it reports at once, and the card opens only for this floor pick.
 -- Bus events: listens "TreatStart" (session) · fires "MiniGameRated" (game, rating) as each game ends (the client's
 -- own rating, for feel) · "TreatDone" (outcome, session) after the server's reply (session = the TreatStart payload,
 -- with its Position) · "Sound" (name) for the hits: each look's Sound (Pour, Patch, Scrub, Blow, Listen, Beep, Shine,
@@ -133,6 +135,7 @@ export type Session = {
 	Case: string?, -- Treat: the case being treated
 	Symptom: string, -- Exam: the patient's symptom bubble, as a clue ("" when the server sends none)
 	Expert: boolean, -- Dispense: Expert Dispensing (the Pharmacy2 unlock) widens the Dose band
+	Handover: boolean, -- Treat: no games (Games is {}): a handed-over medicine; only the ward pick may show
 }
 export type TriageOption = { Dept: string, Icon: string, Name: string }
 export type TriageCard = { Options: { TriageOption }, Seconds: number }
@@ -193,7 +196,9 @@ function Pure.session(raw: any): Session?
 		return nil
 	end
 	local count = #games
-	if count < 1 or count > Pure.MAX_GAMES then
+	-- (a handover has no games: it only carries the ward pick)
+	local handover = raw.Handover == true and count == 0
+	if (count < 1 and not handover) or count > Pure.MAX_GAMES then
 		return nil
 	end
 	local list: { string } = {}
@@ -233,6 +238,7 @@ function Pure.session(raw: any): Session?
 		Case = if type(raw.Case) == "string" and raw.Case ~= "" then raw.Case else nil,
 		Symptom = if type(raw.Symptom) == "string" and #raw.Symptom <= 60 then raw.Symptom else "",
 		Expert = raw.Expert == true,
+		Handover = handover,
 	}
 end
 
@@ -2766,8 +2772,10 @@ local function playCool(env: Env): number
 	return good
 end
 
--- One target of a Pick: an exam tool on a card, or a medicine bottle in its colour.
-type PickChoice = { Id: string, Icon: string, Fill: Color3?, Bottle: boolean? }
+-- One target of a Pick: an exam tool on a card, or a medicine bottle in its colour. Name: the words under a bottle
+-- (the dispensary's "Which one?" only: there the player chooses by what the patient needs, so each bottle says what
+-- it is; on the shelf the header names the one to find).
+type PickChoice = { Id: string, Icon: string, Fill: Color3?, Bottle: boolean?, Name: string? }
 
 -- A wrong pick shakes its head (still when calm).
 local function shake(gui: GuiObject)
@@ -2877,16 +2885,34 @@ local function pickLoop(
 		local stroke = Kit.stroke(button, OUTLINE, Theme.Stroke.Bold)
 		if choice.Bottle then
 			-- A little bottle: its cap, and its body in the medicine's colour with the medicine's icon on it.
+			-- A named bottle is shorter, with its name ("Cough syrup", two short lines) on the card under it.
+			local named = type(choice.Name) == "string" and choice.Name ~= ""
 			blob(button, "Cap", Theme.Colors.InkSoft, {
 				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, 0.08),
-				Size = UDim2.fromScale(0.3, 0.16),
+				Position = UDim2.fromScale(0.5, if named then 0.04 else 0.08),
+				Size = UDim2.fromScale(0.3, if named then 0.12 else 0.16),
 				ZIndex = 4,
 			}, Theme.Radius.Small)
+			if named then
+				new("TextLabel", {
+					Name = "Label",
+					BackgroundTransparency = 1,
+					Text = choice.Name,
+					TextScaled = true,
+					TextWrapped = true,
+					Font = Theme.Font,
+					TextColor3 = Theme.Colors.Ink,
+					AnchorPoint = Vector2.new(0.5, 1),
+					Position = UDim2.fromScale(0.5, 0.99),
+					Size = UDim2.fromScale(0.94, 0.38),
+					ZIndex = 5,
+					Parent = button,
+				})
+			end
 			local body = blob(button, "Body", choice.Fill or Theme.Colors.Pink, {
 				AnchorPoint = Vector2.new(0.5, 1),
-				Position = UDim2.fromScale(0.5, 0.92),
-				Size = UDim2.fromScale(0.64, 0.66),
+				Position = UDim2.fromScale(0.5, if named then 0.6 else 0.92),
+				Size = UDim2.fromScale(if named then 0.5 else 0.64, if named then 0.46 else 0.66),
 				ZIndex = 4,
 			}, Theme.Radius.Small)
 			emoji(body, choice.Icon, {
@@ -3313,7 +3339,10 @@ local function chooseMedicine(ctx: Types.Ctx, v: View, run: Run): string?
 	setTime(v, nil)
 	local choices: { PickChoice } = {}
 	for _, id in options do
-		table.insert(choices, medicineChoice(ctx, id))
+		local choice = medicineChoice(ctx, id)
+		local item = dataRow(ctx, "Items", id)
+		choice.Name = if item and type(item.Name) == "string" then item.Name else nil
+		table.insert(choices, choice)
 	end
 	local ok, first, picked = withStage(ctx, v, run, "Choose", "", CHOOSE_LOOK, function(env: Env): (number, string?)
 		return pickLoop(env, choices, function(): boolean
@@ -3724,10 +3753,45 @@ local function runTriage(ctx: Types.Ctx, v: View, run: Run, card: TriageCard, si
 	end
 end
 
+-- A handover (TreatSession.Handover: a medicine handed over completed the plan of a patient who stays): nothing to
+-- play. The report goes at once; the card opens only when the server asks which ward (outcome.Triage).
+local function runHandover(ctx: Types.Ctx, v: View, run: Run)
+	local session = run.Session
+	run.Reported = true
+	local ok, _, outcome = Hud.ask(ctx.Remotes.TreatResult, session.Session, {}, nil)
+	local answeredAt = os.clock()
+	local triage: TriageCard? = nil
+	if ok and type(outcome) == "table" then
+		fireBus("TreatDone", outcome, run.Raw)
+		triage = Pure.triage(outcome.Triage, ctx.Data.Departments)
+	end
+	if triage and run.Alive and current == run then
+		setSteps(ctx, v, run)
+		v.ComboOn = false
+		showCombo(ctx, v, session.Combo, false)
+		openCard(v)
+		runTriage(ctx, v, run, triage, answeredAt)
+		stop(run)
+		return
+	end
+	-- No pick to make: the card never opened, so there is nothing to close.
+	if run.Alive then
+		run.Alive = false
+		if current == run then
+			current = nil
+			activeMini = nil
+		end
+	end
+end
+
 local function runSession(ctx: Types.Ctx, run: Run)
 	local session = run.Session
 	local v = view or build(ctx)
 	view = v
+	if #session.Games == 0 then
+		runHandover(ctx, v, run)
+		return
+	end
 	setSteps(ctx, v, run)
 	v.ComboValue = session.Combo
 	v.ComboOn = not session.Simple
