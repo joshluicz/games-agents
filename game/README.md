@@ -338,7 +338,7 @@ only. The losers are in `Icons.RETIRED`.
 | `Kit.reveal(gui, shown)` · `Kit.Juice.nextReveal(order, wanted, shown)` | A HUD door popping once into its slot, and which door is next |
 | `Kit.tab` | Unselected: no plate, no line. Selected: navy, white text |
 | `Kit.ring` | Draws nothing when the ability is ready |
-| `Modal.modal` | Title in words only; the meta is plain Loud text with no box; the ✖ is 48 px inside the band |
+| `Modal.modal` | Title in words only; the meta is plain Loud text with no box (`setMeta("726", Icons.Unit.Cash)` draws the Unit as its own label); the ✖ is 48 px inside the band |
 | `Modal.tabs` | `Hidden` on a tab, `setVisible(id, shown)`, `visible()`; no column under two tabs |
 | `Modal.confirm` · `Modal.oddsPopup` | Their cards have no line. A confirm reads "Sell Dew Duck?" / "You get 💰 120" / `Sell` / `Keep` |
 

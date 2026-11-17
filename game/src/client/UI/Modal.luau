@@ -16,7 +16,9 @@
 --                                        A dim behind it, pop in and out, one Panel open at a time, gamepad focus and
 --                                        ButtonB to close. spec.HudMode ("Panel" for Layer Panel, "None" for a Popup,
 --                                        unless given; "Game" for the mini-game) and spec.Meta (the meta's text;
---                                        modal.setMeta(text) changes it, "" hides it). A modal with neither a ✖ nor a
+--                                        modal.setMeta(text, unit?) changes it, "" hides it; `unit` is a Unit emoji
+--                                        (Icons.Unit.Cash) drawn as its own label in front of the number, because an
+--                                        emoji can't sit inside outlined text: setMeta("726", Icons.Unit.Cash)). A modal with neither a ✖ nor a
 --                                        dim that closes (the mini-game) is never closed by ButtonB, and its dim is a
 --                                        plain Frame that takes no input (the thumbstick still works under it). A
 --                                        "Game" modal stays up when a Panel opens (the Panel opens under it)
@@ -108,7 +110,7 @@ export type Modal = {
 	close: () -> (),
 	toggle: () -> (),
 	isOpen: () -> boolean,
-	setMeta: (text: string?) -> (),
+	setMeta: (text: string?, unit: string?) -> (),
 	setTitle: (text: string) -> (),
 	setTop: (px: number) -> (),
 }
@@ -448,17 +450,36 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		Parent = panel,
 	})
 
-	-- The title makes room for the ✖ and the meta.
+	-- The meta's Unit (💰 in front of the Shop's cash): its own plain label left of the number, never inside the
+	-- outlined text (Roblox can't outline an emoji).
+	local metaUnit = Kit.label({
+		Name = "MetaUnit",
+		Text = "",
+		TextSize = Theme.TextSize.Body,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, metaRight, 0, middle),
+		Size = UDim2.fromOffset(0, META_HEIGHT),
+		Visible = false,
+		ZIndex = 3,
+		Parent = panel,
+	})
+
+	-- The title makes room for the ✖ and the meta (and the unit sits just left of the meta's text).
 	local function fitTitle()
+		metaUnit.Position = UDim2.new(1, metaRight - meta.AbsoluteSize.X - Theme.Space.Tight, 0, middle)
 		if not title then
 			return
 		end
 		local used = (if closeButton then CLOSE + Theme.Space.PadCard else 0)
 			- (pad - EDGE)
 			+ (if meta.Visible then meta.AbsoluteSize.X + Theme.Space.PadCard else 0)
+			+ (if metaUnit.Visible then metaUnit.AbsoluteSize.X + Theme.Space.Tight else 0)
 		title.Size = UDim2.new(1, -math.max(used, 0), 0, Kit.HEADER - Theme.Space.PadCard * 2)
 	end
 	meta:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTitle)
+	metaUnit:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTitle)
 
 	local top = if hasHeader then Kit.HEADER - pad + Theme.Space.Gap else 0
 	local body = Instance.new("Frame")
@@ -523,10 +544,13 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		root.Position = rest()
 	end
 
-	function modal.setMeta(text: string?)
+	function modal.setMeta(text: string?, unit: string?)
 		local shown = type(text) == "string" and text ~= ""
 		meta.Text = if shown then text :: string else ""
 		meta.Visible = shown
+		local hasUnit = shown and type(unit) == "string" and unit ~= ""
+		metaUnit.Text = if hasUnit then unit :: string else ""
+		metaUnit.Visible = hasUnit
 		fitTitle()
 	end
 	modal.setMeta(spec.Meta)
