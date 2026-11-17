@@ -1,7 +1,8 @@
 --!nocheck
 -- The hospital building's interface numbers (Logic/Building; look build plan §B6; hospital-building §3.2-3.3),
--- checked against what Server/Patients assumes: its walkways at x = ±12.5, its back lane at z = 4 (BackZ), its
--- bedRoute at x = 7.6 through the main door, and its straight-line walk upstairs from the landing to a bed's foot.
+-- checked against what Server/Patients assumes: its walkways at x = ±17.5, its back lane at z = 4 (BackZ), its
+-- bedRoute at Bed_1's x = 9 through the main door, and its straight-line walk upstairs from the landing to a bed's
+-- foot. The wide hospital (2026-11-17): 32 wide, storeys 12 / 11, on an 80 x 80 plot.
 -- The plot's own numbers (the Counter, the line, the gate, the sign, the room slots) are read from PlotBuilder's
 -- SLOTS and Config, or repeated here from PlotBuilder's text where it has no table (noted).
 
@@ -15,11 +16,13 @@ local Departments = require("../src/shared/Data/Departments")
 
 local LEVELS = { 1, 2, 3, 4, 5 }
 
--- What Server/Patients works out on a placeholder plot (Patients.nav): the Stand slot is x ±11, z -13..1, the side
--- rooms start at |x| = 14, so the walkways run at 11 + (14 - 11) / 2 and the back lane at 1 + 3.
-local WALKWAY = 12.5
+-- What Server/Patients works out on a placeholder plot (Patients.nav): the Stand slot is x ±15, z -13..1, the side
+-- rooms start at |x| = 20, so the walkways run at 15 + (20 - 15) / 2 and the back lane at 1 + 3.
+local STAND_HALF = 15
+local WALKWAY = 17.5
 local BACK_Z = 4
-local BED_ROUTE_X = 7.6 -- the Counter's half width (6) + 1.6: Patients' SideStep
+local SIDE_STEP = 7.6 -- the Counter's half width (6) + 1.6: Patients' SideStep
+local BED_ROUTE_X = 9 -- bedRoute walks in along max(Bed_1's x, SideStep)
 local LANE_Z = -18 -- QueueStart
 local RAY_START = 10 -- Patients' ground raycasts start at the plot's y + 10
 
@@ -33,19 +36,19 @@ end
 
 T.describe("Building: the shape", function()
 	test("footprints: the podium at Lv 1, the block from Lv 2, the tower from F2", function()
-		expect(Building.footprint(1)).toEqual(rect(-11.5, 11.5, -13, 3))
+		expect(Building.footprint(1)).toEqual(rect(-16, 16, -13, 3))
 		for level = 2, 5 do
-			expect(Building.footprint(level, 0)).toEqual(rect(-11.5, 11.5, -13, 13))
-			expect(Building.footprint(level, 1)).toEqual(rect(-11.5, 11.5, -13, 13))
-			expect(Building.footprint(level, 2)).toEqual(rect(-11.5, 11.5, -3, 13))
-			expect(Building.footprint(level, 4)).toEqual(rect(-11.5, 11.5, -3, 13))
+			expect(Building.footprint(level, 0)).toEqual(rect(-16, 16, -13, 13))
+			expect(Building.footprint(level, 1)).toEqual(rect(-16, 16, -13, 13))
+			expect(Building.footprint(level, 2)).toEqual(rect(-16, 16, -3, 13))
+			expect(Building.footprint(level, 4)).toEqual(rect(-16, 16, -3, 13))
 		end
 	end)
 
-	test("storeys: ground 11, upper 9; slab tops 11, 20, 29, 38", function()
-		expect(Building.GROUND).toBe(11)
-		expect(Building.STOREY).toBe(9)
-		expect(Building.SLAB_TOPS).toEqual({ 11, 20, 29, 38 })
+	test("storeys: ground 12, upper 11; slab tops 12, 23, 34, 45", function()
+		expect(Building.GROUND).toBe(12)
+		expect(Building.STOREY).toBe(11)
+		expect(Building.SLAB_TOPS).toEqual({ 12, 23, 34, 45 })
 		expect(Building.slabTop(0)).toBe(0)
 		for k = 1, 4 do
 			expect(Building.slabTop(k)).toBe(Building.GROUND + (k - 1) * Building.STOREY)
@@ -59,6 +62,14 @@ T.describe("Building: the shape", function()
 		expect(underside > RAY_START).toBe(true)
 	end)
 
+	test("headroom: a 6.5-stud creature sitting on a bed (1.8 up) keeps 2 studs under every upper ceiling", function()
+		for k = 1, 3 do
+			local clearHeight = Building.slabTop(k + 1) - Building.SLAB_MAX - Building.slabTop(k)
+			expect(clearHeight >= 1.8 + 6.5 + 2).toBe(true)
+		end
+		expect(Building.slabTop(1) - Building.SLAB_MAX >= 1.8 + 6.5 + 2).toBe(true)
+	end)
+
 	test("the floors and departments follow Data/Levels and Data/Departments", function()
 		for level, row in Levels do
 			if type(level) == "number" then
@@ -69,12 +80,14 @@ T.describe("Building: the shape", function()
 		expect(Departments.Hydro.Floor).toBe(2)
 		expect(Departments.Pharmacy.Floor).toBe(3)
 		expect(Departments.Roof.Floor).toBe(4)
-		expect(Building.slabTop(Departments.Roof.Floor)).toBe(38) -- the roof deck
+		expect(Building.slabTop(Departments.Roof.Floor)).toBe(45) -- the roof deck
 	end)
 
-	test("the lift: the shaft at the street-facing -x corner, its landing on +z, 4 x 4 at (-9, 4)", function()
-		expect(Building.SHAFT).toEqual(rect(-11.5, -6.5, -3, 2))
-		expect(Building.LANDING).toEqual({ X = -9, Z = 4, Size = 4 })
+	test("the lift: the shaft at the street-facing -x corner, its landing on +z, 4 x 4 at (-13.5, 4)", function()
+		expect(Building.SHAFT).toEqual(rect(-16, -11, -3, 2))
+		expect(Building.SHAFT.X0).toBe(-Building.HALF)
+		expect(Building.SHAFT.Z0).toBe(Building.TOWER_FRONT)
+		expect(Building.LANDING).toEqual({ X = -13.5, Z = 4, Size = 4 })
 		local landing = around(Building.LANDING.X, Building.LANDING.Z, Building.LANDING.Size / 2)
 		-- right behind the door, inside the block, and not on the shaft or the stair atrium
 		expect(landing.Z0 >= Building.SHAFT.Z1).toBe(true)
@@ -83,11 +96,27 @@ T.describe("Building: the shape", function()
 		expect(Building.LANDING.X > Building.SHAFT.X0 and Building.LANDING.X < Building.SHAFT.X1).toBe(true)
 	end)
 
+	test(
+		"the stair atrium: two 3-wide lanes, a landing of 3+ studs at each end inside the walls, a gentle flight",
+		function()
+			local a, lane = Building.ATRIUM, Building.LANE_A
+			expect(a).toEqual(rect(-12, 12, 7, 13))
+			expect(lane).toEqual(rect(-12, 12, 7, 10))
+			expect(a.Z1).toBe(Building.BACK)
+			local inside = Building.HALF - Building.WALL
+			expect(a.X0 - -inside >= 3).toBe(true)
+			expect(inside - a.X1 >= 3).toBe(true)
+			-- no flight is steeper than 1 in 2
+			expect(Building.GROUND / (lane.X1 - lane.X0) <= 0.5).toBe(true)
+			expect(Building.STOREY / (lane.X1 - lane.X0) <= 0.5).toBe(true)
+		end
+	)
+
 	test("the door rects (hospital doc §3.3)", function()
 		local d = Building.DOORS
 		expect({ d.Main.X0, d.Main.X1, d.Main.Height }).toEqual({ 7, 11, 7 })
 		expect({ d.Reception.X0, d.Reception.X1, d.Reception.Height }).toEqual({ -6.5, 6.5, 7 })
-		expect({ d.Display.X0, d.Display.X1 }).toEqual({ -11, -7 })
+		expect({ d.Display.X0, d.Display.X1 }).toEqual({ -15, -9 })
 		expect({ d.Side.Z0, d.Side.Z1 }).toEqual({ -1, 3 })
 		expect({ d.AE.Z0, d.AE.Z1 }).toEqual({ -7, -3 })
 		expect({ d.LiftLobby.Z0, d.LiftLobby.Z1 }).toEqual({ 2, 6 })
@@ -99,11 +128,19 @@ T.describe("Building: the shape", function()
 		expect(d.Main.X0 <= BED_ROUTE_X - 0.5 and BED_ROUTE_X + 0.5 <= d.Main.X1).toBe(true)
 		-- a creature (about 7 tall at most) fits under every door and under the ground storey's ceiling
 		expect(d.Main.Height >= 7).toBe(true)
+		-- the display window and the main door are off the reception window, inside the façade
+		expect(d.Display.X0 > -Building.HALF and d.Display.X1 <= d.Reception.X0).toBe(true)
+		expect(d.Main.X0 >= d.Reception.X1 and d.Main.X1 < Building.HALF).toBe(true)
+		-- the partition's doorway is at the +x end, at least 3 studs clear inside the wall
+		expect({ d.Partition.X0, d.Partition.X1 }).toEqual({ 12, 16 })
+		expect(Building.HALF - Building.WALL - d.Partition.X0 >= 3).toBe(true)
 	end)
 
-	test("the canopy covers the Counter and stops short of queue spot 1", function()
+	test("the canopy covers the Counter and the main door and stops short of queue spot 1", function()
 		local c = Building.CANOPY
-		expect({ c.X0, c.X1, c.Z0, c.Z1, c.Y }).toEqual({ -9, 9, -17, -13, 9.5 })
+		expect({ c.X0, c.X1, c.Z0, c.Z1, c.Y }).toEqual({ -12, 12, -17, -13, 10.5 })
+		expect(c.X0 <= Building.DOORS.Reception.X0 and c.X1 >= Building.DOORS.Main.X1).toBe(true)
+		expect(c.X0 >= -Building.HALF and c.X1 <= Building.HALF).toBe(true)
 		expect(c.Z0 > LANE_Z).toBe(true) -- spot 1 stands at z = -18, in the open
 		expect(c.Z1).toBe(Building.FRONT)
 		expect(c.Y < Building.GROUND).toBe(true)
@@ -112,16 +149,18 @@ T.describe("Building: the shape", function()
 end)
 
 T.describe("Building: the Stand's spots", function()
-	test("the spots (Remedy and Plaster moved +1.2 in x; decor 2 on the porch; the mascot by the Counter)", function()
+	test("the spots (spread over the wider podium; decor 2 on the porch; the mascot by the Counter)", function()
 		local s = Building.STAND
-		expect(s.Remedy).toEqual({ X = -4.3, Z = -1.3 })
-		expect(s.Plaster).toEqual({ X = 1.7, Z = -1.3 })
-		expect(s.Bed).toEqual({ X = 7.6, Z = -4.8 })
-		expect(s.Decor[1]).toEqual({ X = -8.5, Z = -10.2 })
-		expect(s.Decor[2]).toEqual({ X = -9.5, Z = -17.5 })
-		expect(s.Mascot).toEqual({ X = -7, Z = -14.8 })
-		expect(s.Bench).toEqual(rect(10, 10.9, -8, -3.5))
-		-- Bed_1 is on the bedRoute's line
+		expect(s.Remedy).toEqual({ X = -6, Z = -1.3 })
+		expect(s.Plaster).toEqual({ X = 1, Z = -1.3 })
+		expect(s.Bed).toEqual({ X = 9, Z = -4.8 })
+		expect(s.Decor[1]).toEqual({ X = -12, Z = -10.2 })
+		expect(s.Decor[2]).toEqual({ X = -12.5, Z = -17.5 })
+		expect(s.Mascot).toEqual({ X = -8.5, Z = -14.8 })
+		expect(s.Bench).toEqual(rect(14.5, 15.4, -8, -3.5))
+		-- Bed_1 is on the bedRoute's line: past the Counter (SideStep) and inside the Stand, so Patients walk
+		-- straight in along its own x
+		expect(s.Bed.X >= SIDE_STEP and s.Bed.X <= STAND_HALF).toBe(true)
 		expect(s.Bed.X).toBe(BED_ROUTE_X)
 	end)
 
@@ -139,6 +178,15 @@ T.describe("Building: the Stand's spots", function()
 		expect(s.Plaster.X + 2.25 < s.Bed.X - 2.2).toBe(true)
 	end)
 
+	test("the Stand is roomy: 2.5+ studs between the shaft, the stations, Bed_1 and the bench", function()
+		local s = Building.STAND
+		local half = Building.STAND_BED_FRAME.Width / 2
+		expect(s.Remedy.X - 2.1 - Building.SHAFT.X1 >= 2.5).toBe(true)
+		expect(s.Plaster.X - 2.1 - (s.Remedy.X + 2.1) >= 2.5).toBe(true)
+		expect(s.Bed.X - half - (s.Plaster.X + 2.1) >= 2.5).toBe(true)
+		expect(s.Bench.X0 - (s.Bed.X + half) >= 2.5).toBe(true)
+	end)
+
 	test("decor slot 2 and the mascot are outside the façade; the bench is against the +x wall", function()
 		local s = Building.STAND
 		expect(s.Decor[2].Z < Building.FRONT).toBe(true)
@@ -154,18 +202,41 @@ end)
 
 T.describe("Building.clear: nothing solid where the plot needs room", function()
 	local slots = { -- PlotBuilder.SLOTS: Offset and Size
-		Stand = rect(-11, 11, -13, 1),
-		A = rect(-32, -14, -2, 14),
-		C = rect(14, 32, -2, 14),
-		B = rect(-24, -2, 18, 32),
-		D = rect(2, 24, 18, 32),
+		Stand = rect(-15, 15, -13, 1),
+		A = rect(-38, -20, -2, 14),
+		C = rect(20, 38, -2, 14),
+		B = rect(-24, -2, 20, 34),
+		D = rect(2, 24, 20, 34),
 	}
+	local PLOT_HALF = Config.Town.PlotSize / 2
+	local PAD_HALF = PLOT_HALF - 1.5 -- PlotBuilder's Pad: 77 x 77 (odd, so its studs fall whole), edged out to 80
+
+	test("the plot is 80 x 80 and every room slot is on its pad; Patients' walkways follow from the slots", function()
+		expect(Config.Town.PlotSize).toBe(80)
+		for _, slot in slots do
+			expect(slot.X0 >= -PAD_HALF and slot.X1 <= PAD_HALF).toBe(true)
+			expect(slot.Z0 >= -PAD_HALF and slot.Z1 <= PAD_HALF).toBe(true)
+		end
+		-- Patients.makeNav: the Stand's half width, and a side slot counts when its inner edge is < 6 past it
+		expect(slots.Stand.X1).toBe(STAND_HALF)
+		expect(slots.Stand.Z1 + 3).toBe(BACK_Z)
+		for _, inner in { -slots.A.X1, slots.C.X0 } do
+			expect(inner > STAND_HALF and inner - STAND_HALF < 6).toBe(true)
+			expect((STAND_HALF + inner) / 2).toBe(WALKWAY)
+		end
+		-- the walkway runs 1 to 1.5 studs outside the side wall
+		expect(WALKWAY - Building.HALF >= 1 and WALKWAY - Building.HALF <= 1.5).toBe(true)
+		-- the Stand's slot is the podium's floor: inside the walls
+		local podium = Building.footprint(1)
+		expect(slots.Stand.X0 > podium.X0 and slots.Stand.X1 < podium.X1).toBe(true)
+		expect(slots.Stand.Z0 >= podium.Z0 and slots.Stand.Z1 < podium.Z1).toBe(true)
+	end)
 
 	test("the Counter, the line spots, the gate, the sign and the owner's spawn, at every level", function()
 		local zones = {
 			Counter = rect(-6.4, 6.4, -16, -13), -- the CounterTop (13 x 3 at z -14.5: it fills the reception window, x ±6.5)
-			Gate = rect(-7, 7, -35, -33),
-			Sign = rect(-18.5, -7.5, -35, -32),
+			Gate = rect(-7, 7, -PLOT_HALF, -PLOT_HALF + 2),
+			Sign = rect(-18.5, -7.5, -PLOT_HALF, -PLOT_HALF + 3),
 			OwnerSpawn = around(-6.5, -22, 2),
 			QueueStart = around(0, LANE_Z, 1),
 		}
@@ -245,13 +316,13 @@ T.describe("Building.reach: Patients' routes cross no wall, shaft, bed or stairs
 
 	test("a route through the façade anywhere else is blocked (the check isn't blind)", function()
 		for _, level in LEVELS do
-			expect(Building.reach(pt(-9, LANE_Z), pt(-9, -9), level)).toBe(false) -- the display window is glass
+			expect(Building.reach(pt(-12, LANE_Z), pt(-12, -9), level)).toBe(false) -- the display window is glass
 			expect(Building.reach(pt(6.75, LANE_Z), pt(6.75, -9), level)).toBe(false) -- the pier by the main door
 			expect(Building.reach(pt(-WALKWAY, -9), pt(0, -9), level)).toBe(false) -- the -x wall
 		end
 	end)
 
-	test("the walkways at x = ±12.5 run clear from the line to the back lane", function()
+	test("the walkways at x = ±17.5 run clear from the line to the back lane", function()
 		for _, level in LEVELS do
 			for _, side in { -1, 1 } do
 				expect(Building.reach(pt(side * WALKWAY, LANE_Z), pt(side * WALKWAY, BACK_Z), level)).toBe(true)
@@ -294,14 +365,14 @@ T.describe("Building.reach: Patients' routes cross no wall, shaft, bed or stairs
 	test("upstairs: a walk through a bed, the shaft, the atrium or the partition is blocked", function()
 		local landing = pt(Building.LANDING.X, Building.LANDING.Z)
 		for level = 2, 5 do
-			expect(Building.reach(landing, pt(-4.1, 0), level, 1)).toBe(false) -- onto bed 1
-			expect(Building.reach(landing, pt(-9, -6), level, 1)).toBe(false) -- through the shaft
+			expect(Building.reach(landing, pt(-6, 0), level, 1)).toBe(false) -- onto bed 1
+			expect(Building.reach(landing, pt(-13.5, -6), level, 1)).toBe(false) -- through the shaft
 			expect(Building.reach(landing, pt(0, 11), level, 1)).toBe(false) -- into the stair atrium
 			expect(Building.reach(pt(-0.5, 5.5), pt(-0.5, -8), level, 1)).toBe(false) -- through the glass partition
-			expect(Building.reach(landing, pt(-9, 20), level, 1)).toBe(false) -- out through the back wall
+			expect(Building.reach(landing, pt(-13.5, 20), level, 1)).toBe(false) -- out through the back wall
 		end
 		-- the front ward has its doorway (players only: Patients never go there)
-		expect(Building.reach(pt(10.2, 5.5), pt(10.2, -4.5), 2, 1)).toBe(true)
+		expect(Building.reach(pt(13.7, 5.5), pt(13.7, -4.5), 2, 1)).toBe(true)
 	end)
 
 	test("the skim allowance is small: under a third of a stud", function()
@@ -327,7 +398,7 @@ T.describe("Building: the wards look full (Joshua, memory-20261117-002)", functi
 	test("BedSpot_3's spot holds a dressing bed at Lv 2-3 and turns functional at Lv 4, in the same spot", function()
 		for level = 2, 5 do
 			local third = Building.wardBeds(level)[3]
-			expect(third.X).toBe(6.7)
+			expect(third.X).toBe(9)
 			expect(third.Functional).toBe(level >= 4)
 		end
 		expect(Building.wardBeds(1)).toEqual({})
@@ -362,6 +433,23 @@ T.describe("Building: the wards look full (Joshua, memory-20261117-002)", functi
 				end
 			end
 		end
+		-- roomy (Joshua: "the hospital is cramped"): 2.5+ studs between bed frames in both wards, and between a
+		-- ward's end beds and the shaft or a side wall
+		local inside = Building.HALF - Building.WALL
+		local ward = Building.WARD_BEDS
+		expect({ ward[1].X, ward[2].X, ward[3].X }).toEqual({ -6, 1.5, 9 })
+		expect(front.Xs).toEqual({ -10.8, -3.6, 3.6, 10.8 })
+		for i = 2, #ward do
+			expect(ward[i].X - ward[i - 1].X - 2 * Building.BED_HALF >= 2.5).toBe(true)
+		end
+		expect(ward[1].X - Building.BED_HALF - Building.SHAFT.X1 >= 2.5).toBe(true)
+		-- bed 3 leaves the partition's doorway (and the aisle to it) open
+		expect(ward[3].X + Building.BED_HALF <= Building.DOORS.Partition.X0).toBe(true)
+		for i = 2, #front.Xs do
+			expect(front.Xs[i] - front.Xs[i - 1] - 2 * Building.BED_HALF >= 2.5).toBe(true)
+		end
+		expect(front.Xs[1] - Building.BED_HALF - -inside >= 2).toBe(true)
+		expect(inside - (front.Xs[#front.Xs] + Building.BED_HALF) >= 2).toBe(true)
 		-- the main ward's pillows are at the partition; the front ward's heads at the street window
 		expect(Building.BED_Z0 > Building.PARTITION_Z).toBe(true)
 		expect(front.Z0 > Building.FRONT).toBe(true)
@@ -370,9 +458,12 @@ T.describe("Building: the wards look full (Joshua, memory-20261117-002)", functi
 
 	test("the Lv 1 dressing bed: along the -x wall, clear of the side door and the Remedy table", function()
 		local d = Building.LV1_DRESSING
-		expect(d).toEqual(rect(-11.3, -6.9, -8.5, -1.5))
+		expect(d).toEqual(rect(-15.4, -11, -8, -1))
 		expect(d.Z1 <= Building.DOORS.Side.Z0).toBe(true)
 		expect(d.X1 <= Building.STAND.Remedy.X - 2.25).toBe(true)
 		expect(d.X0 >= -Building.HALF).toBe(true)
+		-- a 4.4 x 7 bed, off decor slot 1 (4 x 4)
+		expect({ d.X1 - d.X0, d.Z1 - d.Z0 }).toEqual({ 4.4, 7 })
+		expect(d.Z0 >= Building.STAND.Decor[1].Z + 2).toBe(true)
 	end)
 end)

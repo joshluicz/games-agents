@@ -109,13 +109,17 @@ PlotBuilder.LIFT_TAG = HospitalBuilder.LIFT_TAG
 PlotBuilder.PROMPT_TAGS = HospitalBuilder.PROMPT_TAGS
 PlotBuilder.Pure = HospitalBuilder.Pure
 
--- Room slots on a 70 x 70 plot, plot-local. Offset is the slot (= Floor) centre; Size is the floor footprint.
+-- Room slots on an 80 x 80 plot (Config.Town.PlotSize), plot-local. Offset is the slot (= Floor) centre; Size is
+-- the floor footprint. The Stand is the podium's floor inside the hospital's walls (Shared/Logic/Building: x ±16,
+-- z -13..3): x ±15, z -13..1. The side slots A and C (x 20..38, z -2..14) stand 4 studs off the side walls, so
+-- Server/Patients' walkways (makeNav: halfway between the Stand's edge and a side slot's) run at x = ±17.5, 1.5
+-- outside the walls. The back slots B and D (x 2..24, z 20..34) keep a 7-stud yard behind the block (z 13).
 PlotBuilder.SLOTS = table.freeze({
-	Stand = table.freeze({ Offset = Vector3.new(0, 0.3, -6), Size = Vector3.new(22, 0.6, 14) }),
-	A = table.freeze({ Offset = Vector3.new(-23, 0.3, 6), Size = Vector3.new(18, 0.6, 16) }),
-	C = table.freeze({ Offset = Vector3.new(23, 0.3, 6), Size = Vector3.new(18, 0.6, 16) }),
-	B = table.freeze({ Offset = Vector3.new(-13, 0.3, 25), Size = Vector3.new(22, 0.6, 14) }),
-	D = table.freeze({ Offset = Vector3.new(13, 0.3, 25), Size = Vector3.new(22, 0.6, 14) }),
+	Stand = table.freeze({ Offset = Vector3.new(0, 0.3, -6), Size = Vector3.new(30, 0.6, 14) }),
+	A = table.freeze({ Offset = Vector3.new(-29, 0.3, 6), Size = Vector3.new(18, 0.6, 16) }),
+	C = table.freeze({ Offset = Vector3.new(29, 0.3, 6), Size = Vector3.new(18, 0.6, 16) }),
+	B = table.freeze({ Offset = Vector3.new(-13, 0.3, 27), Size = Vector3.new(22, 0.6, 14) }),
+	D = table.freeze({ Offset = Vector3.new(13, 0.3, 27), Size = Vector3.new(22, 0.6, 14) }),
 })
 
 local STREET_HALF_WIDTH = 18

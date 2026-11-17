@@ -3,14 +3,17 @@
 -- §3.2-3.3, plus the front ward). Pure: no Roblox services and no requires, so Lune can test it.
 -- These are the numbers everything round the building depends on: Server/HospitalBuilder (T3) builds to them,
 -- Server/PlotBuilder (T4) puts the Stand's stations, bed and decor slots at them, and tests/Building.spec checks them
--- against what Server/Patients assumes (its walkways at x = ±12.5, its back lane at z = 4, its bedRoute at x = 7.6
--- and its straight-line walk upstairs). T3's own interior layout lives in HospitalBuilder.Pure.
+-- against what Server/Patients assumes (its walkways at x = ±17.5, its back lane at z = 4, its bedRoute at Bed_1's
+-- x = 9 and its straight-line walk upstairs). T3's own interior layout lives in HospitalBuilder.Pure.
+-- The wide hospital (Joshua, 2026-11-17: "cramped ... wider ... a little taller per storey"): the footprint is 32
+-- wide (was 23), the ground storey 12 tall (was 11) and every upper storey 11 (was 9); the depth is unchanged. The
+-- extra width is SPACE: 2.8+ studs between bed frames, 2.8+ round the stations, 3.4-stud stair landings.
 --
 -- Plot-local studs: x right as you face the street, -z is the street, y = 0 is the pad's top.
 --
 --   Building.footprint(level, floor?): Rect      the outer walls' rectangle on that floor (0 = ground): the podium at
 --                                                Lv 1, the whole block for G and F1 from Lv 2, the tower from F2
---   Building.slabTop(floor): number              the walking surface: 0, 11, 20, 29, 38
+--   Building.slabTop(floor): number              the walking surface: 0, 12, 23, 34, 45
 --   Building.floors(level): number               upper floors at that level (0, 1, 2, 3, 4: Data/Levels.Floors)
 --   Building.wardBeds(level): { WardBed }        the main ward's bed spots that hold a bed at that level, each with
 --                                                Functional (a BedSpot_<n>) or not (a dressing bed in that spot)
@@ -36,56 +39,57 @@ export type WardBed = { Index: number, X: number, Functional: boolean }
 ------------------------------------------------------------------------------------------------------------------
 -- The shape
 ------------------------------------------------------------------------------------------------------------------
-Building.HALF = 11.5 -- the footprint is x -11.5..11.5 on every floor
+Building.HALF = 16 -- the footprint is x -16..16 on every floor
 Building.FRONT = -13 -- the façade (the street side)
 Building.PODIUM_BACK = 3 -- Lv 1: the podium's back wall (Patients' back lane at z = 4 stays outside it)
 Building.BACK = 13 -- Lv 2+: the block's back wall
 Building.TOWER_FRONT = -3 -- F2 and up: the tower's street face (F1's roof in front of it is the terrace)
-Building.GROUND = 11 -- the ground storey's height
-Building.STOREY = 9 -- every upper storey
--- A slab is at most this thick, so F1's underside is >= 10.4: Patients' ground raycasts start at +10 and must
--- never meet a slab.
+Building.GROUND = 12 -- the ground storey's height
+Building.STOREY = 11 -- every upper storey: 10.4 clear, so a 6.5-stud creature sitting on a bed keeps its headroom
+-- A slab is at most this thick, so F1's underside is 11.4 (the floor is 10.4): Patients' ground raycasts start at
+-- +10 and must never meet a slab.
 Building.SLAB_MAX = 0.6
-Building.SLAB_TOPS = table.freeze({ 11, 20, 29, 38 }) -- F1, F2, F3, the roof deck
+Building.SLAB_TOPS = table.freeze({ 12, 23, 34, 45 }) -- F1, F2, F3, the roof deck
 Building.WALL = 0.6 -- the outer walls, inside the footprint's edge (clear/reach model them this thick)
 Building.MIN_LEVEL = 1
 Building.MAX_LEVEL = 5
 
 -- The lift: at the tower's street-facing -x corner, its door on +z, onto a landing on every floor.
-Building.SHAFT = table.freeze({ X0 = -11.5, X1 = -6.5, Z0 = -3, Z1 = 2 }) :: Rect
-Building.LANDING = table.freeze({ X = -9, Z = 4, Size = 4 }) -- Landing_0 and Floor_<n>.Landing, at each slab top
+Building.SHAFT = table.freeze({ X0 = -16, X1 = -11, Z0 = -3, Z1 = 2 }) :: Rect
+Building.LANDING = table.freeze({ X = -13.5, Z = 4, Size = 4 }) -- Landing_0 and Floor_<n>.Landing, at each slab top
 
 -- The stair atrium (hospital doc §3.2): two 3-wide lanes, the flights alternating between them. On the ground the
--- G -> 1 flight stands in lane A; upstairs the whole atrium is stairs or a stairwell.
-Building.ATRIUM = table.freeze({ X0 = -9, X1 = 9, Z0 = 7, Z1 = 13 }) :: Rect
-Building.LANE_A = table.freeze({ X0 = -9, X1 = 9, Z0 = 7, Z1 = 10 }) :: Rect
+-- G -> 1 flight stands in lane A; upstairs the whole atrium is stairs or a stairwell. A flight runs 24 studs (it
+-- rises 12 or 11: a slope of 1 in 2 or under), and each lane end keeps a 3.4-stud landing inside the side wall.
+Building.ATRIUM = table.freeze({ X0 = -12, X1 = 12, Z0 = 7, Z1 = 13 }) :: Rect
+Building.LANE_A = table.freeze({ X0 = -12, X1 = 12, Z0 = 7, Z1 = 10 }) :: Rect
 
 -- Doorways and windows. On the front wall they are x ranges; on a side wall, z ranges.
 Building.DOORS = table.freeze({
-	Main = table.freeze({ X0 = 7, X1 = 11, Height = 7 }), -- ground-bed patients walk in along x = 7.6 (bedRoute)
+	Main = table.freeze({ X0 = 7, X1 = 11, Height = 7 }), -- ground-bed patients walk in along Bed_1's x = 9 (bedRoute)
 	Reception = table.freeze({ X0 = -6.5, X1 = 6.5, Height = 7 }), -- the open window the Counter sits in
-	Display = table.freeze({ X0 = -11, X1 = -7 }), -- glass: decor slot 1 shows through it (solid)
+	Display = table.freeze({ X0 = -15, X1 = -9 }), -- glass: decor slot 1 shows through it (solid)
 	Side = table.freeze({ Z0 = -1, Z1 = 3 }), -- Lv 1 only, on BOTH side walls (to the Bath Room and the Winter Wing)
 	AE = table.freeze({ Z0 = -7, Z1 = -3 }), -- Lv 2+: the -x wall, facing the ambulance bay (a red canopy outside)
 	LiftLobby = table.freeze({ Z0 = 2, Z1 = 6 }), -- Lv 2+: the -x wall (upstairs patients come in at z = 4)
 	Corridor = table.freeze({ Z0 = 2, Z1 = 6 }), -- Lv 2+: the +x wall (the back lane at z = 4 out to the walkway)
-	Partition = table.freeze({ X0 = 8.9, X1 = 11.5 }), -- F1: the doorway in the glass partition, to the front ward
+	Partition = table.freeze({ X0 = 12, X1 = 16 }), -- F1: the doorway in the glass partition, to the front ward
 })
 
--- The canopy over the Counter: soft, overhead, and short of queue spot 1 (z = -18).
-Building.CANOPY = table.freeze({ X0 = -9, X1 = 9, Z0 = -17, Z1 = -13, Y = 9.5 })
+-- The canopy over the Counter and the main door: soft, overhead, and short of queue spot 1 (z = -18).
+Building.CANOPY = table.freeze({ X0 = -12, X1 = 12, Z0 = -17, Z1 = -13, Y = 10.5 })
 
 -- The Stand's spots (the building is built round them; T4's Stand room uses them).
 Building.STAND = table.freeze({
-	Remedy = table.freeze({ X = -4.3, Z = -1.3 }), -- moved +1.2 in x (clear of the lift shaft)
-	Plaster = table.freeze({ X = 1.7, Z = -1.3 }), -- moved +1.2 in x
-	Bed = table.freeze({ X = 7.6, Z = -4.8 }), -- Bed_1, unchanged
+	Remedy = table.freeze({ X = -6, Z = -1.3 }), -- 2.9 clear of the lift shaft (a station's body is 4.2 wide)
+	Plaster = table.freeze({ X = 1, Z = -1.3 }), -- 2.8 between the two stations
+	Bed = table.freeze({ X = 9, Z = -4.8 }), -- Bed_1: in line with the main door, 3.7 from Plaster, 3.3 from the bench
 	Decor = table.freeze({
-		table.freeze({ X = -8.5, Z = -10.2 }), -- slot 1, unchanged: behind the display window
-		table.freeze({ X = -9.5, Z = -17.5 }), -- slot 2: moved to the porch (the old spot is inside the main door)
+		table.freeze({ X = -12, Z = -10.2 }), -- slot 1: behind the display window
+		table.freeze({ X = -12.5, Z = -17.5 }), -- slot 2: on the porch, in front of the display window
 	}),
-	Mascot = table.freeze({ X = -7, Z = -14.8 }), -- MascotSpot: beside the Counter's -x end
-	Bench = table.freeze({ X0 = 10, X1 = 10.9, Z0 = -8, Z1 = -3.5 }), -- the waiting bench, along the +x wall
+	Mascot = table.freeze({ X = -8.5, Z = -14.8 }), -- MascotSpot: beside the Counter's -x end
+	Bench = table.freeze({ X0 = 14.5, X1 = 15.4, Z0 = -8, Z1 = -3.5 }), -- the waiting bench, along the +x wall
 })
 Building.STAND_BED_FRAME = table.freeze({ Width = 4.4, Length = 7 }) -- Bed_1's frame (pillow to +z)
 
@@ -98,18 +102,19 @@ Building.BED_FOOT_Z = 6.0 -- the foot spot: in the back aisle, beside the landin
 Building.PARTITION_Z = -3 -- the glass partition between the two wards (glass above, headboards below)
 -- BedSpot_<n>: its x, and the level from which it is FUNCTIONAL. Spot 3 holds a dressing bed at Lv 2-3.
 Building.WARD_BEDS = table.freeze({
-	table.freeze({ X = -4.1, Since = 2 }),
-	table.freeze({ X = 1.3, Since = 2 }),
-	table.freeze({ X = 6.7, Since = 4 }),
+	table.freeze({ X = -6, Since = 2 }), -- 2.8 from the shaft
+	table.freeze({ X = 1.5, Since = 2 }), -- 3.1 between frames
+	table.freeze({ X = 9, Since = 4 }), -- its +x edge (11.2) stops short of the partition's doorway
 })
--- The front ward (F1, over the podium): 4 dressing beds, heads at the street window. Patients never go there.
-Building.FRONT_WARD = table.freeze({ Xs = table.freeze({ -8.1, -2.7, 2.7, 8.1 }), Z0 = -12.6, Z1 = -5.6 })
+-- The front ward (F1, over the podium): 4 dressing beds, heads at the street window, 2.8 between frames. Patients
+-- never go there.
+Building.FRONT_WARD = table.freeze({ Xs = table.freeze({ -10.8, -3.6, 3.6, 10.8 }), Z0 = -12.6, Z1 = -5.6 })
 -- Lv 1 only: one dressing bed (with a sleeper) along the -x wall, clear of the side door, decor slot 1 and Remedy.
-Building.LV1_DRESSING = table.freeze({ X0 = -11.3, X1 = -6.9, Z0 = -8.5, Z1 = -1.5 }) :: Rect
+Building.LV1_DRESSING = table.freeze({ X0 = -15.4, X1 = -11, Z0 = -8, Z1 = -1 }) :: Rect
 
 -- reach() lets a straight walk skim a solid corner by less than this. The plan's own numbers need it: the line from
--- the landing's centre (-9, 4) to BedSpot_3's foot (6.7, 6.0) passes 0.26 studs inside the foot corner of bed 1's
--- frame (z up to 4.6). A patient is about 5 studs wide, so nobody can see that; a real crossing (a bed, the shaft, a
+-- the landing's centre (-13.5, 4) to BedSpot_3's foot (9, 6.0) passes 0.13 studs inside the foot corner of bed 1's
+-- frame (x from -8.2, z up to 4.6). A patient is about 5 studs wide, so nobody can see that; a real crossing (a bed, the shaft, a
 -- wall) is always deeper than this.
 Building.SKIM = 0.3
 

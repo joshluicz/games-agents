@@ -109,7 +109,7 @@ Config.AdminNames = { "Dandlepeeps" } -- Joshua's brother
 -- so the spawn plaza sits on the street's row-2 half (+z). All of these are offsets from Origin (x, z).
 Config.Town = {
 	Origin = Vector3.new(0, 0, 300),
-	PlotSize = 70,
+	PlotSize = 80, -- was 70: the hospital is 32 wide (Logic/Building.HALF) and the side rooms moved out with it
 	Plots = 6,
 	SpawnOffset = Vector3.new(0, 0, 11), -- TownSpawn's centre (an 8 x 8 pad, z 7..15)
 	SpawnSize = 8,
