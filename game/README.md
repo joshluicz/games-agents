@@ -130,6 +130,7 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 |---|---|
 | `client/Main.client.luau` | Builds `ctx` (Remotes, Config, Data, State, `onState`, `toast`, `on`/`fire`), then loads each UI and Feel module in a pcall and calls `init(ctx)`. *(v2)* Forwards `AgencyNews`, `MarketNews` and `BeltScout`; `ctx.Data` has `Jobs`, `Departments`, `Abilities`, `Perks`, `Tree`, `Themes`; the default snapshot has `Rebirth` |
 | `client/UI/Theme.luau` · `client/UI/Kit.luau` | The look tokens, and building blocks (panel, button with press bounce, label...). Libraries, not inited. *(depth)* Theme.Juice timings, Theme.Confetti, DisplayOrder.Celebrate (45); Kit.countUp (rolling numbers that tick), celebrate, confetti, rarityFrame (the rarity's gradient outline; **still** since the look overhaul), rarityColor, breathing (idle calls to action), punch, isShown, setDot (pops once, then still), button hover, Kit.Juice (pure helpers), Kit.Ticked. *(v2)* `Kit.ring` (a filling ring, never seconds) and `Kit.holdButton` (hold-to-confirm), first versions for T8 to juice. Every looping effect runs on one shared loop that skips hidden UI and sleeps. *(v2, T8)* `Kit.ring` is 12 beads lighting clockwise (ready = outline + a bump; never seconds), `Kit.holdButton` a fill band with a gentle swell and a tick each quarter (stepped when calm), `Kit.setDot(button, visible, glyph?)`, pure helpers `Kit.Juice.ringFraction`/`ringBeads`/`holdFill`. *(look, T6)* The button **roles** (`Kit.Juice.role`, `LOOKS`, `mayLoop`: Primary, Collect, Secondary, Quiet, Destructive, Icon, plus the Disabled look; old candy kinds map onto them), `Kit.setRole`, the `Kit.button` `Fill` prop (game pieces only), `Kit.iconButton` as the white Icon plate (`Glass = true` for the top-bar row), `Kit.tab`, `Kit.textLimit` (never under 18 px), `Kit.HEADER` (64), `Kit.corner` taking px or a UDim. **The motion budget:** shine and breathing run only on a Collect button, one owner on screen (topmost DisplayOrder, then oldest: `Juice.pickPerpetual`); nothing else loops |
+| `client/UI/Icons.luau` *(calm UI)* | THE chrome emoji dictionary ([The calm UI](#the-calm-ui)): `Door`, `Unit`, `State`, `Status`, `Party` and `Mark`, each emoji once; `RETIRED` (the collision losers); `unit(kind, n)` ("💰 300"), `level(n, name?)` ("🏥 Lv 1 Clinic"), `needs(n)` ("Needs 🏥 Lv 3"); `clusters` / `count` / `words` read emoji out of a string. A library with no requires: specs load it as it is |
 | `client/UI/Toasts.luau` | *(look, T5)* THE notice stack: toasts and the bus `Banner`s in one column, 8 px under the Now card (`Hud.Pure.noticeTop(Hud.nowBottom())`, following `Hud.NowMoved`) and as wide as it, in a DeviceSafeInsets ScreenGui. White plates with ink text, the Bold stroke, the Large radius, the one shadow; a banner adds an icon tile in its event's colour (BeltView: Golden Hour, Night Rush, Epic+ arrivals; BadgeBook's cheers). The same Id updates in place, `Seconds = 0` hides it. Nothing loops (no shine) |
 | `client/UI/Hud.luau` | *(look, T5)* The HUD, built on `Logic/HudZones` ([The HUD zones](#the-hud-zones)). **System:** a TopbarSafeInsets ScreenGui `HudSystem` holds ⚙️ on a dark-glass plate (and, on phones, the wallet). **Wallet:** 💰 and ⭐ as an icon plus a big outlined number (both roll up, `Kit.countUp`, as flying coins and stars land: `Hud.fly`), ⭐ with its thin bar to the next unlock, the 🔥 combo sticker. **Now** (ScreenGui `HudNow`): `Hud.setNow(source, card?, priority)` and `Hud.nowBottom()` (px from the device-safe top, the top-bar row included); the highest priority shows, the newest on a tie; Hud's own cards are the warning (⚠️ Not saving / 🏠 Clinics full, 30) and the tracked goal ("🎯 Cure 5 · 3/5", 10; a tap opens Goals); `Hud.NowMoved` (a Signal with the bottom), `Hud.topbar()`. **Status** (read-only, top right; on phones the strip between the Now card and the right rail, in fewer words): "☀️ Night in 3:27" / "🌙 ×2 · 2:08 left", ONE free-event chip ("🌟 Golden Hour in 12m": `Logic/NextEvent`, Golden Hour only, minutes, never paid, hidden while it runs or past 6 h), "Visitor ⭐/✅", at most 3 boost chips. **Rails:** fixed slots in `HudZones.ORDER`, every plate the same `Kit.iconButton` (the Shop looks like its neighbours), red dots, the 🃏/🌳 Branch sticker on 🛒, 🎁's bar inside its plate; pieces that don't fit become ⚙️ rows ("More"), and `Hud.target` then points at ⚙️. **Hands:** bottom centre, 56–84 px; the red ✖ is a 0.5 s hold (a tap toasts "Hold ✖ to throw away"). **⚙️:** 🎵, ✨/💤, 👆 Simple, 👥 helpers, ⏭️ Skip tutorial (while it runs) or 🔁 Replay tutorial (once done, with a clinic), More, 🛠️ Admin; Skip and Replay fire the bus `SkipTutorial` / `ReplayTutorial`. **Hide rules:** `ModalOpened` / `ModalClosed` by name: a Panel hides the rails, Now and Status; a Game hides the rails and Status; a Popup nothing; while the `Celebrate` ScreenGui is Enabled everything hides. **First session:** 💰, then ⭐ after the first cure, 🛒 at the shop step, 📖 at the Book step, each in its fixed slot; at DONE the rest pops in 0.15 s apart after the finale closes; a replay keeps the HUD full. Kept as before: portraits, `fly`, `shopNews`, `decorSlots`, `ask`, `livePlay`, `liveBoosts`, `boostLine`, every modal re-export and every `Hud.target` name. Ready mail, goals and gifts bounce (`Hud.pop`). Nothing loops; the rules are `Hud.Pure` (tests/HudScreen) |
 | `client/UI/PlayGifts.luau` | The 🎁 panel: the Doctor rank card ("Doctor rank: Resident", time played, next rank), your boosts, the six gift cards (🔒 time left · Open! · ✅). *(look, T6)* On the template; claims are Collect, tiles neutral |
@@ -168,6 +169,8 @@ Rojo maps `src/shared` → `ReplicatedStorage.Shared`, `src/server` → `ServerS
 | `tests/expect.luau` | `test(name, fn)` and `expect(x).toBe(y)`, `.toEqual(t)` (deep) and `.toBeTruthy()` |
 | `tests/worldmock.luau` *(look)* | A small Instance mock (Lune's roblox datatypes): `World.new()` gives a fresh world whose `load(path)` runs the shipped server modules; `setVariant(on)` is the **studs switch** (adds the `CureStuds` MaterialVariant), `setNight(on)`, `parts(root)`, `box(part, pivot?)`. `Hospital.spec`, `PartBudget.spec`, `Studs.spec`, `Palette.spec` and the tasks' world specs build what ships with it |
 | `tests/uirules.luau` *(look)* | `check(paths)`: the UI rules on the shipped source: no `MinTextSize` or literal `TextSize` under 18, no local `paintTab` / `textLimit`, no corner-radius literals, no panel-specific header colour (`Accent = `). `-- uirules: allow <Rule>` excuses one line |
+| `tests/uirules.luau` *(calm UI)* | Also `calm(paths)`: the six calm rules (`TitleEmoji`, `LabelEmoji`, `LeadEmoji`, `TypedEmoji`, `SpaceLiteral`, `StrokeBudget`), `ratchet(paths, limits)` and `table(paths)` ([The calm UI](#the-calm-ui)). The old `check(paths)` is unchanged |
+| *(calm UI)* specs | `UiRules` (the ratchet over every client file, and the calm rules' own tests), `EmojiRules` (the Icons dictionary: unique, drawable, the collision winners; `Pure.TEXT` tables), `Chrome` (the outline budget on the looks; **Kit and Modal loaded whole** on `worldmock` Instances with stand-in services, every calm part built and looked at) |
 | `tests/look.luau` *(look)* | `hsv`, `luma`, `maxChannel`, `hueGap`, `round`, `isBigFace(part, area)` for the look specs |
 | *(look)* specs | `Palette` (the palette rules, the Theme tokens, the helpers' own checks), `HudZones`, `NextEvent`, `Building`, `Studs` (both modes, `refresh`, the shared look pieces, the night lights' day restore), `TownLayout`, `PartBudget` (v2's budget test moved out of `Hospital.spec`: every level × every theme ≤ 400, the three shares as hard limits, the town ≤ 600, with the counts printed), `Lighting` (T1: the §C1 tables checked against Lune's real Lighting properties, `start()` and the phase loop, the night-dimmer rule, the night lights' restore rule in both stud modes, and a night/morning round trip of the whole built world), `TownWorld` (T2: the built town, Props' contract, the Hall of Fame, the belt and BeltView pure blocks, uirules on BeltView), `Hospital` (T3, rewritten: slabs, lanes, flights, every §B4 name at Lv 1–5, budgets per level × theme, bed and tub routes on the real geometry, themes paint only Trim and Band), `PlotWorld` (T4: the real PlotBuilder and DecorBuilder: the shares, the Pad, Counter, sign, Stand spots, lane, annexes, palette, both stud modes, decor), `HudScreen` (T5: Hud.Pure: the Now priority, the chips, the reveal, the hide modes, Status placement on 12 screen sizes from 640x360 to 2560x1440), `Chrome` (T6: roles, the motion budget, the 18 px floor, confirm defaults, odds rows, MiniGames on the template), `ProgressionPanels` (T7: the confirm specs, the Agency odds spec, the template in the source), `TutorialFlow` (T8: the server's remote rules, Wayfinder.Pure, the cards' words, the finale, Celebrate's Tutorial kind), `BlockyCreatures` (T9: the blocky layout for every species and the real CreatureBuilder and NurseBuilder under the worldmock), `UiRules` (integrator: tests/uirules over every `src/client` file, roles only, no cross glyph or toy brand anywhere, one tab scroller, a still rarity frame) |
 | `tests/config.luau` | The real `Shared/Config` for specs (a stub stands in for `Vector3`), so the belt's odds, placement and the line length are checked on what ships, not on copies |
@@ -282,6 +285,75 @@ in Studio's MaterialService add a MaterialVariant `CureStuds`: BaseMaterial Plas
 the street's row-2 half: `Config.Town.SpawnOffset` (0, 0, 11), `SpawnSize` 8, `Plaza`, `BeltClear` 4.4, with the
 Agency at (13, 12), the Market at (−13, 12) and the odds sign at (−24, 11). `tests/TownLayout.spec` checks the
 clearances on Config.
+
+## The calm UI
+Direction: `docs/plan/2026-11-17-ui-direction.md`. Ruling: `memory-20261117-007` (Joshua: "the UI is cluttered",
+"not to remove the emojis, but to use them correctly"; one main button per Team card with Sell and List behind
+More, titles in words only, HUD doors revealed one at a time, navy progress bars) on top of `-006` (simple,
+especially at the start). The one line: **candy on the verbs, calm on the nouns.** The candy look (gloss, dark
+outline, display type, colour) is spent on what the player can press right now and what they just won. Everything
+else is flat, quiet and aligned. The foundation below is built; the panels are being rebuilt on it task by task
+(T1 Nurses, T2 HUD, T3 money panels, T4 play flow, T5 progress and rewards), and every older Kit and Theme key
+still works, so they land in any order.
+
+### The rules a panel follows
+| Rule | What it means in code |
+|---|---|
+| **R0 Simple first** | Show only what the player can use now: no greyed-out doors, no "coming at Lv 5", no empty tabs. `Modal.tabs` hides tabs (`Hidden`, `setVisible`) and draws no column under two; HUD doors arrive one at a time (`Kit.Juice.nextReveal`, `Kit.reveal`). Budgets: 3 doors and 1 Status line on the HUD at Lv 1; 1 button and 2 Soft facts on a card |
+| **R1 One primary** | A card or row has at most one filled button; other actions are `Quiet` or sit behind `Kit.more`. A view has at most one Primary or Collect |
+| **R2 The outline budget** | The dark outline is for the panel shell, candy buttons (Primary, Collect, Destructive), HUD plates over the 3D world and text over the world or over colour. `Secondary` and `Disabled` have no line; `Kit.card`, `Kit.bar`, `Kit.artTile` and tabs have none |
+| **R3 Two surfaces** | The paper, then a `Kit.card`. Inside a card: one `Kit.artTile`, and text. No chip, plate or pill |
+| **R4 Spacing** | Only `Theme.Space.Step` (4, 8, 12, 16, 24, 32): `Tight` 4, `Line` 8, `PadCard` 12, `PadPanel` 16, `Section` 24 |
+| **R5 Three voices** | `Theme.Voice`: **Loud** (display font, outlined, on colour: the panel title, HUD numbers, candy buttons, Celebrate), **Normal** (`Kit.name`: Body 22, Ink; once per card), **Soft** (`Kit.fact`: Caption 18, InkSoft). Text is never under 18 px, so hierarchy is font and ink |
+| **R6 Colour means one thing** | Orange = the one main action. Green = collect, ready, done. Red = news dot, close, destructive. Gold = Cash and Stars. Rarity colours = the rarity frame. **Progress = navy** (`Theme.Colors.Progress`, gold at MAX): `Kit.bar` |
+| **R7 Motion** | One looping effect, on the one Collect button. A ready ability shows no ring (`Kit.ring` draws only while it recharges). A toggle slides, it doesn't bounce |
+
+### Emoji: nouns, never punctuation
+`client/UI/Icons.luau` names every chrome emoji **once**. Panels read `Icons.Unit.Cash`; they never type "💰".
+
+| Role | What it is | Where, and how big |
+|---|---|---|
+| **Art** | The thing itself (an item, a case, a tool, a station, an ability, a room). From `shared/Data/*` (`Icon`), never typed in a UI string | Alone in a `Kit.artTile` (40 px), a mini-game card (56), a world bubble. One per card |
+| **Door** | The icon of a place: Shop 🛒, Nurses 👩‍⚕️, Book 📖, Gifts 🎁, Goals 🎯, Mail 📬, Badges 🏅, Top 🏆, Settings ⚙️, Branches 🏢, Agency 💼, Market 🏷️, Lift ↕️, Odds 🎲 | Its HUD rail plate and its tab only, with its word under it |
+| **Unit** | What a number counts: 💰 Cash, ⭐ Stars, 🏥 the hospital level, 🌳 tree points, 🃏 cards | Glued in front of its number: `Icons.unit("Cash", 300)`; next to a Loud number, `Kit.unit` (two labels: Roblox can't outline an emoji) |
+| **State** | 🔒 locked, ✅ done, 💤 resting, ⏳ waiting | `Kit.setState`: an 18 px badge on the tile's corner, or alone in place of a button's label |
+| **Party** | 🎉 ✨ and friends | Celebrate, a reward toast, the Day Report. Nowhere else |
+
+Never: an emoji in a title (Kit.panel and Modal drop one anyway) · an emoji in a button, except a Unit with its
+price or the one Art noun the button is about · an emoji as a bullet or in front of a sentence · an emoji that
+repeats its own word (👆 Tap) · two emoji side by side · more than one per label, two per card. The collision
+winners: the level is 🏥 only, Book 📖, Mail 📬, again 🔁, 🏢 is Branches only (the Agency's door is 💼), ⭐ is Stars
+only. The losers are in `Icons.RETIRED`.
+
+### The parts (`client/UI/Kit.luau`, `client/UI/Modal.luau`)
+| Part | What it is |
+|---|---|
+| `Kit.card(props?)` | The card: the Card fill, no line, 12 px inside (`Pad = false`: none) |
+| `Kit.name(props?)` · `Kit.fact(props?)` · `Kit.voice(label, voice)` | A Normal line, a Soft line, and the painter for any label |
+| `Kit.bar(props?)` → `bar, set(fraction, atMax?)` | THE progress bar: 8 px, navy on a track, gold at MAX, no text inside. `Kit.Juice.barFraction(value, goal)` |
+| `Kit.artTile(props?)` · `Kit.setState(gui, emoji?)` | The art tile (a Well square, one emoji at 40 px; `Icon`, `State`, `Rarity`) and the State badge on its corner |
+| `Kit.unit(props?)` → `row, amountLabel` | A Unit emoji and its number as two labels (`Icon`, `Text`, `Voice`, `Px`) |
+| `Kit.toggle(props?)` → `row, set(on, instant?)` | A Settings row: a label that never changes and a switch (`Label`, `On`) |
+| `Kit.more(props?)` · `Kit.menu(anchor, items, onPick)` | The Quiet "More" button and its overflow menu (`Items`, `OnPick`): Sell and List live here |
+| `Kit.reveal(gui, shown)` · `Kit.Juice.nextReveal(order, wanted, shown)` | A HUD door popping once into its slot, and which door is next |
+| `Kit.tab` | Unselected: no plate, no line. Selected: navy, white text |
+| `Kit.ring` | Draws nothing when the ability is ready |
+| `Modal.modal` | Title in words only; the meta is plain Loud text with no box; the ✖ is 48 px inside the band |
+| `Modal.tabs` | `Hidden` on a tab, `setVisible(id, shown)`, `visible()`; no column under two tabs |
+| `Modal.confirm` · `Modal.oddsPopup` | Their cards have no line. A confirm reads "Sell Dew Duck?" / "You get 💰 120" / `Sell` / `Keep` |
+
+### The checks
+`tests/uirules.luau` has six **calm rules**, each with the usual `-- uirules: allow <Rule>` escape:
+`TitleEmoji` (a title with an emoji), `LabelEmoji` (more than one emoji in a string), `LeadEmoji` (a gesture, face,
+tick or party emoji in front of words, or any emoji in front of a sentence), `TypedEmoji` (a chrome or retired
+emoji typed instead of read from Icons), `SpaceLiteral` (a number given to `Kit.pad` or `Kit.list` that isn't a
+step) and `StrokeBudget` (a shape outline). `tests/UiRules.spec.luau` holds a **ratchet**: how many of each every
+client file may still have. A number only goes down; the task that rebuilds a file lowers it, to 0 where it can.
+`UIRULES_REPORT=1 lune run tests/run UiRules` prints today's counts as a table to paste. `EmojiRules.spec` keeps the
+dictionary honest, and `Chrome.spec` builds every part above for real.
+
+Not checkable without Studio: how it looks. Every panel at 568 x 320 and 1280 x 720 (the HUD at 640 x 360 too),
+with a fresh Lv 1 save and a rich one; the squint test (blurred, you can still point at the one thing to press).
 
 ## Boot order
 **Server (`Main.server.luau`):**

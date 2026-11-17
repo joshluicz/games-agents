@@ -11,8 +11,16 @@
 --     that is one identifier is an id, not words. Developer output (warn, print, error) isn't shown to players. The
 --     game's title "Cure a Creature" stays until both brothers decide (design §2 non-goals, OPEN #12). A line that
 --     must keep the word on purpose ends with "-- uirules: allow Cure".
+-- THE CALM RULES AND THEIR RATCHET (docs/plan/2026-11-17-ui-direction.md §6; Joshua, memory-20261117-007): the six
+-- calm rules (TitleEmoji, LabelEmoji, LeadEmoji, TypedEmoji, SpaceLiteral, StrokeBudget: tests/uirules) over every
+-- src/client file, against RATCHET below. A NUMBER MAY ONLY GO DOWN. Each task (T1 to T5) lowers the numbers of the
+-- files it owns as it rebuilds them, to 0 wherever it can (a line that must break a rule on purpose carries
+-- "-- uirules: allow <Rule>" and a reason); the integrator locks them. The foundation's own files (Theme, Kit, Modal,
+-- Icons) are at 0 and stay there. To see today's counts as a table ready to paste:
+--     UIRULES_REPORT=1 lune run tests/run UiRules
 
 local fs = require("@lune/fs")
+local process = require("@lune/process")
 
 local T = require("./expect")
 local UiRules = require("./uirules")
@@ -101,6 +109,272 @@ local function cureWords(paths: { string }): { string }
 	end
 	return found
 end
+
+-- THE RATCHET: how many calm-rule faults each file may still have. A file or a rule that isn't listed is 0. Numbers
+-- only go DOWN (lower yours when you fix a file; never raise one, never add a line). Counted 2026-11-17, before T1
+-- to T5 rebuilt their panels.
+local RATCHET: { [string]: { [string]: number } } = {
+	["src/client/Feel/CreatureProps.luau"] = { TypedEmoji = 1, StrokeBudget = 1 },
+	["src/client/Feel/CureFX.luau"] = { LeadEmoji = 1, TypedEmoji = 11, StrokeBudget = 2 },
+	["src/client/Feel/HospitalFX.luau"] = { StrokeBudget = 2 },
+	["src/client/UI/AdminPanel.luau"] = { TitleEmoji = 7, LabelEmoji = 1, LeadEmoji = 8, TypedEmoji = 24 },
+	["src/client/UI/AgencyPanel.luau"] = { TitleEmoji = 4, LeadEmoji = 12, TypedEmoji = 36, StrokeBudget = 2 },
+	["src/client/UI/BadgeBook.luau"] = { TitleEmoji = 1, LeadEmoji = 1, TypedEmoji = 5, StrokeBudget = 2 },
+	["src/client/UI/BeltView.luau"] = { LeadEmoji = 6, TypedEmoji = 26, StrokeBudget = 3 },
+	["src/client/UI/Boards.luau"] = { TypedEmoji = 1, SpaceLiteral = 1, StrokeBudget = 2 },
+	["src/client/UI/BookPanel.luau"] = {
+		TitleEmoji = 1,
+		LabelEmoji = 1,
+		LeadEmoji = 1,
+		TypedEmoji = 10,
+		StrokeBudget = 4,
+	},
+	["src/client/UI/BranchPanel.luau"] = {
+		TitleEmoji = 2,
+		LeadEmoji = 14,
+		TypedEmoji = 51,
+		SpaceLiteral = 1,
+		StrokeBudget = 7,
+	},
+	["src/client/UI/Celebrate.luau"] = {
+		LabelEmoji = 1,
+		LeadEmoji = 3,
+		TypedEmoji = 12,
+		SpaceLiteral = 1,
+		StrokeBudget = 6,
+	},
+	["src/client/UI/DayReportPanel.luau"] = {
+		TitleEmoji = 1,
+		LeadEmoji = 2,
+		TypedEmoji = 10,
+		SpaceLiteral = 2,
+		StrokeBudget = 2,
+	},
+	["src/client/UI/Hud.luau"] = { TitleEmoji = 1, LabelEmoji = 1, LeadEmoji = 5, TypedEmoji = 40, StrokeBudget = 10 },
+	["src/client/UI/LiftPanel.luau"] = { TitleEmoji = 1, TypedEmoji = 2 },
+	["src/client/UI/Mailbox.luau"] = {
+		TitleEmoji = 2,
+		LabelEmoji = 2,
+		LeadEmoji = 3,
+		TypedEmoji = 20,
+		StrokeBudget = 3,
+	},
+	["src/client/UI/MarketPanel.luau"] = { TitleEmoji = 3, LeadEmoji = 7, TypedEmoji = 14, StrokeBudget = 8 },
+	["src/client/UI/MiniGames.luau"] = { TitleEmoji = 1, LeadEmoji = 15, TypedEmoji = 12, StrokeBudget = 10 },
+	["src/client/UI/NursePanel.luau"] = { LeadEmoji = 9, TypedEmoji = 49, SpaceLiteral = 1, StrokeBudget = 17 },
+	["src/client/UI/PlayGifts.luau"] = { TitleEmoji = 1, LeadEmoji = 4, TypedEmoji = 13, StrokeBudget = 2 },
+	["src/client/UI/Shop.luau"] = {
+		TitleEmoji = 1,
+		LabelEmoji = 1,
+		LeadEmoji = 12,
+		TypedEmoji = 35,
+		SpaceLiteral = 2,
+		StrokeBudget = 3,
+	},
+	["src/client/UI/Toasts.luau"] = { StrokeBudget = 3 },
+	["src/client/UI/Tutorial.luau"] = {
+		TitleEmoji = 2,
+		LabelEmoji = 2,
+		LeadEmoji = 7,
+		TypedEmoji = 16,
+		StrokeBudget = 10,
+	},
+	["src/client/UI/Wayfinder.luau"] = { StrokeBudget = 3 },
+}
+
+-- The foundation's files: nothing left, and nothing may come back.
+local FOUNDATION = {
+	"src/client/UI/Theme.luau",
+	"src/client/UI/Kit.luau",
+	"src/client/UI/Modal.luau",
+	"src/client/UI/Icons.luau",
+}
+
+T.describe("The calm rules over the whole client (the ratchet)", function()
+	test("no file has more calm-rule faults than its ratchet number", function()
+		local over, slack = UiRules.ratchet(CLIENT, RATCHET)
+		if process.env.UIRULES_REPORT then
+			print("\n-- today's calm-rule counts (paste over RATCHET's rows):\n" .. UiRules.table(CLIENT))
+			if #slack > 0 then
+				print("\n-- numbers that can come down:\n" .. table.concat(slack, "\n"))
+			end
+		end
+		assert(#over == 0, "\n" .. table.concat(over, "\n"))
+	end)
+
+	test("the ratchet only names real client files and real rules, with whole numbers above 0", function()
+		for path, limits in RATCHET do
+			assert(table.find(CLIENT, path), path .. " is not a src/client file")
+			for rule, n in limits do
+				assert(table.find(UiRules.CALM, rule), path .. ": " .. tostring(rule) .. " is not a calm rule")
+				assert(type(n) == "number" and n > 0 and n % 1 == 0, path .. " " .. rule .. ": drop the entry at 0")
+			end
+		end
+	end)
+
+	test("the foundation is calm: Theme, Kit, Modal and Icons have nothing left and no ratchet entry", function()
+		local found = UiRules.calm(FOUNDATION)
+		assert(#found == 0, "\n" .. UiRules.format(found))
+		for _, path in FOUNDATION do
+			expect(RATCHET[path]).toBeNil()
+		end
+	end)
+
+	test("the ratchet never went up: no number is above the 2026-11-17 count", function()
+		-- The counts when the calm rules were written. A number here never changes; RATCHET's only shrink.
+		local START = {
+			TitleEmoji = 28,
+			LabelEmoji = 9,
+			LeadEmoji = 110,
+			TypedEmoji = 388,
+			SpaceLiteral = 8,
+			StrokeBudget = 102,
+		}
+		local totals: { [string]: number } = {}
+		for _, limits in RATCHET do
+			for rule, n in limits do
+				totals[rule] = (totals[rule] or 0) + n
+			end
+		end
+		for rule, start in START do
+			assert(
+				(totals[rule] or 0) <= start,
+				rule .. ": " .. (totals[rule] or 0) .. " is above the start, " .. start
+			)
+		end
+	end)
+end)
+
+T.describe("tests/uirules: the calm rules themselves", function()
+	local function rules(text: string, path: string?): { string }
+		local out = {}
+		for _, violation in UiRules.calmText(text, path or "x.luau") do
+			table.insert(out, violation.Rule)
+		end
+		return out
+	end
+	local Icons = UiRules.Icons
+
+	test("the emoji reader: one entry per drawn emoji (a joined family is one), text symbols are not emoji", function()
+		expect(Icons.count("Team")).toBe(0)
+		expect(Icons.count("💰 300")).toBe(1)
+		expect(Icons.count("👩‍⚕️ Team")).toBe(1) -- woman + joiner + staff: one picture
+		expect(Icons.count("💰⭐ ×")).toBe(2)
+		expect(Icons.count("🏡 🔑 💛")).toBe(3)
+		expect(Icons.count("⚙️ and ⚙")).toBe(2)
+		expect(Icons.count("↕️ Lift")).toBe(1)
+		expect(Icons.count("A → B · C × 2 … ● •")).toBe(0)
+		expect(Icons.clusters("🩺 Healer (🧪 at 🏥 Lv 2)")).toEqual({ "🩺", "🧪", "🏥" })
+		expect(Icons.words("👩‍⚕️ Team")).toBe("Team")
+		expect(Icons.words("Sell 💰 now")).toBe("Sell now")
+		expect(Icons.words("⚙️ Settings")).toBe("Settings")
+		expect(Icons.words("Day done!")).toBe("Day done!")
+		expect(Icons.words("🎉")).toBe("")
+	end)
+
+	test("TitleEmoji: a title is words only", function()
+		expect(rules('\tTitle = "Shop",')).toEqual({})
+		expect(rules('\tTitle = "🍩 Snacks",')).toEqual({ "TitleEmoji" })
+		expect(rules('\tResetTitle = "🍩 Reset tree?",')).toEqual({ "TitleEmoji" })
+		expect(rules('modal.setTitle("🍩 Listen!")')).toEqual({ "TitleEmoji" })
+		expect(rules("modal.setTitle(look.Title)")).toEqual({})
+		expect(rules('\tSubtitle = "x", Icon = "🍩",')).toEqual({})
+	end)
+
+	test("LabelEmoji: one emoji per string, never two side by side", function()
+		expect(rules('local a = "🍩🍪 ×"')).toEqual({ "LabelEmoji" })
+		expect(rules('local a = "🍩 🍪 🍫"')).toEqual({ "LabelEmoji" })
+		expect(rules('local a = "🍩 Healer"')).toEqual({})
+		expect(rules('local a, b = "🍩", "🍪"')).toEqual({}) -- two strings, one each
+		expect(rules('local a = "🍩 Rare 20% 🍪" -- uirules: allow LabelEmoji (an odds row)')).toEqual({})
+	end)
+
+	test(
+		"LeadEmoji: no gesture, face, tick or party emoji in front of words; no emoji in front of a sentence",
+		function()
+			for _, text in
+				{
+					"👆 Tap a card",
+					"👇 Pick one",
+					"✋ Hold to sell",
+					"👀 Which one fits?",
+					"🎉 Yay!",
+					"😊 Nice",
+				}
+			do
+				expect(rules('local a = "' .. text .. '"')).toEqual({ "LeadEmoji" })
+			end
+			expect(rules('local a = "✨ The shiny one!"')).toEqual({ "LeadEmoji" })
+			expect(rules('local a = "🍩 Listed nurses keep working"')).toEqual({ "LeadEmoji" }) -- any emoji, a sentence
+			expect(rules('local a = "🍩 Healer"')).toEqual({}) -- an Art noun with its name
+			expect(rules('local a = "🍩 Bath Room"')).toEqual({})
+			expect(rules('local a = "🍩 300"')).toEqual({}) -- a Unit with its number
+			expect(rules('local a = "🍩 Lv 1 Clinic"')).toEqual({})
+			expect(rules('local a = "🎉"')).toEqual({}) -- alone: an art tile or a badge
+			expect(rules('local a = "Pick the shiny one"')).toEqual({})
+			expect(rules('local a = "Needs 🍩 Lv 3"')).toEqual({}) -- not in front
+		end
+	)
+
+	test("TypedEmoji: a chrome emoji comes from UI/Icons, never typed (retired ones too); Icons itself may", function()
+		expect(rules('local a = "💰 " .. cash')).toEqual({ "TypedEmoji" })
+		expect(rules('local a = "Needs 🏥 Lv " .. level')).toEqual({ "TypedEmoji" })
+		expect(rules('local a = "🔒"')).toEqual({ "TypedEmoji" })
+		expect(rules('local a = "⚙"')).toEqual({ "TypedEmoji" }) -- with or without the picture selector
+		expect(rules('local a = "Need 🏙️ Lv "')).toEqual({ "TypedEmoji" }) -- retired: 🏥 won
+		expect(rules('local a = "📔"')).toEqual({ "TypedEmoji" })
+		expect(rules('local a = Icons.Unit.Cash .. " " .. cash')).toEqual({})
+		expect(rules('local a = "🧼"')).toEqual({}) -- Art: not a chrome emoji
+		expect(rules('local a = "🎊"')).toEqual({}) -- Party is free where it belongs
+		expect(rules('\tCash = "💰",', "src/client/UI/Icons.luau")).toEqual({})
+		expect(rules('local a = "💰" -- uirules: allow TypedEmoji (a test string)')).toEqual({})
+	end)
+
+	test("SpaceLiteral: Kit.pad and Kit.list take Theme.Space.Step values only", function()
+		expect(rules("Kit.pad(card, 12)")).toEqual({})
+		expect(rules("Kit.pad(card, 0)")).toEqual({})
+		expect(rules("Kit.pad(card, 10)")).toEqual({ "SpaceLiteral" })
+		expect(rules("Kit.pad(card, 6)")).toEqual({ "SpaceLiteral" })
+		expect(rules("Kit.pad(card, Theme.Space.PadCard)")).toEqual({})
+		expect(rules("Kit.list(row, Enum.FillDirection.Horizontal, 2)")).toEqual({ "SpaceLiteral" })
+		expect(rules("Kit.list(row, Enum.FillDirection.Horizontal, 8)")).toEqual({})
+		expect(rules("Kit.list(row, Enum.FillDirection.Horizontal, Theme.Space.Tight)")).toEqual({})
+		expect(rules("Kit.list(row)")).toEqual({})
+		for step in UiRules.STEP do
+			expect(rules("Kit.pad(card, " .. step .. ")")).toEqual({})
+		end
+	end)
+
+	test("StrokeBudget: every shape outline counts, Kit.stroke or a hand-made UIStroke; text outlines don't", function()
+		expect(rules("Kit.stroke(card, Theme.Colors.CardLine, Theme.Stroke.Fine)")).toEqual({ "StrokeBudget" })
+		expect(rules('local stroke = Instance.new("UIStroke")')).toEqual({ "StrokeBudget" })
+		expect(rules("Kit.outline(label)")).toEqual({})
+		expect(rules("Kit.stroke(plate) -- uirules: allow StrokeBudget (a HUD plate over the world)")).toEqual({})
+		expect(rules("-- Kit.stroke(card)")).toEqual({})
+	end)
+
+	test("tally, ratchet and table: over the limit fails with its lines, under it is slack", function()
+		local found = UiRules.calmText('local a = "👆 Tap"\nKit.pad(x, 6)\nKit.pad(y, 10)\n', "p.luau")
+		expect(UiRules.tally(found)).toEqual({ ["p.luau"] = { LeadEmoji = 1, SpaceLiteral = 2 } })
+		expect(found[2].Line).toBe(2)
+		local over, slack = UiRules.ratchet(FOUNDATION, { ["src/client/UI/Kit.luau"] = { StrokeBudget = 3 } })
+		expect(over).toEqual({})
+		expect(slack).toEqual({ "src/client/UI/Kit.luau  StrokeBudget  3 -> 0" })
+		expect(UiRules.table(FOUNDATION)).toBe("")
+	end)
+
+	test("the Step the rule checks is Theme's own", function()
+		local theme = fs.readFile(root .. "/src/client/UI/Theme.luau")
+		local steps = string.match(theme, "Step = table%.freeze%({ ([%d, ]+) }%)")
+		assert(steps, "Theme.Space.Step not found")
+		local seen = 0
+		for step in string.gmatch(steps, "%d+") do
+			seen += 1
+			assert(UiRules.STEP[tonumber(step)], "Theme step " .. step .. " is not in UiRules.STEP")
+		end
+		expect(seen).toBe(6)
+	end)
+end)
 
 T.describe("UI rules over the whole client (integrator)", function()
 	test("there are client files to check", function()
