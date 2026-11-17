@@ -138,18 +138,18 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 						and s.Z >= footprint.Z0 + margin
 						and s.Z <= footprint.Z1 - margin
 				).toBe(true)
-				-- never in a bought room (it may not be there) or the dispensary (the player's): the hall, the alcove,
-				-- and (Porters) the hall in front of the stairs, by the lift
+				-- never in a bought room (it may not be there), the dispensary or the X-ray room (the player's): the open
+				-- hall, the Hall between the corridors, the supply wall's recess, and (Porters) corridor B, by the lift
 				local inHall = false
-				local rooms = { "Waiting", "Lobby", "CorridorA", "Supply" }
+				local rooms = { "Waiting", "Lobby", "CorridorA", "Supply", "Hall" }
 				if entry.Kind == "Porter" then
-					rooms = { "LiftCore" }
+					rooms = { "CorridorB" }
 				end
 				for _, room in rooms do
 					inHall = inHall or within(s, B.ROOMS[room])
 				end
 				if not inHall then
-					error(entry.Kind .. " " .. entry.Index .. " " .. name(s) .. " is not in the hall or the alcove")
+					error(entry.Kind .. " " .. entry.Index .. " " .. name(s) .. " is not in the hall or the recess")
 				end
 				for level = B.MIN_LEVEL, B.MAX_LEVEL do
 					if not B.clear({ X0 = s.X - f, X1 = s.X + f, Z0 = s.Z - f, Z1 = s.Z + f }, level) then
@@ -176,17 +176,17 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 	end)
 
 	test(
-		"off the corridors' centre lines (corridor A's dead end past the X-ray door aside) and out of the lobby's middle",
+		"off the corridors' centre lines (corridor A's dead end past the X-ray door aside), the Hall's and the lobby's middle",
 		function()
 			-- Corridor A is a walkway from the A&E door to the X-ray door's far jamb; past it is a dead end.
-			local walkwayEnd = math.max(B.DOORS.XRay.X1 :: number, B.ROOMS.Supply.X1)
+			local walkwayEnd = B.DOORS.XRay.X1 :: number
 			for _, entry in everySlot() do
 				local s = entry.Slot
 				for _, corridor in { "CorridorA", "CorridorB" } do
 					local r = B.ROOMS[corridor]
 					if within(s, r) then
 						local mid = (r.Z0 + r.Z1) / 2
-						if math.abs(s.Z - mid) < 1.5 and s.X < walkwayEnd then
+						if math.abs(s.Z - mid) < 1.5 and (corridor == "CorridorB" or s.X < walkwayEnd) then
 							error(
 								entry.Kind
 									.. " "
@@ -199,6 +199,10 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 							)
 						end
 					end
+				end
+				if within(s, B.ROOMS.Hall) then
+					-- only against the bays' end wall: the rest of the Hall is the way between the two corridors
+					expect(s.X <= B.ROOMS.Hall.X0 + AGAINST).toBe(true)
 				end
 				if within(s, B.ROOMS.Lobby) then
 					-- only behind the reception desk
@@ -214,8 +218,7 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 			local walks = patientWalks(level)
 			expect(#walks > 50).toBe(true)
 			for _, entry in everySlot() do
-				-- RECEPTION.Staff is where the Receptionist has always stood: patients bound for the X-ray room and the
-				-- Cozy Ward cut behind the reception desk (a risk the bigger building fixes; see the report)
+				-- RECEPTION.Staff is where the Receptionist has always stood, at the desk patients walk past
 				if entry.Kind ~= "Receptionist" then
 					for _, seg in walks do
 						local d = toSegment(entry.Slot, seg[1], seg[2])
@@ -281,16 +284,19 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 	end)
 
 	test(
-		"near what they belong to: the desk, the bays, the lift, the supply shelf, the seats, the reception desk",
+		"near what they belong to: the desk, the bays, the lift, the supply wall, the seats, the reception desk",
 		function()
 			local desk = B.NURSE_STATION.Desk
 			for _, slot in B.NURSE_STATION.Slots do
-				expect(toRect(slot, desk) <= 3 * B.NURSE_GAP).toBe(true)
+				expect(toRect(slot, desk) <= 2 * B.NURSE_GAP).toBe(true)
+				expect(slot.X > desk.X1).toBe(true) -- behind it (the end wall's side) ...
+				expect(slot.Face).toBe(90) -- ... looking over it, down corridor A at the bays
 			end
-			-- Healers and Medics: a short walk from the bays every clinic has (the Phase 0 review: from the station at
-			-- corridor A's far end each heal was a ~50 stud commute), against the wall the A&E door is in
+			-- Healers and Medics: a short walk from the bays every clinic has (the Phase 0 review: from the old station
+			-- at corridor A's far end each heal was a ~50 stud commute), against the outside of bay 1's end wall
 			local lv1 = B.openBays(1)
 			expect(#lv1 >= 2).toBe(true)
+			local longest = 0
 			for _, slot in B.NURSE_PLACES.Healer do
 				local at = { X = slot.X, Z = slot.Z }
 				for _, bay in lv1 do
@@ -299,22 +305,21 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 						walk += dist(from, point)
 						from = point
 					end
-					expect(walk <= 12).toBe(true)
-					-- ... and nearer than any slot at the station
-					for _, other in B.NURSE_STATION.Slots do
-						expect(dist(at, B.doctorSpot(bay)) < dist(other, B.doctorSpot(bay)) / 3).toBe(true)
-					end
+					longest = math.max(longest, walk)
 				end
-				expect(slot.X).toBeCloseTo(-B.HALF_X + B.WALL + B.NURSE_EDGE)
-				expect(slot.Z < (B.DOORS.AE.Z0 :: number)).toBe(true) -- beside the A&E door, never in it
-				expect(slot.Face).toBe(270) -- looking into the hall, along the bays' mouths
-				-- not in front of a bay's mouth (the bays open onto corridor A at their Z0)
-				expect(slot.X < B.ROOMS.Bays.X0 + B.WALL + B.NURSE_FOOT + B.NURSE_EDGE and slot.Z < B.ROOMS.Bays.Z0 - 4).toBe(
-					true
-				)
+				expect(slot.X).toBeCloseTo(B.ROOMS.Bays.X1 + B.NURSE_EDGE)
+				expect(within(slot, B.ROOMS.Hall)).toBe(true)
+				expect(slot.Face).toBe(270) -- looking into the Hall
+				-- beside the bays, never in front of a bay's mouth (the bays open onto corridor A at their Z0)
+				expect(slot.Z > B.ROOMS.Bays.Z0 + 2 * B.NURSE_FOOT).toBe(true)
 			end
+			print(string.format("    [nurses] a Healer's longest walk to a Lv 1 bay: %.1f studs", longest))
+			expect(longest <= 32).toBe(true)
+			-- ... and the first Healer is nearer bay 1 than the lobby's reception desk is
+			local first = B.NURSE_PLACES.Healer[1]
+			expect(dist(first, B.doctorSpot(B.bay("1"))) < dist(B.RECEPTION.Staff, B.doctorSpot(B.bay("1")))).toBe(true)
 			-- Porters: one straight walk from the lift's ground landing (no wall to walk through: the review), against
-			-- the stairwell, facing the lift's side of the hall
+			-- the X-ray room's back wall, facing across corridor B
 			local landing = { X = B.LANDING.X, Z = B.LANDING.Z }
 			for level = B.MIN_LEVEL, B.MAX_LEVEL do
 				for _, slot in B.NURSE_PLACES.Porter do
@@ -323,19 +328,24 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 					expect(B.reach(landing, at, level, 0)).toBe(true)
 					expect(dist(at, landing) <= 8).toBe(true)
 					expect(dist(at, landing) >= B.LANDING.Size / 2 + 2 * B.NURSE_FOOT).toBe(true) -- off the landing itself
-					expect(toRect(at, B.STAIRWELL) <= AGAINST).toBe(true)
-					expect(slot.Face).toBe(0)
+					expect(slot.Z).toBeCloseTo(B.ROOMS.XRay.Z1 + B.NURSE_EDGE)
+					expect(slot.X > B.ROOMS.XRay.X0 and slot.X < B.SHAFT.X0).toBe(true)
+					expect(slot.Face).toBe(180)
 				end
 			end
-			local shelf = B.stationRect("Bandage")
-			for _, slot in B.NURSE_PLACES.Maker do
-				expect(toRect(slot, shelf) <= AGAINST).toBe(true)
+			-- Makers: in the supply wall's recess, beside its last station, nobody's stand in front of them
+			local order = B.SUPPLY_ORDER
+			local shelf = B.stationRect(order[#order])
+			for index, slot in B.NURSE_PLACES.Maker do
+				expect(toRect(slot, shelf) <= AGAINST + (index - 1) * B.NURSE_GAP).toBe(true)
 				expect(within(slot, B.ROOMS.Supply)).toBe(true)
+				expect(slot.X < shelf.X0).toBe(true) -- past the last one, away from the lobby
+				expect(slot.Face).toBe(180) -- looking out at the bays, like the stations
 			end
 			for _, slot in B.NURSE_PLACES.Cheerer do
 				local seats = 0
 				for _, seat in B.SEATS do
-					if toRect(slot, B.seatRect(seat)) <= AGAINST then
+					if toRect(slot, B.seatRect(seat)) <= 2.5 then
 						seats += 1
 					end
 				end
@@ -351,13 +361,16 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 		end
 	)
 
-	test("the desk: against the dispensary wall at corridor A's far end, solid, overlapping nothing", function()
+	test("the desk: against the X-ray room's wall at corridor A's far end, solid, overlapping nothing", function()
 		local desk = B.NURSE_STATION.Desk
 		local hall = B.ROOMS.CorridorA
-		expect(desk.Z0).toBe(hall.Z0)
-		expect(desk.X0 >= (B.DOORS.XRay.X0 :: number) and desk.X1 <= B.HALF_X - B.WALL).toBe(true)
+		expect(desk.Z1).toBe(hall.Z1) -- one end on the X-ray room's wall: nobody walks through behind it
+		expect(desk.X0 >= (B.DOORS.XRay.X1 :: number) + 2 and desk.X1 <= B.HALF_X - B.WALL).toBe(true)
 		expect(desk.X1 - desk.X0).toBeCloseTo(B.NURSE_DESK.Depth)
 		expect(desk.Z1 - desk.Z0).toBeCloseTo(B.NURSE_DESK.Length)
+		-- two columns of nurses fit between it and the end wall; the waiting room's side of it stays open
+		expect(B.HALF_X - B.WALL - desk.X1).toBeCloseTo(2 * B.NURSE_EDGE + B.NURSE_GAP)
+		expect(desk.Z0 - hall.Z0 >= 3).toBe(true)
 		for level = B.MIN_LEVEL, B.MAX_LEVEL do
 			local found = 0
 			for _, o in B.obstacles(level, 0) do
@@ -374,16 +387,20 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 			end
 			expect(found).toBe(1)
 		end
-		-- off the X-ray door and every patient's walk by a creature's half-width
-		local _, xrayOut = B.doorPoints("XRay")
-		expect(toRect(xrayOut, desk) >= 2.5).toBe(true)
+		-- off every door and every patient's walk by a creature's half-width
+		for doorName in B.DOORS do
+			local inside, outside = B.doorPoints(doorName)
+			if inside and outside then
+				expect(toRect(inside, desk) >= 2.5 and toRect(outside, desk) >= 2.5).toBe(true)
+			end
+		end
 		for level = B.MIN_LEVEL, B.MAX_LEVEL do
 			for _, seg in patientWalks(level) do
 				for _, corner in
 					{
 						{ X = desk.X0, Z = desk.Z1 },
-						{ X = desk.X1, Z = desk.Z1 },
 						{ X = desk.X0, Z = desk.Z0 },
+						{ X = desk.X1, Z = desk.Z0 },
 					}
 				do
 					expect(toSegment(corner, seg[1], seg[2]) >= 2.5).toBe(true)
@@ -446,22 +463,24 @@ T.describe("Where nurses stand (Logic/Building.nurseSlot)", function()
 			expect(same(B.nurseSlot("Cheerer", 4), B.NURSE_PLACES.Cheerer[4])).toBe(true)
 			expect(same(B.nurseSlot("Healer", 1), bays[1])).toBe(true)
 			expect(same(B.nurseSlot("Healer", 2, { Healer = 2 }), bays[2])).toBe(true)
+			expect(same(B.nurseSlot("Healer", #bays, { Healer = #bays }), bays[#bays])).toBe(true)
 			expect(same(B.nurseSlot("Porter", 1), B.NURSE_PLACES.Porter[1])).toBe(true)
 			expect(same(B.nurseSlot("Janitor", 1), station[1])).toBe(true) -- a job with no place waits at the station
+			local n = #bays -- the bays' end has this many slots
 			expect(B.stationRank("Maker", 1)).toBeNil()
-			expect(B.stationRank("Healer", 2, { Healer = 2 })).toBeNil()
-			expect(B.stationRank("Healer", 3, { Healer = 3 })).toBe(1) -- the 3rd Healer: past the bays' end's 2
+			expect(B.stationRank("Healer", n, { Healer = n })).toBeNil()
+			expect(B.stationRank("Healer", n + 1, { Healer = n + 1 })).toBe(1) -- one Healer more than the bays' end holds
 			-- Medics take what the Healers leave at the bays' end, then the station (after the Healers there)
 			expect(same(B.nurseSlot("Medic", 1), bays[1])).toBe(true)
 			expect(same(B.nurseSlot("Medic", 1, { Healer = 1, Medic = 2 }), bays[2])).toBe(true)
-			expect(B.stationRank("Medic", 2, { Healer = 1, Medic = 2 })).toBe(1)
-			expect(B.stationRank("Medic", 1, { Healer = 2, Medic = 1 })).toBe(1)
-			expect(B.stationRank("Medic", 1, { Healer = 3, Medic = 1 })).toBe(2)
+			expect(B.stationRank("Medic", n, { Healer = 1, Medic = n })).toBe(1)
+			expect(B.stationRank("Medic", 1, { Healer = n, Medic = 1 })).toBe(1)
+			expect(B.stationRank("Medic", 1, { Healer = n + 1, Medic = 1 })).toBe(2)
 			expect(B.stationRank("Porter", 1, { Healer = 1, Medic = 1, Porter = 1 })).toBeNil()
-			expect(B.stationRank("Porter", 3, { Healer = 3, Medic = 1, Porter = 3 })).toBe(3)
-			expect(B.stationRank("Janitor", 1, { Healer = 3, Porter = 1, Janitor = 1 })).toBe(2)
-			expect(B.stationRank("Maker", 3, { Healer = 3, Maker = 3 })).toBe(2) -- the 3rd Maker: past the shelf's 2
-			expect(B.stationRank("Cheerer", 5, { Healer = 3, Maker = 3, Cheerer = 5 })).toBe(3)
+			expect(B.stationRank("Porter", 3, { Healer = n + 1, Medic = 1, Porter = 3 })).toBe(3)
+			expect(B.stationRank("Janitor", 1, { Healer = n + 1, Porter = 1, Janitor = 1 })).toBe(2)
+			expect(B.stationRank("Maker", 3, { Healer = n + 1, Maker = 3 })).toBe(2) -- the 3rd Maker: past its place's 2
+			expect(B.stationRank("Cheerer", 5, { Healer = n + 1, Maker = 3, Cheerer = 5 })).toBe(3)
 			-- junk index: the first; a returned spot is a fresh table (callers may keep it)
 			expect(same(B.nurseSlot("Healer", 0 / 0), bays[1])).toBe(true)
 			expect(same(B.nurseSlot("Janitor", 0 / 0), station[1])).toBe(true)

@@ -108,14 +108,15 @@ Config.AdminNames = { "Dandlepeeps" } -- Joshua's brother
 -- so the spawn plaza sits on the street's row-2 half (+z). All of these are offsets from Origin (x, z).
 Config.Town = {
 	Origin = Vector3.new(0, 0, 300),
-	-- The Real Clinic (design §8.1): was 80. The clinic is 64 x 44 (Logic/Building), with a yard on every side: the
-	-- front garden and path, the ambulance bay in the -x side yard, the Sunny Garden behind.
-	PlotSize = 110,
+	-- The Real Clinic (design §8.1): was 80, then 110. The bigger, open building (simple-start design §4;
+	-- memory-20261117-006): the clinic is 96 x 66 (Logic/Building), with a yard on every side: the front garden and
+	-- path (34 deep), the ambulance bay in the -x side yard (22 wide), the Sunny Garden behind (40 deep).
+	PlotSize = 140,
 	Plots = 6,
 	SpawnOffset = Vector3.new(0, 0, 11), -- TownSpawn's centre (an 8 x 8 pad, z 7..15)
 	SpawnSize = 8,
 	Plaza = { X0 = -30, X1 = 30, Z0 = 5.4, Z1 = 17 }, -- the row-2 half of the road (the curb is z 17.2..18)
-	BeltClear = 4.4, -- |z| <= this, x -181.5..181.5: the belt's alone (its bed is +-3.3)
+	BeltClear = 4.4, -- |z| <= this, x -221.5..221.5: the belt's alone (its bed is +-3.3)
 }
 
 -- Background music: Roblox's licensed music library (uploader DistrokidOfficial), free for any experience.
@@ -225,12 +226,15 @@ Config.Treat = {
 -- and Secret only in Golden Hour. Epic and up ride for everyone but need hospital Lv 3 to hire (MinLevel); their
 -- first-rebirth gate for Mythic and Secret waits for rebirths (design §7).
 Config.Belt = {
-	Offset = Vector3.new(180, 0, 0), -- the belt's start (the nurse house at the east end, z = 0) from Town.Origin
+	-- The bigger building (design 2026-11-17 simple start §4): 140-stud plots made the street 484 long (was 394), so
+	-- the belt grew with it (start 180 -> 220, length 360 -> 440). The ride takes as long as it did, so as many
+	-- nurses ride at once and each is on offer as long: the belt just moves a little faster (2.7 -> 3.3 studs a second).
+	Offset = Vector3.new(220, 0, 0), -- the belt's start (the nurse house at the east end, z = 0) from Town.Origin
 	Heading = 180, -- degrees about Y from world +X that riders move: 180 = toward -X (west)
-	Length = 360, -- studs, start to end (was 270 on the 80-stud plots' street)
+	Length = 440, -- studs, start to end (was 270 on the 80-stud plots' street, 360 on the 110-stud plots')
 	SignOffset = Vector3.new(-24, 0, 11), -- the odds sign from Town.Origin: the plaza's west end, facing TownSpawn
 	ArriveSeconds = 40, -- a nurse steps on this often
-	RideSeconds = 133, -- start to end (2.7 studs a second, as before); with one every 40 s, three or four ride at once
+	RideSeconds = 133, -- start to end (3.3 studs a second); with one every 40 s, three or four ride at once
 	ReplaceSeconds = 8, -- a hire that leaves no other nurse on the belt (Common or Rare) brings the next this soon
 	Odds = { Common = 75, Rare = 20, Epic = 4.5, Legendary = 0.5 }, -- percent
 	MinLevel = { Epic = 3, Legendary = 3, Mythic = 3, Secret = 3 }, -- the hospital level that may hire them
@@ -380,21 +384,27 @@ Config.GoldenMultiplier = 5
 Config.Look = {
 	StudsVariant = "CureStuds", -- the MaterialService child that switches World/Studs to "Variant" mode (§B4)
 	CheckerStuds = 4, -- town lawn checker cell: within 20 studs of the street and in the plot gaps
-	CheckerFarStuds = 8, -- the rest of the town lawn
+	-- The rest of the town lawn. Was 8: the 140-stud plots' longer gaps took the town to 626 parts; at 10 it is 510.
+	CheckerFarStuds = 10,
 	-- An rbxassetid of a 2x2-cell checker once uploaded: one Texture per lawn part (StudsPerTileU/V = 2 x cell,
 	-- Transparency ~0.85) replaces the GrassB tiles. "" = the tiles are parts.
 	CheckerTexture = "",
-	TownParts = 600, -- ClinicTown (the lawn, road, plaza, trees, lamps, arches; not the belt, kiosks, boards or plots)
+	-- ClinicTown (the lawn, road, plaza, trees, lamps, arches; not the belt, kiosks, boards or plots). Was 600: 60
+	-- parts moved to the six plots (below); the town builds 510.
+	TownParts = 540,
 	-- The Real Clinic (design §8.5): the whole clinic stands from Lv 1, so the budgets grew. Six plots plus the town
-	-- stay under 4,500 parts.
-	PlotBudget = 640, -- one plot at Lv 5 with every room, any theme, no creatures, nurses or decor (was 400)
+	-- stay within 4,500 parts: the bigger, open building (simple-start design §4) gave each plot 20 more, 10 of them
+	-- taken from the town (6 x 660 + 540 = 4,500; it was 6 x 640 + 600 = 4,440).
+	PlotBudget = 660, -- one plot at Lv 5 with every room, any theme, no creatures, nurses or decor (was 400, then 640)
 	-- The pantry (memory-20261117-006): the hot-chocolate and bath-foam stations moved from the rooms into the
-	-- Building, so 20 parts of budget moved with them (Building 420 -> 440, rooms 90 -> 70); the plot's 640 is as it was.
-	BuildingParts = 440, -- its share: the Building, any level, any theme (was 160, then 420)
+	-- Building, so 20 parts of budget moved with them (Building 420 -> 440, rooms 90 -> 70).
+	-- The bigger building: the stairwell's enclosure on every floor and its door (Building 440 -> 455), the longer
+	-- fence round a 140-stud plot (plot 130 -> 135).
+	BuildingParts = 455, -- its share: the Building, any level, any theme (was 160, then 420, then 440)
 	RoomParts = 70, -- its share: every room model on the plot (interior fit-outs, no walls or roofs, + the Garden)
 	-- Its share: everything else on the plot (pad, edging, path, Counter, markers, sign, fence, gate, mailbox, trees,
 	-- bushes).
-	PlotParts = 130,
+	PlotParts = 135,
 	SurfaceGuisPerBuilding = 24, -- each with a MaxDistance
 	GlassPerBuilding = 10, -- see-through parts (Transparency strictly between 0 and 1)
 	WardFloorBeds = 4, -- bed spots on each upper floor (Logic/Building.wardBeds): functional + dressing

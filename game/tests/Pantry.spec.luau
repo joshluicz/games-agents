@@ -1,8 +1,8 @@
 --!nocheck
 -- The pantry (memory-20261117-006, Joshua 2026-11-17: "minimise the patients walking around. yes move the hot cocoa
 -- into like a pantry or something"; docs/plan/2026-11-17-simple-start-design.md §3). Hot chocolate and bath foam are
--- taken in the MAIN building: Station_Cocoa and Station_Bath are Logic/Building stations, in the hall behind the
--- supply alcove, each open only while its room is owned (the Winter Wing, the Bath Room). The bought rooms hold no
+-- taken in the MAIN building: Station_Cocoa and Station_Bath are Logic/Building stations, the last two of the
+-- supply wall, each open only while its room is owned (the Winter Wing, the Bath Room). The bought rooms hold no
 -- station any more: they are themed recovery rooms that bring their case pools. Every save id stays (the station ids
 -- Cocoa and Bath, the items Cocoa and Bubbles, the `Made:<id>` stats, the badge ids, the room ids).
 --   · the numbers (Logic/Building): where the two stand, when they are open, their prompts, the walks to them
@@ -158,18 +158,23 @@ T.describe("Pantry: the numbers (Logic/Building)", function()
 		end
 	end)
 
-	test("where: side by side in the hall behind the supply alcove, against the stairs, in nobody's way", function()
-		local hall, well, supply = B.ROOMS.LiftCore, B.STAIRWELL, B.ROOMS.Supply
-		local last
+	test("where: side by side at the supply wall, beside the Bandage shelf, in nobody's way", function()
+		local recess = B.ROOMS.Supply
+		local last = B.stationRect("Bandage")
+		-- the supply wall's last two, in PANTRY_ORDER
+		local order = B.SUPPLY_ORDER
+		expect({ order[#order - 1], order[#order] }).toEqual(B.PANTRY_ORDER)
 		for _, id in B.PANTRY_ORDER do
 			local station, body = B.STATIONS[id], B.stationRect(id)
-			expect(inside(body, hall)).toBe(true)
-			expect(station.Face).toBe(0) -- its front toward the supply alcove
-			expect(body.Z1).toBeCloseTo(well.Z0) -- its back on the stairs' rail
-			expect(body.X1 - body.X0).toBeCloseTo(B.PANTRY.Width)
+			expect(inside(body, recess)).toBe(true)
+			expect(station.Face).toBe(B.STATIONS.Bandage.Face) -- the same wall, the same way: toward the bays
+			expect(body.Z0).toBeCloseTo(recess.Z0) -- its back on the dispensary's wall
+			-- a full-width unit now (the old pantry's were 3.2: all the stairs' rail had)
+			expect(station.Width).toBeNil()
+			expect(body.X1 - body.X0).toBeCloseTo(B.STATION_SIZE.Width)
 			expect(body.Z1 - body.Z0).toBeCloseTo(B.STATION_SIZE.Depth)
-			-- never in a bought room, the corridor B walkway or the supply alcove
-			for _, room in { "BathRoom", "WinterWing", "CozyWard", "CorridorB", "Supply", "XRay" } do
+			-- never in a bought room, a corridor's walkway or the X-ray room
+			for _, room in { "BathRoom", "WinterWing", "CozyWard", "CorridorA", "CorridorB", "Hall", "XRay" } do
 				expect(overlap(body, B.ROOMS[room])).toBe(false)
 			end
 			-- solid, and overlapping nothing else that is
@@ -182,15 +187,12 @@ T.describe("Pantry: the numbers (Logic/Building)", function()
 				end
 			end
 			expect(found).toBe(true)
-			if last then
-				-- side by side on one wall, a sliver apart (no two faces in one plane)
-				expect(body.X0 - last.X1).toBeCloseTo(B.PANTRY.Gap)
-				expect(B.PANTRY.Gap >= 0.05).toBe(true)
-			end
+			-- side by side on one wall: next to the one before it, a gap apart (no two faces in one plane)
+			local gap = last.X0 - body.X1
+			expect(gap >= 0.5 and gap <= 2).toBe(true)
 			last = body
-			-- next to the supply shelf: a few steps from the alcove's corridor-B end
-			local mouth = { X = (supply.X0 + supply.X1) / 2, Z = supply.Z1 }
-			expect(dist(B.stationStand(id), mouth) <= 12).toBe(true)
+			-- next to the supplies: a few steps from the Bandage shelf's stand
+			expect(dist(B.stationStand(id), B.stationStand("Bandage")) <= 12).toBe(true)
 			-- the stand is open floor at every level
 			local stand = B.stationStand(id)
 			for _, level in LEVELS do
@@ -199,19 +201,11 @@ T.describe("Pantry: the numbers (Logic/Building)", function()
 				).toBe(true)
 			end
 		end
-		-- the stairs' foot (the landing's width in front of lane A) and the lift's landing stay clear
-		local first = B.stationRect(B.PANTRY_ORDER[1])
-		expect(first.X0 >= B.STAIR_LANDING.X1).toBe(true)
-		local landing = B.LANDING
-		local pad = {
-			X0 = landing.X - landing.Size / 2,
-			X1 = landing.X + landing.Size / 2,
-			Z0 = landing.Z - landing.Size / 2,
-			Z1 = landing.Z + landing.Size / 2,
-		}
-		expect(overlap(last, pad)).toBe(false)
-		-- and the walk along corridor B to the lift passes a creature's half-width clear of them
-		expect(first.Z0 - landing.Z >= 2.5).toBe(true)
+		-- clear of the A&E door at that end of corridor A: a patient coming in passes a creature's width from the stands
+		local aeIn = B.doorPoints("AE")
+		for _, id in B.PANTRY_ORDER do
+			expect(dist(B.stationStand(id), aeIn) >= 5).toBe(true)
+		end
 	end)
 
 	test("at its own stand each one's prompt is the nearest: no station's, no bay's, not the lift's", function()
@@ -255,8 +249,8 @@ T.describe("Pantry: the numbers (Logic/Building)", function()
 								error(string.format("Lv %d: no walk between bay %s and %s", level, bay.Id, id))
 							end
 						end
-						-- and from the supply shelf it stands behind: one straight walk
-						expect(#B.path(B.stationStand("Plaster"), stand, level, 0) <= 2).toBe(true)
+						-- and from the supply shelf it stands beside: one straight walk
+						expect(#B.path(B.stationStand("Plaster"), stand, level, 0)).toBe(1)
 					end
 				end
 			end
