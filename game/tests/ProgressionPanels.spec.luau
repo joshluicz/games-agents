@@ -354,3 +354,184 @@ T.describe("T7 panels: the template in the source", function()
 		expect(count(body, "os.date(")).toBe(0)
 	end)
 end)
+
+------------------------------------------------------------------------------------------------------------------
+-- T5 (UI direction §4 #6, #10, #11; Joshua, memory-20261117-007; R0 is memory-20261117-006): the progress and
+-- reward panels' words, what a fresh save sees, and their calm-rule ratchet (every file at 0, locked here).
+------------------------------------------------------------------------------------------------------------------
+local Levels = require("../src/shared/Data/Levels")
+local Perks = require("../src/shared/Data/Perks")
+local Abilities = require("../src/shared/Data/Abilities")
+local Wings = require("../src/shared/Data/Wings")
+local DailyGoals = require("../src/shared/Data/DailyGoals")
+local Playtime = require("../src/shared/Data/Playtime")
+
+local function block(path: string, startMark: string, endMark: string, name: string, env: { [string]: any }?): any
+	local text = source(path)
+	local first = string.find(text, startMark, 1, true)
+	local last = string.find(text, endMark, 1, true)
+	assert(first and last and last > first, "no " .. startMark .. " block in " .. path)
+	local options = if env then { debugName = path, environment = env, injectGlobals = true } else { debugName = path }
+	return luau.load(string.sub(text, first, last - 1) .. "\nreturn " .. name, options)()
+end
+
+local MailPure = block("src/client/UI/Mailbox.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure", { Icons = Icons })
+local GiftPure = block("src/client/UI/PlayGifts.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure", { Icons = Icons })
+local DayPure = block("src/client/UI/DayReportPanel.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure", { Icons = Icons })
+local Words = block("src/client/UI/Celebrate.luau", "-- BEGIN PURE", "-- END PURE", "Words")
+
+local T5_FILES = {
+	"src/client/UI/BranchPanel.luau",
+	"src/client/UI/BookPanel.luau",
+	"src/client/UI/BadgeBook.luau",
+	"src/client/UI/Mailbox.luau",
+	"src/client/UI/PlayGifts.luau",
+	"src/client/UI/DayReportPanel.luau",
+	"src/client/UI/Celebrate.luau",
+}
+
+local function commas(n: number): string
+	return tostring(math.floor(n))
+end
+
+T.describe("T5 progress and rewards: the calm UI", function()
+	test("the calm rules: every T5 file is at 0 on every rule (the ratchet, locked here)", function()
+		local over = UiRules.ratchet(T5_FILES, {})
+		assert(#over == 0, "\n" .. table.concat(over, "\n"))
+		for _, path in T5_FILES do
+			expect(UiRules.check({ path })).toEqual({})
+		end
+	end)
+
+	test("every T5 panel title is words only", function()
+		expect(MailPure.TEXT.Title).toBe("Mail")
+		expect(MailPure.TEXT.GoalsTitle).toBe("Goals")
+		expect(GiftPure.TEXT.Title).toBe("Play gifts")
+		expect(DayPure.TEXT.Title).toBe("Day done!")
+		expect(BP.TEXT.Title).toBe("Branches")
+		for _, text in { MailPure.TEXT.Title, MailPure.TEXT.GoalsTitle, GiftPure.TEXT.Title, DayPure.TEXT.Title } do
+			expect(Icons.count(text)).toBe(0)
+			assert(words(text) <= 2, text)
+		end
+		local book = source("src/client/UI/BookPanel.luau")
+		assert(string.find(book, 'Title = "Book"', 1, true), "the Book's title is the word")
+	end)
+
+	test("Mailbox: goals in words, a reward with one Unit, Open on the Collect button (no 🎁)", function()
+		for _, def in DailyGoals do
+			local text = MailPure.goalText(Wings, def)
+			expect(Icons.count(text)).toBe(0)
+			assert(words(text) <= 6, text)
+			local reward = MailPure.rewardText(def, commas)
+			assert(Icons.count(reward) <= 1, reward)
+		end
+		expect(MailPure.rewardText({ Reward = { Cash = 40, Stars = 2 } }, commas)).toBe("💰 40 + 2 stars")
+		expect(MailPure.rewardText({ Reward = { Stars = 1 } }, commas)).toBe("1 star")
+		expect(MailPure.goalText(Wings, { Kind = "CureNight", Target = 3 })).toBe("Treat 3 night patients")
+		expect(MailPure.goalText(Wings, { Kind = "CureWing", Target = 4, Wing = "Bath" })).toBe(
+			"Treat 4 " .. Wings.Bath.Name .. " patients"
+		)
+		expect(MailPure.TEXT.Open).toBe("Open")
+		expect(MailPure.TEXT.Busy).toBe(Icons.State.Waiting)
+		for key, text in MailPure.TEXT do
+			if key ~= "Busy" then
+				expect(Icons.count(text)).toBe(0)
+			end
+		end
+		expect(Icons.count(MailPure.KEEPER)).toBe(1)
+	end)
+
+	test("Play gifts: a reward with one Unit, the rank line and the footer in words", function()
+		for _, gift in Playtime.Gifts do
+			local line = GiftPure.rewardText(gift, { QuickHands = {}, LuckyTips = {}, StarRush = {} }, commas)
+			expect(Icons.count(line)).toBe(1)
+		end
+		expect(GiftPure.rewardText({ Cash = 30, Stars = 1, Boost = "QuickHands" }, { QuickHands = {} }, commas)).toBe(
+			"💰 30 · 1 star · boost"
+		)
+		expect(GiftPure.rankLine("4h 12m", Playtime.Ranks[3])).toBe(
+			"4h 12m played · next: " .. Playtime.Ranks[3].Name .. " at " .. Playtime.Ranks[3].Hours .. "h"
+		)
+		expect(Icons.count(GiftPure.rankLine("4h", nil))).toBe(0)
+		expect(GiftPure.footer(true, true)).toBe("All gifts opened today!")
+		expect(GiftPure.footer(false, false)).toBe("Paused while you rest")
+		expect(GiftPure.footer(false, true)).toBe("Gifts unlock as you play")
+	end)
+
+	test("Day Report: a fresh save sees three lines; pages and the next goal join as they unlock", function()
+		local report = DayPure.clean({ Cured = 4, CashGained = 120, StarsGained = 3, NewPages = {}, Next = {} })
+		local fresh = DayPure.visible(report, { Level = 1, Upgrades = {}, Rooms = { Stand = true } })
+		expect(fresh).toEqual({ Cured = true, Cash = true, Stars = true, Pages = false, Next = false })
+		-- today's server sends no CashGained: the Cash line waits for it (nothing made up)
+		local today = DayPure.clean({ Cured = 4, StarsGained = 3, NewPages = { "ToastPup" } })
+		expect(today.CashGained).toBeNil()
+		expect(DayPure.visible(today, {}).Cash).toBe(false)
+		expect(DayPure.visible(today, {}).Pages).toBe(true)
+		-- the next goal once there is one and the Shop has been used
+		local rich = DayPure.clean({ Cured = 9, StarsGained = 3, Next = { Kind = "Room", Id = "BathRoom", Icon = "" } })
+		expect(DayPure.visible(rich, { Level = 1, Rooms = { Stand = true } }).Next).toBe(false)
+		expect(DayPure.visible(rich, { Level = 2 }).Next).toBe(true)
+		expect(DayPure.visible(rich, { Level = 1, Upgrades = { Speed = 1 } }).Next).toBe(true)
+		expect(DayPure.visible(rich, { Level = 1, Rooms = { Stand = true, BathRoom = true } }).Next).toBe(true)
+		-- junk in, a clean report out
+		expect(DayPure.clean(nil)).toBeNil()
+		expect(DayPure.clean({ Cured = -3, StarsGained = 0 / 0 }).Cured).toBe(0)
+		expect(DayPure.pagesText(1)).toBe("+1 new page")
+		expect(DayPure.pagesText(3)).toBe("+3 new pages")
+		expect(DayPure.TEXT.Shop).toBe("Shop")
+		local body = source("src/client/UI/DayReportPanel.luau")
+		assert(string.find(body, "Kit.textLimit(cured, Theme.TextSize.Hero)", 1, true), "the count stays Hero")
+	end)
+
+	test("Celebrate stays loud, but its chrome emoji are the dictionary's and never two side by side", function()
+		expect(Words.ICON.Cash).toBe(Icons.Unit.Cash)
+		expect(Words.ICON.Tree).toBe(Icons.Unit.Tree)
+		expect(Words.ICON.Branches).toBe(Icons.Door.Branches)
+		expect(Words.ICON.Odds).toBe(Icons.Door.Odds)
+		expect(Words.ICON.Nurses).toBe(Icons.Door.Nurses)
+		expect(Words.ICON.Again).toBe(Icons.Mark.Again)
+		local data = {
+			Nurses = Nurses,
+			Rarities = Rarities,
+			Levels = Levels,
+			Decor = {},
+			Rooms = {},
+			Perks = Perks,
+			Themes = Themes,
+			Abilities = Abilities,
+			Unlocks = RebirthLogic.UNLOCKS,
+			Config = Config,
+		}
+		for count = 1, 12 do
+			local words = Words.of({ Kind = "Rebirth", Title = "New branch!", Icon = "🏢", Count = count }, data)
+			for _, unlockId in RebirthLogic.unlocks(count) do
+				Words.fold(words, unlockId, data)
+			end
+			expect(words.Chips[1]).toBe(
+				"×" .. Words.decimal(RebirthLogic.multiplier(count, Config)) .. " cash and stars"
+			)
+			for _, chip in words.Chips do
+				assert(Icons.count(chip) <= 1, "two emoji in a chip: " .. chip)
+			end
+		end
+		-- the odds still show on the Golden unlock (red line 3)
+		local golden = Words.unlockChips("Golden", data)
+		expect(golden[2]).toBe(Icons.Door.Odds .. " 1 in " .. math.floor(1 / Config.GoldenChance + 0.5))
+		for _, nurseId in Nurses.Order do
+			local level = Words.of({
+				Kind = "NurseLevel",
+				Title = "Level up!",
+				Icon = "⬆️",
+				NurseId = nurseId,
+				Level = 5,
+				Ability = true,
+			}, data)
+			for _, chip in level.Chips do
+				assert(Icons.count(chip) <= 1, "two emoji in a chip: " .. chip)
+			end
+		end
+		local body = code("src/client/UI/Celebrate.luau")
+		expect(count(body, '"🎉 Yay!"')).toBe(0)
+		assert(string.find(body, "title.Text = words.Title", 1, true), "the title is words")
+	end)
+end)

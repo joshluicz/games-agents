@@ -357,7 +357,7 @@ function DayReportPanel.init(ctx: Types.Ctx)
 	end)
 
 	local token = 0
-	local function show(report: Pure.Report)
+	local function show(report: Report)
 		token += 1
 		local mine = token
 		local shown = Pure.visible(report, ctx.State)

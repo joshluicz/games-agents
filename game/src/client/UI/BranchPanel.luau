@@ -266,7 +266,8 @@ function Pure.status(state: any, cfg: any): Status
 	local levelOk = level >= minLevel
 	local cashOk = cash >= cost
 	local ok, message = RebirthLogic.canRebirth(state, cfg)
-	-- Server/Rebirth refuses a branch while a perk card waits ("🃏 Pick your card first!"): one card per branch.
+	-- Server/Rebirth refuses a branch while a perk card waits (its MSG.PickCard says the same words): one card per
+	-- branch.
 	local cardWaits = #listOf(rebirthOf(state).Offer) > 0
 	if ok and cardWaits then
 		ok, message = false, Pure.TEXT.PickCardFirst

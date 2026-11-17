@@ -103,7 +103,7 @@
 --   Hud.sound(name, volume?)           a Feel/Sounds cue over the bus
 --   Hud.format(n): string              1,234 · 1.2M past a million
 --   Hud.target(name): GuiObject?       a HUD piece by name ("Cash", "Stars", "Shop", "Book", "Mailbox", "Goals",
---                                      "Nurses", "Badges", "Boards", "Gifts", "Settings", "Hands"), for pointers
+--                                      "Nurses", "Badges", "Boards", "Gifts", "Settings", "Hands", "Level"), for pointers
 --                                      (UI/Tutorial) and flying icons. The rail names are the rail plates; a piece
 --                                      moved into ⚙️ More points at ⚙️
 --   Hud.livePlay(state): (save, day, pending)   Data.Playtime as it is right now: the Snapshot's saved part plus
@@ -216,7 +216,7 @@ Pure.SETTINGS = table.freeze({
 	Skip = table.freeze({ Kind = "Link", Label = "Skip tutorial" }),
 	Replay = table.freeze({ Kind = "Link", Label = "Replay tutorial" }),
 	Admin = table.freeze({ Kind = "Link", Label = "Admin" }),
-})
+}) :: { [string]: { Kind: string, Label: string } }
 
 -- THE REVEAL (UI direction R0 and change 4b; Joshua, memory-20261117-007 #3: "The HUD reveals one door at a time,
 -- each when it first has content ... Players who already have a door keep it").
@@ -257,7 +257,7 @@ Pure.TRIGGERS = table.freeze({
 	Event = table.freeze({ "Golden" }), -- hospital Lv 3 (GOLDEN_LEVEL)
 	Visitor = table.freeze({ "Veteran" }),
 	Boosts = table.freeze({ "Boost" }), -- a timed boost is running
-})
+}) :: { [string]: { string } }
 -- What the Now card says as a door arrives (one line, six words or fewer, no emoji: the door's icon is on its tile).
 -- A piece with no line arrives quietly.
 Pure.DOOR_LINE = table.freeze({
@@ -270,13 +270,13 @@ Pure.DOOR_LINE = table.freeze({
 	Mailbox = "New: you have mail",
 	Clock = "New: the day and night clock",
 	Event = "New: Golden Hour times",
-})
+}) :: { [string]: string }
 -- The icon on the Now card's tile for a piece that isn't a rail door (a rail door shows its own).
 Pure.DOOR_ICON = table.freeze({
 	Level = Icons.Unit.Level,
 	Clock = Icons.Status.Night,
 	Event = Icons.Status.Golden,
-})
+}) :: { [string]: string }
 -- Hud's other words (plain: no emoji in front of a sentence).
 Pure.TEXT = table.freeze({
 	LevelUp = "You can level up: tap here",

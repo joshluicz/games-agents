@@ -37,6 +37,12 @@
 --   · Rebirth: the ribbon and the rays in the new theme's Roof colour and the bubble's ring in its Trim; the bubble
 --     stays white (the walls stay the plot colour: themes no longer recolour walls, §G4).
 --   · Fires the bus event "CelebrateClosed" (kind) as a screen closes (UI/Tutorial rings 📖 after the finale).
+-- The calm UI (docs/plan/2026-11-17-ui-direction.md §4 #11; Joshua, memory-20261117-007): Celebrate STAYS LOUD (the
+-- reward moment, where the ruled "flashy" belongs). Only two things change: its chrome emoji are the dictionary's
+-- (UI/Icons; the Words block can't require it, so its ICON table names the same emoji and tests/ProgressionPanels
+-- checks they match), and never two emoji side by side (the rebirth bonus is "×1.25 cash and stars", not "💰⭐ ×").
+-- The title is words (the Art is in the bubble, and an emoji can't take the title's outline); the buttons say
+-- "Yay!" and "Pick a card!" (the Collect colour says the rest). Its Party emoji are free.
 
 local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
@@ -54,6 +60,7 @@ local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local MiniGames = require(script.Parent.MiniGames)
 local Theme = require(script.Parent.Theme)
+local Icons = require(script.Parent.Icons)
 
 ------------------------------------------------------------------------------------------------------------------
 -- Words: what a celebration says, from its info and the Data tables. Pure (no Roblox APIs): a scratch Lune harness
@@ -61,6 +68,13 @@ local Theme = require(script.Parent.Theme)
 ------------------------------------------------------------------------------------------------------------------
 -- BEGIN PURE
 local Words = {}
+
+-- The chrome emoji the words use, exactly as UI/Icons names them (Unit.Cash, Unit.Tree, Door.Branches, Door.Odds,
+-- Door.Nurses, Mark.Again). This block loads with no requires (tests/Juice, tests/TutorialFlow), so it can't read
+-- UI/Icons; tests/ProgressionPanels checks every entry equals the dictionary's.
+-- stylua: ignore
+local ICON = { Cash = "💰", Tree = "🌳", Branches = "🏢", Odds = "🎲", Nurses = "👩‍⚕️", Again = "🔁" } -- uirules: allow TypedEmoji (no requires here; checked against UI/Icons)
+Words.ICON = ICON
 
 export type CelebrateWords = {
 	Kind: string,
@@ -198,7 +212,7 @@ function Words.unlockChips(unlockId: any, data: any): { string }
 		local cfg = data.Config
 		local chance = if type(cfg) == "table" then finite(cfg.GoldenChance) else nil
 		if chance and chance > 0 and chance <= 1 then
-			table.insert(chips, "🎲 1 in " .. math.floor(1 / chance + 0.5))
+			table.insert(chips, ICON.Odds .. " 1 in " .. math.floor(1 / chance + 0.5))
 		end
 	end
 	return chips
@@ -328,7 +342,7 @@ function Words.of(info: any, data: any, now: number?): CelebrateWords?
 		end
 		if type(info.Cash) == "number" and info.Cash > 0 then
 			words.Cash = math.floor(info.Cash)
-			chip("💰 " .. Words.commas(info.Cash))
+			chip(ICON.Cash .. " " .. Words.commas(info.Cash))
 		end
 		local decor = entry(data.Decor, info.Decor)
 		if decor then
@@ -344,7 +358,7 @@ function Words.of(info: any, data: any, now: number?): CelebrateWords?
 		-- and then a perk card to pick (every rebirth offers one: the 🌳 fallback when all 12 are owned).
 		local count = whole(info.Count)
 		if count > 0 then
-			words.Sticker = "🏢 " .. count
+			words.Sticker = ICON.Branches .. " " .. count
 		end
 		local theme = entry(data.Themes, info.Theme)
 		if theme then
@@ -359,15 +373,15 @@ function Words.of(info: any, data: any, now: number?): CelebrateWords?
 			local counted = math.min(count, finite(rebirth.MaxBonusRebirths) or count)
 			local multiplier = 1 + math.max(0, finite(rebirth.CashPerRebirth) or 0) * counted
 			if multiplier > 1 then
-				chip("💰⭐ ×" .. Words.decimal(multiplier))
+				chip("×" .. Words.decimal(multiplier) .. " cash and stars") -- words: never two emoji side by side
 			end
 			local points = whole(rebirth.PointsPerRebirth)
 			if points > 0 then
 				words.Points = points
-				chip("🌳 +" .. points)
+				chip(ICON.Tree .. " +" .. points)
 			end
 			if rosterCap(cfg, count) > rosterCap(cfg, count - 1) then
-				chip("👩‍⚕️ +1 nurse slot")
+				chip(ICON.Nurses .. " +1 nurse slot")
 			end
 		end
 		words.Action = "Perks"
@@ -392,9 +406,9 @@ function Words.of(info: any, data: any, now: number?): CelebrateWords?
 		if info.Ability == true then
 			local ability = abilityChip(nurse)
 			if ability then
-				chip("💪 Stronger trick")
+				chip("Stronger trick")
 				if ability.Daily ~= true then
-					chip("🔁 Ready sooner")
+					chip(ICON.Again .. " Ready sooner")
 				end
 			end
 		end
@@ -521,7 +535,7 @@ function Celebrate.init(ctx: Types.Ctx)
 	content.Size = UDim2.fromScale(1, 0)
 	content.AutomaticSize = Enum.AutomaticSize.Y
 	content.Parent = stage
-	local list = Kit.list(content, Enum.FillDirection.Vertical, 10)
+	local list = Kit.list(content, Enum.FillDirection.Vertical, Theme.Space.PadCard)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	Hud.fitHeight(content, stage)
 
@@ -562,7 +576,7 @@ function Celebrate.init(ctx: Types.Ctx)
 	local bubbleRound = Instance.new("UICorner")
 	bubbleRound.CornerRadius = Theme.Radius.Round
 	bubbleRound.Parent = bubble
-	Kit.stroke(bubble, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(bubble, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (the candy bubble, over the dim)
 	bubble.Parent = core
 	local face = Instance.new("Frame") -- the icon or the nurse's portrait
 	face.Name = "Face"
@@ -589,7 +603,6 @@ function Celebrate.init(ctx: Types.Ctx)
 		Parent = bubble,
 	})
 	Kit.corner(sticker, Theme.Radius.Medium)
-	Kit.stroke(sticker, Theme.Colors.Stroke, Theme.Stroke.Text)
 	Kit.pad(sticker, Theme.Space.Step[1])
 	Kit.textLimit(sticker, Theme.TextSize.Body) -- never under 18
 
@@ -600,7 +613,7 @@ function Celebrate.init(ctx: Types.Ctx)
 	ribbon.Size = UDim2.new(0.92, 0, 0, 72)
 	ribbon.BorderSizePixel = 0
 	Kit.corner(ribbon, Theme.Radius.Large)
-	Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (the candy ribbon, over the dim)
 	ribbon.Parent = content
 	local title = Kit.label({
 		Name = "Title",
@@ -656,7 +669,6 @@ function Celebrate.init(ctx: Types.Ctx)
 	comingUp.BorderSizePixel = 0
 	comingUp.Visible = false
 	Kit.corner(comingUp, Theme.Radius.Medium)
-	Kit.stroke(comingUp, Theme.Colors.Stroke, Theme.Stroke.Bold)
 	local comingPad = Kit.pad(comingUp, Theme.Space.PadCard)
 	comingPad.PaddingTop = UDim.new(0, 0)
 	comingPad.PaddingBottom = UDim.new(0, 0)
@@ -690,7 +702,7 @@ function Celebrate.init(ctx: Types.Ctx)
 	local yay = Kit.button({
 		Name = "Yay",
 		Kind = "Collect",
-		Text = "🎉 Yay!",
+		Text = "Yay!",
 		TextSize = Theme.TextSize.Title,
 		LayoutOrder = 6,
 		Size = UDim2.fromOffset(220, 64),
@@ -731,7 +743,6 @@ function Celebrate.init(ctx: Types.Ctx)
 		})
 		Kit.textLimit(label, Theme.TextSize.Body)
 		Kit.corner(label, Theme.Radius.Large)
-		Kit.stroke(label, Theme.Colors.Stroke, Theme.Stroke.Fine)
 		local pad = Kit.pad(label, Theme.Space.Step[2])
 		pad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
 		pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
@@ -768,7 +779,7 @@ function Celebrate.init(ctx: Types.Ctx)
 	local function draw(words: CelebrateWords)
 		local accent, trim = colorsOf(words)
 		ribbon.BackgroundColor3 = accent
-		title.Text = words.Icon .. " " .. words.Title
+		title.Text = words.Title -- words only: the Art is in the bubble, and an emoji can't take the outline
 		sub.Text = words.Sub
 		sub.Visible = words.Sub ~= ""
 
@@ -803,7 +814,7 @@ function Celebrate.init(ctx: Types.Ctx)
 			table.insert(stopFx, Kit.rarityFrame(ring, words.Rarity))
 		elseif trim then
 			-- A branch theme: its trim colour rings the bubble.
-			local stroke = Kit.stroke(ring, trim, Theme.Stroke.Panel + Theme.Stroke.Fine)
+			local stroke = Kit.stroke(ring, trim, Theme.Stroke.Panel + Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a frame)
 			stroke.Name = "ThemeTrim"
 		end
 		if words.Sticker then
@@ -826,23 +837,23 @@ function Celebrate.init(ctx: Types.Ctx)
 		drawChips(words)
 		comingText.Text = words.Next or ""
 		comingUp.Visible = words.Next ~= nil
-		-- The button: "🃏 Pick a card!" after a rebirth (it opens the perk cards), else "🎉 Yay!".
+		-- The button: "Pick a card!" after a rebirth (it opens the perk cards), else "Yay!".
 		local picks = words.Action == "Perks"
-		yay.Text = if picks then "🃏 Pick a card!" else "🎉 Yay!"
+		yay.Text = if picks then "Pick a card!" else "Yay!"
 		yay.Size = UDim2.fromOffset(if picks then 290 else 220, 64)
 	end
 
 	-- Things the reward leaves behind as it closes: cash into 💰, a new nurse into 👩‍⚕️, a branch's 🌳 into 🛒.
 	local function afterClose(words: CelebrateWords)
 		if words.Cash and words.Cash > 0 then
-			Hud.fly(nil, "💰", "Cash", Kit.Juice.coins(words.Cash))
+			Hud.fly(nil, Icons.Unit.Cash, "Cash", Kit.Juice.coins(words.Cash))
 		end
 		if words.NurseId then
 			local nurse = rawget(data.Nurses, words.NurseId)
-			Hud.fly(nil, if nurse then nurse.Icon else "👩‍⚕️", "Nurses", 1)
+			Hud.fly(nil, if nurse then nurse.Icon else Icons.Door.Nurses, "Nurses", 1)
 		end
 		if words.Points and words.Points > 0 then
-			Hud.fly(nil, "🌳", "Shop", math.clamp(words.Points + 2, 3, 8))
+			Hud.fly(nil, Icons.Unit.Tree, "Shop", math.clamp(words.Points + 2, 3, 8))
 		end
 	end
 

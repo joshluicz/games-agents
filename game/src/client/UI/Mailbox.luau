@@ -438,7 +438,7 @@ local function buildGoals(ctx: Types.Ctx)
 	local render: (state: Types.Snapshot) -> ()
 
 	local function makeRow(index: number): GoalRow
-		local pad = Theme.Space.PadCard
+		local inset = Theme.Space.PadCard
 		local art = Theme.Calm.ArtTile
 		local claimWidth = 124
 		local frame = Kit.card({ Name = "Goal" .. index, LayoutOrder = index, Pad = false, Parent = scroll })
@@ -448,16 +448,16 @@ local function buildGoals(ctx: Types.Ctx)
 		local tile = Kit.artTile({
 			Icon = "",
 			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, pad, 0.5, 0),
+			Position = UDim2.new(0, inset, 0.5, 0),
 			Parent = frame,
 		})
 		local icon = tile:FindFirstChild("Icon") :: TextLabel
-		local left = pad * 2 + art
-		local right = claimWidth + pad * 2
+		local left = inset * 2 + art
+		local right = claimWidth + inset * 2
 		local text = Kit.name({
 			Name = "What",
 			Text = "",
-			Position = UDim2.fromOffset(left, pad - Theme.Space.Tight),
+			Position = UDim2.fromOffset(left, inset - Theme.Space.Tight),
 			Size = UDim2.new(1, -left - right, 0, Theme.TextSize.Body + Theme.Space.Tight),
 			Parent = frame,
 		})
@@ -490,7 +490,7 @@ local function buildGoals(ctx: Types.Ctx)
 			Text = Pure.TEXT.Claim,
 			TextSize = Theme.TextSize.Button,
 			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -pad, 0.5, 0),
+			Position = UDim2.new(1, -inset, 0.5, 0),
 			Size = UDim2.fromOffset(claimWidth, 60),
 			Parent = frame,
 		})
