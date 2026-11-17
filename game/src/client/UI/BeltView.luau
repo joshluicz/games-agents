@@ -359,7 +359,7 @@ function Pure.rosterFull(state: any, nurseId: string, cfg: any, isKnown: ((strin
 	return not ok
 end
 
--- The odds popup's rebirth note (6 words or fewer): "🏢 Mythic/Secret from R1", or nil when no rarity waits for one.
+-- The odds popup's rebirth note (6 words or fewer, plain words): "Mythic/Secret from R1", or nil when no rarity waits for one.
 function Pure.rebirthNote(cfg: any, rarities: { string }): string?
 	local names: { string } = {}
 	local needed = 0
@@ -373,7 +373,7 @@ function Pure.rebirthNote(cfg: any, rarities: { string }): string?
 	if #names == 0 then
 		return nil
 	end
-	return "🏢 " .. table.concat(names, "/") .. " from R" .. needed -- uirules: allow TypedEmoji (an odds note, pinned by tests/AgencyServer.spec and TownWorld.spec)
+	return table.concat(names, "/") .. " from R" .. needed
 end
 
 -- The 🔭 Belt Scout chip: "🔭 Next: 💎 Rare" (the next arrival's rarity), or nil for junk. `info` is that rarity's
@@ -420,20 +420,17 @@ function Pure.popupRows(cfg: any, rarities: { string }, infos: any, night: boole
 	return rows
 end
 
--- The popup's notes (each 6 words or fewer): what's on now, the Golden Hour's Secret odd (while it isn't on: then
+-- The popup's notes (each 6 words or fewer, plain words: no emoji in front of a sentence): what's on now, the Golden Hour's Secret odd (while it isn't on: then
 -- it's in the rows), who may hire what, and the pity count (BeltPity).
 function Pure.popupNotes(cfg: any, rarities: { string }, night: boolean, golden: boolean, pityLeft: any): { string }
 	local notes: { string } = {}
-	table.insert(
-		notes,
-		if golden then "👑 Golden Hour now!" elseif night then "🌙 Night Rush now!" else "☀️ Day odds now" -- uirules: allow LeadEmoji, uirules: allow TypedEmoji (odds notes, pinned by tests/TownWorld.spec)
-	)
+	table.insert(notes, if golden then "Golden Hour now!" elseif night then "Night Rush now!" else "Day odds now")
 	if not golden then
-		table.insert(notes, "👑 Golden Hour: Secret " .. Pure.percent(BeltLogic.odds(cfg, night, true).Secret)) -- uirules: allow LeadEmoji (an odds note, pinned by tests/TownWorld.spec)
+		table.insert(notes, "Golden Hour: Secret " .. Pure.percent(BeltLogic.odds(cfg, night, true).Secret))
 	end
 	local level = BeltLogic.minLevel(cfg, "Epic")
 	if level > 1 then
-		table.insert(notes, "🏥 Epic+ from Lv " .. level) -- uirules: allow LeadEmoji, uirules: allow TypedEmoji (an odds note, pinned by tests/TownWorld.spec)
+		table.insert(notes, "Epic+ from Lv " .. level)
 	end
 	local rebirth = Pure.rebirthNote(cfg, rarities)
 	if rebirth then
@@ -441,7 +438,7 @@ function Pure.popupNotes(cfg: any, rarities: { string }, night: boolean, golden:
 	end
 	table.insert(
 		notes,
-		if finite(pityLeft) and pityLeft > 0 then "🎁 Rare+ in " .. math.floor(pityLeft) else "🎁 Rare+ next!" -- uirules: allow TypedEmoji (an odds note, pinned by tests/TownWorld.spec)
+		if finite(pityLeft) and pityLeft > 0 then "Rare+ in " .. math.floor(pityLeft) else "Rare+ next!"
 	)
 	return notes
 end
@@ -780,7 +777,7 @@ function BeltView.init(ctx: Types.Ctx)
 		local odds = Kit.button({
 			Name = "Odds",
 			Kind = "Quiet",
-			Text = "🎲 Odds", -- uirules: allow TypedEmoji (pinned by tests/TownWorld.spec; the odds link on a card over the world)
+			Text = "Odds", -- words: the Quiet odds link (always on the card: red line 3)
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 1),
 			Position = UDim2.new(1, -7, 1, -8),

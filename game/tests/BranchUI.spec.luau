@@ -51,6 +51,7 @@ local ShopPure = pureBlock("src/client/UI/Shop.luau", {
 	RebirthLogic = RebirthLogic,
 	TreeLogic = TreeLogic,
 })
+ShopPure.use(Icons) -- as the file does below its PURE block
 local ProgressLogic = require("../src/shared/Logic/Progress")
 local Upgrades = require("../src/shared/Data/Upgrades")
 local Levels = require("../src/shared/Data/Levels")
@@ -583,19 +584,20 @@ T.describe("BranchPanel (pure): the calm UI (UI direction §4 #6; memory-2026111
 end)
 
 T.describe("Shop (pure): the 🏥 tab's branch card, gates and levels", function()
-	test("the branch card: hidden below Lv 5 with no branches; at Lv 5 the cost and Look 👀", function()
+	test("the branch card: hidden below Lv 5 with no branches; at Lv 5 what it needs and Look", function()
 		eq(ShopPure.branchCard(snap({ Level = 4 }), Config, Tree).Show, false)
 		local top = ShopPure.branchCard(snap({ Level = 5 }), Config, Tree)
 		eq(top, {
 			Show = true,
-			Title = "🏢 New branch",
-			Sub = "Need 💰50,000",
+			Title = "New branch",
+			Sub = "Needs 💰 50,000",
 			Look = true,
 			Links = false,
 			Lines = {},
 		})
 		local second = ShopPure.branchCard(snap({ Level = 5, Rebirth = { Count = 2 } }), Config, Tree)
-		eq(second.Sub, "Need 💰110,000  ·  🏢 R2")
+		eq(second.Sub, "Needs 💰 110,000 · 2 branches")
+		eq(Icons.count(second.Sub), 1)
 		eq(second.Links, true)
 	end)
 	test("after a rebirth: the way to cards, tree and themes, and a line per reward waiting", function()
@@ -606,15 +608,15 @@ T.describe("Shop (pure): the 🏥 tab's branch card, gates and levels", function
 		)
 		eq(fresh, {
 			Show = true,
-			Title = "🏢 Your branches",
-			Sub = "🏢 R1",
+			Title = "Your branches",
+			Sub = "1 branch",
 			Look = false,
 			Links = true,
-			Lines = { "🃏 A card to pick!", "🌳 3 points to spend" },
+			Lines = { "A card to pick", "3 tree points to spend" },
 		})
 		eq(
 			ShopPure.branchCard(snap({ Rebirth = { Count = 1, Points = 1 } }), Config, Tree).Lines,
-			{ "🌳 1 point to spend" }
+			{ "1 tree point to spend" }
 		)
 		-- points no node can take aren't a reward to claim (the same rule as Hud.shopNews.Branch)
 		local full = {}
@@ -630,6 +632,7 @@ T.describe("Shop (pure): the 🏥 tab's branch card, gates and levels", function
 		)
 		for key, text in ShopPure.TEXT do
 			assertWords(text, "Shop TEXT." .. key)
+			eq(Icons.count(text), 0)
 			assert(not string.find(string.lower(text), "now", 1, true), "no 'now' on " .. key)
 		end
 	end)

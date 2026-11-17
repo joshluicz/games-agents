@@ -766,7 +766,7 @@ T.describe("Server/Rebirth OpenBranch", function()
 		now += 10
 		local ok, why = served.OpenBranch(p, true)
 		expect(ok).toBe(false)
-		expect(why).toBe("🃏 Pick your card first!")
+		expect(why).toBe("Pick your card first!")
 		expect(saves[p].Rebirth.Offer).toEqual(offer)
 		expect(saves[p].Rebirth.Count).toBe(1)
 	end)

@@ -16,7 +16,7 @@
 --   Rebirth.effects(p): Effects     Logic/Rebirth.effects on the live save (neutral until it loads)
 --   Rebirth.open(p, free?): (ok, message)
 --       1. the §B3 OpenBranch checks, in order: loaded · PlayerData.canSave ("⚠️ Saving is off") · the tutorial done ·
---          no perk card still waiting ("🃏 Pick your card first!": every rebirth gives exactly one card) ·
+--          no perk card still waiting ("Pick your card first!": every rebirth gives exactly one card) ·
 --          Logic/Rebirth.canRebirth (Lv 5, cash >= cost) · no treat session open (Treatment.busy) · one rebirth at a
 --          time per player ("One at a time!") · 5 s per player. `free` (the admin hook) skips the save, tutorial,
 --          card, level, cost and cooldown checks, never the in-flight lock or the count check
@@ -99,7 +99,7 @@ Pure.MSG = table.freeze({
 	Loading = "Still loading! Try again.",
 	SavingOff = "⚠️ Saving is off",
 	Tutorial = "Finish the tutorial first!",
-	PickCard = "🃏 Pick your card first!",
+	PickCard = "Pick your card first!",
 	Treating = "Finish treating first!",
 	Busy = "One at a time!",
 	MaxBranches = "🏢 So many branches!",

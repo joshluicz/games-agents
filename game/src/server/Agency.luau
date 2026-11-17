@@ -2,7 +2,7 @@
 -- The Nurse Agency kiosk: restocks, buys and the sell-back (Progression v2 build plan §B3.1/§B4/§B8; design §8,
 -- memory-20261116-018). Server only. OWNER: T3. The rules are Logic/Agency (Lune-tested) and the checks below (the
 -- PURE block, tests/AgencyServer.spec). Cash only, no Robux anywhere (red line 3). No countdown anywhere (§E9): the
--- kiosk and the panel say "🔄 New nurses every 5 min". The odds are on show (AgencyView.Odds is the very table the
+-- kiosk and the panel say "New nurses every 5 min". The odds are on show (AgencyView.Odds is the very table the
 -- rolls use), and the client asks before every buy and sell.
 --
 --   Agency.start()
@@ -115,13 +115,13 @@ function Pure.commas(n: number): string
 	return grouped
 end
 
--- The kiosk's and the panel's line: how often new nurses come, never a clock (§E9). "🔄 New nurses every 5 min".
+-- The kiosk's and the panel's line: how often new nurses come, never a clock (§E9). "New nurses every 5 min".
 function Pure.everyText(seconds: any): string
 	local s = if finite(seconds) then math.max(1, math.floor(seconds + 0.5)) else 300
 	if s % 60 == 0 then
-		return "🔄 New nurses every " .. tostring(s // 60) .. " min"
+		return "New nurses every " .. tostring(s // 60) .. " min"
 	end
-	return "🔄 New nurses every " .. tostring(s) .. " s"
+	return "New nurses every " .. tostring(s) .. " s"
 end
 
 -- The bought and in-flight marks, in memory by UserId (a rejoin to this server remembers them). Keys are

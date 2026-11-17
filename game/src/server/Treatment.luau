@@ -802,7 +802,7 @@ local function setSimple(player: Player, on: any): (boolean, string)
 	if not data then
 		return false, Remotes.OOPS
 	end
-	local message = if on then "👆 Simple taps on!" else "🎮 Mini-games on!"
+	local message = if on then "Mini-games off" else "Mini-games on"
 	if data.Simple == on then
 		return true, message -- nothing changes: no save write, no snapshot push
 	end

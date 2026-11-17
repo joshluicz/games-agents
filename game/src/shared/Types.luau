@@ -357,6 +357,7 @@ export type NextGoal = { Kind: string, Id: string, Icon: string }
 
 export type DayReportInfo = {
 	Cured: number,
+	CashGained: number, -- the cash this player's treatments paid that day (Server/DayReport; in memory, never saved)
 	NewPages: { PatientId },
 	StarsGained: number,
 	Next: NextGoal,

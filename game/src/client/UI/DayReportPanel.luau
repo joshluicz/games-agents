@@ -42,7 +42,7 @@ local Pure = {}
 
 export type Report = {
 	Cured: number,
-	CashGained: number?, -- not sent by Server/DayReport yet: the Cash line shows once it is
+	CashGained: number?, -- Server/DayReport sends it (the day's treatment cash); a report without it has no Cash line
 	NewPages: { string },
 	StarsGained: number,
 	Next: { Kind: string, Id: string, Icon: string },

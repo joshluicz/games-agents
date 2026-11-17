@@ -85,13 +85,12 @@ export type BranchCard = {
 	Lines: { string }, -- a reward to claim: a card to pick, tree points to spend
 }
 
--- The branch card's words. NewBranch, YourBranches and CardWaits keep the 🏢 / 🃏 tests/BranchUI.spec pins (T5's);
--- the card draws its title without the emoji (Icons.words), the 🏢 being its art tile.
+-- The branch card's words: no emoji (the card's art tile is its one picture, Icons.Door.Branches).
 Pure.TEXT = {
-	NewBranch = "🏢 New branch", -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec; drawn as words)
-	YourBranches = "🏢 Your branches", -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec; drawn as words)
+	NewBranch = "New branch",
+	YourBranches = "Your branches",
 	Look = "Look",
-	CardWaits = "🃏 A card to pick!", -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (pinned by tests/BranchUI.spec)
+	CardWaits = "A card to pick",
 }
 
 local function count(value: any): number
@@ -143,12 +142,15 @@ function Pure.branchCard(state: any, cfg: any, treeData: any): BranchCard
 		table.insert(lines, Pure.TEXT.CardWaits)
 	end
 	if spendable then
-		table.insert(lines, "🌳 " .. points .. (if points == 1 then " point" else " points") .. " to spend") -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec)
+		table.insert(lines, points .. (if points == 1 then " tree point" else " tree points") .. " to spend")
 	end
 	-- "Need": what a branch asks for, not a price (a rebirth starts ALL cash fresh; the Branch panel shows how much).
-	local sub = if atTop then "Need 💰" .. Pure.short(RebirthLogic.cost(branches, cfg)) else "" -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec)
+	-- One Unit at most ("Needs 💰 50,000 · 2 branches"): the cash with its number, the branch count in words.
+	local sub = if atTop then "Needs " .. I.unit("Cash", Pure.short(RebirthLogic.cost(branches, cfg))) else ""
 	if branches > 0 then
-		sub = (if sub ~= "" then sub .. "  ·  " else "") .. "🏢 R" .. branches -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec)
+		sub = (if sub ~= "" then sub .. " · " else "")
+			.. branches
+			.. (if branches == 1 then " branch" else " branches")
 	end
 	return {
 		Show = atTop or branches > 0 or offer or spendable,
@@ -1271,7 +1273,7 @@ function Shop.init(ctx: Types.Ctx)
 	local function refreshBranch(state: Types.Snapshot)
 		local view = Pure.branchCard(state, ctx.Config, data.Tree)
 		branchCard.Visible = view.Show and state.PlotIndex ~= nil
-		branchTitle.Text = Icons.words(view.Title)
+		branchTitle.Text = view.Title
 		branchSub.Text = view.Sub
 		branchLines.Text = table.concat(view.Lines, " · ")
 		branchLines.Visible = #view.Lines > 0

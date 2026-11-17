@@ -27,8 +27,8 @@
 --                   non-admin gets false and nothing happens) and validates action and arg (Logic/Admin)
 --   GetBoards() -> Payload?   the 🏆 leaderboards from the server's cache, with your own rank (Server/Leaderboards;
 --                   never a DataStore call, nil when rate-limited)
---   SetHelpers(on)  the owner's ⚙️ "👥 Friends only / 🤝 Anyone can help" switch: sets their own plot's OpenHelpers
---                   (Server/Visits; `on` must be a boolean, the caller must own a plot, 1 s cooldown)
+--   SetHelpers(on)  the owner's Settings switch "Anyone can help" (off = friends only): sets their own plot's
+--                   OpenHelpers (Server/Visits; `on` must be a boolean, the caller must own a plot, 1 s cooldown)
 --   Depth update:
 --   TreatResult(session: number, ratings: { Rating }, choice: ItemId?) -> ok, message, TreatOutcome?  (Server/Treatment)
 --   SetSimple(on: boolean)                               Simple mode, saved (Server/Treatment)

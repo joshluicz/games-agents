@@ -13,10 +13,10 @@
 --     must keep the word on purpose ends with "-- uirules: allow Cure".
 -- THE CALM RULES AND THEIR RATCHET (docs/plan/2026-11-17-ui-direction.md §6; Joshua, memory-20261117-007): the six
 -- calm rules (TitleEmoji, LabelEmoji, LeadEmoji, TypedEmoji, SpaceLiteral, StrokeBudget: tests/uirules) over every
--- src/client file, against RATCHET below. A NUMBER MAY ONLY GO DOWN. Each task (T1 to T5) lowers the numbers of the
--- files it owns as it rebuilds them, to 0 wherever it can (a line that must break a rule on purpose carries
--- "-- uirules: allow <Rule>" and a reason); the integrator locks them. The foundation's own files (Theme, Kit, Modal,
--- Icons) are at 0 and stay there. To see today's counts as a table ready to paste:
+-- src/client file, against RATCHET below. A NUMBER MAY ONLY GO DOWN. T1 to T5 rebuilt their panels to 0 on every
+-- rule (a line that must break a rule on purpose carries "-- uirules: allow <Rule>" and a reason) and the integrator
+-- locked them there (REBUILT); the foundation's own files (Theme, Kit, Modal, Icons) are at 0 too. Only AdminPanel
+-- and Feel/* still have a number. To see today's counts as a table ready to paste:
 --     UIRULES_REPORT=1 lune run tests/run UiRules
 
 local fs = require("@lune/fs")
@@ -111,75 +111,43 @@ local function cureWords(paths: { string }): { string }
 end
 
 -- THE RATCHET: how many calm-rule faults each file may still have. A file or a rule that isn't listed is 0. Numbers
--- only go DOWN (lower yours when you fix a file; never raise one, never add a line). Counted 2026-11-17, before T1
--- to T5 rebuilt their panels.
+-- only go DOWN (lower yours when you fix a file; never raise one, never add a line). Locked by the integrator on
+-- 2026-11-17, AFTER T1 to T5 rebuilt their panels: every panel (NursePanel, Hud, Toasts, Wayfinder, Boards, Shop,
+-- AgencyPanel, MarketPanel, BeltView, MiniGames, Tutorial, LiftPanel, Guide, SendCard, BranchPanel, BookPanel,
+-- BadgeBook, Mailbox, PlayGifts, DayReportPanel, Celebrate) measured 0 on every rule, so none has a row and none may
+-- get one. What is left is nobody's panel: the admin tools (never seen by players) and Feel/* (world bubbles and
+-- signs, out of the calm UI's scope).
 local RATCHET: { [string]: { [string]: number } } = {
 	["src/client/Feel/CreatureProps.luau"] = { TypedEmoji = 1, StrokeBudget = 1 },
 	["src/client/Feel/CureFX.luau"] = { LeadEmoji = 1, TypedEmoji = 11, StrokeBudget = 2 },
 	["src/client/Feel/HospitalFX.luau"] = { StrokeBudget = 2 },
 	["src/client/UI/AdminPanel.luau"] = { TitleEmoji = 7, LabelEmoji = 1, LeadEmoji = 8, TypedEmoji = 24 },
-	["src/client/UI/AgencyPanel.luau"] = { TitleEmoji = 4, LeadEmoji = 12, TypedEmoji = 36, StrokeBudget = 2 },
-	["src/client/UI/BadgeBook.luau"] = { TitleEmoji = 1, LeadEmoji = 1, TypedEmoji = 5, StrokeBudget = 2 },
-	["src/client/UI/BeltView.luau"] = { LeadEmoji = 6, TypedEmoji = 26, StrokeBudget = 3 },
-	["src/client/UI/Boards.luau"] = { TypedEmoji = 1, SpaceLiteral = 1, StrokeBudget = 2 },
-	["src/client/UI/BookPanel.luau"] = {
-		TitleEmoji = 1,
-		LabelEmoji = 1,
-		LeadEmoji = 1,
-		TypedEmoji = 10,
-		StrokeBudget = 4,
-	},
-	["src/client/UI/BranchPanel.luau"] = {
-		TitleEmoji = 2,
-		LeadEmoji = 14,
-		TypedEmoji = 51,
-		SpaceLiteral = 1,
-		StrokeBudget = 7,
-	},
-	["src/client/UI/Celebrate.luau"] = {
-		LabelEmoji = 1,
-		LeadEmoji = 3,
-		TypedEmoji = 12,
-		SpaceLiteral = 1,
-		StrokeBudget = 6,
-	},
-	["src/client/UI/DayReportPanel.luau"] = {
-		TitleEmoji = 1,
-		LeadEmoji = 2,
-		TypedEmoji = 10,
-		SpaceLiteral = 2,
-		StrokeBudget = 2,
-	},
-	["src/client/UI/Hud.luau"] = { TitleEmoji = 1, LabelEmoji = 1, LeadEmoji = 5, TypedEmoji = 40, StrokeBudget = 10 },
-	["src/client/UI/LiftPanel.luau"] = { TitleEmoji = 1, TypedEmoji = 2 },
-	["src/client/UI/Mailbox.luau"] = {
-		TitleEmoji = 2,
-		LabelEmoji = 2,
-		LeadEmoji = 3,
-		TypedEmoji = 20,
-		StrokeBudget = 3,
-	},
-	["src/client/UI/MarketPanel.luau"] = { TitleEmoji = 3, LeadEmoji = 7, TypedEmoji = 14, StrokeBudget = 8 },
-	["src/client/UI/MiniGames.luau"] = { TitleEmoji = 1, LeadEmoji = 15, TypedEmoji = 12, StrokeBudget = 10 },
-	["src/client/UI/NursePanel.luau"] = { LeadEmoji = 9, TypedEmoji = 49, SpaceLiteral = 1, StrokeBudget = 17 },
-	["src/client/UI/PlayGifts.luau"] = { TitleEmoji = 1, LeadEmoji = 4, TypedEmoji = 13, StrokeBudget = 2 },
-	["src/client/UI/Shop.luau"] = {
-		TitleEmoji = 1,
-		LabelEmoji = 1,
-		LeadEmoji = 12,
-		TypedEmoji = 35,
-		SpaceLiteral = 2,
-		StrokeBudget = 3,
-	},
-	["src/client/UI/Toasts.luau"] = { StrokeBudget = 3 },
-	["src/client/UI/Tutorial.luau"] = {
-		TitleEmoji = 2,
-		LabelEmoji = 2,
-		LeadEmoji = 7,
-		TypedEmoji = 16,
-		StrokeBudget = 10,
-	},
-	["src/client/UI/Wayfinder.luau"] = { StrokeBudget = 3 },
+}
+
+-- The rebuilt panels (T1 to T5): at 0 on every calm rule, with no ratchet row. Named here so a renamed or deleted
+-- file can't slip out of the check unnoticed.
+local REBUILT = {
+	"NursePanel",
+	"Hud",
+	"Toasts",
+	"Wayfinder",
+	"Boards",
+	"Shop",
+	"AgencyPanel",
+	"MarketPanel",
+	"BeltView",
+	"MiniGames",
+	"Tutorial",
+	"LiftPanel",
+	"Guide",
+	"SendCard",
+	"BranchPanel",
+	"BookPanel",
+	"BadgeBook",
+	"Mailbox",
+	"PlayGifts",
+	"DayReportPanel",
+	"Celebrate",
 }
 
 -- The foundation's files: nothing left, and nothing may come back.
@@ -220,15 +188,29 @@ T.describe("The calm rules over the whole client (the ratchet)", function()
 		end
 	end)
 
-	test("the ratchet never went up: no number is above the 2026-11-17 count", function()
-		-- The counts when the calm rules were written. A number here never changes; RATCHET's only shrink.
-		local START = {
-			TitleEmoji = 28,
-			LabelEmoji = 9,
-			LeadEmoji = 110,
-			TypedEmoji = 388,
-			SpaceLiteral = 8,
-			StrokeBudget = 102,
+	test("the rebuilt panels stay at 0: every T1 to T5 file exists, has no ratchet row and no fault", function()
+		local paths = {}
+		for _, name in REBUILT do
+			local path = "src/client/UI/" .. name .. ".luau"
+			assert(table.find(CLIENT, path), path .. " is not a src/client file")
+			expect(RATCHET[path]).toBeNil()
+			table.insert(paths, path)
+		end
+		local found = UiRules.calm(paths)
+		assert(#found == 0, "\n" .. UiRules.format(found))
+	end)
+
+	test("the ratchet never went up: no total is above the count the integrator locked", function()
+		-- When the calm rules were written (2026-11-17, before T1 to T5) the totals were TitleEmoji 28, LabelEmoji 9,
+		-- LeadEmoji 110, TypedEmoji 388, SpaceLiteral 8, StrokeBudget 102 (645). After the rebuild they are the
+		-- numbers below (58): the ceiling now. A number here only ever goes down, with RATCHET.
+		local CEILING = {
+			TitleEmoji = 7,
+			LabelEmoji = 1,
+			LeadEmoji = 9,
+			TypedEmoji = 36,
+			SpaceLiteral = 0,
+			StrokeBudget = 5,
 		}
 		local totals: { [string]: number } = {}
 		for _, limits in RATCHET do
@@ -236,12 +218,17 @@ T.describe("The calm rules over the whole client (the ratchet)", function()
 				totals[rule] = (totals[rule] or 0) + n
 			end
 		end
-		for rule, start in START do
+		for _, rule in UiRules.CALM do
+			local ceiling = CEILING[rule]
+			assert(ceiling, rule .. " has no ceiling")
 			assert(
-				(totals[rule] or 0) <= start,
-				rule .. ": " .. (totals[rule] or 0) .. " is above the start, " .. start
+				(totals[rule] or 0) <= ceiling,
+				rule .. ": " .. (totals[rule] or 0) .. " is above the ceiling, " .. ceiling
 			)
 		end
+		-- and the ratchet is exact today: nothing listed is slack (a fixed fault lowers its row in the same change)
+		local _, slack = UiRules.ratchet(CLIENT, RATCHET)
+		assert(#slack == 0, "\nlower these rows:\n" .. table.concat(slack, "\n"))
 	end)
 end)
 

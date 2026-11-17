@@ -15,6 +15,7 @@ local World = require("./worldmock")
 local Config = require("./config")
 local Look = require("./look")
 local UiRules = require("./uirules")
+local Icons = UiRules.Icons
 local BeltLogic = require("../src/shared/Logic/Belt")
 local NurseLogic = require("../src/shared/Logic/Nurse")
 local TutorialLogic = require("../src/shared/Logic/Tutorial")
@@ -656,7 +657,7 @@ T.describe("World/Props: the shared scenery pieces", function()
 		local kiosk = Props.kiosk(holder(), at, {
 			Name = "TestKiosk",
 			Title = "🏢 AGENCY",
-			Lines = { "🔄 New nurses every 5 min" },
+			Lines = { "New nurses every 5 min" },
 			Accent = Palette.Accent.Cyan,
 		})
 		local list = world.parts(kiosk.Model)
@@ -686,7 +687,7 @@ T.describe("World/Props: the shared scenery pieces", function()
 			end
 		end
 		expect(table.find(texts, "🏢 AGENCY") ~= nil).toBe(true)
-		expect(table.find(texts, "🔄 New nurses every 5 min") ~= nil).toBe(true)
+		expect(table.find(texts, "New nurses every 5 min") ~= nil).toBe(true)
 		-- 7 x 4.5 footprint (tests/TownLayout.spec's KIOSK_WIDTH / KIOSK_DEPTH)
 		local base = kiosk.Model:FindFirstChild("Base")
 		expect({ base.Size.X, base.Size.Z }).toEqual({ 7, 4.5 })
@@ -886,13 +887,16 @@ T.describe("BeltView: the odds popup and the UI rules", function()
 		for _, note in notes do
 			expect(words(note) <= 6).toBe(true)
 		end
-		expect(table.find(notes, "👑 Golden Hour: Secret 1%") ~= nil).toBe(true)
-		expect(table.find(notes, "🏥 Epic+ from Lv 3") ~= nil).toBe(true)
-		expect(table.find(notes, "🏢 Mythic/Secret from R1") ~= nil).toBe(true)
-		expect(table.find(notes, "🎁 Rare+ in 7") ~= nil).toBe(true)
+		expect(table.find(notes, "Golden Hour: Secret 1%") ~= nil).toBe(true)
+		expect(table.find(notes, "Epic+ from Lv 3") ~= nil).toBe(true)
+		expect(table.find(notes, "Mythic/Secret from R1") ~= nil).toBe(true)
+		expect(table.find(notes, "Rare+ in 7") ~= nil).toBe(true)
+		for _, note in notes do
+			expect(Icons.count(note)).toBe(0) -- plain words; the odds themselves are the rows above
+		end
 		local golden = VP.popupNotes(Config, order, true, true, 0)
-		expect(golden[1]).toBe("👑 Golden Hour now!")
-		expect(table.find(golden, "🎁 Rare+ next!") ~= nil).toBe(true)
+		expect(golden[1]).toBe("Golden Hour now!")
+		expect(table.find(golden, "Rare+ next!") ~= nil).toBe(true)
 	end)
 
 	test("BeltView follows the UI rules (no text under 18, Kit.textLimit, token corners, no header colour)", function()
@@ -902,18 +906,15 @@ T.describe("BeltView: the odds popup and the UI rules", function()
 		end
 	end)
 
-	test(
-		"the floating 🎲 chip is gone; the card's Quiet '🎲 Odds' and the sign's prompt open Hud.oddsPopup",
-		function()
-			local text = fs.readFile(World.find("src/client/UI/BeltView.luau"))
-			expect(string.find(text, 'Name = "BeltOddsChip"', 1, true)).toBeNil()
-			expect(string.find(text, "Hud.oddsPopup(", 1, true) ~= nil).toBe(true)
-			expect(string.find(text, 'Kind = "Quiet"', 1, true) ~= nil).toBe(true)
-			expect(string.find(text, '"🎲 Odds"', 1, true) ~= nil).toBe(true)
-			expect(string.find(text, "PromptTriggered", 1, true) ~= nil).toBe(true)
-			expect(string.find(text, "Hud.modal(", 1, true)).toBeNil() -- no odds popup of its own
-		end
-	)
+	test("the floating 🎲 chip is gone; the card's Quiet 'Odds' and the sign's prompt open Hud.oddsPopup", function()
+		local text = fs.readFile(World.find("src/client/UI/BeltView.luau"))
+		expect(string.find(text, 'Name = "BeltOddsChip"', 1, true)).toBeNil()
+		expect(string.find(text, "Hud.oddsPopup(", 1, true) ~= nil).toBe(true)
+		expect(string.find(text, 'Kind = "Quiet"', 1, true) ~= nil).toBe(true)
+		expect(string.find(text, 'Text = "Odds",', 1, true) ~= nil).toBe(true)
+		expect(string.find(text, "PromptTriggered", 1, true) ~= nil).toBe(true)
+		expect(string.find(text, "Hud.modal(", 1, true)).toBeNil() -- no odds popup of its own
+	end)
 end)
 
 ------------------------------------------------------------------------------------------------------------------

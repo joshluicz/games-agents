@@ -102,23 +102,8 @@ local function wholeNumber(value: any): number
 	return 0
 end
 
--- The old chip for a wing (Data/Wings Rebirths, Only) at your rebirth count: "" (it comes to everyone), "🏢 R1",
--- "🏢 R2 · 🚁" or "🚁". KEPT for tests/Juice (this block loads with no requires, so it can't read UI/Icons); the
--- panel shows Gate.wingWords. 🏢 here means Branches (= Icons.Door.Branches).
-function Gate.wing(wing: any, rebirths: any): string
-	if type(wing) ~= "table" then
-		return ""
-	end
-	local need = wholeNumber(wing.Rebirths)
-	local byAir = wing.Only == "Helicopter"
-	if need > 0 and wholeNumber(rebirths) < need then
-		return "🏢 R" .. need .. (if byAir then " · 🚁" else "") -- uirules: allow TypedEmoji (no Icons in this block)
-	end
-	return if byAir then "🚁" else ""
-end
-
--- The same gate in words (the calm UI: no emoji in front of words, no lock icon, no hurry): "" · "From branch 1" ·
--- "From branch 2 · by air" · "By air only".
+-- A wing's gate (Data/Wings Rebirths, Only) at your rebirth count, in words (the calm UI: no emoji in front of words,
+-- no lock icon, no hurry): "" (it comes to everyone) · "From branch 1" · "From branch 2 · by air" · "By air only".
 function Gate.wingWords(wing: any, rebirths: any): string
 	if type(wing) ~= "table" then
 		return ""

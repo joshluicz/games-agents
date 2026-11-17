@@ -25,8 +25,9 @@
 -- Cash only, no Robux, no "hurry" words, no countdowns (red line 3). Every motion goes through Hud.pop / Kit (they
 -- honour Kit.reducedMotion()). Buttons are 56 px tall and every label is 6 words or fewer. The calm UI
 -- (docs/plan/2026-11-17-ui-direction.md; memory-20261117-007): cards without lines, one button per card, titles in
--- words, chrome emoji from UI/Icons. The pure block's older texts (buttonText, confirmText, everyText, the odds
--- notes) keep the emoji the server-side specs pin; the panel draws the calm ones.
+-- words, chrome emoji from UI/Icons. The pure block's older texts (buttonText, confirmText) keep the emoji the
+-- server-side specs pin; the panel draws the calm ones. The restock line, the odds title and the odds notes are
+-- plain words.
 
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -92,13 +93,13 @@ function Pure.percent(value: any): string
 	return string.format("%.1f%%", tenths / 10)
 end
 
--- How often new nurses come, never a clock (§E9): "🔄 New nurses every 5 min" (Server/Agency's kiosk says the same).
+-- How often new nurses come, never a clock (§E9): "New nurses every 5 min" (Server/Agency's kiosk says the same).
 function Pure.everyText(seconds: any): string
 	local s = if finite(seconds) then math.max(1, math.floor(seconds + 0.5)) else 300
 	if s % 60 == 0 then
-		return "🔄 New nurses every " .. tostring(s // 60) .. " min" -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (the kiosk's words, pinned by tests/AgencyServer.spec; the panel draws Icons.words of it)
+		return "New nurses every " .. tostring(s // 60) .. " min"
 	end
-	return "🔄 New nurses every " .. tostring(s) .. " s" -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (as above)
+	return "New nurses every " .. tostring(s) .. " s"
 end
 
 export type OddsRow = { Rarity: string, Odds: number }
@@ -118,7 +119,7 @@ function Pure.oddsRows(odds: any): { OddsRow }
 	return rows
 end
 
--- "🚫 Never Legendary+": the first rarity above the rarest one it stocks; nil when every rarity can come.
+-- "Never Legendary+": the first rarity above the rarest one it stocks; nil when every rarity can come.
 function Pure.neverText(odds: any): string?
 	local top = 0
 	for index, row in Pure.RARITIES do
@@ -130,7 +131,7 @@ function Pure.neverText(odds: any): string?
 	if top == 0 or top >= #Pure.RARITIES then
 		return nil
 	end
-	return "🚫 Never " .. Pure.RARITIES[top + 1] .. "+"
+	return "Never " .. Pure.RARITIES[top + 1] .. "+"
 end
 
 -- A stock card's state for you, in the server's order (§B3.1): "Bought" (this restock) · "Gate" ("🏥 Lv 3" /
@@ -314,18 +315,18 @@ function Pure.confirmSpec(
 	}
 end
 
--- The 🎲 popup's notes: "🚫 Never Legendary+", Lucky Stock rolls the same odds, the Epic gate ("🏥 Epic: hospital
--- Lv 3+", only while the Agency can stock Epics) and how often new nurses come.
+-- The odds popup's notes, in plain words: "Never Legendary+", Lucky Stock rolls the same odds, the Epic gate
+-- ("Epic: hospital Lv 3+", only while the Agency can stock Epics) and how often new nurses come.
 function Pure.oddsNotes(odds: any, epicLevel: any, restockSeconds: any): { string }
 	local notes: { string } = {}
 	local never = Pure.neverText(odds)
 	if never then
 		table.insert(notes, never)
 	end
-	table.insert(notes, "🍀 Lucky Stock: same odds") -- uirules: allow LeadEmoji (an odds note, pinned by tests/ProgressionPanels.spec)
+	table.insert(notes, "Lucky Stock: same odds")
 	local epic = if type(odds) == "table" then odds.Epic else nil
 	if finite(epicLevel) and epicLevel > 1 and finite(epic) and epic > 0 then
-		table.insert(notes, "🏥 Epic: hospital Lv " .. tostring(math.floor(epicLevel)) .. "+") -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (an odds note, pinned by tests/ProgressionPanels.spec)
+		table.insert(notes, "Epic: hospital Lv " .. tostring(math.floor(epicLevel)) .. "+")
 	end
 	table.insert(notes, Pure.everyText(restockSeconds))
 	return notes
@@ -346,7 +347,7 @@ function Pure.oddsSpec(odds: any, rarities: any, notes: { string }?): OddsSpec
 			Percent = row.Odds,
 		})
 	end
-	return { Title = "🎲 Odds", Rows = rows, Notes = notes or {} } -- uirules: allow TitleEmoji, uirules: allow TypedEmoji (pinned by tests/ProgressionPanels.spec; Modal draws the title as words)
+	return { Title = "Odds", Rows = rows, Notes = notes or {} }
 end
 
 -- The Sell tab's nurses: the ones you own that this game knows, in the Journal's order (Data/Nurses.Order).
@@ -493,7 +494,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 	-- popup, one tap away on every visit: red line 3).
 	local note = Kit.fact({
 		Name = "Note",
-		Text = Icons.words(Pure.everyText(cfg.Agency.RestockSeconds)),
+		Text = Pure.everyText(cfg.Agency.RestockSeconds),
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.fromOffset(0, BAR_HEIGHT / 2),
 		Size = UDim2.new(1, -(ODDS_WIDTH + GAP), 0, Theme.TextSize.Caption + Theme.Space.Tight),
@@ -711,9 +712,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		end
 		hirePage.Visible = tab == "Hire"
 		sellPage.Visible = tab == "Sell"
-		note.Text = if tab == "Hire"
-			then Icons.words(Pure.everyText(cfg.Agency.RestockSeconds))
-			else "The Agency buys nurses"
+		note.Text = if tab == "Hire" then Pure.everyText(cfg.Agency.RestockSeconds) else "The Agency buys nurses"
 		if tab == "Hire" then
 			renderHire()
 		else

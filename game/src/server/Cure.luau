@@ -23,8 +23,8 @@
 --   4. Book.stamp(helper)         the helper's Patient Book
 --   5. Daily.onCure(helper, ctx)  the helper's daily goals
 --   6. Story.onCure(owner, regular)   only when the patient is a regular
---   7. DayReport.record           the helper's report gets the cure and any new page; the owner's report gets the
---                                 stars (and the cure too, when a friend did it)
+--   7. DayReport.record           the helper's report gets the cure, any new page and the cash step 2 paid; the
+--                                 owner's report gets the stars (and the cure too, when a friend did it)
 --   8. the Cured remote           to the helper, and to the owner if different. Each payload says what THAT
 --                                 player got: the owner of a friend's cure sees Cash 0, a helper on someone
 --                                 else's plot sees Stars 0, and NewPage is the helper's.
@@ -243,12 +243,13 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 		safely("Story.onCure", Story.onCure, owner, cure.Regular)
 	end
 
-	-- 7. Day Reports
+	-- 7. Day Reports (the helper's carries the cash step 2 paid them; the owner's, when someone else helped, none)
 	if helperHere then
-		safely("DayReport.record", DayReport.record, helper, cure, newPage, if sameHelper then reward.Stars else 0)
+		local helperStars = if sameHelper then reward.Stars else 0
+		safely("DayReport.record", DayReport.record, helper, cure, newPage, helperStars, reward.Cash)
 	end
 	if ownerHere and not sameHelper then
-		safely("DayReport.record", DayReport.record, owner, cure, false, reward.Stars)
+		safely("DayReport.record", DayReport.record, owner, cure, false, reward.Stars, 0)
 	end
 
 	-- 8. Tell the players (CureFX plays the sparkle and "+cash" pop from Position)
