@@ -428,6 +428,56 @@ T.describe("Nurses.Pure: where nurses stand and walk (Logic/Building)", function
 		expect(table.find(NP.supplyStations(ItemsData), "Remedy")).toBeNil()
 	end)
 
+	test("the bigger clinic: a helper stands inside its own bay, a Maker never on another station's stand", function()
+		for _, bay in B.BAYS do
+			if not bay.Room and not bay.Spot then -- bays 1-6 (the DoctorSpot is inside the bay now)
+				for index = 1, 2 do
+					local spot = NP.bedside(bay, index, B.MAX_LEVEL)
+					-- never past a divider into the next bay
+					expect(math.abs(spot.X - bay.X) < B.BAY_WIDTH / 2 - B.DIVIDER).toBe(true)
+					expect(spot.Z > B.ROOMS.Bays.Z0 and spot.Z < B.ROOMS.Bays.Z1).toBe(true)
+				end
+			end
+		end
+		for _, stationId in NP.supplyStations(ItemsData) do
+			if B.STATIONS[stationId] then
+				for index = 1, 2 do
+					local spot = NP.stationSpot(stationId, index)
+					for other in B.STATIONS do
+						local stand = B.stationStand(other)
+						local gap = math.abs(spot.X - stand.X) + math.abs(spot.Z - stand.Z)
+						if gap < 1 then
+							error(stationId .. " (" .. index .. ") stands on " .. other .. "'s stand")
+						end
+					end
+				end
+			end
+		end
+	end)
+
+	test("REVIEW-P2 #3: a Maker deposits only while its station is still there and open", function()
+		local text = source(ROOT .. "Nurses.luau")
+		local from = string.find(text, "local function makerLoop", 1, true)
+		local loop = string.sub(text, from, (string.find(text, "\nend\n", from, true)))
+		local check = string.find(loop, "if not stillOpen(source) then", 1, true)
+		local deposit = string.find(loop, "deposit(work, item)", 1, true)
+		expect(check ~= nil and deposit ~= nil and check < deposit).toBe(true)
+		local fn = string.sub(text, (string.find(text, "local function stillOpen", 1, true)))
+		fn = string.sub(fn, 1, (string.find(fn, "\nend\n", 1, true)))
+		for _, needle in
+			{
+				"source.Part.Parent ~= nil",
+				"source.Holder.Parent ~= nil",
+				'source.Part:GetAttribute("Open") ~= false',
+				'source.Holder:GetAttribute("Open") ~= false',
+			}
+		do
+			if not string.find(fn, needle, 1, true) then
+				error("stillOpen lacks " .. needle)
+			end
+		end
+	end)
+
 	test("pathKey: both ends to the half stud and the level", function()
 		expect(NP.pathKey(1.24, -2, 3, 4.76, 2)).toBe(NP.pathKey(1.1, -2.2, 3.2, 4.9, 2))
 		expect(NP.pathKey(1, 1, 3, 3, 2) ~= NP.pathKey(1, 1, 3, 3, 3)).toBe(true)

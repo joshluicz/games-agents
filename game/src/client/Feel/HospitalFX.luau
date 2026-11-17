@@ -24,6 +24,7 @@
 --   🏗️ the grow-in     A Building rebuilt with a fresh GrewAt (a level-up) fades its new pieces in from the ground up;
 --                      one rebuilt in a new Theme (a rebirth, or a theme picked in the Branch panel) fades all of it in
 --                      the same way. A sparkle at its top and a chime. Calm: it just appears. Never on joining.
+--                      Its writes go through Feel/Cutaway.write, so a storey the cutaway hides stays hidden.
 -- Everything is event-driven: attribute signals on each plot's building pieces and each nurse; the only loops run
 -- while an effect plays (a flash, a flight, a grow-in) or a nurse with a ring is near you, and they stop by
 -- themselves. Found by name inside each plot's Building (rebuilt only on a level-up or a theme change) and by the
@@ -44,6 +45,8 @@ local Palette = require(Shared:WaitForChild("Palette"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
 local Kit = require(UI:WaitForChild("Kit"))
+-- The grow-in writes a part's Transparency through Feel/Cutaway, which may be hiding that part upstairs right now
+local Cutaway = require(script.Parent:WaitForChild("Cutaway"))
 
 local HospitalFX = {}
 
@@ -559,9 +562,9 @@ local function growIn(building: Model, onlyNew: boolean)
 	local original: { [BasePart]: number } = {}
 	local delays: { [BasePart]: number } = {}
 	for _, p in parts do
-		original[p] = p.Transparency
+		original[p] = Cutaway.baseOf(p)
 		delays[p] = Pure.growDelay(p.Position.Y, low, high)
-		p.Transparency = 1
+		Cutaway.write(p, 1)
 	end
 	local started = os.clock()
 	local total = Pure.GROW_SECONDS + Pure.GROW_SPREAD
@@ -574,7 +577,7 @@ local function growIn(building: Model, onlyNew: boolean)
 		end
 		for _, p in parts do
 			if p.Parent then
-				p.Transparency = original[p]
+				Cutaway.write(p, original[p])
 			end
 		end
 	end
@@ -589,7 +592,7 @@ local function growIn(building: Model, onlyNew: boolean)
 			local alpha = math.floor(Pure.growAlpha(t, delays[p]) * 10) / 10
 			if shown[p] ~= alpha then
 				shown[p] = alpha
-				p.Transparency = 1 + (original[p] - 1) * alpha
+				Cutaway.write(p, 1 + (original[p] - 1) * alpha)
 			end
 		end
 	end)

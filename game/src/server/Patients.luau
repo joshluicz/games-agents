@@ -244,7 +244,8 @@ K.REPEAT_WEIGHT = 0.35 -- the same patient twice in a row is less likely
 K.TUTORIAL_STATION = { First = "Remedy", Second = "Plaster" } :: { [string]: string }
 K.TUTORIAL_WING = "Starter"
 
-K.PROMPT_DISTANCE = 8 -- a bay's prompt reaches this far (the next bay's DoctorSpot is 6.5 away; the nearest shows)
+K.PROMPT_DISTANCE = 9 -- a bay's prompt reaches the whole bay round its DoctorSpot (inside the bay now); the next
+-- bay's DoctorSpot is Logic/Building.BAY_WIDTH (9.5) away, and the nearest prompt shows
 K.PROMPT_HEIGHT = 2.6 -- studs above the floor
 K.DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
 K.TREAT_COOLDOWN = 0.3 -- per player

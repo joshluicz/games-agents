@@ -478,13 +478,13 @@ end
 
 -- Where nurse number `index` of a job waits when there's nothing to do: Logic/Building.nurseSlot (all of it data
 -- there, derived from the rooms; Joshua 2026-11-17: "nurses look like theyre in the middle of nowhere"):
---   Maker         beside the supply shelf (either end of the Bandage shelf)
+--   Maker         in the supply recess past the Bath unit (the supply wall's A&E end)
 --   Cheerer       between the waiting seats, facing the room
 --   Receptionist  behind the reception desk (RECEPTION.Staff first), facing the lobby
---   Healer, Medic the bays' end: the -x wall beside the A&E door, a few hops from bays 1-3 (Healers first)
---   Porter        beside the lift's ground landing, against the stairwell
+--   Healer, Medic the Hall, against the outside of bay 1's end wall (Healers first)
+--   Porter        on corridor B against the X-ray room's back wall, beside the lift's ground landing
 --   any other job, and those past their own place's slots
---                 the nurses' station at corridor A's far end, looking down it at the bays
+--                 the nurses' station at corridor A's far +x end, past the X-ray door
 -- `counts` (nurses per job at this plot) keeps the jobs that share a place or the station off each other's slots.
 function Pure.home(job: string, index: number, counts: { [string]: number }?): Spot
 	return BuildingLogic.nurseSlot(job, index, counts)
@@ -1195,7 +1195,7 @@ local function stationPart(instance: Instance): BasePart?
 	return nil
 end
 
-type Source = { Part: BasePart, Station: string, Built: boolean }
+type Source = { Part: BasePart, Holder: Instance, Station: string, Built: boolean }
 
 local SUPPLY_STATIONS = Pure.supplyStations(ItemsData) -- the stations a Maker may use (never the dispensary)
 
@@ -1218,7 +1218,12 @@ local function stationsOf(plot: Plot): { [string]: Source }
 				then
 					for _, itemId in Pure.makeable(ItemsData, stationId) do
 						if not found[itemId] then
-							found[itemId] = { Part = part, Station = stationId, Built = holderName == "Building" }
+							found[itemId] = {
+								Part = part,
+								Holder = instance,
+								Station = stationId,
+								Built = holderName == "Building",
+							}
 						end
 					end
 				end
@@ -1226,6 +1231,16 @@ local function stationsOf(plot: Plot): { [string]: Source }
 		end
 	end
 	return found
+end
+
+-- The station a Maker took its item from is still there and still open (REVIEW-P2 #3: a rebuild, a lost room or a
+-- level change may have taken it while the Maker worked): its part and its Station_<id> are in the world and
+-- neither's Open is false.
+local function stillOpen(source: Source): boolean
+	return source.Part.Parent ~= nil
+		and source.Holder.Parent ~= nil
+		and source.Part:GetAttribute("Open") ~= false
+		and source.Holder:GetAttribute("Open") ~= false
 end
 
 -- Where a Maker works at a station: Logic/Building's numbers for one of the Building's, else by its part.
@@ -1467,6 +1482,13 @@ local function makerLoop(work: Work, w: Worker)
 			NurseBuilder.setTask(w.Model, "Making", itemIcon(item))
 			if not sleep(w, everyFor(work, w, source.Station)) then
 				return
+			end
+			if not stillOpen(source) then
+				-- Its station went (or shut) while it worked: nothing lands; it looks again.
+				w.Making = nil
+				setAttribute(w.Model, "Station", "")
+				NurseBuilder.setTask(w.Model, "Idle")
+				continue
 			end
 			deposit(work, item)
 			w.Making = nil

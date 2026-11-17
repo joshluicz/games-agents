@@ -210,9 +210,9 @@ end)
 T.describe("Routing: which bay", function()
 	test("the nearest free bay that fits, measured from the patient", function()
 		local all = places(5)
-		expect(Routing.pickBay(all, "Exam", { X = -28, Z = 10 })).toBe("1")
-		expect(Routing.pickBay(all, "Exam", { X = 4, Z = 10 })).toBe("6")
-		expect(Routing.pickBay(all, "Exam", { X = -15, Z = 10 })).toBe("3")
+		expect(Routing.pickBay(all, "Exam", { X = 5, Z = -12 })).toBe("1") -- bay 1 is nearest the lobby (Logic/Building)
+		expect(Routing.pickBay(all, "Exam", { X = -43, Z = -12 })).toBe("6") -- bay 6 by the A&E door
+		expect(Routing.pickBay(all, "Exam", { X = -14, Z = -12 })).toBe("3")
 		expect(Routing.pickBay(all, "XRay", { X = -28, Z = 10 })).toBe("X") -- however far it is
 	end)
 

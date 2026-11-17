@@ -92,6 +92,7 @@ local Logic = require(LogicFolder:WaitForChild("Tutorial"))
 local NextEvent = require(LogicFolder:WaitForChild("NextEvent"))
 local PlaytimeLogic = require(LogicFolder:WaitForChild("Playtime"))
 local HudZones = require(LogicFolder:WaitForChild("HudZones"))
+local BuildingLogic = require(LogicFolder:WaitForChild("Building")) -- the welcome sweep's points
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
@@ -422,6 +423,17 @@ function Pure.candidates(
 	end
 	return out
 end
+
+-- The welcome sweep's two camera points, plot-local, from the building's numbers (Logic/Building HALF_X, FRONT,
+-- GROUND; the bigger clinic: never a hardcoded spot): it starts high over the street to the left, in front of the
+-- façade, and swings across to the right, low over the canopy, before it drops in behind your character.
+function Pure.sweepPoints(
+	halfX: number,
+	front: number,
+	ground: number
+): ({ X: number, Y: number, Z: number }, { X: number, Y: number, Z: number })
+	return { X = -halfX * 0.65, Y = ground + 26, Z = front - 32 }, { X = halfX * 0.6, Y = ground + 8, Z = front - 6 }
+end
 -- PURE-END
 
 Tutorial.Pure = Pure
@@ -432,8 +444,8 @@ Tutorial.Pure = Pure
 
 local CAMERA_SWEEP_SECONDS = 3
 local TITLE_STILL_SECONDS = 2.6 -- reduced motion: the title card alone
-local HOME_STUDS = 50 -- your character this close (flat) to your clinic's centre = arrived (Config.Town.PlotSize / 2
--- when it's known: anywhere on your own plot)
+local HOME_STUDS = 70 -- your character this close (flat) to your clinic's centre = arrived (Config.Town.PlotSize / 2
+-- when it's known: anywhere on your own plot; the 140-stud plot's half, past the building's 60-stud half-diagonal)
 local HOME_WAIT_SECONDS = 4
 local CAMERA_BACK = 13 -- the camera behind your character after a sweep or on arrival
 local CAMERA_UP = 5.5
@@ -631,8 +643,9 @@ local function sweep(plot: Model, finish: CFrame, seconds: number)
 	local counter = plot:FindFirstChild("Counter")
 	local look = if counter and counter:IsA("BasePart") then counter.Position else pivot.Position
 	-- Plot-local -Z is toward the street: start high over the street and to the left, swing round to the right.
-	local p0 = (pivot * CFrame.new(-30, 34, -66)).Position
-	local p1 = (pivot * CFrame.new(26, 20, -40)).Position
+	local a0, a1 = Pure.sweepPoints(BuildingLogic.HALF_X, BuildingLogic.FRONT, BuildingLogic.GROUND)
+	local p0 = (pivot * CFrame.new(a0.X, a0.Y, a0.Z)).Position
+	local p1 = (pivot * CFrame.new(a1.X, a1.Y, a1.Z)).Position
 	local p2 = finish.Position
 	local f0 = look
 	local f2 = finish.Position + finish.LookVector * 10
