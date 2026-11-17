@@ -3,7 +3,8 @@
 -- from the shipped source (the PURE blocks), so a spec can't pass on a stale copy:
 --   · Server/Tutorial's remote rules (Skip, Replay with its cooldown, the one-time gift, the funnel, the patients
 --     watch's attribute rules);
---   · UI/Wayfinder.Pure (feet, the beam's ends and bends, the chevrons, the near-hide, the fade);
+--   · UI/Wayfinder.Pure (feet, the strip's ends and bends, the floor arrows: their spots, shape, yaw, places ON the
+--     strip's polyline and the march, the near-hide, the fade);
 --   · UI/Guide.Pure (the Real Clinic: who the doctor goes to next, and what for: Examine, Fetch, Treat);
 --   · Logic/Tutorial.card for every (step, playing, carrying), and UI/Tutorial.Pure's words per device: the 7 cards of
 --     the Real Clinic design §13 (≤ 4-word titles, ≤ 6-word subtitles, the Skip line the one binding exception), the
@@ -360,8 +361,17 @@ T.describe("Wayfinder.Pure", function()
 		expect(Way.feetY(5, 2, -1)).toBe(4) -- a junk HipHeight is no legs
 	end)
 
-	test("beamStart: BeamLift above the feet (the hips)", function()
-		expect(Way.beamStart(10, Config.Tutorial.BeamLift)).toBe(11.75)
+	test("beamStart: the strip lies ON the floor, BeamLift over it, at your feet too (Joshua 2026-11-17)", function()
+		local tune = Config.Tutorial
+		expect(tune.BeamLift > 0 and tune.BeamLift <= 0.3).toBeTruthy()
+		expect(Way.beamStart(10, tune.BeamLift)).toBeCloseTo(10 + tune.BeamLift, 6)
+		expect(tune.BeamEndLift).toBeNil() -- one lift all the way: no hips at one end, floor at the other
+		-- it reads as a path: a brighter middle inside darker edges, and the arrows fit (about) inside it
+		expect(tune.BeamCoreWidth < tune.BeamWidth).toBeTruthy()
+		expect(tune.ChevronWidth <= tune.BeamWidth).toBeTruthy()
+		expect(tune.ChevronWidth > tune.BeamCoreWidth).toBeTruthy()
+		-- the optional texture id: a string, "" until we have one
+		expect(type(tune.BeamTexture)).toBe("string")
 	end)
 
 	test("endAnchor: the footprint's closest point, out by the margin", function()
@@ -477,7 +487,7 @@ T.describe("Wayfinder.Pure", function()
 				expect(d - spots[i - 1]).toBeCloseTo(tune.ChevronGap, 6)
 			end
 		end
-		expect(spots).toEqual({ 6, 12, 18, 24 })
+		expect(spots).toEqual({ 4, 9, 14, 19, 24 })
 		-- a long route: only the max, the ones nearest you
 		local long = Way.chevronSpots(100, tune.FirstChevron, tune.ChevronGap, tune.MaxChevrons, tune.NearStuds)
 		expect(#long).toBe(tune.MaxChevrons)
@@ -491,7 +501,15 @@ T.describe("Wayfinder.Pure", function()
 		local tune = Config.Tutorial
 		local before = Way.chevronSpots(40, tune.FirstChevron, tune.ChevronGap, tune.MaxChevrons, tune.NearStuds)
 		local after = Way.chevronSpots(38, tune.FirstChevron, tune.ChevronGap, tune.MaxChevrons, tune.NearStuds)
-		-- the same spots seen from 2 studs closer: each is 2 nearer you
+		-- the same spots seen from 2 studs closer: each is 2 nearer you. Every arrow sits on one lattice measured from
+		-- the target, so an arrow in both views hasn't moved; at most one is new (the next one toward the target, as
+		-- the one you walked past drops under FirstChevron)
+		for _, list in { { 40, before }, { 38, after } } do
+			for _, d in list[2] do
+				local k = ((list[1] - d) - tune.NearStuds) / tune.ChevronGap
+				expect(math.abs(k - math.floor(k + 0.5)) < 1e-6).toBeTruthy()
+			end
+		end
 		local same = 0
 		for _, d in after do
 			for _, e in before do
@@ -500,7 +518,178 @@ T.describe("Wayfinder.Pure", function()
 				end
 			end
 		end
-		expect(same).toBe(#after)
+		expect(same >= #after - 1 and same >= 1).toBeTruthy()
+	end)
+
+	test("along: the height ON the line when its points carry one", function()
+		local line = { { X = 0, Y = 1, Z = 0 }, { X = 10, Y = 3, Z = 0 } }
+		local x, _, dx, _, y = Way.along(line, 5)
+		expect(x).toBeCloseTo(5, 6)
+		expect(dx).toBeCloseTo(1, 6)
+		expect(y).toBeCloseTo(2, 6)
+		local _, _, _, _, none = Way.along({ { X = 0, Z = 0 }, { X = 1, Z = 0 } }, 0.5)
+		expect(none).toBeNil()
+	end)
+
+	test("yaw: faces along the flat direction the way CFrame.lookAt does", function()
+		expect(Way.yaw(0, -1)).toBeCloseTo(0, 6)
+		expect(Way.yaw(1, 0)).toBeCloseTo(-math.pi / 2, 6)
+		expect(Way.yaw(-1, 0)).toBeCloseTo(math.pi / 2, 6)
+		expect(math.abs(Way.yaw(0, 1))).toBeCloseTo(math.pi, 6)
+		-- CFrame.Angles(0, yaw, 0).LookVector = (-sin yaw, 0, -cos yaw) is the direction again
+		for _, angle in { 0.3, 1.2, 2.5, -0.7, -2.9 } do
+			local dx, dz = math.cos(angle), math.sin(angle)
+			local yaw = Way.yaw(dx, dz)
+			expect(-math.sin(yaw)).toBeCloseTo(dx, 6)
+			expect(-math.cos(yaw)).toBeCloseTo(dz, 6)
+		end
+	end)
+
+	test("arrowShape: a chunky 2.5-3 stud arrow, its head two mirrored halves, outlined all round", function()
+		local tune = Config.Tutorial
+		local L, W, e = tune.ChevronStuds, tune.ChevronWidth, 0.18
+		expect(L >= 2.5 and L <= 3).toBeTruthy() -- readable from the default camera
+		local pieces = Way.arrowShape(L, W, e)
+		expect(#pieces).toBe(6)
+		expect(#pieces * tune.MaxChevrons <= 36).toBeTruthy() -- a few dozen parts at most, every arrow together
+		expect(pieces[1].Layer).toBe("Edge") -- the outline first: it lies underneath
+		local by = {}
+		for _, piece in pieces do
+			by[piece.Layer .. piece.Kind] = piece
+		end
+		local shaft, left, right = by.TopBlock, by.TopLeft, by.TopRight
+		-- the tip at +L/2 on the centre line, the tail at -L/2
+		expect(left.Forward + left.Length / 2).toBeCloseTo(L / 2, 6)
+		expect(shaft.Forward - shaft.Length / 2).toBeCloseTo(-L / 2, 6)
+		expect(shaft.Side).toBe(0)
+		-- the halves meet on the centre line, span the head's width and mirror each other
+		expect(left.Side + left.Width / 2).toBeCloseTo(0, 6)
+		expect(left.Side - left.Width / 2).toBeCloseTo(-W / 2, 6)
+		expect(right.Side).toBeCloseTo(-left.Side, 6)
+		expect(right.Forward).toBeCloseTo(left.Forward, 6)
+		expect(right.Length).toBeCloseTo(left.Length, 6)
+		-- a chunky head: half the length, and the shaft narrower than it, running into it (no seam)
+		local base = left.Forward - left.Length / 2
+		expect(left.Length).toBeCloseTo(L * Way.HEAD_SHARE, 6)
+		expect(shaft.Width < W).toBeTruthy()
+		expect(shaft.Forward + shaft.Length / 2 > base).toBeTruthy()
+		-- the outline: `e` bigger all round
+		local edgeShaft, edgeLeft, edgeRight = by.EdgeBlock, by.EdgeLeft, by.EdgeRight
+		expect(edgeLeft.Forward - edgeLeft.Length / 2).toBeCloseTo(base - e, 6) -- behind the head
+		expect(edgeShaft.Forward - edgeShaft.Length / 2).toBeCloseTo(-L / 2 - e, 6) -- behind the tail
+		expect(edgeShaft.Width).toBeCloseTo(shaft.Width + 2 * e, 6) -- beside the shaft
+		expect(edgeRight.Side).toBeCloseTo(-edgeLeft.Side, 6)
+		-- each slanted side exactly `e` outside the white one: the white tip and corner are both `e` off its line
+		local tipF = edgeLeft.Forward + edgeLeft.Length / 2
+		local cornerF, cornerS = edgeLeft.Forward - edgeLeft.Length / 2, edgeLeft.Side - edgeLeft.Width / 2
+		local function offEdge(f: number, s: number): number
+			local df, ds = cornerF - tipF, cornerS
+			return math.abs(df * s - ds * (f - tipF)) / math.sqrt(df * df + ds * ds)
+		end
+		expect(offEdge(L / 2, 0)).toBeCloseTo(e, 6)
+		expect(offEdge(base, -W / 2)).toBeCloseTo(e, 6)
+		expect(tipF > L / 2 + e).toBeTruthy()
+		-- junk sizes: nothing
+		expect(#Way.arrowShape(0, W, e)).toBe(0)
+		expect(#Way.arrowShape(L, 0, e)).toBe(0)
+	end)
+
+	test("arrowPlaces: every arrow's centre lies ON the strip's polyline and faces along its segment", function()
+		local tune = Config.Tutorial
+		local lift = tune.BeamLift
+		-- the strip's own polyline: your feet, two knees (the floor steps up 1 on the second leg), the target's base
+		local line = {
+			{ X = 0, Y = lift, Z = 0 },
+			{ X = 0, Y = lift, Z = -12.5 },
+			{ X = 8, Y = 1 + lift, Z = -12.5 },
+			{ X = 8, Y = 1 + lift, Z = -30 },
+		}
+		local length = Way.routeLength(line)
+		expect(length).toBeCloseTo(38, 6)
+		local spots = Way.chevronSpots(length, tune.FirstChevron, tune.ChevronGap, tune.MaxChevrons, tune.NearStuds)
+		expect(#spots).toBe(tune.MaxChevrons)
+		-- the segment `d` studs along lies on (a knee counts with the segment before it, as `along` does)
+		local function segmentAt(d: number): number
+			local walked = 0
+			for i = 2, #line do
+				local a, b = line[i - 1], line[i]
+				walked += math.sqrt((b.X - a.X) ^ 2 + (b.Z - a.Z) ^ 2)
+				if d <= walked + 1e-9 then
+					return i
+				end
+			end
+			return #line
+		end
+		-- the flat distance from (x, z) to the polyline
+		local function offLine(x: number, z: number): number
+			local best = math.huge
+			for i = 2, #line do
+				local a, b = line[i - 1], line[i]
+				local dx, dz = b.X - a.X, b.Z - a.Z
+				local t = math.clamp(((x - a.X) * dx + (z - a.Z) * dz) / (dx * dx + dz * dz), 0, 1)
+				best = math.min(best, math.sqrt((x - a.X - dx * t) ^ 2 + (z - a.Z - dz * t) ^ 2))
+			end
+			return best
+		end
+		local hops = {}
+		for i in spots do
+			hops[i] = tune.ChevronHop -- every arrow mid-hop: still on the line, round the knee too
+		end
+		for _, shift in { false, hops } do
+			local places = Way.arrowPlaces(line, spots, if shift then shift else nil)
+			expect(#places).toBe(#spots)
+			for i, place in places do
+				local d = spots[i] + (if shift then shift[i] else 0)
+				expect(offLine(place.X, place.Z) < 0.2).toBeTruthy()
+				local seg = segmentAt(d)
+				local a, b = line[seg - 1], line[seg]
+				local dx, dz = b.X - a.X, b.Z - a.Z
+				local n = math.sqrt(dx * dx + dz * dz)
+				expect(place.Yaw).toBeCloseTo(Way.yaw(dx / n, dz / n), 6)
+				-- at the line's own height there, and its distance to the target kept (the pulse's phase)
+				expect(place.Y >= math.min(a.Y, b.Y) - 1e-9 and place.Y <= math.max(a.Y, b.Y) + 1e-9).toBeTruthy()
+				expect(place.ToTarget).toBeCloseTo(length - spots[i], 6)
+			end
+		end
+		-- a hop never carries an arrow past the end
+		local last = Way.arrowPlaces(line, { length - 0.1 }, { 5 })[1]
+		expect(last.X).toBeCloseTo(8, 6)
+		expect(last.Z).toBeCloseTo(-30, 6)
+	end)
+
+	test("pulse: the march runs along the row toward the target, a gentle hop that rests most of the cycle", function()
+		local tune = Config.Tutorial
+		local P, W = tune.ChevronPulse, tune.ChevronWave
+		expect(tune.ChevronHop > 0 and tune.ChevronHop <= 1).toBeTruthy() -- a little hop, not a run
+		local resting = 0
+		for i = 0, 99 do
+			local v = Way.pulse(i * P / 100, 10, P, W)
+			expect(v >= 0 and v <= 1).toBeTruthy()
+			if v == 0 then
+				resting += 1
+			end
+		end
+		expect(resting >= 50).toBeTruthy()
+		-- the arrow `d` from the target peaks at t; dt later the peak is nearer the target by dt x W / P
+		local t = 3
+		local d = ((Way.HOP_SHARE / 2 - t / P) % 1) * W
+		expect(Way.pulse(t, d, P, W)).toBeCloseTo(1, 6)
+		local dt = 0.1
+		expect(Way.pulse(t + dt, d - dt * W / P, P, W)).toBeCloseTo(1, 6)
+		-- so an arrow farther from the target (nearer you) hops first
+		local function firstPeak(toTarget: number): number
+			for step = 0, 2000 do
+				local at = step * P / 2000
+				if Way.pulse(at, toTarget, P, W) > 0.999 then
+					return at
+				end
+			end
+			return math.huge
+		end
+		expect(firstPeak(14) < firstPeak(9)).toBeTruthy()
+		-- no march without a period or a wave
+		expect(Way.pulse(1, 5, 0, W)).toBe(0)
+		expect(Way.pulse(1, 5, P, 0)).toBe(0)
 	end)
 
 	test("near: the beam and the chevrons hide within NearStuds", function()
@@ -1034,6 +1223,41 @@ T.describe("T8's files follow the rules", function()
 		).toBeTruthy()
 		local guide = source("src/client/UI/Guide.luau")
 		expect(string.find(guide, "Wayfinder.destroy()", 1, true) ~= nil).toBeTruthy()
+	end)
+
+	test("the strip and the arrows share ONE polyline (Joshua: the arrows sit on the green line)", function()
+		local way = source("src/client/UI/Wayfinder.luau")
+		expect(string.find(way, "local function polyline(current: Route, start: Vector3)", 1, true) ~= nil).toBeTruthy()
+		-- span 1's aim (from your feet), the fixed spans and the arrows all read it; nothing else builds a route line
+		expect(string.find(way, "local points = polyline(made, here)", 1, true) ~= nil).toBeTruthy()
+		expect(string.find(way, "local points = polyline(current, current.From)", 1, true) ~= nil).toBeTruthy()
+		expect(string.find(way, "for _, p in polyline(current, start) do", 1, true) ~= nil).toBeTruthy()
+		expect(string.find(way, "placeArrows(made, here, now)", 1, true) ~= nil).toBeTruthy()
+		expect(string.find(way, "routePoints", 1, true)).toBeNil()
+		expect(string.find(way, "BeamEndLift", 1, true)).toBeNil()
+	end)
+
+	test("the floor arrows never catch the player, move in one call, and march only when motion is on", function()
+		local way = source("src/client/UI/Wayfinder.luau")
+		local from = string.find(way, "local function makeArrow", 1, true)
+		local to = string.find(way, "local function ensureArrows", 1, true)
+		assert(from and to, "no makeArrow")
+		local body = string.sub(way, from, to)
+		for _, line in
+			{
+				"part.Anchored = true",
+				"part.CanCollide = false",
+				"part.CanQuery = false",
+				"part.CanTouch = false",
+				"part.CastShadow = false",
+			}
+		do
+			expect(string.find(body, line, 1, true) ~= nil).toBeTruthy()
+		end
+		expect(string.find(way, "SurfaceGui", 1, true)).toBeNil() -- the old paper-clip bars are gone
+		local _, bulk = string.gsub(way, "BulkMoveTo%(", "")
+		expect(bulk).toBe(1)
+		expect(string.find(way, "local march = not still and", 1, true) ~= nil).toBeTruthy()
 	end)
 
 	test("original only: no red cross and no toy brand in T8's files", function()

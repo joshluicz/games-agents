@@ -6,46 +6,61 @@
 --   Wayfinder.show(spec)             point at spec.Target. The same Target again updates in place (no flicker, no
 --                                    re-pop); a new Target re-points everything at once (no tween across)
 --   Wayfinder.hide()                 nothing shows and nothing runs (the instances are kept for the next show)
---   Wayfinder.attach(character)      the character the beam starts from (call again after a respawn; show() also
+--   Wayfinder.attach(character)      the character the strip starts from (call again after a respawn; show() also
 --                                    re-attaches by itself when the old body is gone)
---   Wayfinder.flash(seconds?)        the idle nudge: the beam brightens once (default NUDGE_SECONDS), then fades back
+--   Wayfinder.flash(seconds?)        the idle nudge: the strip brightens once (default NUDGE_SECONDS), then fades back
 --   Wayfinder.destroy()              remove everything, the Highlight included (the Guide has finished)
 --   Wayfinder.character(): Model?    the character `attach` was given
 --   Wayfinder.Pure                   the numbers: feetY · beamStart · endAnchor · needsBend · detour · simplify ·
---                                    routeLength · along · chevronSpots · near · fade · pinOffset (tests/TutorialFlow)
+--                                    routeLength · along · chevronSpots · yaw · arrowShape · arrowPlaces · pulse ·
+--                                    near · fade · pinOffset (tests/TutorialFlow)
 --   Spec = { Target: Instance, Base: Vector3?, Icon: string, Color: Color3, Beam: boolean?, Glow: boolean?,
 --            Hand: ("Hold" | "Tap")?, Height: number? }
---     Target   a BasePart or a Model: the glow's Adornee, the pin's anchor and the beam's end
---     Base     where the beam ends, ON the floor (BeamEndLift is added); nil = worked out from the Target: an optional
+--     Target   a BasePart or a Model: the glow's Adornee, the pin's anchor and the strip's end
+--     Base     where the strip ends, ON the floor (BeamLift is added); nil = worked out from the Target: an optional
 --              `GuideAnchor` Attachment under it wins, else the closest point of its footprint to you, 0.3 out
---     Beam     default true: the floor beam and the floor chevrons (false for a patient or a bed: pin and glow only)
+--     Beam     default true: the floor strip and its arrows (false for a patient or a bed: pin and glow only)
 --     Glow     default true: the ONE Highlight
 --     Hand     touch only: a 👆 pressing beside the target's prompt while that prompt is on screen (PromptShown)
 --     Height   the world Y of the pin's foot (default just above the target's top)
 --
 -- The pieces (§5.4):
---   · the BEAM (the main cue; Joshua: "closer to the floor", "connect the middle of the player body ... to the
---     objective"): flat Beams (FaceCamera off, CurveSize 0, Width Config.Tutorial.BeamWidth, TextureMode Wrap,
---     TextureLength BeamTextureLength, TextureSpeed BeamSpeed (0 when calm), LightEmission 0, LightInfluence 0, the
---     §5.5 fade). Span 1 starts at GuideStart, an Attachment on the HumanoidRootPart at feet + BeamLift (the rig's
---     own feet: Pure.feetY), and the last span ends at GuideEnd on Workspace.Terrain at the target's base. It bends
---     with knees (GuideKnee_<n>In/Out on Terrain, at most BeamMaxSpans spans) along a PathfindingService route
---     (simplified), or round the plot's Counter when no path comes back. Kept flat with the 2024 DevForum roll
---     recipe: both ends of each span look at each other and roll 90° / 270°. Span 1 is re-aimed only while the beam
---     shows AND the root moved (two CFrame writes); the other spans only when the route changes (at most every
---     ROUTE_SECONDS, and only after you moved ROUTE_STUDS or the target changed). It hides within NearStuds
---   · the floor CHEVRONS: at most MaxChevrons client-only parts (ChevronStuds x 0.05 x ChevronStuds), each with a Top
---     SurfaceGui of two rotated bars, white at 55%, every ChevronGap along the route (anchored at the target, so they
---     stay put as you walk) and never within NearStuds of it. Still; they hide with the beam
+--   · the STRIP (the beam; Joshua: "closer to the floor", then 2026-11-17: "the arrows on the ground needs to be
+--     improved ... add a arrow to it" and "look at how theyre not correctly connected to the green line"): flat Beams
+--     lying ON the floor, BeamLift over it all the way, from under your feet to the target's base. Two layers share
+--     each span's attachments: the edges (Width BeamWidth, the guide's colour a shade darker) and the middle on top
+--     (Width BeamCoreWidth, a shade lighter, ZOffset CORE_ZOFFSET), so it reads as a path. The middle takes the
+--     optional Config.Tutorial.BeamTexture (TextureMode Wrap, TextureLength BeamTextureLength, TextureSpeed BeamSpeed,
+--     0 when calm); "" = solid colour. FaceCamera off, CurveSize 0, LightEmission 0, LightInfluence 0, the §5.5 fade.
+--     Span 1 starts at GuideStart, an Attachment on the HumanoidRootPart placed at your feet (the rig's own feet:
+--     Pure.feetY, held while you're in the air so a jump doesn't lift it), and the last span ends at GuideEnd on
+--     Workspace.Terrain. It bends with knees (GuideKnee_<n>In/Out on Terrain, at most BeamMaxSpans spans) along a
+--     PathfindingService route (simplified), or round the plot's Counter when no path comes back. Kept flat with the
+--     2024 DevForum roll recipe: both ends of each span look at each other and roll 90° / 270°. Span 1 is re-aimed
+--     only while the strip shows AND the root moved (two CFrame writes); the other spans only when the route changes
+--     (at most every ROUTE_SECONDS, and only after you moved ROUTE_STUDS or the target changed). It hides within
+--     NearStuds
+--   · the floor ARROWS: at most MaxChevrons chunky flat arrows lying ON the strip, centred on it and facing along it.
+--     Each is 6 client-only parts (Pure.arrowShape): a white head (two mirrored WedgeParts lying flat) and shaft (a
+--     block), ChevronStuds long and ChevronWidth across the head, over the same shape ARROW_EDGE bigger all round in
+--     the guide's colour EDGE_SHADE darker (the outline). Anchored, no collide/query/touch, no shadow. They sit every
+--     ChevronGap along the strip's OWN polyline (`polyline`: the strip's spans and the arrows share it, so they can't
+--     drift apart), measured back from the target so they stay put as you walk, none within NearStuds of it or
+--     FirstChevron of your feet. The ones on span 1 swing with it as you move. They MARCH: a pulse runs along the row
+--     toward the target (Pure.pulse: every ChevronPulse seconds, ChevronWave studs apart) and each arrow hops
+--     ChevronHop studs forward along the strip as it passes. Still when calm. They hide with the strip
 --   · the GLOW: ONE Highlight, re-pointed and never re-made (DepthMode Occluded; fill the target's colour at 0.8, a
 --     white outline pulsing 0 <-> 0.35 over GlowSeconds, steady when calm). destroy() deletes it
 --   · the PIN: the candy map pin moved here from UI/Guide (a disc in the target's colour on a point, the icon in a
 --     white middle). It bobs (still when calm) and drops lower when the camera is within PIN_NEAR_CAMERA studs
 --   · the touch HAND (above)
 -- Every motion honours Kit.reducedMotion() and re-syncs as soon as Reduce Motion or the calm toggle changes: the
--- beam stops flowing (it still follows you: that's position, not show), the glow holds, the pin and hand stay still.
+-- strip's texture stops flowing and the arrows stop marching (both still follow you: that's position, not show), the
+-- glow holds, the pin and hand stay still.
 -- Loops: ONE RenderStepped callback, connected only while something shows (hide() and destroy() disconnect it). Its
--- per-frame work is the near check and span 1's aim when you moved; the pin's camera check runs 4 times a second.
+-- per-frame work is the near check, span 1's aim when you moved, and the arrows: one Workspace:BulkMoveTo of at most
+-- MaxChevrons x 6 parts, every frame while they march, else only when you moved or the route changed. The pin's
+-- camera check runs 4 times a second.
 -- Text is never under Theme.TextSize.Caption.
 
 local GuiService = game:GetService("GuiService")
@@ -66,7 +81,7 @@ local Wayfinder = {}
 
 export type Spec = {
 	Target: Instance,
-	Base: Vector3?, -- where the beam ends (the target's base on the floor); worked out from the Target when nil
+	Base: Vector3?, -- where the strip ends (the target's base on the floor); worked out from the Target when nil
 	Icon: string,
 	Color: Color3,
 	Beam: boolean?,
@@ -82,6 +97,21 @@ local Pure = {}
 
 type Box = { X0: number, X1: number, Z0: number, Z1: number }
 type Point = { X: number, Z: number, Y: number? }
+-- One piece of a floor arrow, in the arrow's own flat space: Forward is toward the target, Side to its right.
+type Piece = {
+	Kind: string, -- "Block" (the shaft), "Left" or "Right" (the head's halves: mirrored wedges, right angle inward)
+	Layer: string, -- "Edge" (the outline, underneath) or "Top" (the white arrow)
+	Forward: number, -- the piece's centre, studs ahead of the arrow's centre
+	Side: number, -- and studs to its right
+	Length: number, -- along the route
+	Width: number, -- across it
+}
+type Place = { X: number, Y: number?, Z: number, Yaw: number, ToTarget: number }
+
+Pure.HEAD_SHARE = 0.5 -- an arrow's head is this share of its length
+Pure.SHAFT_SHARE = 0.45 -- its shaft is this share of the head's width
+Pure.SHAFT_OVERLAP = 0.05 -- the shaft runs this far into the head (no seam)
+Pure.HOP_SHARE = 0.3 -- an arrow hops during this share of each pulse and rests the rest
 
 -- The floor under a character: its root's centre, less half the root and the legs (R15: the Humanoid's HipHeight;
 -- R6: 2, the legs, whatever HipHeight says).
@@ -90,12 +120,12 @@ function Pure.feetY(rootY: number, rootHeight: number, hipHeight: number, r6: bo
 	return rootY - rootHeight / 2 - legs
 end
 
--- Where the beam leaves the body: `lift` above the feet (Config.Tutorial.BeamLift: about the hips).
+-- Where the strip lies: `lift` above the floor (Config.Tutorial.BeamLift: just over it, at your feet too).
 function Pure.beamStart(feetY: number, lift: number): number
 	return feetY + lift
 end
 
--- Where the beam ends: the closest point of the target's footprint to the player, `out` studs outside it.
+-- Where the strip ends: the closest point of the target's footprint to the player, `out` studs outside it.
 function Pure.endAnchor(box: Box, fromX: number, fromZ: number, out: number): (number, number)
 	local x = math.clamp(fromX, box.X0, box.X1)
 	local z = math.clamp(fromZ, box.Z0, box.Z1)
@@ -117,8 +147,8 @@ function Pure.endAnchor(box: Box, fromX: number, fromZ: number, out: number): (n
 	return x + dx / length * out, z + dz / length * out
 end
 
--- Whether the straight line from a to b passes through the box (the Counter): then the beam needs a knee. A line that
--- only touches its edge doesn't count.
+-- Whether the straight line from a to b passes through the box (the Counter): then the strip needs a knee. A line
+-- that only touches its edge doesn't count.
 function Pure.needsBend(ax: number, az: number, bx: number, bz: number, box: Box): boolean
 	local dx, dz = bx - ax, bz - az
 	local t0, t1 = 0, 1
@@ -196,7 +226,7 @@ function Pure.detour(ax: number, az: number, bx: number, bz: number, box: Box, m
 	return best or {}
 end
 
--- A path's waypoints cut to the few knees the beam needs: Ramer-Douglas-Peucker on the flat plan (a waypoint stays
+-- A path's waypoints cut to the few knees the strip needs: Ramer-Douglas-Peucker on the flat plan (a waypoint stays
 -- when it sits more than `tolerance` studs off the line), plus any where the floor rises or drops more than `rise`.
 -- Returns the INDICES of the kept knees (never the first or last point), at most `maxKnees`, the nearest first.
 function Pure.simplify(points: { Point }, tolerance: number, maxKnees: number, rise: number?): { number }
@@ -257,23 +287,26 @@ function Pure.routeLength(points: { Point }): number
 	return total
 end
 
--- The point `d` studs along a route and the flat direction there: (x, z, dirX, dirZ).
-function Pure.along(points: { Point }, d: number): (number, number, number, number)
+-- The point `d` studs along a route and the flat direction there: (x, z, dirX, dirZ, y). y is the height ON the line
+-- there when its points carry a Y (nil otherwise).
+function Pure.along(points: { Point }, d: number): (number, number, number, number, number?)
 	local left = math.max(d, 0)
 	for i = 2, #points do
 		local a, b = points[i - 1], points[i]
 		local length = dist(a.X, a.Z, b.X, b.Z)
 		if length > 1e-9 and (left <= length or i == #points) then
 			local t = math.min(left / length, 1)
-			return a.X + (b.X - a.X) * t, a.Z + (b.Z - a.Z) * t, (b.X - a.X) / length, (b.Z - a.Z) / length
+			local ay, by = a.Y, b.Y
+			local y = if ay and by then ay + (by - ay) * t else nil
+			return a.X + (b.X - a.X) * t, a.Z + (b.Z - a.Z) * t, (b.X - a.X) / length, (b.Z - a.Z) / length, y
 		end
 		left -= length
 	end
 	local last = points[#points]
-	return last.X, last.Z, 0, 1
+	return last.X, last.Z, 0, 1, last.Y
 end
 
--- How far along a route of `length` studs each floor chevron sits, nearest you first. They sit every `gap` studs
+-- How far along a route of `length` studs each floor arrow sits, nearest you first. They sit every `gap` studs
 -- measured back from the target, starting `near` from it (so they stay put as you walk, and none is ever within
 -- `near` of it), none closer to your feet than `first`, at most `max` of them (the ones nearest you).
 function Pure.chevronSpots(length: number, first: number, gap: number, max: number, near: number?): { number }
@@ -294,13 +327,96 @@ function Pure.chevronSpots(length: number, first: number, gap: number, max: numb
 	return spots
 end
 
--- The beam and the chevrons hide this close to the target (a flat distance).
+-- The yaw (radians about +Y) that faces a part along the flat direction (dx, dz), as CFrame.lookAt would:
+-- CFrame.Angles(0, yaw, 0).LookVector is (-sin yaw, 0, -cos yaw).
+function Pure.yaw(dx: number, dz: number): number
+	return math.atan2(-dx, -dz)
+end
+
+-- A flat arrow's 6 pieces, centred on its middle and pointing Forward: the white Top (a shaft, then a head made of
+-- two mirrored right triangles meeting on the centre line) `length` tail to tip and `width` across the head, over
+-- the same shape grown by `edge` all round (the Edge: each side of the head moved out by `edge`, so its tip reaches
+-- edge / sin(half the tip's angle) further). Edge pieces first (they lie underneath).
+function Pure.arrowShape(length: number, width: number, edge: number): { Piece }
+	local pieces: { Piece } = {}
+	if length <= 0 or width <= 0 then
+		return pieces
+	end
+	local function add(layer: string, tail: number, base: number, head: number, half: number, shaftHalf: number)
+		local to = base + Pure.SHAFT_OVERLAP
+		table.insert(pieces, {
+			Kind = "Block",
+			Layer = layer,
+			Forward = (tail + to) / 2,
+			Side = 0,
+			Length = to - tail,
+			Width = shaftHalf * 2,
+		})
+		for _, side in { -1, 1 } do
+			table.insert(pieces, {
+				Kind = if side < 0 then "Left" else "Right",
+				Layer = layer,
+				Forward = base + head / 2,
+				Side = side * half / 2,
+				Length = head,
+				Width = half,
+			})
+		end
+	end
+	local head = length * Pure.HEAD_SHARE
+	local half = width / 2
+	local base = length / 2 - head -- where the head starts, ahead of the arrow's centre
+	local shaftHalf = half * Pure.SHAFT_SHARE
+	local slant = math.sqrt(head * head + half * half)
+	local sin, cos = half / slant, head / slant -- of the half-angle at the tip
+	local grown = math.max(edge, 0)
+	add(
+		"Edge",
+		-length / 2 - grown,
+		base - grown,
+		head + grown + grown / sin,
+		half * (1 + grown / head) + grown / cos,
+		shaftHalf + grown
+	)
+	add("Top", -length / 2, base, head, half, shaftHalf)
+	return pieces
+end
+
+-- Where each floor arrow lies: ON the guide's polyline (the SAME points the strip's spans run through), `spots[i]`
+-- studs along it plus `shift[i]` (the march's hop; never past the end), at the line's own height, facing along the
+-- segment it's on. ToTarget is the unshifted distance left to the end (an arrow's place in the pulse).
+function Pure.arrowPlaces(points: { Point }, spots: { number }, shift: { number }?): { Place }
+	local length = Pure.routeLength(points)
+	local places: { Place } = {}
+	for i, d in spots do
+		local hop = if shift then shift[i] or 0 else 0
+		local x, z, dx, dz, y = Pure.along(points, math.min(d + hop, length))
+		table.insert(places, { X = x, Y = y, Z = z, Yaw = Pure.yaw(dx, dz), ToTarget = length - d })
+	end
+	return places
+end
+
+-- The march: how far (0..1 of ChevronHop) the arrow `toTarget` studs from the target has hopped at time `t`. A pulse
+-- sets off every `period` seconds, `wave` studs apart along the row, and runs toward the target at wave / period
+-- studs a second; each arrow hops forward and back once (a smooth bump over HOP_SHARE of the cycle) as it passes.
+function Pure.pulse(t: number, toTarget: number, period: number, wave: number): number
+	if period <= 0 or wave <= 0 then
+		return 0
+	end
+	local phase = (t / period + toTarget / wave) % 1
+	if phase >= Pure.HOP_SHARE then
+		return 0
+	end
+	return math.sin(math.pi * phase / Pure.HOP_SHARE) ^ 2
+end
+
+-- The strip and the arrows hide this close to the target (a flat distance).
 function Pure.near(distance: number, nearStuds: number): boolean
 	return distance <= nearStuds
 end
 
--- A span's fade (§5.5) as { { time, transparency } }: it fades in where it leaves your body and melts into the glow
--- at the target; the spans between are flat.
+-- A span's fade (§5.5) as { { time, transparency } }: it fades in under your feet and melts into the glow at the
+-- target; the spans between are flat.
 function Pure.fade(index: number, count: number): { { number } }
 	local first, last = index <= 1, index >= count
 	if first and last then
@@ -322,13 +438,13 @@ end
 Wayfinder.Pure = Pure
 
 ------------------------------------------------------------------------------------------------------------------
--- Tuning (Config.Tutorial owns the beam numbers; these are this module's own)
+-- Tuning (Config.Tutorial owns the strip's and the arrows' numbers; these are this module's own)
 ------------------------------------------------------------------------------------------------------------------
 
 local TUNE = Config.Tutorial
 local ROLL0 = CFrame.Angles(0, 0, math.rad(90)) -- the 2024 DevForum recipe: WorldOrientation += (0, 0, 90)
 local ROLL1 = CFrame.Angles(0, 0, math.rad(270)) -- and (0, 0, 270) on the far end
-local END_OUT = 0.3 -- the beam ends this far outside the target's footprint
+local END_OUT = 0.3 -- the strip ends this far outside the target's footprint
 local PATH_OUT = 1.8 -- the path's goal sits this far out (clear of the agent's radius)
 local ROUTE_SECONDS = 0.5 -- the route is worked out again at most this often...
 local ROUTE_STUDS = 3 -- ...and only once you moved this far (or the target changed)
@@ -341,23 +457,39 @@ local NEAR_HEIGHT = 6 -- the near-hide also needs you on (about) the target's fl
 local PIN_NEAR_CAMERA = 10
 local PIN_CHECK_SECONDS = 0.25
 local PIN_BOB_PX = 10
-local PIXELS_PER_STUD = 32 -- the floor chevrons' SurfaceGui
 local NUDGE_SECONDS = 0.4
+-- The strip's two layers.
+local BAND_SHADE = 0.25 -- the edges: the guide's colour this much darker
+local CORE_LIGHTEN = 0.25 -- the middle: this much lighter
+local CORE_ZOFFSET = 0.05 -- the middle draws over the edges
+-- The floor arrows (their size and spacing are Config's).
+local ARROW_EDGE = 0.18 -- the outline, studs all round
+local EDGE_SHADE = 0.45 -- the outline: the guide's colour this much darker (it reads on light tiles and on grass)
+local EDGE_UP, EDGE_THICK = 0.06, 0.12 -- the outline layer spans 0 to 0.12 over the strip...
+local TOP_UP, TOP_THICK = 0.15, 0.1 -- ...the white arrow 0.1 to 0.2 (no two faces share a plane: no flicker)
+local ARROW_WHITE = Color3.new(1, 1, 1)
 
 ------------------------------------------------------------------------------------------------------------------
 -- State
 ------------------------------------------------------------------------------------------------------------------
 
 type Route = { Knees: { Vector3 }, Base: Vector3, From: Vector3 }
+type Arrow = { Holder: Folder, Parts: { BasePart }, Offsets: { CFrame }, Edges: { BasePart } }
 
 local player = Players.LocalPlayer
 local folder: Folder? = nil
-local beams: { Beam } = {}
+local beams: { Beam } = {} -- the strip's edges, one per span
+local cores: { Beam } = {} -- its middle, one per span (the same attachments)
 local startAttachment: Attachment? = nil
 local endAttachment: Attachment? = nil
 local kneeIn: { Attachment } = {}
 local kneeOut: { Attachment } = {}
-local chevrons: { BasePart } = {}
+local arrows: { Arrow } = {}
+local arrowTint: Color3? = nil
+local arrowsDirty = false
+local marching = false
+local bulkParts: { BasePart } = {}
+local bulkFrames: { CFrame } = {}
 local glow: Highlight? = nil
 local glowPulse: Tween? = nil
 local marker: BasePart? = nil
@@ -379,6 +511,7 @@ local route: Route? = nil
 local routeVersion = 0
 local aimedVersion = -1
 local lastAim: CFrame? = nil
+local groundY: number? = nil
 local lastRouteAt = -math.huge
 local routing = false
 local beamOn = false
@@ -485,11 +618,39 @@ local function sequence(points: { { number } }, override: number?): NumberSequen
 	return NumberSequence.new(keys)
 end
 
+-- One layer of one span: flat (FaceCamera off, no curve), unlit. The middle layer takes the optional texture.
+local function makeBeam(name: string, width: number, middle: boolean, parent: Instance): Beam
+	local beam = Instance.new("Beam")
+	beam.Name = name
+	beam.FaceCamera = false
+	beam.CurveSize0 = 0
+	beam.CurveSize1 = 0
+	beam.Segments = 10
+	beam.Width0 = width
+	beam.Width1 = width
+	beam.LightEmission = 0
+	beam.LightInfluence = 0
+	beam.Brightness = 1
+	beam.ZOffset = if middle then CORE_ZOFFSET else 0
+	if middle then
+		beam.TextureMode = Enum.TextureMode.Wrap
+		beam.TextureLength = TUNE.BeamTextureLength
+		beam.TextureSpeed = TUNE.BeamSpeed
+		if type(TUNE.BeamTexture) == "string" and TUNE.BeamTexture ~= "" then
+			beam.Texture = TUNE.BeamTexture
+		end
+	end
+	beam.Enabled = false
+	beam.Parent = parent
+	return beam
+end
+
 local function ensureBeams()
 	if #beams > 0 and beams[1].Parent then
 		return
 	end
 	table.clear(beams)
+	table.clear(cores)
 	local parent = ensureFolder()
 	endAttachment = terrainAttachment("GuideEnd")
 	for n = 1, math.max(TUNE.BeamMaxSpans - 1, 0) do
@@ -497,82 +658,96 @@ local function ensureBeams()
 		kneeOut[n] = terrainAttachment("GuideKnee_" .. n .. "Out")
 	end
 	for n = 1, math.max(TUNE.BeamMaxSpans, 1) do
-		local beam = Instance.new("Beam")
-		beam.Name = "GuideBeam_" .. n
-		beam.FaceCamera = false
-		beam.CurveSize0 = 0
-		beam.CurveSize1 = 0
-		beam.Segments = 10
-		beam.Width0 = TUNE.BeamWidth
-		beam.Width1 = TUNE.BeamWidth
-		beam.TextureMode = Enum.TextureMode.Wrap
-		beam.TextureLength = TUNE.BeamTextureLength
-		beam.TextureSpeed = TUNE.BeamSpeed
-		if type(TUNE.BeamTexture) == "string" and TUNE.BeamTexture ~= "" then
-			beam.Texture = TUNE.BeamTexture
+		beams[n] = makeBeam("GuideBeam_" .. n, TUNE.BeamWidth, false, parent)
+		cores[n] = makeBeam("GuideCore_" .. n, TUNE.BeamCoreWidth, true, parent)
+	end
+end
+
+-- Both layers of every span (the edges and the middle share their attachments).
+local function eachLayer(fn: (Beam, number) -> ())
+	for n, beam in beams do
+		fn(beam, n)
+	end
+	for n, beam in cores do
+		fn(beam, n)
+	end
+end
+
+-- A floor arrow: the 6 pieces of Pure.arrowShape as client-only parts in their own Folder (parented only while
+-- placed). Offsets[i] is part i's CFrame in the arrow's own space (its middle on the strip, looking along it).
+local function makeArrow(index: number): Arrow
+	local holder = Instance.new("Folder")
+	holder.Name = "Arrow_" .. index
+	local made: Arrow = { Holder = holder, Parts = {}, Offsets = {}, Edges = {} }
+	for _, piece in Pure.arrowShape(TUNE.ChevronStuds, TUNE.ChevronWidth, ARROW_EDGE) do
+		local top = piece.Layer == "Top"
+		local thick = if top then TOP_THICK else EDGE_THICK
+		local at = Vector3.new(piece.Side, if top then TOP_UP else EDGE_UP, -piece.Forward)
+		local part: BasePart
+		local offset: CFrame
+		if piece.Kind == "Block" then
+			part = Instance.new("Part")
+			part.Size = Vector3.new(piece.Width, thick, piece.Length)
+			offset = CFrame.new(at)
+		else
+			-- Half the head lying flat: a wedge's right angle is its back-bottom edge, so with its own X up (Left) or
+			-- down (Right), its Y out to that side and its front along the route, the right angle sits on the
+			-- centre line at the head's base and the slope runs from the tip out to that corner.
+			part = Instance.new("WedgePart")
+			part.Size = Vector3.new(thick, piece.Width, piece.Length)
+			offset = if piece.Kind == "Left"
+				then CFrame.fromMatrix(at, Vector3.yAxis, -Vector3.xAxis)
+				else CFrame.fromMatrix(at, -Vector3.yAxis, Vector3.xAxis)
 		end
-		beam.LightEmission = 0
-		beam.LightInfluence = 0
-		beam.Brightness = 1
-		beam.ZOffset = 0
-		beam.Enabled = false
-		beam.Parent = parent
-		beams[n] = beam
+		part.Name = piece.Layer .. piece.Kind
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		part.Locked = true
+		part.Material = Enum.Material.SmoothPlastic
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		part.Color = if top then ARROW_WHITE else (arrowTint or Theme.Colors.Stroke)
+		part.Parent = holder
+		table.insert(made.Parts, part)
+		table.insert(made.Offsets, offset)
+		if not top then
+			table.insert(made.Edges, part)
+		end
 	end
+	return made
 end
 
--- A floor chevron: a thin invisible part with two rounded bars on its top face, a ">" pointing along the route.
-local function makeChevron(index: number): BasePart
-	local size = TUNE.ChevronStuds
-	local part = Instance.new("Part")
-	part.Name = "Chevron_" .. index
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CastShadow = false
-	part.Transparency = 1
-	part.Size = Vector3.new(size, 0.05, size)
-	local face = Instance.new("SurfaceGui")
-	face.Name = "Face"
-	face.Face = Enum.NormalId.Top
-	face.LightInfluence = 0
-	face.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	face.PixelsPerStud = PIXELS_PER_STUD
-	face.AlwaysOnTop = false
-	face.MaxDistance = 160
-	face.Parent = part
-	local px = size * PIXELS_PER_STUD
-	local length, thickness = px * 0.56, px * 0.16
-	local reach = length / 2 * math.sqrt(0.5) -- each bar's half length along x and y
-	for _, side in { -1, 1 } do
-		local bar = Instance.new("Frame")
-		bar.Name = if side < 0 then "Left" else "Right"
-		bar.AnchorPoint = Vector2.new(0.5, 0.5)
-		-- The apex at the top middle; each bar runs down and out from it.
-		bar.Position = UDim2.fromOffset(px / 2 + side * reach, px * 0.3 + reach)
-		bar.Size = UDim2.fromOffset(length, thickness)
-		bar.Rotation = side * 45
-		bar.BackgroundColor3 = Color3.new(1, 1, 1)
-		bar.BackgroundTransparency = 0.55
-		bar.BorderSizePixel = 0
-		Kit.corner(bar, Theme.Radius.Small)
-		local line = Kit.stroke(bar, Theme.Colors.Stroke, Theme.Stroke.Panel)
-		line.Transparency = 0.55
-		bar.Parent = face
-	end
-	part.Parent = ensureFolder()
-	return part
-end
-
--- Made once (they're parented only while placed, so the list itself says they exist; destroy() empties it).
-local function ensureChevrons()
-	if #chevrons > 0 then
+-- Made once (each is parented only while placed; destroy() empties the list).
+local function ensureArrows()
+	if #arrows > 0 then
 		return
 	end
 	for index = 1, math.max(TUNE.MaxChevrons, 0) do
-		chevrons[index] = makeChevron(index)
-		chevrons[index].Parent = nil -- parented only while placed
+		arrows[index] = makeArrow(index)
+	end
+end
+
+-- The arrows' outline colour (written only when it changes: show() runs 5 times a second).
+local function tintArrows(color: Color3)
+	if arrowTint == color then
+		return
+	end
+	arrowTint = color
+	for _, arrow in arrows do
+		for _, part in arrow.Edges do
+			part.Color = color
+		end
+	end
+end
+
+local function hideArrows()
+	for _, arrow in arrows do
+		if arrow.Holder.Parent ~= nil then
+			arrow.Holder.Parent = nil
+		end
 	end
 end
 
@@ -733,9 +908,15 @@ end
 local function syncMotion()
 	local still = calm()
 	local current = spec
-	-- The beam's flow.
-	for _, beam in beams do
+	-- The strip's flow (its middle carries the optional texture).
+	for _, beam in cores do
 		beam.TextureSpeed = if still then 0 else TUNE.BeamSpeed
+	end
+	-- The arrows' march: the loop moves them while it's on; settle them once when it stops.
+	local march = not still and (tonumber(TUNE.ChevronHop) or 0) > 0
+	if march ~= marching then
+		marching = march
+		arrowsDirty = true
 	end
 	-- The glow's pulse: only while it shows.
 	local light = glow
@@ -806,7 +987,7 @@ local function syncMotion()
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The route and the beam
+-- The route, the strip and the arrows
 ------------------------------------------------------------------------------------------------------------------
 
 local function rayParams(): RaycastParams
@@ -837,7 +1018,7 @@ local function floorAt(x: number, z: number, fromY: number, params: RaycastParam
 	return if hit then hit.Position.Y else fromY
 end
 
--- Where the beam ends, ON the floor (BeamEndLift not added yet), seen from `from`; plus the path's goal (further out).
+-- Where the strip ends, ON the floor (BeamLift not added yet), seen from `from`; plus the path's goal (further out).
 local function baseFor(current: Spec, from: Vector3, params: RaycastParams): (Vector3?, Vector3?)
 	if current.Base then
 		return current.Base, current.Base
@@ -931,62 +1112,74 @@ local function aimSpan(a0: Attachment, p0: Vector3, a1: Attachment, p1: Vector3)
 	a1.WorldCFrame = CFrame.lookAt(p1, p0) * ROLL1
 end
 
--- The points the beam runs through after span 1's start: the knees (lifted to the hips) and the base (lifted a bit).
-local function routePoints(current: Route): { Vector3 }
-	local points: { Vector3 } = {}
+-- The guide's ONE polyline: `start` (your feet on the floor), the knees, the target's base, each BeamLift over the
+-- floor. The strip's spans run through these points and the arrows are placed on them, so the two never part.
+local function polyline(current: Route, start: Vector3): { Vector3 }
+	local lift = Vector3.new(0, TUNE.BeamLift, 0)
+	local points = { start + lift }
 	for _, knee in current.Knees do
-		table.insert(points, knee + Vector3.new(0, TUNE.BeamLift, 0))
+		table.insert(points, knee + lift)
 	end
-	table.insert(points, current.Base + Vector3.new(0, TUNE.BeamEndLift, 0))
+	table.insert(points, current.Base + lift)
 	return points
 end
 
-local function hideChevrons()
-	for _, chevron in chevrons do
-		chevron.Parent = nil
+-- The floor arrows on the polyline from `start`: where Pure.arrowPlaces puts them (hopping while they march), every
+-- part moved in ONE BulkMoveTo. Arrows with no spot are unparented.
+local function placeArrows(current: Route, start: Vector3, now: number)
+	ensureArrows()
+	local line: { Point } = {}
+	for _, p in polyline(current, start) do
+		table.insert(line, { X = p.X, Y = p.Y, Z = p.Z })
 	end
-end
-
--- The floor chevrons along the route, from your feet to the target (static until the route changes).
-local function placeChevrons(current: Route, params: RaycastParams)
-	ensureChevrons()
-	local points: { Point } = { { X = current.From.X, Z = current.From.Z } }
-	for _, knee in current.Knees do
-		table.insert(points, { X = knee.X, Z = knee.Z })
+	local length = Pure.routeLength(line)
+	local spots = Pure.chevronSpots(length, TUNE.FirstChevron, TUNE.ChevronGap, #arrows, TUNE.NearStuds)
+	local shift: { number }? = nil
+	if marching then
+		local hops: { number } = {}
+		for i, d in spots do
+			hops[i] = TUNE.ChevronHop * Pure.pulse(now, length - d, TUNE.ChevronPulse, TUNE.ChevronWave)
+		end
+		shift = hops
 	end
-	table.insert(points, { X = current.Base.X, Z = current.Base.Z })
-	local length = Pure.routeLength(points)
-	local spots = Pure.chevronSpots(length, TUNE.FirstChevron, TUNE.ChevronGap, TUNE.MaxChevrons, TUNE.NearStuds)
+	local places = Pure.arrowPlaces(line, spots, shift)
 	local parent = ensureFolder()
-	for index, chevron in chevrons do
-		local d = spots[index]
-		if d then
-			local x, z, dx, dz = Pure.along(points, d)
-			-- Look down from about the route's own height there (your floor near you, the target's near it).
-			local share = if length > 0 then d / length else 1
-			local guess = current.From.Y + (current.Base.Y - current.From.Y) * share
-			local y = floorAt(x, z, guess, params) + 0.05
-			local at = Vector3.new(x, y, z)
-			chevron.CFrame = CFrame.lookAt(at, at + Vector3.new(dx, 0, dz))
-			chevron.Parent = parent
-		else
-			chevron.Parent = nil
+	table.clear(bulkParts)
+	table.clear(bulkFrames)
+	for index, arrow in arrows do
+		local place = places[index]
+		if place then
+			local y = place.Y or (start.Y + TUNE.BeamLift)
+			local at = CFrame.new(place.X, y, place.Z) * CFrame.Angles(0, place.Yaw, 0)
+			for i, part in arrow.Parts do
+				table.insert(bulkParts, part)
+				table.insert(bulkFrames, at * arrow.Offsets[i])
+			end
+			if arrow.Holder.Parent ~= parent then
+				arrow.Holder.Parent = parent
+			end
+		elseif arrow.Holder.Parent ~= nil then
+			arrow.Holder.Parent = nil
 		end
 	end
+	if #bulkParts > 0 then
+		Workspace:BulkMoveTo(bulkParts, bulkFrames, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+	arrowsDirty = false
 end
 
--- Wires the spans for a route: span 1 from GuideStart, then knee to knee, the last into GuideEnd. The fixed spans
--- are aimed here (once per route); span 1 is aimed by the loop.
+-- Wires the spans for a route: span 1 from GuideStart, then knee to knee, the last into GuideEnd (both layers). The
+-- fixed spans are aimed here (once per route); span 1 is aimed by the loop.
 local function applyRoute(current: Route)
 	ensureBeams()
-	local points = routePoints(current)
-	local spans = #points
+	local points = polyline(current, current.From)
+	local spans = #points - 1
 	local start = startAttachment
 	local finish = endAttachment
 	if not finish then
 		return
 	end
-	for n, beam in beams do
+	eachLayer(function(beam: Beam, n: number)
 		if n <= spans then
 			beam.Attachment0 = if n == 1 then start else kneeOut[n - 1]
 			beam.Attachment1 = if n == spans then finish else kneeIn[n]
@@ -996,15 +1189,15 @@ local function applyRoute(current: Route)
 			beam.Attachment1 = nil
 			beam.Enabled = false
 		end
-	end
-	-- Fixed spans: knee n's Out end to the next point.
+	end)
+	-- Fixed spans: knee n-1's Out end to the next point.
 	for n = 2, spans do
 		local a0 = kneeOut[n - 1]
 		local a1 = if n == spans then finish else kneeIn[n]
-		aimSpan(a0, points[n - 1], a1, points[n])
+		aimSpan(a0, points[n], a1, points[n + 1])
 	end
 	if spans == 1 then
-		finish.WorldCFrame = CFrame.new(points[1])
+		finish.WorldCFrame = CFrame.new(points[2])
 	end
 	routeVersion += 1
 end
@@ -1012,16 +1205,18 @@ end
 local function setBeams(on: boolean)
 	beamOn = on
 	local spans = if route then #(route :: Route).Knees + 1 else 0
-	for n, beam in beams do
+	eachLayer(function(beam: Beam, n: number)
 		beam.Enabled = on and n <= spans and beam.Attachment0 ~= nil and beam.Attachment1 ~= nil
-	end
-	if not on then
-		hideChevrons()
+	end)
+	if on then
+		arrowsDirty = true -- the loop places them
+	else
+		hideArrows()
 	end
 end
 
 -- Works the route out again (in its own thread: pathfinding yields). One at a time; it lands unless the target
--- changed meanwhile.
+-- changed meanwhile. The loop re-aims span 1 and re-places the arrows on the new route (routeVersion moved on).
 local function refreshRoute(from: Vector3)
 	local current = spec
 	if routing or not current then
@@ -1050,7 +1245,6 @@ local function refreshRoute(from: Vector3)
 			route = made
 			applyRoute(made)
 			if beamOn then
-				placeChevrons(made, params)
 				setBeams(true)
 			end
 		end)
@@ -1098,11 +1292,15 @@ local function frame()
 	if not startAttachment or startAttachment.Parent ~= root then
 		Wayfinder.attach(root.Parent :: Model)
 	end
+	-- Your feet on the floor: held while you're in the air, so a jump doesn't lift the strip off it.
 	local feet = feetOf(root, humanoid)
-	local here = Vector3.new(root.Position.X, feet, root.Position.Z)
+	if groundY == nil or humanoid == nil or humanoid.FloorMaterial ~= Enum.Material.Air then
+		groundY = feet
+	end
+	local here = Vector3.new(root.Position.X, groundY or feet, root.Position.Z)
 	local made = route
 	-- The route: at once for a new target; then at most every ROUTE_SECONDS, once you moved ROUTE_STUDS (or reached
-	-- the first knee). Never while you stand at the target (the beam is hidden then anyway).
+	-- the first knee). Never while you stand at the target (the strip is hidden then anyway).
 	if current.Beam ~= false and now - lastRouteAt >= ROUTE_SECONDS and not (made and nearNow) then
 		local stale = made == nil
 			or flatDistance(here, (made :: Route).From) >= ROUTE_STUDS
@@ -1119,33 +1317,33 @@ local function frame()
 		wantBeam = not nearNow
 	end
 	if wantBeam ~= beamOn then
-		if wantBeam and made then
-			placeChevrons(made, rayParams())
-		end
 		setBeams(wantBeam)
 	end
-	-- Span 1's aim: only while the beam shows and the root moved (or the route changed).
+	-- Span 1's aim and the arrows: only while the strip shows. Span 1 when the root moved (or the route changed); the
+	-- arrows then too (the ones on span 1 swing with it), and every frame while they march.
 	local start = startAttachment
 	if beamOn and made and start then
-		local moved = lastAim == nil or not root.CFrame:FuzzyEq(lastAim :: CFrame, 1e-3)
-		if moved or aimedVersion ~= routeVersion then
-			local p0 = Vector3.new(root.Position.X, Pure.beamStart(feet, TUNE.BeamLift), root.Position.Z)
-			local first = routePoints(made)[1]
+		local moved = lastAim == nil or not root.CFrame:FuzzyEq(lastAim :: CFrame, 1e-3) or aimedVersion ~= routeVersion
+		if moved then
+			local points = polyline(made, here)
 			local a1 = if #made.Knees > 0 then kneeIn[1] else endAttachment
 			if a1 then
-				aimSpan(start, p0, a1, first)
+				aimSpan(start, points[1], a1, points[2])
 			end
 			lastAim = root.CFrame
 			aimedVersion = routeVersion
 		end
+		if moved or marching or arrowsDirty then
+			placeArrows(made, here, now)
+		end
 	end
-	-- The nudge's brighter beam, back to its fade when the moment passes.
+	-- The nudge's brighter strip, back to its fade when the moment passes.
 	if flashUntil > 0 and now >= flashUntil then
 		flashUntil = 0
 		local spans = if made then #made.Knees + 1 else 1
-		for n, beam in beams do
+		eachLayer(function(beam: Beam, n: number)
 			beam.Transparency = sequence(Pure.fade(n, spans))
-		end
+		end)
 	end
 	debug.profileend()
 end
@@ -1292,13 +1490,18 @@ function Wayfinder.show(wanted: Spec)
 		light.Enabled = false
 	end
 
-	-- The beam: its colour, and a new route at once for a new target.
+	-- The strip and the arrows: their colours, and a new route at once for a new target.
 	if wanted.Beam ~= false then
 		ensureBeams()
-		local tint = ColorSequence.new(Kit.lighten(wanted.Color, 0.25))
+		local edges = ColorSequence.new(Kit.shade(wanted.Color, BAND_SHADE))
+		local middle = ColorSequence.new(Kit.lighten(wanted.Color, CORE_LIGHTEN))
 		for _, beam in beams do
-			beam.Color = tint
+			beam.Color = edges
 		end
+		for _, beam in cores do
+			beam.Color = middle
+		end
+		tintArrows(Kit.shade(wanted.Color, EDGE_SHADE))
 		if retarget then
 			route = nil
 			lastAim = nil
@@ -1322,6 +1525,7 @@ function Wayfinder.hide()
 	lastAim = nil
 	disconnectLoop()
 	setBeams(false)
+	groundY = nil
 	local light, pin, hand = glow, pinGui, handGui
 	if light then
 		light.Enabled = false
@@ -1335,7 +1539,7 @@ function Wayfinder.hide()
 	syncMotion() -- stops every tween (nothing shows)
 end
 
--- The beam starts from this character's HumanoidRootPart (a new GuideStart; the old one went with the old body).
+-- The strip starts from this character's HumanoidRootPart (a new GuideStart; the old one went with the old body).
 function Wayfinder.attach(model: Model)
 	if typeof(model) ~= "Instance" or not model:IsA("Model") then
 		return
@@ -1364,22 +1568,26 @@ function Wayfinder.attach(model: Model)
 	start.Parent = root
 	startAttachment = start
 	lastAim = nil
+	groundY = nil -- the new body's own floor
 	if beams[1] and route then
 		beams[1].Attachment0 = start
+		if cores[1] then
+			cores[1].Attachment0 = start
+		end
 		if beamOn then
 			setBeams(true) -- span 1 can show again on the new body
 		end
 	end
 end
 
--- The idle nudge: the beam brightens for a moment (no motion, so it plays when calm too).
+-- The idle nudge: the strip brightens for a moment (no motion, so it plays when calm too).
 function Wayfinder.flash(seconds: number?)
 	if not beamOn then
 		return
 	end
-	for _, beam in beams do
+	eachLayer(function(beam: Beam)
 		beam.Transparency = sequence({}, 0)
-	end
+	end)
 	flashUntil = os.clock() + (seconds or NUDGE_SECONDS)
 end
 
@@ -1396,7 +1604,7 @@ function Wayfinder.destroy()
 	glowPulse, pinBob, handTween = nil, nil, nil
 	local made = folder
 	if made then
-		made:Destroy() -- the beams, the chevrons, the Highlight, the pin and the hand
+		made:Destroy() -- the strip, the placed arrows, the Highlight, the pin and the hand
 	end
 	for _, attachment in { startAttachment, endAttachment } do
 		if attachment then
@@ -1410,10 +1618,14 @@ function Wayfinder.destroy()
 		table.clear(list)
 	end
 	table.clear(beams)
-	for _, chevron in chevrons do
-		chevron:Destroy() -- the ones not placed right now aren't in the folder
+	table.clear(cores)
+	for _, arrow in arrows do
+		arrow.Holder:Destroy() -- the ones not placed right now aren't in the folder
 	end
-	table.clear(chevrons)
+	table.clear(arrows)
+	table.clear(bulkParts)
+	table.clear(bulkFrames)
+	arrowTint = nil
 	folder, glow, marker, pinGui, pinFrame, pinDisc, pinPoint, pinIcon, pinPop =
 		nil, nil, nil, nil, nil, nil, nil, nil, nil
 	handGui, handIcon, handWord = nil, nil, nil
@@ -1424,7 +1636,7 @@ function Wayfinder.destroy()
 		path:Destroy()
 	end
 	pathObject = nil
-	beamOn, nearNow, flashUntil = false, false, 0
+	beamOn, nearNow, flashUntil, arrowsDirty, marching = false, false, 0, false, false
 end
 
 -- The character `attach` was given (nil before the first attach, and after destroy).
