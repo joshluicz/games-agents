@@ -589,8 +589,18 @@ T.describe("The Real Clinic: every game's look", function()
 	end)
 	test("the cards' words are short, and nothing says cure or anything scary", function()
 		for key, text in Pure.WORDS do
-			assert(utf8.len(text) <= Pure.HINT_MAX, "WORDS." .. key .. " is too long for a phone")
+			-- A longer hint has a short twin, and the card shows the long one only where it fits (fitWords).
+			local short = Pure.WORDS[key .. "Short"]
+			if short ~= nil then
+				assert(utf8.len(short) <= Pure.HINT_MAX, "WORDS." .. key .. "Short is too long for a phone")
+			else
+				assert(utf8.len(text) <= Pure.HINT_MAX, "WORDS." .. key .. " is too long for a phone")
+			end
 		end
+		-- The dispensary's words (Joshua's playtest 2026-11-17)
+		expect(Pure.WORDS.SlipHint).toBe("👀 Tap the same bottle!")
+		expect(Pure.WORDS.SlipWrong).toBe("❌ Not that one. Look at the slip!")
+		expect(Pure.WORDS.SlipMark).toBe("📋")
 		local scary = { CURE, "[Nn]eedle", "[Bb]lood", "[Ss]urgery", "[Hh]urt" }
 		local function clean(text: string, where: string)
 			for _, pattern in scary do
@@ -709,7 +719,7 @@ T.describe("The Real Clinic: the session's new fields", function()
 		expect(s.Items).toEqual({ "", "" })
 		expect(s.Case).toBeNil()
 	end)
-	test("a Dispense: its options and the Expert flag", function()
+	test("a Dispense: its options, the Expert flag, the glow and the clinic's level", function()
 		local s = Pure.session({
 			Session = 5,
 			Kind = "Dispense",
@@ -721,6 +731,22 @@ T.describe("The Real Clinic: the session's new fields", function()
 		expect(s.Options).toEqual({ "CoughSyrup", "EarDrops" })
 		expect(s.Expert).toBe(true)
 		expect(s.Glow).toBe(false)
+		expect(s.Level).toBeNil() -- none sent: the player's own level is used
+		local glowing = Pure.session({
+			Session = 6,
+			Kind = "Dispense",
+			Games = { "Pick", "Dose" },
+			Options = { "EarDrops" },
+			Glow = true,
+			Level = 2.7,
+			PatientId = "CloudSheep",
+		})
+		expect(glowing.Glow).toBe(true)
+		expect(glowing.Level).toBe(2)
+		expect(glowing.PatientId).toBe("CloudSheep") -- the slip's face
+		for _, junk in { 0, -1, 0 / 0, math.huge, "3" } do
+			expect(Pure.session({ Session = 7, Kind = "Dispense", Games = { "Pick" }, Level = junk }).Level).toBeNil()
+		end
 	end)
 	test("junk new fields get safe values; an unknown kind is a Treat", function()
 		local s = Pure.session({
@@ -848,10 +874,8 @@ T.describe("The Real Clinic: the cards fit a phone (Review Focus 5)", function()
 			assert(stage.X <= card.X and stage.Y <= card.Y, "the stage is bigger than the card")
 			assert(card.X <= 568 and card.Y <= 320 - Pure.CARD.Topbar, "the card is bigger than the screen")
 		end
-		-- The medicine choice (up to Config.Dispensary.Options) uses the same layout.
-		assert(Config.Dispensary.Options <= Pure.CHOICES_MAX, "more medicines to choose from than a Pick shows")
-		local options, optionStage = Pure.pickLayout(PHONE, Config.Dispensary.Options)
-		checkTargets(options, optionStage, Config.Dispensary.Options, "568x320 options")
+		-- The shelf never has more bottles than a Pick shows.
+		assert(Config.Dispensary.Bottles <= Pure.CHOICES_MAX, "more bottles than a Pick shows")
 	end)
 	test("1 to 4 targets fit every screen from a small phone to a big monitor, and never grow huge", function()
 		local screens = {
@@ -934,6 +958,193 @@ T.describe("The Real Clinic: the cards fit a phone (Review Focus 5)", function()
 		do
 			assert(string.find(MINI, needle, 1, true), "MiniGames: " .. needle)
 		end
+	end)
+end)
+
+T.describe("The dispensary's prescription match (Joshua's playtest 2026-11-17)", function()
+	local SCREENS = {
+		{ 568, 320 },
+		{ 640, 360 },
+		{ 667, 375 },
+		{ 812, 375 },
+		{ 320, 568 },
+		{ 375, 667 },
+		{ 1024, 768 },
+		{ 1280, 720 },
+		{ 1920, 1080 },
+		{ 2560, 1440 },
+	}
+	-- Inside the stage with PickInset clear round it (the outline is drawn outside a target).
+	local function inside(r: any, stage: any, where: string)
+		local inset = Pure.CARD.PickInset
+		assert(r.X >= inset and r.Y >= inset, where .. " starts inside the inset")
+		assert(r.X + r.W <= stage.X - inset + 1 and r.Y + r.H <= stage.Y - inset + 1, where .. " leaves the stage")
+	end
+
+	test("the slip and the shelf fit every screen: bottles >= 44 px, nothing overlaps, outlines unclipped", function()
+		for _, size in SCREENS do
+			for n = Pure.SLIP.ShelfMin, Pure.CHOICES_MAX do
+				local fit, stage, card = Pure.slipFit({ X = size[1], Y = size[2] }, n)
+				local where = size[1] .. "x" .. size[2] .. " n=" .. n
+				checkTargets(fit.Shelf, stage, n, where)
+				assert(fit.Mode == "Side" or fit.Mode == "Strip", where .. ": " .. fit.Mode)
+				assert(stage.X <= card.X and stage.Y <= card.Y, where .. ": the stage is bigger than the card")
+				inside(fit.Slip, stage, where .. ": the slip")
+				for i, r in fit.Shelf do
+					inside(r, stage, where .. ": bottle " .. i)
+					assert(not overlaps(r, fit.Slip), where .. ": bottle " .. i .. " covers the slip")
+					assert(r.W <= Pure.CARD.PickMax, where .. ": a bottle past PickMax")
+				end
+				if fit.Mode == "Side" then
+					assert(fit.Slip.W >= Pure.SLIP.MinW, where .. ": a side slip too narrow for its name")
+					assert(fit.Slip.X < fit.Shelf[1].X, where .. ": the slip is on the left")
+				else
+					assert(fit.Slip.H >= Pure.SLIP.StripMin, where .. ": a strip too thin")
+					assert(fit.Slip.Y + fit.Slip.H <= fit.Shelf[1].Y, where .. ": the strip is over the shelf")
+				end
+				-- A bottle's name only where it reads at 18 px (two lines in its lower third).
+				assert(not fit.Named or fit.Shelf[1].W >= Pure.SLIP.NameSide, where .. ": names on small bottles")
+			end
+		end
+	end)
+
+	test(
+		"a 568 x 320 phone: the slip is a strip over one row; a computer: a card beside 2 x 2 named bottles",
+		function()
+			local phone = Pure.slipFit(roblox.Vector2.new(568, 320), 4)
+			expect(phone.Mode).toBe("Strip")
+			expect(phone.Shelf[1].Y).toBe(phone.Shelf[4].Y)
+			expect(phone.Named).toBe(false)
+			local desk = Pure.slipFit({ X = 1920, Y = 1080 }, 4)
+			expect(desk.Mode).toBe("Side")
+			expect(desk.Named).toBe(true)
+			assert(desk.Shelf[3].Y > desk.Shelf[1].Y, "2 x 2 on a computer")
+			assert(desk.Slip.H > desk.Slip.W, "a tall little card")
+		end
+	)
+
+	test("the slip's stage is the plain one plus the status strip it steps over (and gives back)", function()
+		local _, stage = Pure.cardSize({ X = 568, Y = 320 })
+		local tall = Pure.slipStage(stage)
+		expect(tall.X).toBe(stage.X)
+		expect(tall.Y).toBe(stage.Y + Pure.CARD.Status + Pure.CARD.Gap)
+		local code = codeOf(MINI)
+		assert(string.find(code, "v.Status.Visible = not on", 1, true), "setTall hides the status strip")
+		assert(string.find(code, "local top = if on then 0 else STATUS + GAP", 1, true), "setTall's stage")
+		assert(string.find(MINI, "setTall(v, false) -- every run starts on the plain stage", 1, true), "reset per run")
+	end)
+
+	test("too small for both: the bottles still lay out (Squeeze); junk never breaks it", function()
+		local tiny = Pure.slipLayout({ X = 200, Y = 50 }, 4)
+		expect(tiny.Mode).toBe("Squeeze")
+		expect(#tiny.Shelf).toBe(4)
+		for _, r in tiny.Shelf do
+			assert(not overlaps(r, tiny.Slip), "a squeezed bottle covers the slip")
+		end
+		expect(Pure.slipLayout(nil, 4).Mode).toBe("None")
+		expect(#Pure.slipLayout({ X = 600, Y = 300 }, 0).Shelf).toBe(0)
+		expect(#Pure.slipLayout({ X = 600, Y = 300 }, 0 / 0).Shelf).toBe(0)
+		expect(#Pure.slipLayout({ X = 600, Y = 300 }, 9).Shelf).toBe(Pure.CHOICES_MAX)
+	end)
+
+	test("grid: pickRects is the grid inside the inset", function()
+		local inset = Pure.CARD.PickInset
+		for _, stage in { { X = 314, Y = 160 }, { X = 640, Y = 260 }, { X = 120, Y = 300 } } do
+			for n = 1, Pure.CHOICES_MAX do
+				local rects, side = Pure.grid(inset, inset, stage.X - 2 * inset, stage.Y - 2 * inset, n)
+				expect(Pure.pickRects(stage, n)).toEqual(rects)
+				expect(side).toBe(rects[1].W)
+			end
+		end
+		local none, side = Pure.grid(0, 0, 0, 100, 3)
+		expect(none).toEqual({})
+		expect(side).toBe(0)
+	end)
+
+	test(
+		"the shelf: only the medicines this clinic's cases use at its level, 2 to Config.Dispensary.Bottles",
+		function()
+			local Levels = data("src/shared/Data/Levels.luau")
+			local pool = {}
+			for _, id in Items.Order do
+				if Items[id].Kind == "Medicine" then
+					table.insert(pool, { Id = id, Icon = Items[id].Icon })
+				end
+			end
+			local function ids(list: { any }): { string }
+				local out = {}
+				for _, entry in list do
+					table.insert(out, entry.Id)
+				end
+				table.sort(out)
+				return out
+			end
+			local most = Config.Dispensary.Bottles
+			-- Lv 1 (Joshua: "need it simple especially at the start"): cough syrup, fever medicine, ear drops. 3, not 4.
+			local shelf, count = Pure.shelf("CoughSyrup", pool, Cases, 1, Levels, most)
+			expect(ids(shelf)).toEqual({ "CoughSyrup", "EarDrops", "FeverMeds" })
+			expect(count).toBe(3)
+			-- each of them is in the plan (cut to the level's RecipeCap) of a case from that level
+			for _, entry in shelf do
+				local used = false
+				for _, case in Cases do
+					if type(case) == "table" and type(case.Level) == "number" and case.Level <= 1 then
+						for _, itemId in Visit.plan(case, Levels[1].RecipeCap) do
+							used = used or itemId == entry.Id
+						end
+					end
+				end
+				assert(used, entry.Id .. " is on a Lv 1 shelf but no Lv 1 case uses it")
+			end
+			-- higher levels: more medicines, never more than Config.Dispensary.Bottles bottles
+			for level = 2, 5 do
+				local wider, n = Pure.shelf("Lozenges", pool, Cases, level, Levels, most)
+				assert(#wider > 3, "Lv " .. level .. " uses more medicines")
+				expect(n).toBe(math.min(#wider, most))
+			end
+			-- the answer is always on it, even one no case at that level uses
+			local odd, oddCount = Pure.shelf("PainRelief", pool, Cases, 1, Levels, most)
+			assert(table.find(ids(odd), "PainRelief"), "the answer is on the shelf")
+			expect(oddCount).toBe(4)
+			-- at least ShelfMin: a clinic whose cases use one medicine still gets a second bottle
+			local one = { Only = { Plan = { "EarDrops" }, Level = 1 } }
+			local small, two = Pure.shelf("EarDrops", pool, one, 1, Levels, most)
+			expect(#small).toBe(Pure.SLIP.ShelfMin)
+			expect(two).toBe(Pure.SLIP.ShelfMin)
+			-- every level and medicine: Pure.bottles gives `count` distinct bottles from it, the answer among them
+			for level = 1, 5 do
+				for _, entry in pool do
+					local list, n = Pure.shelf(entry.Id, pool, Cases, level, Levels, most)
+					local allowed = ids(list)
+					local bottles = Pure.bottles(entry.Id, list, n, sequence({ 0.3, 0.7, 0.1 }))
+					expect(#bottles).toBe(n)
+					assert(table.find(bottles, entry.Id), "the right bottle is on the shelf")
+					for i, id in bottles do
+						assert(table.find(allowed, id), id .. " is not one this clinic uses")
+						for j = i + 1, #bottles do
+							assert(bottles[j] ~= id, "a bottle twice")
+						end
+					end
+				end
+			end
+			-- junk: nothing breaks, the answer still shows
+			local junk, junkCount = Pure.shelf("EarDrops", nil, nil, 0 / 0, nil, nil)
+			expect(#junk).toBe(0)
+			expect(Pure.bottles("EarDrops", junk, junkCount, sequence({ 0.5 }))).toEqual({ "EarDrops" })
+		end
+	)
+
+	test("the card never asks 'Which one?': one medicine, matched on its slip", function()
+		local code = codeOf(MINI)
+		expect(string.find(code, "Which one?", 1, true)).toBeNil()
+		expect(string.find(code, "chooseMedicine", 1, true)).toBeNil()
+		assert(
+			string.find(code, "run.Choice = prescription(ctx, session)", 1, true),
+			"a Dispense takes its one medicine"
+		)
+		assert(string.find(code, "return playSlip(env, choice)", 1, true), "a Dispense's Pick is the slip")
+		assert(string.find(code, "Hud.portrait(look)", 1, true), "the slip shows the patient")
+		assert(string.find(code, "if session.Glow then medicineId else nil", 1, true), "the right bottle glows")
 	end)
 end)
 

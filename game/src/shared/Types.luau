@@ -371,13 +371,14 @@ export type PurchaseKind = "Upgrade" | "Room" | "Decor" | "Level" -- "Level": Ec
 --                    Settling it reveals the case (TreatOutcome.Case), whatever the ratings
 --   Kind "Treat"     at a bay, giving supplies: one game per item in Items (Data/Items Game). Medicines are handed
 --                    over with no session at all
---   Kind "Dispense"  at the dispensary. Options = the medicines bay patients still need (up to 3, the oldest first).
---                    Games = { "Pick", "Dose" }: find the chosen medicine's bottle, measure the dose. The report's
---                    Choice names the medicine; the outcome's Item is what went into the player's hands
+--   Kind "Dispense"  at the dispensary. Options = the ONE medicine to make (the bay patient who has waited longest
+--                    needs it), shown as a prescription slip. Games = { "Pick", "Dose" }: tap the same bottle on
+--                    the shelf, measure the dose. The report's Choice names the medicine; the outcome's Item is what
+--                    went into the player's hands
 -- TreatResult(session: number, ratings: { Rating }, choice: ItemId?) -> ok, message, TreatOutcome?
 export type TreatSession = {
 	Session: number, -- the only id TreatResult accepts (one open session per player)
-	PatientId: PatientId, -- the patient's species ("" for a Dispense session)
+	PatientId: PatientId, -- the patient's species (Dispense: the one its slip is for, "" when unknown)
 	Items: { ItemId }, -- Treat: what is being given now, in plan order; {} for Exam and Dispense
 	Games: { GameId }, -- the games to play, in order
 	Simple: boolean, -- the client shows one tap per game; the server rates each Good
@@ -390,9 +391,12 @@ export type TreatSession = {
 	-- The Real Clinic
 	Tools: { ToolId }?, -- Exam: the 3 tools on the card (Logic/Visit.examTools)
 	Answer: ToolId?, -- Exam: the right one (the server picked it; knowing it early wins nothing but the tip)
-	Glow: boolean?, -- Exam: the right tool glows (a player's first exams, and Simple mode: Logic/Visit.glow)
+	-- Exam: the right tool glows (a player's first exams, and Simple mode: Logic/Visit.glow). Dispense: the right
+	-- bottle glows (a player's first dispenses, Simple mode, the tutorial: Server/Stations)
+	Glow: boolean?,
 	Symptom: string?, -- Exam: the patient's symptom bubble, the card's clue
-	Options: { ItemId }?, -- Dispense: the medicines to choose from
+	Options: { ItemId }?, -- Dispense: the one medicine to make (never a choice)
+	Level: number?, -- Dispense: the clinic's hospital level (the shelf shows only the medicines its cases use)
 	-- Dispense: Expert Dispensing (the clinic owner's Pharmacy2 unlock). The client draws and rates the Dose game
 	-- with its band Config.Dispensary.ExpertBand wider; Tuning.Dose is that same row as the server worked it out
 	Expert: boolean?,

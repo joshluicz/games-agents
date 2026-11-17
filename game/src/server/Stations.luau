@@ -13,10 +13,17 @@
 --   Supplies ("Take", ObjectText the station's icon): holding puts that station's item in your tray (Carry.add), with
 --   a sparkle burst. Then Daily.onMake, Badges.onMade ("Made:<StationId>") and Tutorial.onMade.
 --   The dispensary (Station_Remedy, "Dispense"; Data/Stations Dispense): the medicines are made only by a player here
---   (nurses never dispense). Holding opens a Dispense session (Server/Treatment) whose Options are the medicines bay
---   patients still need (Patients.neededMedicines and the rest of Patients.bayView's needs, the oldest first), less
---   the copies this player already carries and less a medicine their full tray holds nothing but, and only then cut
---   to Config.Dispensary.Options (3): a fourth needed medicine comes up once one of the first three is in hand. The session's Give puts the chosen medicine in your hands (the same full-tray swap as a supply), bursts
+--   (nurses never dispense). Holding opens a Dispense session (Server/Treatment) for ONE medicine (Pure.PER_DISPENSE;
+--   Joshua's playtest 2026-11-17: "not too sure which medicine to click"): the one the bay patient who has waited
+--   longest needs (Patients.neededMedicines and the rest of Patients.bayView's needs, the oldest first), less the
+--   copies this player already carries and less a medicine their full tray holds nothing but, and only then cut to
+--   one: the next needed medicine comes up once that one is in hand. The card shows it as a prescription slip
+--   (UI/MiniGames): the session's PatientId is the species of the bay patient it is for (Pure.patientFor; "" when
+--   unknown) and its Level the clinic's hospital level (the shelf shows only the medicines its cases use). The right
+--   bottle glows (spec.Glow, Pure.dispenseGlow) for the player's first Pure.DISPENSE_GLOW dispenses (their own saved
+--   counter Stats.Dispenses, counted as each medicine lands, only while the glow still matters), always in Simple
+--   mode and all through their tutorial. The session's Give puts the medicine in your hands (the same full-tray swap
+--   as a supply), bursts
 --   the sparkles and counts "Made:Remedy" (the old potion badge keeps climbing, shown "Pharmacist"), Daily.onMake and
 --   Tutorial.onMade. Nothing to dispense: "💊 No prescriptions yet" (also the prompt's ObjectText, kept up to date
 --   every second; otherwise it shows the needed medicines' icons), "🙌 Already in your hands!", or "🙌 Tray full!
@@ -164,6 +171,45 @@ Pure.MSG = table.freeze({
 	Full = "🙌 Tray full! Treat a patient.",
 })
 
+-- One medicine per dispense (Joshua's playtest 2026-11-17): the card never asks "Which one?". Config.Dispensary.Options
+-- still says how many needed medicines Patients lists (the prompt's icons).
+Pure.PER_DISPENSE = 1
+-- The right bottle glows for a player's first dispenses, counted in their save (free-form Stats need no schema bump).
+-- Config.Dispensary.Glow, when it is set, overrides the number.
+Pure.DISPENSES_STAT = "Dispenses"
+Pure.DISPENSE_GLOW = 3
+
+-- A player's dispenses so far: the saved counter Stats.Dispenses. Junk -> 0.
+function Pure.dispensesDone(data: any): number
+	local stats = if type(data) == "table" then data.Stats else nil
+	local value = if type(stats) == "table" then stats[Pure.DISPENSES_STAT] else nil
+	return if type(value) == "number"
+			and value == value
+			and value > 0
+			and value < math.huge
+		then math.floor(value)
+		else 0
+end
+
+-- How many first dispenses glow: Config.Dispensary.Glow when it is a whole number >= 0, else DISPENSE_GLOW.
+function Pure.glowLimit(cfg: any): number
+	local dispensary = if type(cfg) == "table" then cfg.Dispensary else nil
+	local value = if type(dispensary) == "table" then dispensary.Glow else nil
+	if type(value) == "number" and value == value and value >= 0 and value < math.huge then
+		return math.floor(value)
+	end
+	return Pure.DISPENSE_GLOW
+end
+
+-- Whether the right bottle glows: always (Simple mode, the tutorial) or one of the player's first dispenses.
+function Pure.dispenseGlow(done: any, always: any, cfg: any): boolean
+	if always == true then
+		return true
+	end
+	local count = if type(done) == "number" and done == done then done else 0
+	return count < Pure.glowLimit(cfg)
+end
+
 -- Which carried item to give up to make room for `itemId` (`carried` oldest first): the oldest one that's
 -- different and isn't covering something the clinic still needs (`needs`, duplicates counted), else the oldest one
 -- that's different. nil when every carried item is `itemId` (swapping would change nothing).
@@ -221,13 +267,54 @@ local function since(row: any): number
 	return if type(value) == "number" and value == value then value else math.huge
 end
 
+-- The bay patient a dispense of `itemId` is for (its Patients visit id): the longest wait first among those whose
+-- open needs (`rows`, Patients.bayView) include it, skipping one need for each copy the player already carries (that
+-- one is for the older patient; when every need is covered, the oldest). nil when no row needs it.
+function Pure.patientFor(rows: any, itemId: any, carried: any): any
+	if type(rows) ~= "table" or type(itemId) ~= "string" then
+		return nil
+	end
+	local skip = 0
+	if type(carried) == "table" then
+		for _, held in carried do
+			if held == itemId then
+				skip += 1
+			end
+		end
+	end
+	local sorted: { any } = {}
+	for _, row in rows do
+		if type(row) == "table" and type(row.Needs) == "table" then
+			table.insert(sorted, row)
+		end
+	end
+	table.sort(sorted, function(x, y)
+		return since(x) < since(y)
+	end)
+	local first: any = nil
+	for _, row in sorted do
+		for _, need in row.Needs do
+			if need == itemId then
+				if first == nil then
+					first = row.PatientId
+				end
+				if skip <= 0 then
+					return row.PatientId
+				end
+				skip -= 1
+			end
+		end
+	end
+	return first
+end
+
 -- What the dispensing card offers this player. Every medicine a bay patient still needs: `needed`
 -- (Patients.neededMedicines: distinct, the oldest first, but cut to the card's size) and then the rest of the needs
 -- in `rows` (Patients.bayView, the longest wait first), kept to known medicines. Less what they already carry: `rows`
 -- counts each medicine's open needs, and one whose every need is already in the player's hands is left out (a medicine
 -- the rows don't mention is kept: `needed` says so). Less what can't land in their hands: with a `full` tray that
--- holds nothing but that very medicine, a swap would change nothing. Only THEN cut to `max` (Config.Dispensary.Options,
--- default 3), so a fourth needed medicine comes up as soon as one of the first three is in hand.
+-- holds nothing but that very medicine, a swap would change nothing. Only THEN cut to `max` (the dispensary passes
+-- Pure.PER_DISPENSE, one; junk -> 3), so the next needed medicine comes up as soon as the first is in hand.
 -- Returns the options and, when there are none, why: "None" (nothing is needed), "Have" (everything needed is in
 -- your hands) or "Full" (the tray is full of it: hand one over first).
 function Pure.dispenseOptions(
@@ -477,16 +564,88 @@ local function pharmacyTier(plot: Plot): number
 	return Pure.pharmacyTier(rebirths, RebirthLogic.has)
 end
 
--- The Dispense card's options for this player, and why there are none ("None" | "Have").
+-- The Dispense card's one medicine for this player (Pure.PER_DISPENSE), and why there is none ("None" | "Have" |
+-- "Full").
 local function dispenseOptions(player: Player, plot: Plot): ({ string }, string)
 	return Pure.dispenseOptions(
 		ask("neededMedicines", plot),
 		ask("bayView", plot),
 		Carry.items(player),
 		ItemData,
-		Config.Dispensary and Config.Dispensary.Options,
+		Pure.PER_DISPENSE,
 		Carry.isFull(player)
 	)
+end
+
+-- The species of the bay patient this medicine is for (its creature model's PatientId: Patients names each visit's
+-- model with a VisitId), for the slip's face. "" when it can't be found.
+local function slipPatient(player: Player, plot: Plot, itemId: string): string
+	local ok, species = pcall(function(): string
+		local visit = Pure.patientFor(ask("bayView", plot), itemId, Carry.items(player))
+		if visit == nil then
+			return ""
+		end
+		local containers: { Instance } = { plot.Model }
+		local folder = plot.Model:FindFirstChild("Patients")
+		if folder then
+			table.insert(containers, 1, folder)
+		end
+		for _, container in containers do
+			for _, child in container:GetChildren() do
+				if child:IsA("Model") and child:GetAttribute("VisitId") == visit then
+					local id = child:GetAttribute("PatientId")
+					return if type(id) == "string" then id else ""
+				end
+			end
+		end
+		return ""
+	end)
+	if not ok then
+		report("the slip's patient", species)
+	end
+	return if ok and type(species) == "string" then species else ""
+end
+
+-- The clinic's hospital level (its owner's save): the slip's shelf shows only the medicines its cases use.
+local function clinicLevel(plot: Plot): number
+	local owner = plot.Owner
+	local data = if owner then PlayerData.get(owner) else nil
+	local level = if data then data.Level else nil
+	return if type(level) == "number" and level == level and level >= 1 then math.floor(level) else 1
+end
+
+-- Whether the right bottle glows for this player: their first dispenses (Stats.Dispenses), Simple mode, and all
+-- through their tutorial (a Replay too).
+local function dispenseGlow(player: Player): boolean
+	local teaching = false
+	local active = (Tutorial :: any).active
+	if type(active) == "function" then
+		local ok, answer = pcall(active, player)
+		if not ok then
+			report("Tutorial.active", answer)
+		end
+		teaching = ok and answer == true
+	end
+	local okSimple, simple = pcall(Treatment.simple, player)
+	return Pure.dispenseGlow(
+		Pure.dispensesDone(PlayerData.get(player)),
+		teaching or (okSimple and simple == true),
+		Config
+	)
+end
+
+-- One more dispense for this player's glow (Stats.Dispenses), counted only while it still matters: once the glow is
+-- over the save isn't written again.
+local function countDispense(player: Player)
+	if Pure.dispensesDone(PlayerData.get(player)) >= Pure.glowLimit(Config) then
+		return
+	end
+	local ok, err = pcall(PlayerData.update, player, function(d: Types.Data)
+		d.Stats[Pure.DISPENSES_STAT] = Pure.dispensesDone(d) + 1
+	end)
+	if not ok then
+		report("PlayerData.update (Dispenses)", err)
+	end
 end
 
 local function iconOf(itemId: string): string
@@ -667,7 +826,7 @@ local function take(player: Player, w: Wired)
 	made(player, itemId, w.StationId, w.Plot)
 end
 
--- The dispensary: opens a Dispense session. Its Give lands the chosen medicine when the session settles.
+-- The dispensary: opens a Dispense session for one medicine (its slip). Its Give lands it when the session settles.
 local function dispense(player: Player, w: Wired)
 	local plot = w.Plot
 	local options = dispenseOptions(player, plot)
@@ -680,17 +839,20 @@ local function dispense(player: Player, w: Wired)
 		end
 		burst(w.Sparkles)
 		made(player, itemId, w.StationId, plot) -- "Made:Remedy" counts every dispense
+		countDispense(player) -- the glow's own counter
 		return true, claimTip(plot, itemId)
 	end
 	local spec: Treatment.Spec = {
 		Plot = plot,
-		PatientId = "",
+		PatientId = slipPatient(player, plot, options[1]), -- the slip's face ("" when unknown)
 		Kind = "Dispense",
 		Items = {},
 		Position = w.Part.Position + Vector3.new(0, 3, 0),
 		Counter = w.Part.Position,
 		TipSoFar = 0,
 		Options = options,
+		Glow = dispenseGlow(player),
+		Level = clinicLevel(plot),
 		Expert = pharmacyTier(plot) >= 2,
 		Give = give,
 	}

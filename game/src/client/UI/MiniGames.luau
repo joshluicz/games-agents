@@ -20,10 +20,17 @@
 --             that tool's game. The server's answer reveals the case for 1.2 s: "🩺 It's a cough!" with the plan's
 --             icons. The step chips never show the right tool before it is picked.
 --   Treat     at a bay, giving supplies: one game per item (Data/Items Game), as before.
---   Dispense  at the dispensary. With several session.Options the card first asks which medicine to make (any is
---             right: each one is needed); then Pick finds its bottle among Config.Dispensary.Bottles (the right one
---             and others that never share its icon when the shelf has enough: Pure.bottles), then Dose fills the
---             measuring cup (the Pour engine) in the medicine's colour. The report carries the Choice.
+--   Dispense  at the dispensary, ONE medicine (session.Options[1]: the server never offers a choice, and this card
+--             never asks "Which one?"; Joshua's playtest 2026-11-17: "not too sure which medicine to click"). Pick is a
+--             prescription match: the slip (📋, the patient's face, the bottle drawn big in the medicine's own colour
+--             with its icon, and its name) beside the shelf (Pure.slipLayout; on a short card the slip is a strip
+--             over it). The shelf has only medicines this clinic's cases use at its level (session.Level; Joshua:
+--             "need it simple especially at the start"), 2 to Config.Dispensary.Bottles of them (Pure.shelf), none
+--             sharing the right one's icon when it can (Pure.bottles), each named under it when it's big enough.
+--             "👀 Tap the same bottle!"; a wrong tap: "❌ Not that one. Look at the slip!" and the slip wiggles. The
+--             right one glows while session.Glow (the server's call: a player's first dispenses and the tutorial).
+--             Then Dose fills the measuring cup (the Pour engine) in the medicine's colour. The report carries the
+--             Choice.
 -- Every GameId is a look (Pure.LOOKS: icon, words, sound, and the engine's skin) on one of five engines
 -- (Logic/MiniGame.ENGINE; Pure.dispatch picks the routine):
 --   Pour   hold, let go in the green ⭐ band       score = the fill when let go (0..1). Skins: the 🧪 bottle, the
@@ -45,7 +52,7 @@
 -- Never a fail: OK still treats. Then TreatResult (Hud.ask(TreatResult, session.Session, ratings, choice)): its third
 -- value is the TreatOutcome; the card shows the server's ratings and tip for a moment and closes.
 -- Simple mode (session.Simple): one big tap per game, rated Good, no combo counter (a Pick's tap shows the right
--- tool or bottle; a Dispense card takes the first medicine without asking). A game id this client doesn't know plays
+-- tool or bottle). A game id this client doesn't know plays
 -- as one tap too (rated Good). Reduced motion (Kit.reducedMotion(), checked live): no wobble, bursts, drift or
 -- overshoot; the fill, the rings and the sweep still move (they are the game), same rules.
 -- Fairness: the report never goes sooner than MiniGame.minSeconds after TreatStart (so the server never rates a real
@@ -79,6 +86,7 @@
 local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -130,8 +138,9 @@ export type Session = {
 	-- The Real Clinic (contract C5)
 	Tools: { string }, -- Exam: the tools on the card (ToolIds, at most CHOICES_MAX, no repeats)
 	Answer: string?, -- Exam: the right tool
-	Glow: boolean, -- Exam: the right tool glows
-	Options: { string }, -- Dispense: the medicines to choose from (ItemIds, at most CHOICES_MAX, no repeats)
+	Glow: boolean, -- Exam: the right tool glows; Dispense: the right bottle glows
+	Options: { string }, -- Dispense: the medicine to make (the first known one; ItemIds, no repeats)
+	Level: number?, -- Dispense: the clinic's hospital level (the shelf's medicines); nil = the player's own
 	Case: string?, -- Treat: the case being treated
 	Symptom: string, -- Exam: the patient's symptom bubble, as a clue ("" when the server sends none)
 	Expert: boolean, -- Dispense: Expert Dispensing (the Pharmacy2 unlock) widens the Dose band
@@ -215,6 +224,7 @@ function Pure.session(raw: any): Session?
 	end
 	local combo = finite(raw.Combo)
 	local timeout = finite(raw.Timeout)
+	local level = finite(raw.Level)
 	local rawAuto = if type(raw.Auto) == "table" then raw.Auto else {}
 	local auto: { boolean } = {}
 	for index = 1, count do
@@ -235,6 +245,7 @@ function Pure.session(raw: any): Session?
 		Answer = if type(raw.Answer) == "string" and raw.Answer ~= "" then raw.Answer else nil,
 		Glow = raw.Glow == true,
 		Options = strings(raw.Options, Pure.CHOICES_MAX),
+		Level = if level and level >= 1 then math.floor(level) else nil,
 		Case = if type(raw.Case) == "string" and raw.Case ~= "" then raw.Case else nil,
 		Symptom = if type(raw.Symptom) == "string" and #raw.Symptom <= 60 then raw.Symptom else "",
 		Expert = raw.Expert == true,
@@ -712,17 +723,22 @@ Pure.LOOKS = {
 	},
 } :: { [string]: LookSpec }
 
--- The cards' own words (the exam's tool pick, the dispensary, the reveal, the results).
+-- The cards' own words (the exam's tool pick, the dispensary, the reveal, the results). A hint longer than HINT_MAX
+-- has a "<key>Short" twin that is not: the card shows the long one only where it fits the hint line at 18 px.
 Pure.WORDS = {
 	ExamIcon = "🤔",
 	ExamTitle = "Which tool?",
 	ExamHint = "👀 Which one fits?",
 	GlowHint = "✨ The shiny one!",
 	Wrong = "🙃 Hmm, not that one!",
-	ChooseIcon = "💊",
-	ChooseTitle = "Which one?",
-	ChooseHint = "👆 Pick one to make",
-	FindHint = "👀 Find this bottle!",
+	-- the dispensary's prescription match
+	MedicineIcon = "💊",
+	SlipTitle = "Find the medicine!",
+	SlipHint = "👀 Tap the same bottle!",
+	SlipHintShort = "👀 Tap the same one!",
+	SlipWrong = "❌ Not that one. Look at the slip!",
+	SlipWrongShort = "❌ Look at the slip!",
+	SlipMark = "📋",
 	Ready = "Ready!",
 	ToBay = "🛏️ To the patient!",
 	Better = "All better!",
@@ -793,12 +809,17 @@ function Pure.pickRects(stage: any, n: number): { Rect }
 	local fullW, fullH = xy(stage)
 	-- Inside the inset (the 2 x 2 bottles were clipped top and bottom: Studio test 2026-11-17).
 	local inset = Pure.CARD.PickInset
-	local w, h = fullW - 2 * inset, fullH - 2 * inset
+	return (Pure.grid(inset, inset, fullW - 2 * inset, fullH - 2 * inset, n))
+end
+
+-- `n` square targets (at most CHOICES_MAX) in the box (x, y, w, h) px, as big as they fit (up to CARD.PickMax), in
+-- the rows that make them biggest, centred, CARD.PickGap apart. Returns the rects and their side (0 when none).
+function Pure.grid(x: number, y: number, w: number, h: number, n: number): ({ Rect }, number)
 	local count = math.clamp(math.floor(finite(n) or 0), 0, Pure.CHOICES_MAX)
 	local gap = Pure.CARD.PickGap
 	local out: { Rect } = {}
-	if count == 0 or w <= 0 or h <= 0 then
-		return out
+	if count == 0 or not (w > 0 and h > 0) then
+		return out, 0
 	end
 	local bestSide, bestRows = -1, 1
 	for rows = 1, count do
@@ -818,13 +839,89 @@ function Pure.pickRects(stage: any, n: number): { Rect }
 		local inRow = math.min(cols, count - row * cols)
 		local left = (w - (inRow * side + (inRow - 1) * gap)) / 2
 		table.insert(out, {
-			X = math.floor(inset + left + col * (side + gap)),
-			Y = math.floor(inset + top + row * (side + gap)),
+			X = math.floor(x + left + col * (side + gap)),
+			Y = math.floor(y + top + row * (side + gap)),
 			W = side,
 			H = side,
 		})
 	end
-	return out
+	return out, side
+end
+
+-- The dispensary's prescription match: the slip and the shelf on the Pick's stage. Side: the slip is a little card
+-- on the left as tall as the stage, the shelf on the right. Strip: on a short card (a phone) the slip is a strip
+-- over the shelf. Squeeze: a card too small for either keeps the targets as big as it can (the slip shrinks to the
+-- bottle alone). The status strip steps aside while the slip shows (Pure.slipStage), so the stage is taller.
+Pure.SLIP = {
+	Gap = 10, -- between the slip and the shelf
+	Aspect = 0.8, -- a side slip's width / height, at most
+	Share = 0.42, -- a side slip's share of the stage's width, at most
+	MinW = 100, -- a side slip narrower than this can't show the name at 18 px: then it is a strip on top
+	StripMin = 44, -- a strip's height: StripShare of the stage, kept within StripMin..StripMax
+	StripMax = 72,
+	StripShare = 0.36,
+	NameSide = 100, -- a shelf bottle this big has its name under it (two lines at 18 px)
+	ShelfMin = 2, -- the fewest bottles on the shelf (Pure.shelf)
+}
+export type SlipFit = { Slip: Rect, Shelf: { Rect }, Mode: string, Named: boolean }
+
+function Pure.slipLayout(stage: any, n: number): SlipFit
+	local fullW, fullH = xy(stage)
+	local s = Pure.SLIP
+	local inset = Pure.CARD.PickInset
+	local w, h = fullW - 2 * inset, fullH - 2 * inset
+	local count = math.clamp(math.floor(finite(n) or 0), 0, Pure.CHOICES_MAX)
+	if count == 0 or not (w > 0 and h > 0) then
+		return { Slip = { X = 0, Y = 0, W = 0, H = 0 }, Shelf = {}, Mode = "None", Named = false }
+	end
+	-- Side by side: the slip on the left.
+	local slipW = math.floor(math.min(h * s.Aspect, w * s.Share))
+	if slipW >= s.MinW then
+		local shelf, side = Pure.grid(inset + slipW + s.Gap, inset, w - slipW - s.Gap, h, count)
+		if side >= Pure.TAP_MIN then
+			return {
+				Slip = { X = inset, Y = inset, W = slipW, H = math.floor(h) },
+				Shelf = shelf,
+				Mode = "Side",
+				Named = side >= s.NameSide,
+			}
+		end
+	end
+	-- A strip over the shelf (a thinner strip when the shelf needs the room).
+	for _, stripH in { math.floor(math.clamp(h * s.StripShare, s.StripMin, s.StripMax)), s.StripMin } do
+		local below = inset + stripH + s.Gap
+		local shelf, side = Pure.grid(inset, below, w, h - stripH - s.Gap, count)
+		if side >= Pure.TAP_MIN then
+			return {
+				Slip = { X = inset, Y = inset, W = math.floor(w), H = stripH },
+				Shelf = shelf,
+				Mode = "Strip",
+				Named = side >= s.NameSide,
+			}
+		end
+	end
+	-- Squeeze: the bottle alone, a square at the left; the shelf gets the rest.
+	local square = math.floor(math.max(0, math.min(h, w * 0.22)))
+	local shelf = Pure.grid(inset + square + s.Gap, inset, w - square - s.Gap, h, count)
+	return {
+		Slip = { X = inset, Y = math.floor(inset + (h - square) / 2), W = square, H = square },
+		Shelf = shelf,
+		Mode = "Squeeze",
+		Named = false,
+	}
+end
+
+-- The Pick's stage while the slip shows: the status strip (the step chips) steps aside, so it is taller by it.
+function Pure.slipStage(stage: any): Point
+	local x, y = xy(stage)
+	return { X = x, Y = y + Pure.CARD.Status + Pure.CARD.Gap }
+end
+
+-- The slip and the shelf on the card a screen of `viewport` px shows, with that (taller) stage and the card.
+function Pure.slipFit(viewport: any, n: number, topInset: number?): (SlipFit, Point, Point)
+	local card, stage = Pure.cardSize(viewport, topInset)
+	local tall = Pure.slipStage(stage)
+	return Pure.slipLayout(tall, n), tall, card
 end
 
 -- The Pick's targets on the card a screen of `viewport` px shows (Pure.cardSize, then Pure.pickRects), with the
@@ -903,6 +1000,58 @@ function Pure.bottles(answer: string, pool: any, count: number?, r01: () -> numb
 	local at = math.clamp(math.floor(r01() * (#others + 1)) + 1, 1, #others + 1)
 	table.insert(others, at, answer)
 	return others
+end
+
+-- What the shelf may show (Joshua, 2026-11-17: "need it simple especially at the start"): only the medicines the
+-- cases of a clinic at hospital level `level` use (Data/Cases Level; each plan cut to that level's RecipeCap from
+-- `levels`, Data/Levels, as Logic/Visit.plan cuts it), in `pool` order (pool = { { Id, Icon } }: Data/Items'
+-- medicines), the answer always among them, topped up from the pool to SLIP.ShelfMin. Returns that pool for
+-- Pure.bottles and how many bottles to show: all of them, ShelfMin to `max` (Config.Dispensary.Bottles, at most
+-- CHOICES_MAX). A Lv 1 clinic sees 3 (cough syrup, fever medicine, ear drops), never 4 strangers.
+function Pure.shelf(
+	answer: string,
+	pool: any,
+	cases: any,
+	level: any,
+	levels: any,
+	max: number?
+): ({ { Id: string, Icon: string } }, number)
+	local lv = math.max(1, math.floor(finite(level) or 1))
+	local row = if type(levels) == "table" then rawget(levels, lv) else nil
+	local cap = if type(row) == "table" then math.max(1, math.floor(finite(row.RecipeCap) or 1)) else 3
+	local used: { [string]: boolean } = { [answer] = true }
+	if type(cases) == "table" then
+		for _, case in cases do
+			if type(case) == "table" and type(case.Plan) == "table" and (finite(case.Level) or 1) <= lv then
+				for index, itemId in ipairs(case.Plan) do
+					if index > cap then
+						break
+					end
+					if type(itemId) == "string" then
+						used[itemId] = true
+					end
+				end
+			end
+		end
+	end
+	local out: { { Id: string, Icon: string } } = {}
+	local rest: { { Id: string, Icon: string } } = {}
+	if type(pool) == "table" then
+		for _, entry in ipairs(pool) do
+			if type(entry) == "table" and type(entry.Id) == "string" then
+				table.insert(if used[entry.Id] then out else rest, entry)
+			end
+		end
+	end
+	local want = math.clamp(math.floor(finite(max) or 4), 1, Pure.CHOICES_MAX)
+	local least = math.min(Pure.SLIP.ShelfMin, want)
+	for _, entry in rest do
+		if #out >= least then
+			break
+		end
+		table.insert(out, entry)
+	end
+	return out, math.clamp(#out, least, want)
 end
 
 -- The reveal after an exam: "It's a cough!", "It's an earache!", "It's sore muscles!" (a plural name takes no "a").
@@ -1534,7 +1683,7 @@ local function setTime(v: View, share: number?)
 end
 
 -- A step chip's icon. A Treat step shows its item; an Exam never shows the right tool before it is picked (🤔 and ❓
--- until then); a Dispense step shows the chosen medicine (💊 until it is chosen) and the cup.
+-- until then); a Dispense step shows its medicine (💊 when it is unknown) and the cup.
 local function stepIcon(ctx: Types.Ctx, run: Run, index: number): string
 	local session = run.Session
 	local gameId = session.Games[index]
@@ -1548,7 +1697,7 @@ local function stepIcon(ctx: Types.Ctx, run: Run, index: number): string
 	elseif session.Kind == "Dispense" then
 		local item = dataRow(ctx, "Items", run.Choice)
 		if gameId == "Pick" then
-			return if item and type(item.Icon) == "string" then item.Icon else Pure.WORDS.ChooseIcon
+			return if item and type(item.Icon) == "string" then item.Icon else Pure.WORDS.MedicineIcon
 		end
 		return look.Icon
 	end
@@ -1556,8 +1705,18 @@ local function stepIcon(ctx: Types.Ctx, run: Run, index: number): string
 	return if item and type(item.Icon) == "string" then item.Icon else look.Icon
 end
 
+-- The prescription slip's taller stage: the status strip (the step chips) steps aside and the stage takes its room
+-- (Pure.slipStage), or both go back.
+local function setTall(v: View, on: boolean)
+	local top = if on then 0 else STATUS + GAP
+	v.Status.Visible = not on
+	v.Stage.Position = UDim2.fromOffset(0, top)
+	v.Stage.Size = UDim2.new(1, 0, 1, -(top + HINT + GAP))
+end
+
 local function setSteps(ctx: Types.Ctx, v: View, run: Run)
 	local session = run.Session
+	setTall(v, false) -- every run starts on the plain stage
 	for _, child in v.Steps:GetChildren() do
 		if child:IsA("GuiObject") then
 			child:Destroy()
@@ -1716,7 +1875,7 @@ type Env = {
 	Catcher: TextButton, -- the whole stage, under the game's drawing: for "tap anywhere" games
 	Rng: Random,
 	Run: Run,
-	GameId: string, -- the game being played ("" for the Dispense card's medicine choice)
+	GameId: string, -- the game being played
 	Look: GameLook, -- its look (Pure.LOOKS): the words, the sound and the engine's skin
 	alive: () -> boolean,
 	track: (connection: RBXScriptConnection) -> (),
@@ -2781,9 +2940,12 @@ local function playCool(env: Env): number
 end
 
 -- One target of a Pick: an exam tool on a card, or a medicine bottle in its colour. Name: the words under a bottle
--- (the dispensary's "Which one?" only: there the player chooses by what the patient needs, so each bottle says what
--- it is; on the shelf the header names the one to find).
+-- (the dispensary's shelf), shown only where the bottle is big enough to read them (Pure.slipLayout's Named).
 type PickChoice = { Id: string, Icon: string, Fill: Color3?, Bottle: boolean?, Name: string? }
+
+-- Where a Pick's targets go on a stage of `size` px, and whether the bottles show their names (nil: as each choice
+-- has one). It may place its own parts too (the prescription slip). Without one: Pure.pickRects.
+type Placer = (size: Vector2) -> ({ Rect }, boolean?)
 
 -- A wrong pick shakes its head (still when calm).
 local function shake(gui: GuiObject)
@@ -2802,15 +2964,55 @@ local function shake(gui: GuiObject)
 	end)
 end
 
--- Shows `choices` as big targets laid out by Pure.pickRects on the stage's real size, and waits for a right one
--- (isRight). A wrong tap shakes its head, says "Hmm, not that one!", greys out and can't be tapped again: never a
--- fail. glowId's target glows (the right tool, for a first exam). Taps, the mouse and the gamepad (A presses the
--- selected target; Space only stops the character jumping meanwhile). Returns the wrong taps and the id picked.
+-- A medicine bottle filling `holder`: its cap, and its body in the medicine's colour with its icon on it.
+local function bottleArt(holder: GuiObject, fill: Color3, icon: string, z: number)
+	blob(holder, "Cap", Theme.Colors.InkSoft, {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0),
+		Size = UDim2.fromScale(0.46, 0.2),
+		ZIndex = z,
+	}, Theme.Radius.Small)
+	local body = blob(holder, "Body", fill, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.fromScale(1, 0.82),
+		ZIndex = z,
+	}, Theme.Radius.Small)
+	emoji(body, icon, {
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.78, 0.78),
+		ZIndex = z + 1,
+	})
+end
+
+-- How wide `text` is at `px` (TextService, in the body font); a rough guess if that fails.
+local function textWidth(text: string, px: number): number
+	local ok, size = pcall(function(): Vector2
+		return TextService:GetTextSize(text, px, Theme.Font, Vector2.new(4096, 1024))
+	end)
+	if ok and typeof(size) == "Vector2" then
+		return size.X
+	end
+	return (utf8.len(text) or #text) * px * 0.62
+end
+
+-- The long words when they fit `room` px at the smallest text size (Theme.TextSize.Caption, 18 px), else the short.
+local function fitWords(long: string, short: string, room: number): string
+	return if textWidth(long, Theme.TextSize.Caption) <= room then long else short
+end
+
+-- Shows `choices` as big targets laid out on the stage's real size (`place`, else Pure.pickRects), and waits for a
+-- right one (isRight). A wrong tap shakes its head, greys out and can't be tapped again: never a fail; it says
+-- "Hmm, not that one!" (or calls onWrong instead). glowId's target glows (the right tool for a first exam, the right
+-- bottle for a first dispense). Taps, the mouse and the gamepad (A presses the selected target; Space only stops the
+-- character jumping meanwhile). Returns the wrong taps and the id picked.
 local function pickLoop(
 	env: Env,
 	choices: { PickChoice },
 	isRight: (id: string) -> boolean,
-	glowId: string?
+	glowId: string?,
+	place: Placer?,
+	onWrong: (() -> ())?
 ): (number, string?)
 	local layer = env.Layer
 	local stage = env.View.Stage
@@ -2818,15 +3020,26 @@ local function pickLoop(
 	local picked: string? = nil
 	local ready = false
 	local buttons: { TextButton } = {}
+	local shapes: { [number]: (named: boolean) -> () } = {}
 	local glowing: TextButton? = nil
 
 	local function layout()
-		local rects = Pure.pickRects(stage.AbsoluteSize, #buttons)
+		local rects: { Rect }
+		local named: boolean? = nil
+		if place then
+			rects, named = place(stage.AbsoluteSize)
+		else
+			rects = Pure.pickRects(stage.AbsoluteSize, #buttons)
+		end
 		for index, button in buttons do
 			local rect = rects[index]
 			if rect then
 				button.Position = UDim2.fromOffset(rect.X + rect.W / 2, rect.Y + rect.H / 2)
 				button.Size = UDim2.fromOffset(rect.W, rect.H)
+			end
+			local shape = shapes[index]
+			if shape and named ~= nil then
+				shape(named)
 			end
 		end
 	end
@@ -2858,15 +3071,19 @@ local function pickLoop(
 		end
 		wrong += 1
 		sound("Nope")
-		setHint(env.View, Pure.WORDS.Wrong)
+		if onWrong then
+			onWrong()
+		else
+			setHint(env.View, Pure.WORDS.Wrong)
+		end
 		button.Interactable = false
 		button.Selectable = false
 		button.BackgroundTransparency = 0.5
 		for _, child in button:GetDescendants() do
 			if child:IsA("TextLabel") then
 				child.TextTransparency = 0.5
-			elseif child:IsA("Frame") then
-				child.BackgroundTransparency = 0.5
+			elseif child:IsA("Frame") and child.BackgroundTransparency < 1 then
+				child.BackgroundTransparency = 0.5 -- (a bottle's invisible holder stays invisible)
 			end
 		end
 		shake(button)
@@ -2892,17 +3109,19 @@ local function pickLoop(
 		corner(button, Theme.Radius.Medium)
 		local stroke = Kit.stroke(button, OUTLINE, Theme.Stroke.Bold)
 		if choice.Bottle then
-			-- A little bottle: its cap, and its body in the medicine's colour with the medicine's icon on it.
-			-- A named bottle is shorter, with its name ("Cough syrup", two short lines) on the card under it.
-			local named = type(choice.Name) == "string" and choice.Name ~= ""
-			blob(button, "Cap", Theme.Colors.InkSoft, {
+			-- A little bottle (bottleArt). A named one is shorter, with its name ("Cough syrup", two short lines)
+			-- on the card under it.
+			local art = new("Frame", {
+				Name = "Art",
 				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, if named then 0.04 else 0.08),
-				Size = UDim2.fromScale(0.3, if named then 0.12 else 0.16),
+				BackgroundTransparency = 1,
 				ZIndex = 4,
-			}, Theme.Radius.Small)
-			if named then
-				new("TextLabel", {
+				Parent = button,
+			})
+			bottleArt(art, choice.Fill or Theme.Colors.Pink, choice.Icon, 4)
+			local label: TextLabel? = nil
+			if type(choice.Name) == "string" and choice.Name ~= "" then
+				local words = new("TextLabel", {
 					Name = "Label",
 					BackgroundTransparency = 1,
 					Text = choice.Name,
@@ -2911,23 +3130,24 @@ local function pickLoop(
 					Font = Theme.Font,
 					TextColor3 = Theme.Colors.Ink,
 					AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.fromScale(0.5, 0.99),
-					Size = UDim2.fromScale(0.94, 0.38),
+					Position = UDim2.fromScale(0.5, 0.98),
+					Size = UDim2.fromScale(0.94, 0.36),
 					ZIndex = 5,
 					Parent = button,
 				})
+				Kit.textLimit(words, Theme.TextSize.Body)
+				label = words
 			end
-			local body = blob(button, "Body", choice.Fill or Theme.Colors.Pink, {
-				AnchorPoint = Vector2.new(0.5, 1),
-				Position = UDim2.fromScale(0.5, if named then 0.6 else 0.92),
-				Size = UDim2.fromScale(if named then 0.5 else 0.64, if named then 0.46 else 0.66),
-				ZIndex = 4,
-			}, Theme.Radius.Small)
-			emoji(body, choice.Icon, {
-				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.fromScale(0.78, 0.78),
-				ZIndex = 5,
-			})
+			local function shape(named: boolean)
+				local withName = named and label ~= nil
+				art.Position = UDim2.fromScale(0.5, if withName then 0.05 else 0.08)
+				art.Size = UDim2.fromScale(if withName then 0.44 else 0.62, if withName then 0.55 else 0.84)
+				if label then
+					label.Visible = withName
+				end
+			end
+			shape(label ~= nil)
+			shapes[index] = shape
 		else
 			emoji(button, choice.Icon, {
 				Position = UDim2.fromScale(0.5, 0.5),
@@ -2990,7 +3210,7 @@ local function playPick(env: Env, choices: { PickChoice }, answer: string, glow:
 	return wrong
 end
 
--- The medicines on the shelf (Data/Items Kind "Medicine", in their order) for Pure.bottles.
+-- The medicines on the shelf (Data/Items Kind "Medicine", in their order) for Pure.shelf and Pure.bottles.
 local function medicinePool(ctx: Types.Ctx): { { Id: string, Icon: string } }
 	local items = (ctx.Data :: any).Items
 	local pool: { { Id: string, Icon: string } } = {}
@@ -3021,10 +3241,186 @@ local function medicineChoice(ctx: Types.Ctx, id: string): PickChoice
 		Icon = if item and type(item.Icon) == "string" then item.Icon else "💊",
 		Fill = hexColor(if item then item.Bottle else nil, Theme.Colors.Pink),
 		Bottle = true,
+		Name = if item and type(item.Name) == "string" then item.Name else nil,
 	}
 end
 
--- The Pick routine (Pure.dispatch's "Pick"): the exam card's tools, or the dispensary's shelf of bottles. A Pick
+-- The prescription slip (design §9): a white card with 📋, the patient's face (Hud.portrait of session.PatientId,
+-- when the server named it), the medicine's bottle drawn big in its own colour with its icon, and its name in big
+-- letters. place(rect, mode) lays it out for Pure.slipLayout's Side, Strip or Squeeze; nudge() wiggles it after a
+-- wrong tap ("Look at the slip!").
+type Slip = { place: (rect: Rect, mode: string) -> (), nudge: () -> () }
+
+local function drawSlip(env: Env, medicineId: string): Slip
+	local item = dataRow(env.Ctx, "Items", medicineId)
+	local fill = hexColor(if item then item.Bottle else nil, Theme.Colors.Pink)
+	local icon = if item and type(item.Icon) == "string" then item.Icon else Pure.WORDS.MedicineIcon
+	local card: Frame = new("Frame", {
+		Name = "Slip",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = WHITE,
+		BorderSizePixel = 0,
+		Visible = false,
+		ZIndex = 3,
+		Parent = env.Layer,
+	})
+	corner(card, Theme.Radius.Medium)
+	local stroke = Kit.stroke(card, OUTLINE, Theme.Stroke.Bold)
+	local mark = emoji(card, Pure.WORDS.SlipMark, { ZIndex = 4 })
+	local face: Frame? = nil
+	local look = Hud.lookOf(env.Session.PatientId)
+	if look then
+		local holder: Frame = new("Frame", { Name = "Face", BackgroundTransparency = 1, ZIndex = 4, Parent = card })
+		local portrait = Hud.portrait(look)
+		portrait.Parent = holder
+		face = holder
+	end
+	local art: Frame = new("Frame", { Name = "Bottle", BackgroundTransparency = 1, ZIndex = 4, Parent = card })
+	bottleArt(art, fill, icon, 4)
+	local text = if item and type(item.Name) == "string" then item.Name else ""
+	local name: TextLabel = new("TextLabel", {
+		Name = "Name",
+		BackgroundTransparency = 1,
+		Text = text,
+		TextScaled = true,
+		TextWrapped = true,
+		Font = Theme.Font,
+		TextColor3 = Theme.Colors.Ink,
+		ZIndex = 4,
+		Parent = card,
+	})
+	Kit.textLimit(name, Theme.TextSize.Title)
+	local nameWidth = textWidth(text, Theme.TextSize.Caption)
+
+	-- Top-left px inside the slip.
+	local function put(gui: GuiObject, x: number, y: number, w: number, h: number)
+		gui.AnchorPoint = Vector2.zero
+		gui.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
+		gui.Size = UDim2.fromOffset(math.max(0, math.floor(w)), math.max(0, math.floor(h)))
+		gui.Visible = w >= 1 and h >= 1
+	end
+	local function place(rect: Rect, mode: string)
+		local w, h = rect.W, rect.H
+		card.Visible = w > 0 and h > 0
+		card.Position = UDim2.fromOffset(rect.X + w / 2, rect.Y + h / 2)
+		card.Size = UDim2.fromOffset(w, h)
+		if mode == "Side" then
+			-- A little card: 📋 and the face on top, the bottle big in the middle, the name under it.
+			local pad = math.max(4, math.floor(w * 0.07))
+			local top = math.max(12, math.floor(h * 0.18))
+			put(mark, pad, pad, top - pad, top - pad)
+			if face then
+				put(face, w - pad - top, pad * 0.5, top, top)
+			end
+			local roomH = h * 0.62 - top - pad
+			local bw = math.max(0, math.min(w * 0.56, roomH * 0.75))
+			local bh = bw / 0.75
+			put(art, (w - bw) / 2, top + pad * 0.5 + (roomH - bh) / 2, bw, bh)
+			name.TextXAlignment = Enum.TextXAlignment.Center
+			put(name, pad, h * 0.64, w - 2 * pad, h * 0.34)
+		elseif mode == "Strip" then
+			-- A strip: 📋, the bottle, the name, and the face at the right end when the name still fits.
+			local pad = math.max(3, math.floor(h * 0.1))
+			local inner = h - 2 * pad
+			local x = pad
+			put(mark, x, pad + inner * 0.15, inner * 0.7, inner * 0.7)
+			x += inner * 0.7 + pad
+			local bw = inner * 0.72
+			put(art, x, pad, bw, inner)
+			x += bw + pad * 2
+			local right = w - pad
+			if face then
+				if right - inner - pad - x >= nameWidth then
+					put(face, right - inner, pad, inner, inner)
+					right -= inner + pad
+				else
+					face.Visible = false
+				end
+			end
+			name.TextXAlignment = Enum.TextXAlignment.Left
+			put(name, x, pad, right - x, inner)
+		else
+			-- Squeeze: the bottle alone.
+			mark.Visible = false
+			name.Visible = false
+			if face then
+				face.Visible = false
+			end
+			local bw = math.min(w * 0.62, h * 0.86 * 0.75)
+			put(art, (w - bw) / 2, (h - bw / 0.75) / 2, bw, bw / 0.75)
+		end
+	end
+
+	local nudges = 0
+	local function nudge()
+		nudges += 1
+		local mine = nudges
+		shake(card)
+		punch(card, 1.08, 0.3)
+		stroke.Color = Theme.Colors.Cash
+		stroke.Thickness = Theme.Stroke.Panel
+		task.delay(0.8, function()
+			if nudges == mine and card.Parent then
+				stroke.Color = OUTLINE
+				stroke.Thickness = Theme.Stroke.Bold
+			end
+		end)
+	end
+	return { place = place, nudge = nudge }
+end
+
+-- The dispensary's Pick, a prescription match (design §9; Joshua's playtest 2026-11-17: "not too sure which medicine
+-- to click"): the slip beside (or over) the shelf (Pure.slipLayout on the stage's real size, the status strip
+-- stepped aside), the shelf only the medicines this clinic's cases use at its level (Pure.shelf; Joshua: "need it
+-- simple especially at the start"). The right bottle glows while session.Glow. A wrong tap shakes its head and
+-- greys out, and the slip wiggles: "❌ Not that one. Look at the slip!". Score = the wrong taps.
+local function playSlip(env: Env, medicineId: string): number
+	local ctx, session, v = env.Ctx, env.Session, env.View
+	local dispensary = (ctx.Config :: any).Dispensary
+	local most = if type(dispensary) == "table" then num(dispensary.Bottles, 4) else 4
+	local level = session.Level or num((ctx.State :: any).Level, 1)
+	local data = ctx.Data :: any
+	local pool, count = Pure.shelf(medicineId, medicinePool(ctx), data.Cases, level, data.Levels, most)
+	local choices: { PickChoice } = {}
+	for _, id in Pure.bottles(medicineId, pool, count, env.r01) do
+		table.insert(choices, medicineChoice(ctx, id))
+	end
+	local slip = drawSlip(env, medicineId)
+	local missed = false
+	-- The hint line is as wide as the stage: the long words where they fit at 18 px, else the short ones.
+	local function hint(room: number)
+		local words = Pure.WORDS
+		setHint(
+			v,
+			if missed
+				then fitWords(words.SlipWrong, words.SlipWrongShort, room)
+				else fitWords(words.SlipHint, words.SlipHintShort, room)
+		)
+	end
+	local function place(size: Vector2): ({ Rect }, boolean?)
+		local fit = Pure.slipLayout(size, #choices)
+		slip.place(fit.Slip, fit.Mode)
+		hint(size.X)
+		return fit.Shelf, fit.Named
+	end
+	local wrong = pickLoop(
+		env,
+		choices,
+		function(id: string): boolean
+			return id == medicineId
+		end,
+		if session.Glow then medicineId else nil,
+		place,
+		function()
+			missed = true
+			hint(v.Stage.AbsoluteSize.X)
+			slip.nudge()
+		end
+	)
+	return wrong
+end
+
+-- The Pick routine (Pure.dispatch's "Pick"): the exam card's tools, or the dispensary's prescription match. A Pick
 -- with nothing sensible to show (a junk session) plays as one tap.
 local playTap: (env: Env) -> number
 local function playPickGame(env: Env): number
@@ -3034,13 +3430,7 @@ local function playPickGame(env: Env): number
 		if choice == nil then
 			return playTap(env)
 		end
-		local dispensary = (ctx.Config :: any).Dispensary
-		local count = if type(dispensary) == "table" then num(dispensary.Bottles, 4) else 4
-		local choices: { PickChoice } = {}
-		for _, id in Pure.bottles(choice, medicinePool(ctx), count, env.r01) do
-			table.insert(choices, medicineChoice(ctx, id))
-		end
-		return playPick(env, choices, choice, session.Glow)
+		return playSlip(env, choice)
 	end
 	local ids = Pure.choices(session.Tools, session.Answer)
 	local answer = session.Answer
@@ -3261,16 +3651,13 @@ local function answerIcon(ctx: Types.Ctx, run: Run): string?
 end
 
 -- A Pick's header and hint: the exam's "🤔 Which tool?" (the symptom as a clue, or "✨ The shiny one!" while the
--- right tool glows), or the medicine to find on the shelf.
-local function pickWords(ctx: Types.Ctx, run: Run): (string, string, string)
+-- right tool glows), or the dispensary's "💊 Find the medicine!" with "👀 Tap the same bottle!".
+local function pickWords(_ctx: Types.Ctx, run: Run): (string, string, string)
 	local session = run.Session
 	local words = Pure.WORDS
 	if session.Kind == "Dispense" then
-		local item = dataRow(ctx, "Items", run.Choice)
-		if item then
-			return item.Icon, item.Name, words.FindHint
-		end
-		return words.ChooseIcon, Pure.LOOKS.Pick.Title, words.FindHint
+		-- The slip names the medicine; the header says what to do (the hint is fitted to the line by playSlip).
+		return words.MedicineIcon, words.SlipTitle, words.SlipHint
 	end
 	local hint = if session.Glow
 		then words.GlowHint
@@ -3303,7 +3690,15 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 	setTime(v, nil)
 	markStep(v, index, nil)
 
+	-- The prescription slip takes the status strip's room too (Pure.slipStage), and gives it back after.
+	local tall = route == "Pick" and session.Kind == "Dispense" and run.Choice ~= nil
+	if tall then
+		setTall(v, true)
+	end
 	local ok, score: any = withStage(ctx, v, run, "Game" .. index, gameId, look, PLAY[route] or PLAY.Tap)
+	if tall and current == run then
+		setTall(v, false)
+	end
 	if run.Alive then
 		setTime(v, nil)
 	end
@@ -3318,49 +3713,17 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 	return MiniGame.rate(gameId, if type(score) == "number" then score else 0, { MiniGame = miniOf(ctx) })
 end
 
--- The Dispense card's first question when bay patients need several medicines: which one to make (any is right:
--- each one is needed). One needed, or Simple mode: the first, without asking. Returns the medicine's ItemId (nil only
--- when the session offers nothing this client knows: the server then gives nothing and rates it OK).
-local CHOOSE_LOOK: GameLook = lookOf({
-	Icon = Pure.WORDS.ChooseIcon,
-	Title = Pure.WORDS.ChooseTitle,
-	Hint = Pure.WORDS.ChooseHint,
-	Sound = "Found",
-	Tint = "Purple",
-})
-local function chooseMedicine(ctx: Types.Ctx, v: View, run: Run): string?
-	local session = run.Session
-	local options: { string } = {}
+-- The Dispense card's one medicine: the first this client knows in session.Options (the server sends exactly one,
+-- the bay patient who has waited longest; a session naming more still never asks "Which one?"). nil only when the
+-- session names nothing: the server then gives nothing and rates it OK.
+local function prescription(ctx: Types.Ctx, session: Session): string?
 	for _, id in session.Options do
 		local item = dataRow(ctx, "Items", id)
 		if item and item.Kind == "Medicine" then
-			table.insert(options, id)
+			return id
 		end
 	end
-	if #options == 0 then
-		return session.Options[1]
-	elseif #options == 1 or session.Simple then
-		return options[1]
-	end
-	setHeader(v, CHOOSE_LOOK.Icon, CHOOSE_LOOK.Title, CHOOSE_LOOK.Color)
-	setHint(v, CHOOSE_LOOK.Hint)
-	setTime(v, nil)
-	local choices: { PickChoice } = {}
-	for _, id in options do
-		local choice = medicineChoice(ctx, id)
-		local item = dataRow(ctx, "Items", id)
-		choice.Name = if item and type(item.Name) == "string" then item.Name else nil
-		table.insert(choices, choice)
-	end
-	local ok, first, picked = withStage(ctx, v, run, "Choose", "", CHOOSE_LOOK, function(env: Env): (number, string?)
-		return pickLoop(env, choices, function(): boolean
-			return true
-		end, nil)
-	end)
-	if not ok then
-		warn("[MiniGames] the medicine choice broke: " .. tostring(first))
-	end
-	return if ok and type(picked) == "string" then picked else options[1]
+	return session.Options[1]
 end
 
 -- A game an ability already made PERFECT (TreatSession.Auto: Golden Touch, Quick Plaster, Quick Soap): its icon
@@ -3806,11 +4169,8 @@ local function runSession(ctx: Types.Ctx, run: Run)
 	showCombo(ctx, v, session.Combo, false)
 	openCard(v)
 	if session.Kind == "Dispense" then
-		-- Which medicine to make (asked only when bay patients need several), then find its bottle and measure it.
-		run.Choice = chooseMedicine(ctx, v, run)
-		if not run.Alive then
-			return
-		end
+		-- Its one medicine (never a "Which one?"): match its slip on the shelf, then measure it.
+		run.Choice = prescription(ctx, session)
 		refreshSteps(ctx, v, run)
 	end
 

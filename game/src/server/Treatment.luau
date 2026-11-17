@@ -25,8 +25,11 @@
 --                    (TreatSession.Games {} and Handover true): the client answers at once and the session is only
 --                    there to carry the ward pick (Triage below) to the player; unanswered, it settles by itself
 --                    after Pure.HANDOVER_SECONDS. No tip, no combo change, no ability spent
---        "Dispense"  at the dispensary (Server/Stations): spec.Options = the medicines bay patients still need (only
---                    known medicines are kept, at most Config.Dispensary.Options). Games = { "Pick", "Dose" }. The
+--        "Dispense"  at the dispensary (Server/Stations): spec.Options = the ONE medicine to make (a known medicine;
+--                    anything past Pure.OPTIONS_MAX = 1 is cut: one prescription per dispense, never a "Which one?"),
+--                    shown as a prescription slip: spec.PatientId is the species it is for ("" when unknown),
+--                    spec.Level the clinic's hospital level (its shelf), spec.Glow the right bottle glows. Games =
+--                    { "Pick", "Dose" }. The
 --                    report's third value names the medicine (Choice); spec.Give(choice) puts it in the player's
 --                    hands (Carry.add) BEFORE any tip and says whether this dispense may tip. spec.Expert (the
 --                    clinic's Pharmacy2 unlock, "Expert Dispensing") sends TreatSession.Tuning.Dose: the Dose
@@ -115,7 +118,7 @@ export type TriageAsk = { Options: { string }, Right: string }
 -- the session.
 export type Spec = {
 	Plot: Plot,
-	PatientId: string, -- the patient's species ("" for a Dispense)
+	PatientId: string, -- the patient's species (a Dispense: the one its slip is for, "" when unknown)
 	-- The patient's own id (Patients' numeric visit id): Treatment keeps ONE open session per patient (per Key on
 	-- the same Plot). nil = none (a Dispense works on no patient)
 	Key: any?,
@@ -129,10 +132,13 @@ export type Spec = {
 	Case: string?, -- Exam: the case the exam reveals (never sent with TreatStart); Treat: the case, for the card
 	Tools: { string }?, -- Exam: the card's tools (Logic/Visit.examTools)
 	Answer: string?, -- Exam: the right tool, one of Tools
-	Glow: boolean?, -- Exam: the right tool glows (Logic/Visit.glow)
+	-- Exam: the right tool glows (Logic/Visit.glow); Dispense: the right bottle glows (Stations: the player's first
+	-- dispenses, Simple mode, the tutorial)
+	Glow: boolean?,
 	Symptom: string?, -- Exam: the patient's symptom bubble, the card's clue (sent with TreatStart)
 	Plan: { string }?, -- Exam: the patient's own plan, revealed with the case (TreatOutcome.Plan; never sent before)
-	Options: { string }?, -- Dispense: the medicines to choose from (Patients.neededMedicines)
+	Options: { string }?, -- Dispense: the one medicine to make (Server/Stations; more is cut to Pure.OPTIONS_MAX)
+	Level: number?, -- Dispense: the clinic's hospital level (the slip's shelf shows the medicines its cases use)
 	Expert: boolean?, -- Dispense: Expert Dispensing (the clinic's Pharmacy2 unlock): a wider Dose band
 	-- Treat: a handover (Items {}): no games; the session only carries the ward pick for a plan a handed-over
 	-- medicine completes
@@ -187,7 +193,9 @@ local healHandler: ((Plot, string, string) -> { string }?)? = nil
 local Pure = {}
 
 Pure.EXAM_TOOLS_MAX = 4 -- tools on an exam card (Logic/Visit.examTools gives 3)
-Pure.OPTIONS_MAX = 3 -- medicines on a dispensing card when Config.Dispensary.Options is junk
+-- Medicines on a dispensing card: one prescription per dispense (Joshua's playtest 2026-11-17: "not too sure which
+-- medicine to click"), so the card never asks "Which one?"
+Pure.OPTIONS_MAX = 1
 Pure.EXPERT_BAND = 1.5 -- Expert Dispensing when Config.Dispensary.ExpertBand is junk
 Pure.HANDOVER_SECONDS = 4 -- a handover session nobody answers settles by itself this soon (it has no games)
 
@@ -312,7 +320,7 @@ function Pure.dispenseGames(): { string }
 end
 
 -- A Dispense's Options, cleaned: known medicines (Data/Items Kind "Medicine") without repeats, in order, at most
--- `max` (Config.Dispensary.Options). {} when nothing is left (refused).
+-- `max` (a session passes OPTIONS_MAX, one; junk -> OPTIONS_MAX). {} when nothing is left (refused).
 function Pure.options(value: any, itemData: any, max: any): { string }
 	local limit = if type(max) == "number" and max == max and max >= 1 then math.floor(max) else Pure.OPTIONS_MAX
 	local out: { string } = {}
@@ -644,7 +652,7 @@ local function plan(spec: Spec): (string?, { string }?, { Tools: { string }, Ans
 		end
 		return kind, Pure.games(spec.Items, ItemsData, spec.Handover == true), nil, {}
 	elseif kind == "Dispense" then
-		local options = Pure.options(spec.Options, ItemsData, Config.Dispensary and Config.Dispensary.Options)
+		local options = Pure.options(spec.Options, ItemsData, Pure.OPTIONS_MAX)
 		if #options == 0 or type(spec.Give) ~= "function" then
 			return nil, nil, nil, {}
 		end
@@ -686,10 +694,8 @@ function Treatment.open(player: Player, spec: Spec): number?
 		Open = true,
 	}
 	sessions[player] = session
-	-- (a Dispense with several options first asks "Which one?": one more step that waits for a tap)
-	local timeout = if handover
-		then Pure.HANDOVER_SECONDS
-		else MiniGame.timeout(games, Config, if kind == "Dispense" and #options > 1 then 1 else 0)
+	-- (one medicine per dispense: no "Which one?" step to wait for)
+	local timeout = if handover then Pure.HANDOVER_SECONDS else MiniGame.timeout(games, Config)
 	session.Timer = task.delay(timeout, function()
 		session.Timer = nil
 		if session.Open then
@@ -698,7 +704,7 @@ function Treatment.open(player: Player, spec: Spec): number?
 	end)
 	local payload: Types.TreatSession = {
 		Session = session.Id,
-		PatientId = if kind == "Dispense" then "" else spec.PatientId,
+		PatientId = if type(spec.PatientId) == "string" then spec.PatientId else "",
 		Items = if kind == "Treat" and spec.Items then table.clone(spec.Items) else {},
 		Games = table.clone(games) :: any,
 		Simple = session.Simple,
@@ -718,6 +724,11 @@ function Treatment.open(player: Player, spec: Spec): number?
 		end
 	elseif kind == "Dispense" then
 		payload.Options = table.clone(options)
+		payload.Glow = spec.Glow == true -- the right bottle glows (Server/Stations decides)
+		local level = spec.Level
+		if type(level) == "number" and level == level and level >= 1 and level < math.huge then
+			payload.Level = math.floor(level) -- the slip's shelf: the medicines this clinic's cases use
+		end
 		-- Expert Dispensing: the client draws and rates the Dose game with the wider band (Expert; it widens
 		-- its own Config row by Config.Dispensary.ExpertBand). Tuning.Dose is that same row as the server sees it.
 		local tuning = Pure.tuning(kind, spec.Expert, Config)

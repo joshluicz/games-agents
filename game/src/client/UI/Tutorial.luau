@@ -159,7 +159,7 @@ Pure.GAMES = {
 	Cast = { Title = "PUT ON THE CAST!", Sub = "Tap on each beat!", Icon = "🦴" },
 	Bath = { Title = "BATH TIME!", Sub = "Pop the bubbles!", Icon = "🛁" },
 	Cocoa = { Title = "BLOW ON IT!", Sub = "Blow when it's biggest!", Icon = "☕" },
-	Pick = { Title = "FIND THE BOTTLE!", Sub = "Tap the matching bottle!", Icon = "💊" },
+	Pick = { Title = "FIND THE BOTTLE!", Sub = "Tap the same bottle!", Icon = "💊" },
 	Dose = { Title = "MEASURE THE DOSE!", Sub = "Hold… let go on the line!", Icon = "🧴" },
 	Tap = { Title = "TAP TO HELP!", Sub = "Tap to help!", Icon = "✨" },
 }
@@ -271,6 +271,17 @@ local function toBay(s: Situation, lead: string, action: string): (string, ("Pro
 		return lead .. " bay " .. bay .. " · tap " .. action, nil
 	end
 	return lead .. " bay " .. bay .. " · " .. action, "Prompt"
+end
+
+-- The game the slim strip names while a card is up: the `index`-th of the session's games (a Pure.GAMES key; it
+-- follows the card's steps, so the dispensary's "FIND THE BOTTLE!" becomes "MEASURE THE DOSE!"), "Tap" in Simple
+-- mode, nil for one it has no words for or past the last.
+function Pure.gameAt(games: any, index: number, simple: boolean?): string?
+	if simple == true then
+		return "Tap"
+	end
+	local game = if type(games) == "table" then games[index] else nil
+	return if type(game) == "string" and Pure.GAMES[game] then game else nil
 end
 
 -- A game's words for the slim strip, or nil when no game is up.
@@ -1033,7 +1044,10 @@ function Tutorial.init(ctx: Types.Ctx)
 	local stopRays: (() -> ())? = nil
 	local finaleFired = false
 	local playing: string? = nil -- the open session's Kind ("Exam" | "Treat" | "Dispense"), nil = none
-	local playGame: string? = nil -- its first game (a Pure.GAMES key), for the slim strip
+	local playGame: string? = nil -- the game up now (a Pure.GAMES key), for the slim strip
+	local playGames: { string } = {} -- the open session's games, in order (the strip follows them: Pure.gameAt)
+	local playIndex = 1 -- which of them is up (one more after each MiniGameRated)
+	local playSimple = false -- Simple mode: every game is one "Tap"
 	local playGlow = true -- an exam's tool glows (TreatSession.Glow)
 	local playToken = 0
 	local gotBeat = false -- card 4's ✓ (you picked the item up) has played since card 4 came
@@ -2158,12 +2172,10 @@ function Tutorial.init(ctx: Types.Ctx)
 			return
 		end
 		local kind = if session.Kind == "Exam" or session.Kind == "Dispense" then session.Kind else "Treat"
-		local games = session.Games
-		local first = if type(games) == "table" then games[1] else nil
-		playGame = if session.Simple == true
-			then "Tap"
-			elseif type(first) == "string" and Pure.GAMES[first] then first
-			else nil
+		playGames = if type(session.Games) == "table" then session.Games else {}
+		playIndex = 1
+		playSimple = session.Simple == true
+		playGame = Pure.gameAt(playGames, playIndex, playSimple)
 		playGlow = session.Glow ~= false
 		if kind == "Exam" and playing == nil and presented == 2 then
 			paintBar(Pure.segments(2, true), true) -- card 2's success is the exam card itself: card 3 at once
@@ -2181,6 +2193,15 @@ function Tutorial.init(ctx: Types.Ctx)
 			say(Pure.SAY.Rated)
 		end
 		gameHand.Visible = false
+		-- The strip follows the card to its next game (the bottle, then the dose); after the last it stays.
+		if playing ~= nil then
+			playIndex += 1
+			local nextGame = Pure.gameAt(playGames, playIndex, playSimple)
+			if nextGame and nextGame ~= playGame then
+				playGame = nextGame
+				render()
+			end
+		end
 	end)
 	-- The card closed (its result came back): once it's off the screen, the step's own card again. The server's
 	-- step change usually lands first; this only waits out the game card's own reveal.

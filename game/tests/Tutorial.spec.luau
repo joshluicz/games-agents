@@ -374,3 +374,49 @@ T.describe("Tutorial gift flag (look overhaul)", function()
 		expect(Tutorial.giftDue(SHOP, replayed.TutorialGift)).toBe(false)
 	end)
 end)
+
+-- The slim strip over a mini-game card (UI/Tutorial's PURE block, loaded from the shipped source): it follows the
+-- card's steps. Joshua's playtest 2026-11-17: the dispensary's strip still said "Tap the matching bottle!" while he
+-- was measuring the dose.
+local fs = require("@lune/fs")
+local luau = require("@lune/luau")
+
+local function clientCard(): any
+	local path = if fs.isFile("src/client/UI/Tutorial.luau")
+		then "src/client/UI/Tutorial.luau"
+		else "game/src/client/UI/Tutorial.luau"
+	local text = fs.readFile(path)
+	local from = string.find(text, "-- PURE-BEGIN", 1, true)
+	local to = string.find(text, "-- PURE-END", 1, true)
+	assert(from and to and to > from, "UI/Tutorial has no PURE block")
+	local chunk = string.sub(text, from, to - 1) .. "\nreturn Pure\n"
+	return luau.load(chunk, { debugName = "UI/Tutorial (Pure)" })(), text
+end
+
+T.describe("Tutorial strip over a mini-game (UI/Tutorial)", function()
+	local Card, text = clientCard()
+
+	test("the dispensary's strip follows the card: the bottle, then the dose", function()
+		local games = { "Pick", "Dose" }
+		expect(Card.gameAt(games, 1, false)).toBe("Pick")
+		expect(Card.gameAt(games, 2, false)).toBe("Dose")
+		expect(Card.gameAt(games, 3, false)).toBe(nil) -- past the last: the strip keeps what it shows
+		expect(Card.words(4, { Game = Card.gameAt(games, 1, false) }).Title).toBe("FIND THE BOTTLE!")
+		expect(Card.words(4, { Game = Card.gameAt(games, 1, false) }).Sub).toBe("Tap the same bottle!")
+		expect(Card.words(4, { Game = Card.gameAt(games, 2, false) }).Title).toBe("MEASURE THE DOSE!")
+		expect(Card.words(4, { Game = Card.gameAt(games, 2, false) }).Sub ~= "Tap the same bottle!").toBe(true)
+	end)
+
+	test("a two-supply treat moves on too; Simple mode is one Tap; junk names nothing", function()
+		expect(Card.gameAt({ "Ice", "Bandage" }, 2, false)).toBe("Bandage")
+		expect(Card.gameAt({ "Pick", "Dose" }, 2, true)).toBe("Tap")
+		expect(Card.gameAt({ "Juggle" }, 1, false)).toBe(nil)
+		expect(Card.gameAt(nil, 1, false)).toBe(nil)
+		expect(Card.gameAt({ 5 }, 1, false)).toBe(nil)
+	end)
+
+	test("each rated game moves the strip on (MiniGameRated), from the session's own games", function()
+		assert(string.find(text, "playGame = Pure.gameAt(playGames, playIndex, playSimple)", 1, true), "TreatStart")
+		assert(string.find(text, "playIndex += 1", 1, true), "MiniGameRated moves it on")
+	end)
+end)

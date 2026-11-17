@@ -808,7 +808,7 @@ T.describe("Real Clinic sessions (mocked)", function()
 		Treatment.drop(id)
 	end)
 
-	test("a Dispense: Pick then Dose; Options only known medicines, at most Config.Dispensary.Options", function()
+	test("a Dispense: Pick then Dose; ONE known medicine (never a 'Which one?')", function()
 		local a = newPlayer("D1")
 		saves[a] = { Simple = false }
 		local options = { "Plaster", "CoughSyrup", "CoughSyrup", "Mystery", "EarDrops", "Order", "Cream", "Lozenges" }
@@ -817,10 +817,12 @@ T.describe("Real Clinic sessions (mocked)", function()
 		local payload = fired[#fired].Payload
 		expect(payload.Kind).toBe("Dispense")
 		expect(payload.Games).toEqual({ "Pick", "Dose" })
-		expect(payload.Options).toEqual({ "CoughSyrup", "EarDrops", "Cream" })
-		expect(#payload.Options).toBe(Config.Dispensary.Options)
+		expect(payload.Options).toEqual({ "CoughSyrup" }) -- the first known medicine only
+		expect(TrPure.OPTIONS_MAX).toBe(1)
 		expect(payload.Items).toEqual({})
 		expect(payload.PatientId).toBe("")
+		expect(payload.Glow).toBe(false)
+		expect(payload.Level).toBe(nil)
 		expect(payload.Tools).toBe(nil)
 		expect(payload.Tuning).toBe(nil) -- no Expert Dispensing
 		expect(payload.Expert).toBe(nil)
@@ -834,11 +836,35 @@ T.describe("Real Clinic sessions (mocked)", function()
 		expect(Treatment.busy(a)).toBe(false)
 	end)
 
+	test("a Dispense's slip: the patient it is for, the clinic's level and the glow go with TreatStart", function()
+		local a = newPlayer("D1b")
+		saves[a] = { Simple = false }
+		local s = dispenseSpec({ "EarDrops" }, {})
+		s.PatientId = "CloudSheep"
+		s.Level = 2.6
+		s.Glow = true
+		local id = Treatment.open(a, s)
+		local payload = fired[#fired].Payload
+		expect(payload.PatientId).toBe("CloudSheep")
+		expect(payload.Level).toBe(2)
+		expect(payload.Glow).toBe(true)
+		Treatment.drop(id)
+		for _, junk in { 0, -3, 0 / 0, math.huge, "2" } do
+			local j = dispenseSpec({ "EarDrops" }, {})
+			j.Level = junk
+			j.PatientId = 7
+			local jid = Treatment.open(a, j)
+			expect(fired[#fired].Payload.Level).toBe(nil)
+			expect(fired[#fired].Payload.PatientId).toBe("")
+			Treatment.drop(jid)
+		end
+	end)
+
 	test("a Dispense gives the chosen medicine first, then pays its tip at once", function()
 		local a = newPlayer("D2")
 		saves[a] = { Simple = false }
 		local gives = {}
-		local id = Treatment.open(a, dispenseSpec({ "CoughSyrup", "EarDrops" }, gives))
+		local id = Treatment.open(a, dispenseSpec({ "EarDrops", "CoughSyrup" }, gives))
 		now += 2 -- Pick 0.6 + Dose 1.2 = 1.8 x 0.8 = 1.44 s
 		local ok, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" }, "EarDrops")
 		expect(ok).toBe(true)
@@ -856,7 +882,8 @@ T.describe("Real Clinic sessions (mocked)", function()
 		local a = newPlayer("D3")
 		saves[a] = { Simple = false }
 		a:SetAttribute("Combo", 4)
-		for _, choice in { "FeverMeds", "Plaster", "Order", 5, {}, nil } do
+		-- (EarDrops was named too, but cut from the card: one medicine per dispense)
+		for _, choice in { "EarDrops", "FeverMeds", "Plaster", "Order", 5, {}, nil } do
 			local gives = {}
 			local id = Treatment.open(a, dispenseSpec({ "CoughSyrup", "EarDrops" }, gives))
 			now += 3
@@ -911,7 +938,7 @@ T.describe("Real Clinic sessions (mocked)", function()
 		expect(last.Text).toBe("💊 Hold Dispense to try again!")
 	end)
 
-	test("the timeout waits UntimedSeconds for every untimed tap (a Pick; the dispensary's 'Which one?')", function()
+	test("the timeout waits UntimedSeconds for every untimed tap (a Pick; no 'Which one?' any more)", function()
 		local a = newPlayer("D5b")
 		saves[a] = { Simple = false }
 		Config.MiniGame.UntimedSeconds = 20
@@ -919,7 +946,7 @@ T.describe("Real Clinic sessions (mocked)", function()
 		expect(fired[#fired].Payload.Timeout).toBe(44) -- 12 + 2 x 6 + the bottle Pick
 		Treatment.drop(one)
 		local several = Treatment.open(a, dispenseSpec({ "CoughSyrup", "EarDrops" }, {}))
-		expect(fired[#fired].Payload.Timeout).toBe(64) -- ... + "Which one?"
+		expect(fired[#fired].Payload.Timeout).toBe(44) -- cut to one: nothing more to wait for
 		Treatment.drop(several)
 		local exam = Treatment.open(a, examSpec(180, {}))
 		expect(fired[#fired].Payload.Timeout).toBe(44)
@@ -1123,6 +1150,74 @@ T.describe("The dispensary's rules (Server/Stations pure)", function()
 		expect(options).toEqual({})
 		expect(why).toBe("Have")
 	end)
+
+	test(
+		"one medicine per dispense: the bay patient who has waited longest, then the next once it's in hand",
+		function()
+			expect(StPure.PER_DISPENSE).toBe(1)
+			local busy = {
+				{ Bay = "2", PatientId = 52, Needs = { "FeverMeds" }, Since = 20 },
+				{ Bay = "1", PatientId = 51, Needs = { "Plaster", "CoughSyrup" }, Since = 10 },
+				{ Bay = "3", PatientId = 53, Needs = { "EarDrops" }, Since = 30 },
+			}
+			local needed = { "CoughSyrup", "FeverMeds", "EarDrops" }
+			local options, why = StPure.dispenseOptions(needed, busy, {}, ItemsData, StPure.PER_DISPENSE, false)
+			expect(options).toEqual({ "CoughSyrup" }) -- bay 1 has waited longest
+			expect(why).toBe("")
+			options = StPure.dispenseOptions(needed, busy, { "CoughSyrup" }, ItemsData, StPure.PER_DISPENSE, false)
+			expect(options).toEqual({ "FeverMeds" }) -- its syrup is in hand: the next patient's
+			-- the real dispensary passes PER_DISPENSE (never Config.Dispensary.Options)
+			local text = source("src/server/Stations.luau")
+			assert(string.find(text, "\t\tPure.PER_DISPENSE,\n", 1, true), "Stations cuts the card to one")
+			expect(string.find(text, "Config.Dispensary and Config.Dispensary.Options", 1, true)).toBe(nil)
+		end
+	)
+
+	test("the slip's patient: the longest wait among those who need it, one skipped per copy in hand", function()
+		local rows = {
+			{ Bay = "2", PatientId = 62, Needs = { "CoughSyrup" }, Since = 20 },
+			{ Bay = "1", PatientId = 61, Needs = { "Lozenges", "CoughSyrup" }, Since = 10 },
+			{ Bay = "3", PatientId = 63, Needs = { "EarDrops" }, Since = 30 },
+		}
+		expect(StPure.patientFor(rows, "CoughSyrup", {})).toBe(61)
+		expect(StPure.patientFor(rows, "CoughSyrup", { "CoughSyrup" })).toBe(62) -- 61's is in hand already
+		expect(StPure.patientFor(rows, "CoughSyrup", { "CoughSyrup", "CoughSyrup" })).toBe(61) -- all covered
+		expect(StPure.patientFor(rows, "EarDrops", { "CoughSyrup" })).toBe(63)
+		expect(StPure.patientFor(rows, "FeverMeds", {})).toBe(nil)
+		expect(StPure.patientFor("junk", "CoughSyrup", {})).toBe(nil)
+		expect(StPure.patientFor(rows, nil, {})).toBe(nil)
+	end)
+
+	test(
+		"the glow: a player's first 3 dispenses by their own counter, always in Simple mode and the tutorial",
+		function()
+			expect(StPure.DISPENSES_STAT).toBe("Dispenses")
+			expect(StPure.DISPENSE_GLOW).toBe(3)
+			expect(StPure.dispensesDone({ Stats = { Dispenses = 2 } })).toBe(2)
+			for _, junk in
+				{ {}, { Stats = {} }, { Stats = { Dispenses = -1 } }, { Stats = { Dispenses = 0 / 0 } }, nil }
+			do
+				expect(StPure.dispensesDone(junk)).toBe(0)
+			end
+			-- the exam's counter is its own: a player who examined plenty still gets the bottle's glow
+			expect(StPure.dispensesDone({ Stats = { Exams = 9 } })).toBe(0)
+			for done = 0, 2 do
+				expect(StPure.dispenseGlow(done, false, Config)).toBe(true)
+			end
+			expect(StPure.dispenseGlow(3, false, Config)).toBe(false)
+			expect(StPure.dispenseGlow(40, true, Config)).toBe(true) -- Simple mode or the tutorial
+			-- Config.Dispensary.Glow overrides the number when it is set
+			expect(StPure.glowLimit({ Dispensary = { Glow = 5 } })).toBe(5)
+			expect(StPure.glowLimit({ Dispensary = { Glow = 0 } })).toBe(0)
+			expect(StPure.glowLimit({ Dispensary = { Glow = "x" } })).toBe(3)
+			expect(StPure.glowLimit(nil)).toBe(3)
+			-- the real dispensary sends the glow, counts each dispense that lands, and asks the tutorial
+			local text = source("src/server/Stations.luau")
+			assert(string.find(text, "Glow = dispenseGlow(player),", 1, true), "the session carries the glow")
+			assert(string.find(text, "countDispense(player) -- the glow's own counter", 1, true), "counted in Give")
+			assert(string.find(text, "(Tutorial :: any).active", 1, true), "the tutorial glows")
+		end
+	)
 
 	test("the card: a full tray of the only medicine left is refused before the games ('Tray full')", function()
 		-- Lv 1, a tray of 1: bays 1 and 2 both need cough syrup, and one bottle is in hand already
