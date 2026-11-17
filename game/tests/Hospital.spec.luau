@@ -187,12 +187,13 @@ T.describe("Hospital (numbers)", function()
 			local a, b = H.ramp(B, k, "A"), H.ramp(B, k, "B")
 			-- lane A: from the landing's edge on the floor up toward +x to the mid landing
 			expect({ a.XL, a.YL, a.XR, a.YR }).toEqual({ B.LANE_A.X0, y0, B.LANE_A.X1, mid })
-			expect({ a.Z0, a.Z1 }).toEqual({ B.LANE_A.Z0, B.LANE_A.Z1 })
+			-- across, each lane stops at the faces it meets (the rail, the wall between the lanes), never inside them
+			expect({ a.Z0, a.Z1 }).toEqual({ B.LANE_A.Z0 + H.RAIL.Thick, B.LANE_A.Z1 - B.DIVIDER / 2 })
 			-- lane B: from the mid landing back to the next floor (a small step short of its landing)
 			expect({ b.XR, b.YR }).toEqual({ B.LANE_B.X1, mid })
 			expect(b.XL - B.LANE_B.X0 <= 0.3).toBe(true)
 			expect(y1 - b.YL <= 0.15 and y1 - b.YL >= 0).toBe(true)
-			expect({ b.Z0, b.Z1 }).toEqual({ B.LANE_B.Z0, B.LANE_B.Z1 })
+			expect({ b.Z0, b.Z1 }).toEqual({ B.LANE_B.Z0 + B.DIVIDER / 2, B.LANE_B.Z1 })
 			for _, r in { a, b } do
 				expect(math.abs(r.YR - r.YL) / math.abs(r.XR - r.XL) <= 0.5 + 1e-9).toBe(true)
 				-- the tilted slab stays inside the well, and its frame puts its top on the walking line
@@ -212,6 +213,68 @@ T.describe("Hospital (numbers)", function()
 			end
 		end
 	end)
+
+	test(
+		"the steps: 6-8 a half-flight, every nose on the ramp's line, no tread above it, the last riser on the landing",
+		function()
+			-- Joshua (2026-11-17): "look at how this block is glitchy". The steps are what you see; the ramp under the
+			-- noses is what you walk on (it is never below a tread, so feet never catch on one).
+			expect(H.STEPS >= 6 and H.STEPS <= 9).toBe(true)
+			for k = 0, 3 do
+				local y0, y1 = B.slabTop(k), B.slabTop(k + 1)
+				local mid = (y0 + y1) / 2
+				for _, lane in { "A", "B" } do
+					local r = H.ramp(B, k, lane)
+					-- the ramp's walking line (lane B's ramp is cut a little short of its landing: the same line)
+					local function line(x: number): number
+						return r.YR + (x - r.XR) * (r.YL - r.YR) / (r.XL - r.XR)
+					end
+					local steps = H.steps(B, k, lane)
+					expect(#steps).toBe(H.STEPS)
+					local l = if lane == "A" then B.LANE_A else B.LANE_B
+					for i, s in steps do
+						local going = s.X1 - s.X0
+						expect(going).toBeCloseTo((l.X1 - l.X0) / H.STEPS, 6)
+						expect(s.Rise / going <= 0.5 + 1e-9).toBe(true) -- never steeper than 1 in 2
+						expect(s.Rise <= 1 and s.Rise >= 0.5).toBe(true)
+						-- the nose (the downhill edge) on the line; the tread never above it, never a riser below it
+						local nose = if lane == "A" then s.X0 else s.X1
+						expect(s.Top).toBeCloseTo(line(nose), 6)
+						for _, x in { s.X0, s.X1 } do
+							expect(s.Top <= line(x) + 1e-6).toBe(true)
+							expect(s.Top >= line(x) - s.Rise - 1e-6).toBe(true)
+						end
+						expect(s.X0 >= l.X0 - 1e-6 and s.X1 <= l.X1 + 1e-6).toBe(true)
+						local nxt = steps[i + 1]
+						if nxt then -- one after another, a riser up each time
+							expect(if lane == "A" then nxt.X0 else nxt.X1).toBeCloseTo(
+								if lane == "A" then s.X1 else s.X0,
+								6
+							)
+							expect(nxt.Top - s.Top).toBeCloseTo(s.Rise, 6)
+						end
+					end
+					local first, last = steps[1], steps[#steps]
+					if lane == "A" then
+						expect({ first.X0, first.Top }).toEqual({ l.X0, y0 }) -- level with the floor it starts from
+						expect(last.X1).toBeCloseTo(l.X1, 6)
+						expect(last.Top + last.Rise).toBeCloseTo(mid, 6) -- the last riser onto the mid landing
+					else
+						expect({ first.X1, first.Top }).toEqual({ l.X1, mid }) -- level with the mid landing
+						expect(last.X0).toBeCloseTo(l.X0, 6)
+						expect(last.Top + last.Rise).toBeCloseTo(y1, 6) -- the last riser onto the next floor
+					end
+					-- upstairs a step reaches WAIST under the riser below it: the flight below keeps its headroom
+					if k > 0 then
+						local below = H.steps(B, k - 1, lane)
+						for i, s in steps do
+							expect(s.Top - s.Rise - H.WAIST - below[i].Top >= 9).toBe(true)
+						end
+					end
+				end
+			end
+		end
+	)
 
 	test("the ward beds: each mattress puts its foot spot on Logic/Building.BED_FOOT_Z, inside the bed spot", function()
 		local bed = H.BED
@@ -236,7 +299,13 @@ T.describe("Hospital (numbers)", function()
 		expect(H.wallBase(B, 0)).toBe(0)
 		expect(H.wallBase(B, 2)).toBeCloseTo(22.4, 5)
 		expect(H.SLAB <= B.SLAB_MAX).toBe(true)
-		expect(H.DOOR).toBe(B.DOORS.Front.Height)
+		-- the tall doorways (Joshua, 2026-11-17: "the door is so low"): the bays' header starts at their height; no
+		-- doorway is taller (the front doors and the dispensary's stay lower)
+		expect(H.DOOR).toBe(B.DOORS.XRay.Height)
+		for _, d in B.DOORS do
+			expect(d.Height <= H.DOOR).toBe(true)
+		end
+		expect(H.TUCK >= 0.08).toBe(true) -- an open door's edge stands clear of its jamb's face
 		-- the X-ray scanner hangs clear of a 6.5-stud creature sitting on the couch, under the ceiling
 		expect(H.XRAY.Head >= H.COUCH + 6.5 + 0.5).toBe(true)
 		expect(H.XRAY.HeadTop < H.wallTop(B, 0)).toBe(true)
@@ -640,6 +709,40 @@ T.describe("Hospital (the built world)", function()
 
 	local function solid(p): boolean
 		return p.CanCollide ~= false
+	end
+
+	-- Walking height: up to the lowest doorway's top (the inside doors are 10 tall, the front pair and the
+	-- dispensary's 8).
+	local LOW_DOOR = math.huge
+	for _, d in B.DOORS do
+		LOW_DOOR = math.min(LOW_DOOR, d.Height)
+	end
+
+	-- A part's box in plot-local studs as { P, Lo, Hi } (Vector3s).
+	local function box3(p)
+		local lo, hi = world.box(p, pivot)
+		return { P = p, Lo = lo, Hi = hi }
+	end
+
+	-- How far two boxes overlap along each axis (negative: apart; 0: touching).
+	local function overlap3(a, b): (number, number, number)
+		return math.min(a.Hi.X, b.Hi.X) - math.max(a.Lo.X, b.Lo.X),
+			math.min(a.Hi.Y, b.Hi.Y) - math.max(a.Lo.Y, b.Lo.Y),
+			math.min(a.Hi.Z, b.Hi.Z) - math.max(a.Lo.Z, b.Lo.Z)
+	end
+
+	-- A block lying square to the plot (its box is its faces).
+	local function squareBlock(p): boolean
+		if p.ClassName ~= "Part" or (p.Shape ~= nil and p.Shape ~= Enum.PartType.Block) then
+			return false
+		end
+		local cf = pivot:ToObjectSpace(p.CFrame)
+		for _, v in { cf.RightVector, cf.UpVector, cf.LookVector } do
+			if math.max(math.abs(v.X), math.abs(v.Y), math.abs(v.Z)) < 1 - 1e-4 then
+				return false
+			end
+		end
+		return true
 	end
 
 	-- "Plot_1.Building.Shell.WallFascia" (the mock has no GetFullName).
@@ -1097,7 +1200,7 @@ T.describe("Hospital (the built world)", function()
 					local door = p.Parent and p.Parent:GetAttribute("Room")
 					if solid(p) and not door then
 						local r, lo, hi = boxOf(p)
-						if hi > y + 0.7 and lo < y + H.DOOR - 0.1 and inside(r, f) then
+						if hi > y + 0.7 and lo < y + LOW_DOOR - 0.1 and inside(r, f) then
 							local step = 0.25
 							local x = r.X0 + 0.05
 							local covered = true
@@ -1299,15 +1402,43 @@ T.describe("Hospital (the built world)", function()
 						expect(r.X1).toBeCloseTo(want.X1, 3)
 						expect(lo).toBeCloseTo(want.Y0, 3)
 						expect(hi).toBeCloseTo(want.Y1, 3)
-						local laneRect = if lane == "A" then B.LANE_A else B.LANE_B
-						expect(r.Z0).toBeCloseTo(laneRect.Z0, 3)
-						expect(r.Z1).toBeCloseTo(laneRect.Z1, 3)
+						local ramp = H.ramp(B, k, lane)
+						expect(r.Z0).toBeCloseTo(ramp.Z0, 3)
+						expect(r.Z1).toBeCloseTo(ramp.Z1, 3)
 						expect(p:GetAttribute("Storey")).toBe(k)
+						-- the ramp is walked on, never seen (Joshua: "look at how this block is glitchy")
+						expect(p.Transparency).toBe(1)
+						expect(p.CanCollide).toBe(true)
+						expect(p.CastShadow).toBe(false)
+						-- the steps you see: where Pure.steps says, across the ramp's width; solid blocks from the
+						-- floor on the ground (nothing hides or walks in under the stairs), walk-through upstairs
+						local steps = H.steps(B, k, lane)
+						local count = 0
+						for i, s in steps do
+							local step = building.Stairs:FindFirstChild("Step_" .. k .. lane .. "_" .. (i - 1))
+							if k == 0 and lane == "A" and i == 1 then
+								expect(step).toBeNil() -- the ground itself is that tread
+							else
+								count += 1
+								local sr, slo, shi = boxOf(step)
+								expect(sr.X0).toBeCloseTo(s.X0, 3)
+								expect(sr.X1).toBeCloseTo(s.X1, 3)
+								expect(sr.Z0).toBeCloseTo(ramp.Z0, 3)
+								expect(sr.Z1).toBeCloseTo(ramp.Z1, 3)
+								expect(shi).toBeCloseTo(s.Top, 3)
+								expect(slo).toBeCloseTo(if k == 0 then 0 else s.Top - s.Rise - H.WAIST, 3)
+								expect(step.CanCollide).toBe(k == 0)
+								expect(step.Material).toBe(Enum.Material.CeramicTiles)
+								expect(step:GetAttribute("Storey")).toBe(k)
+							end
+						end
+						expect(count).toBe(if k == 0 and lane == "A" then H.STEPS - 1 else H.STEPS)
 					end
 					local _, _, midTop = boxOf(building.Stairs:FindFirstChild("Mid_" .. k))
 					expect(midTop).toBeCloseTo((B.slabTop(k) + B.slabTop(k + 1)) / 2, 3)
 				end
 				expect(building.Stairs:FindFirstChild("Flight_" .. standing .. "A")).toBeNil()
+				expect(building.Stairs:FindFirstChild("StairSide")).toBeNil() -- the ground's steps fill that space
 				local rails, ends = {}, 0
 				for _, p in building.Stairs:GetChildren() do
 					local r = boxOf(p)
@@ -1323,6 +1454,164 @@ T.describe("Hospital (the built world)", function()
 					expect(rails[k]).toBe(true)
 				end
 				expect(ends).toBe(2)
+				-- Nothing in the well reaches into anything else: no part's box (the ramps' included) overlaps a lane
+				-- wall's, and no two visible parts overlap at all (they may touch).
+				local walls, seen = {}, {}
+				for _, p in building.Stairs:GetChildren() do
+					if p:IsA("BasePart") then
+						local b = box3(p)
+						if p.Name == "StairWall" then
+							table.insert(walls, b)
+						end
+						if p.Transparency < 1 then
+							table.insert(seen, b)
+						end
+					end
+				end
+				expect(#walls).toBe(standing)
+				local bad = {}
+				for _, p in building.Stairs:GetChildren() do
+					if p:IsA("BasePart") and p.Name ~= "StairWall" then
+						for _, w in walls do
+							local ox, oy, oz = overlap3(box3(p), w)
+							if ox > 1e-3 and oy > 1e-3 and oz > 1e-3 then
+								table.insert(bad, p.Name .. " in a StairWall")
+							end
+						end
+					end
+				end
+				for i, a in seen do
+					for j, b in seen do
+						if i < j then
+							local ox, oy, oz = overlap3(a, b)
+							if ox > 1e-3 and oy > 1e-3 and oz > 1e-3 then
+								table.insert(bad, a.P.Name .. " x " .. b.P.Name)
+							end
+						end
+					end
+				end
+				expect(bad).toEqual({})
+			end
+		end
+	)
+
+	test(
+		"no part thinner than 0.3 studs overlaps another part's box: thin strips touch, or hide wholly inside",
+		function()
+			-- Joshua (2026-11-17): "the purple bits are glitching". A thin strip sunk into a wall, or lying in a face's
+			-- plane, flickers. Checked on every visible block lying square to the plot (a turned or round part's box is
+			-- not its faces), at every level, with no room and every room bought. The painted floors are the one
+			-- exception: thin, at a floor's own level, and everything stands through them.
+			local function painted(x): boolean
+				if x.Hi.Y - x.Lo.Y > 0.1 then
+					return false
+				end
+				for k = 0, #B.SLAB_TOPS do
+					local y = B.slabTop(k)
+					if x.Lo.Y >= y - 1e-3 and x.Hi.Y <= y + 0.1 then
+						return true
+					end
+				end
+				return false
+			end
+			local bad = {}
+			for _, rooms in { {}, { "BathRoom", "Ward", "WinterWing", "Garden" } } do
+				own(rooms)
+				for _, level in LEVELS do
+					local blocks = {}
+					for _, p in world.parts(build(level)) do
+						if p.Transparency < 1 and squareBlock(p) then
+							table.insert(blocks, box3(p))
+						end
+					end
+					for _, a in blocks do
+						local s = a.P.Size
+						if math.min(s.X, s.Y, s.Z) < 0.3 then
+							for _, b in blocks do
+								if b ~= a then
+									local ox, oy, oz = overlap3(a, b)
+									local e = 0.005
+									local hidden = a.Lo.X > b.Lo.X + e
+										and a.Hi.X < b.Hi.X - e
+										and a.Lo.Y > b.Lo.Y + e
+										and a.Hi.Y < b.Hi.Y - e
+										and a.Lo.Z > b.Lo.Z + e
+										and a.Hi.Z < b.Hi.Z - e
+									local paint = (painted(a) or painted(b)) and oy <= 0.1 + 1e-6
+									if ox > 1e-3 and oy > 1e-3 and oz > 1e-3 and not hidden and not paint then
+										table.insert(
+											bad,
+											string.format("Lv %d: %s x %s", level, fullName(a.P), fullName(b.P))
+										)
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+			expect(bad).toEqual({})
+		end
+	)
+
+	test(
+		"the stations look like the real thing: a cabinet, a freezer, open shelves, a table on legs, a counter",
+		function()
+			-- Joshua (2026-11-17): "the texture of the cabinets / places to take the bandage should be improved. now its
+			-- just a rectangular block". Each Station_<id> keeps its contract (its rect, from the floor) and wears its
+			-- furniture as its own walk-through children, in its own colour; its badge floats over the furniture.
+			local want = {
+				Plaster = { "Door", "Knob", "Countertop", "PlasterBox", "PlasterBoxLid", "Plaster" },
+				Ice = { "Lid", "Handle", "IceCube" },
+				Bandage = { "ShelfSide", "ShelfBack", "ShelfBoard", "BandageRoll" },
+				Cast = { "TableTop", "TableLeg", "TableShelf", "Tray", "CastRoll", "Bucket" },
+				Remedy = { "Drawer", "Pull", "Countertop", "Bottle", "MeasuringCup" },
+			}
+			local body = { Plaster = true, Ice = true, Remedy = true } -- the body is the part (else: an invisible box)
+			own({})
+			local counts = {}
+			for _, level in LEVELS do
+				local building = build(level)
+				for id, names in want do
+					local p = building:FindFirstChild("Station_" .. id)
+					local r, _, hi = boxOf(p)
+					expect(hi).toBeCloseTo(H.STATION[id], 3)
+					local kinds = {}
+					local top = hi
+					for _, child in p:GetChildren() do
+						if child:IsA("BasePart") then
+							kinds[child.Name] = (kinds[child.Name] or 0) + 1
+							-- walk-through: the station part is what stops you
+							expect(child.CanCollide == false and child.CanQuery == false).toBe(true)
+							-- close round its rect (a countertop's lip, a door, a pull)
+							local cr, clo, chi = boxOf(child)
+							expect(inside(cr, grow(r, 0.25))).toBe(true)
+							expect(clo >= -1e-3).toBe(true)
+							top = math.max(top, chi)
+						end
+					end
+					for _, name in names do
+						if not kinds[name] then
+							error(string.format("Lv %d: Station_%s has no %s", level, id, name))
+						end
+					end
+					-- the cabinet, the freezer and the counter are the part; the shelves and the table are open furniture
+					-- round an invisible box
+					expect(p.Transparency).toBe(if body[id] then 0 else 1)
+					-- the badge floats over the furniture, never inside it
+					local badge = p.IconGui
+					expect(p.Position.Y + badge.StudsOffsetWorldSpace.Y - 1.3 >= pivot.Position.Y + top - 0.01).toBe(
+						true
+					)
+					-- a closed station is the same furniture (only its badge says 🔒)
+					local n = #p:GetChildren()
+					counts[id] = counts[id] or n
+					expect(n).toBe(counts[id])
+				end
+				-- the bandage rolls are white, the shelves the station's colour (kids match a plan step to it)
+				local bandage = building.Station_Bandage
+				expect(bandage.BandageRoll.Color).toEqual(WORLD.Trim)
+				expect(bandage.ShelfSide.Color ~= WORLD.Trim).toBe(true)
 			end
 		end
 	)

@@ -150,14 +150,14 @@ Building.ROOMS = table.freeze({
 -- along x (its plane at Z); one with Z0/Z1 is in a wall along z (its plane at X).
 Building.DOORS = table.freeze({
 	Front = table.freeze({ X0 = -4, X1 = 4, Z = -23.7, Height = 8 }), -- the sliding glass pair, in the middle
-	AE = table.freeze({ Z0 = -10.5, Z1 = -6.5, X = -31.7, Height = 8, Opens = 2 }), -- -x wall, onto corridor A
-	Garden = table.freeze({ X0 = 9.5, X1 = 13.3, Z = 19.7, Height = 8, Room = "Garden" }), -- the back wall
-	Dispensary = table.freeze({ X0 = 13.5, X1 = 17.5, Z = -12.2, Height = 8 }), -- onto corridor A
-	XRay = table.freeze({ X0 = 24, X1 = 28, Z = -4.8, Height = 8, Opens = 3 }), -- onto corridor A
-	BathRoom = table.freeze({ X0 = -27, X1 = -23, Z = 8.7, Height = 8, Room = "BathRoom" }), -- onto corridor B
-	WinterWing = table.freeze({ X0 = -13.5, X1 = -9.5, Z = 8.7, Height = 8, Room = "WinterWing" }),
-	CozyWard = table.freeze({ X0 = 0, X1 = 4, Z = 8.7, Height = 8, Room = "Ward" }),
-	LiftLobby = table.freeze({ Z0 = 4.5, Z1 = 7.5, X = 26.4, Height = 8, Opens = 2, Lift = true }), -- the lift's door
+	AE = table.freeze({ Z0 = -10.5, Z1 = -6.5, X = -31.7, Height = 10, Opens = 2 }), -- -x wall, onto corridor A
+	Garden = table.freeze({ X0 = 9.5, X1 = 13.3, Z = 19.7, Height = 10, Room = "Garden" }), -- the back wall
+	Dispensary = table.freeze({ X0 = 13.5, X1 = 17.5, Z = -12.2, Height = 10 }), -- onto corridor A
+	XRay = table.freeze({ X0 = 24, X1 = 28, Z = -4.8, Height = 10, Opens = 3 }), -- onto corridor A
+	BathRoom = table.freeze({ X0 = -27, X1 = -23, Z = 8.7, Height = 10, Room = "BathRoom" }), -- onto corridor B
+	WinterWing = table.freeze({ X0 = -13.5, X1 = -9.5, Z = 8.7, Height = 10, Room = "WinterWing" }),
+	CozyWard = table.freeze({ X0 = 0, X1 = 4, Z = 8.7, Height = 10, Room = "Ward" }),
+	LiftLobby = table.freeze({ Z0 = 4.5, Z1 = 7.5, X = 26.4, Height = 10, Opens = 2, Lift = true }), -- the lift's door
 }) :: { [string]: Door }
 
 -- The canopy over the front doors (outside; overhead, never solid at walking height).

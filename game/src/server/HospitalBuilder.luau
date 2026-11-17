@@ -27,12 +27,16 @@
 --       (shut until Lv 2) with its red canopy; the Garden door in the back wall (shut until the Garden is bought)
 --     the waiting room: 6 chairs (WaitSeat_<n> markers on their seats), a plant; ReceptionStop and ReceptionStaff
 --       markers by the desk. The desk itself is the plot's Counter (Server/PlotBuilder): its rect is left clear
---     the dispensary: its glass hatch onto the lobby, Station_Remedy (the counter behind it), bottle shelves
+--     the dispensary: its glass hatch onto the lobby, Station_Remedy (the counter behind it, with drawers, bottles
+--       and a measuring cup), bottle shelves
 --     the exam bays 1-6 in a row (ExamBay_<id>: a couch, a curtain, a tool tray, a number sign, the DoctorSpot)
---     the supply alcove (Station_Plaster, Station_Ice, Station_Bandage) between the two corridors
---     the X-ray room (shut until Lv 3): ExamBay_X under the X-ray arm, Station_Cast
+--     the supply alcove between the two corridors: Station_Plaster (a supply cabinet with a box of plasters),
+--       Station_Ice (a freezer chest with ice cubes on its lid), Station_Bandage (an open shelf of bandage rolls)
+--     the X-ray room (shut until Lv 3): ExamBay_X under the X-ray arm, Station_Cast (a work table on legs: a tray of
+--       plaster rolls and a bucket)
 --     the Bath Room, Winter Wing and Cozy Ward behind their doors (shut until bought; their fit-outs are
 --       PlotBuilder's, ExamBay_W1/W2 included), the lift (glass shaft, door on its -x face) and the dog-leg stairs
+--       (tiled steps over an invisible walking ramp a half-flight)
 --   Upstairs (Floor_<n>, Storey n): F1 the Injury Ward (stands from Lv 1, shut; opens at Lv 2), F2 the Rest Ward
 --     (Lv 3), F3 the staff room with more Rest beds (Lv 4); each with its slab, landing, glass front band, studded
 --     walls, ribbon windows and a row of beds: BedSpot_<k> (Model; Floor, Ward) round Bed_<k> (the mattress; Floor,
@@ -46,7 +50,9 @@
 -- the lift); a marker RESTS on its surface (its bottom face is the seat top, the floor), like the lift landings.
 -- An ExamBay_<id> Model's Bed is the couch the patient sits on (its top at Pure.COUCH; its LookVector toward the
 -- foot, where the DoctorSpot is), with the attributes Bay, Kind, Opens, Face and Open (level >= Opens).
--- Station_<id> parts carry Open (Logic/Building.stationOpen) and StationId and are tagged STATION_TAG.
+-- Station_<id> parts carry Open (Logic/Building.stationOpen) and StationId and are tagged STATION_TAG. Each is
+-- Logic/Building.stationRect's box from the floor (what stops you; invisible round the open shelf and the table) with
+-- its walk-through furniture as its own children and its IconGui badge over that furniture.
 --
 -- Pieces. Every direct child carries Since (the level that adds it: Feel/HospitalFX grows only those in) and Storey
 -- (0 = the ground ... 4 = the roof deck; a part may carry its own). Feel/Cutaway hides every part whose Storey is
@@ -79,6 +85,7 @@ local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
 local Palette = require(Shared.Palette)
 local Departments = require(Shared.Data.Departments)
+local ItemsData = require(Shared.Data.Items)
 local LevelsData = require(Shared.Data.Levels)
 local PatientsData = require(Shared.Data.Patients)
 local RoomsData = require(Shared.Data.Rooms)
@@ -110,7 +117,13 @@ local Pure = {}
 
 -- Every slab and roof (Logic/Building.SLAB_MAX): F1's underside is at 11.4, over the 10.4 it must clear.
 Pure.SLAB = 0.6
-Pure.DOOR = 8 -- every doorway's height (Logic/Building.DOORS Height): the lintels and the bays' header start here
+-- The tall doorways' height (Logic/Building.DOORS Height, raised from 8; Joshua 2026-11-17: "the door is so low,
+-- things look cluttered"; the front pair and the dispensary's stay 8): the bays' header and dividers start here. Each
+-- lintel starts at its own door's Height.
+Pure.DOOR = 10
+-- An open door's panel slides this far past its jamb into the wall, so its edge never lies flush with the jamb's face
+-- (two faces in one plane flicker).
+Pure.TUCK = 0.1
 Pure.BAND = 0.5 -- the fascia stripe's height, at the top of the ground storey's façade
 Pure.SPANDREL = 2.4 -- an upper storey's studded wall under its front glass band
 Pure.GLASS = 0.55 -- the see-through parts: the front doors, the hatch, the glass bands, the lift shaft
@@ -123,7 +136,14 @@ Pure.PROUD = 0.1 -- trim and ribbon windows stand this far proud of an outer fac
 Pure.CEILING = 0.4 -- the ground storey's light ceiling under the podium's dark roof
 Pure.PARAPET = 1.2
 Pure.RAIL = { Height = 3, Thick = 0.3 }
-Pure.RAMP = 0.6 -- a half-flight's thickness (a tilted tile slab: a storey of headroom under the next one)
+-- A half-flight's walking ramp: a tilted slab this thick, INVISIBLE (the steps are what you see; Joshua, 2026-11-17:
+-- "look at how this block is glitchy"). It carries the walker; a storey of headroom under the next one.
+Pure.RAMP = 0.6
+-- The steps you see: STEPS risers a half-flight (a going of 1.5, a riser of 0.75 or 0.69), every tread's nose on the
+-- ramp's line. On the ground each step is a solid block from the floor up (nothing hides under the stairs); upstairs
+-- each reaches WAIST under the riser below it (a stepped underside) and is walk-through.
+Pure.STEPS = 8
+Pure.WAIST = 0.6
 Pure.WINDOW = { Y0 = 3.5, Y1 = 7 } -- ribbon windows, from the storey's floor
 Pure.HATCH = { Sill = 3, Top = 7 } -- the dispensary's glass hatch over its counter
 Pure.COUCH = 1.8 -- an exam bay's Bed: its top, where the patient sits
@@ -133,12 +153,25 @@ Pure.COUCH = 1.8 -- an exam bay's Bed: its top, where the patient sits
 -- anyone in the hall in front of the lift, too short for the X-ray bay's DoctorSpot behind the wall (where "Lift"
 -- would take the tap meant for Examine or Treat).
 Pure.LIFT_PROMPT = { Reach = 8, GroundReach = 4.5, Away = 1.5 }
-Pure.STATION = { Height = 4, Counter = 3.2 } -- a supply shelf; the dispensary counter and the cast table
+-- The stations' furniture (Joshua, 2026-11-17: "the cabinets / places to take the bandage ... now its just a
+-- rectangular block"). Each Station_<id> part keeps Logic/Building.stationRect's box from the floor up to its Height
+-- (the supply cabinet and freezer, the bandage shelf, the cast table and the dispensary counter); what makes it look
+-- like the thing is its own children (see buildStation).
+Pure.STATION = {
+	Plaster = 3, -- the supply cabinet's body (its countertop and the box of plasters sit on it)
+	Ice = 2.6, -- the freezer chest's body (its lid on it)
+	Bandage = 4.6, -- the open shelf unit (an invisible box round it: the shelves are open)
+	Cast = 3.2, -- the work table's top (an invisible box round it: the table stands on legs)
+	Remedy = 3, -- the dispensary counter's body (its countertop on it)
+}
+Pure.TOP = 0.3 -- a countertop's (and the freezer lid's) thickness
+Pure.BADGE = 1.6 -- a station's icon badge floats this far over its furniture's highest point
 Pure.SEAT = { Height = 1.6, Back = 0.6, BackHeight = 4 } -- a waiting-room chair: the seat, its back
 Pure.PANEL = 0.2 -- a door panel's thickness, in its wall's middle
-Pure.SIGN = { Width = 2.6, Y0 = 8.6, Y1 = 10.6, Out = 0.1 } -- a bay's number sign over its mouth, on the corridor
--- A bay's curtain: hung this far inside the mouth; drawn back it is Bunch wide at one side, drawn shut across.
-Pure.CURTAIN = { Inset = 0.5, Bunch = 1, Height = 7.3, Thick = 0.2, Half = 3 }
+Pure.SIGN = { Width = 3, Y0 = 10.1, Y1 = 11.3, Out = 0.1 } -- a bay's number sign on the header over its mouth
+-- A bay's curtain: hung this far inside the mouth; drawn back it is Bunch wide at one side, drawn shut across. It
+-- hangs from just under the bays' header (Pure.DOOR).
+Pure.CURTAIN = { Inset = 0.5, Bunch = 1, Height = 9.3, Thick = 0.2, Half = 3 }
 Pure.XRAY = { Head = 9, HeadTop = 10, Width = 2.8, Depth = 2.4 } -- the scanner over bay X (clear of a sitter's head)
 Pure.LOGO = 6 -- the paw-heart sign on the tower's roof edge (Lv 1-4)
 -- A ward bed. Functional: Frame + Headboard + Bed_<k> (the mattress). Made up: Base (frame and mattress in one block)
@@ -241,18 +274,52 @@ end
 
 -- Storey k's half-flights (Logic/Building's dog-leg): lane A from the floor's landing up toward +x to the mid
 -- landing, lane B from there back to the next floor. Lane B stops Pure.RAMP x sin(slope) short of the landing, so its
--- tilted slab stays inside the stairwell (a 0.27-stud step onto the landing).
+-- tilted slab stays inside the stairwell (a 0.27-stud step onto the landing). Across, each lane stops at the faces it
+-- meets, never inside them: lane A between the rail along the well's front edge and the wall between the lanes, lane
+-- B between that wall and the back wall.
 function Pure.ramp(B: any, k: number, lane: string): Ramp
 	local y0, y1 = B.slabTop(k), B.slabTop(k + 1)
 	local rise = (y1 - y0) / 2
+	local half = B.DIVIDER / 2
 	if lane == "A" then
 		local l = B.LANE_A
-		return { XL = l.X0, YL = y0, XR = l.X1, YR = y0 + rise, Z0 = l.Z0, Z1 = l.Z1 }
+		return {
+			XL = l.X0,
+			YL = y0,
+			XR = l.X1,
+			YR = y0 + rise,
+			Z0 = l.Z0 + Pure.RAIL.Thick,
+			Z1 = l.Z1 - half,
+		}
 	end
 	local l = B.LANE_B
 	local run = l.X1 - l.X0
 	local shift = Pure.RAMP * rise / math.sqrt(run * run + rise * rise)
-	return { XL = l.X0 + shift, YL = y1 - rise * shift / run, XR = l.X1, YR = y0 + rise, Z0 = l.Z0, Z1 = l.Z1 }
+	return { XL = l.X0 + shift, YL = y1 - rise * shift / run, XR = l.X1, YR = y0 + rise, Z0 = l.Z0 + half, Z1 = l.Z1 }
+end
+
+export type Step = { X0: number, X1: number, Top: number, Rise: number }
+
+-- Storey k's steps on one lane, from the bottom up: tread i (0 .. STEPS - 1) runs one going back from its nose, which
+-- lies on the ramp's line (Pure.ramp, before lane B's cut), and its top is i risers over the half-flight's foot. Lane
+-- A's tread 0 is level with the floor it starts from (on the ground that is the floor itself); lane B's is level with
+-- the mid landing. The last riser rises onto the landing (lane A) or the next floor (lane B).
+function Pure.steps(B: any, k: number, lane: string): { Step }
+	local y0, y1 = B.slabTop(k), B.slabTop(k + 1)
+	local rise = (y1 - y0) / 2
+	local n = Pure.STEPS
+	local l = if lane == "A" then B.LANE_A else B.LANE_B
+	local going = (l.X1 - l.X0) / n
+	local r = rise / n
+	local out: { Step } = {}
+	for i = 0, n - 1 do
+		if lane == "A" then
+			table.insert(out, { X0 = l.X0 + i * going, X1 = l.X0 + (i + 1) * going, Top = y0 + i * r, Rise = r })
+		else
+			table.insert(out, { X0 = l.X1 - (i + 1) * going, X1 = l.X1 - i * going, Top = y0 + rise + i * r, Rise = r })
+		end
+	end
+	return out
 end
 
 -- A half-flight's part: its centre, its length along the slope and its tilt about z (radians; + rises toward +x).
@@ -757,12 +824,12 @@ local function buildDoor(model: Model, level: number, owned: { [string]: boolean
 				frame * CFrame.new(side * width / 4, 0, 0),
 				spec.Color
 			)
-			p:SetAttribute("Slide", Vector3.new(side * width / 2, 0, 0))
+			p:SetAttribute("Slide", Vector3.new(side * (width / 2 + Pure.TUCK), 0, 0))
 			table.insert(panels, p)
 		end
 	else
 		local p = part(doorModel, "Panel", Vector3.new(width, d.Height, Pure.PANEL), frame, spec.Color)
-		p:SetAttribute("Slide", Vector3.new(spec.Slide * width, 0, 0))
+		p:SetAttribute("Slide", Vector3.new(spec.Slide * (width + Pure.TUCK), 0, 0))
 		table.insert(panels, p)
 	end
 	for _, p in panels do
@@ -806,9 +873,11 @@ local function buildShell(model: Model, style: Style, levelName: string)
 	local wy0, wy1 = Pure.WINDOW.Y0, Pure.WINDOW.Y1
 	local out = Pure.PROUD
 
-	-- The street face: studded walls either side of the front doors, the fascia over them with the name.
-	outerWall(shell, "WallFrontLeft", -hx, x0, 0, front.Height, f, f + w, style)
-	outerWall(shell, "WallFrontRight", x1, hx, 0, front.Height, f, f + w, style)
+	-- The street face: studded walls either side of the front doors, the fascia over them with the name. Each wall
+	-- ends inside its door pier (Pier, below), so the jamb is the pier's face alone (two faces in one plane flicker).
+	local tuck = 0.25 -- the walls stop this far inside the 0.5-wide piers
+	outerWall(shell, "WallFrontLeft", -hx, x0 - tuck, 0, front.Height, f, f + w, style)
+	outerWall(shell, "WallFrontRight", x1 + tuck, hx, 0, front.Height, f, f + w, style)
 	local fascia = outerWall(shell, "WallFascia", -hx, hx, front.Height, top, f, f + w, style)
 	local canopy = B.CANOPY
 	local under = canopy.Y - 0.25 - 0.15
@@ -916,10 +985,11 @@ local function buildShell(model: Model, style: Style, levelName: string)
 	box(shell, "Ceiling", -hx + w, hx - w, top, top + c, f + w, t.Z0 + w, INSIDE)
 	box(shell, "Ceiling", -hx + w, t.X0 + w, top, top + c, t.Z0 + w, bk - w, INSIDE)
 
-	-- The podium's dark roof round the tower (the tower's walls stand on its edge), and a low parapet on the street.
+	-- The podium's dark roof round the tower, up to the tower's walls (they stand on the ceiling: buildFloor), and a
+	-- low parapet on the street.
 	local roof = piece(model, "PodiumRoof", 1, 1)
-	box(roof, "RoofPodium", -hx - 0.2, hx + 0.2, top + c, B.GROUND, f - 0.2, t.Z0 + w, WORLD.Roof)
-	box(roof, "RoofPodium", -hx - 0.2, t.X0 + w, top + c, B.GROUND, t.Z0 + w, bk + 0.2, WORLD.Roof)
+	box(roof, "RoofPodium", -hx - 0.2, hx + 0.2, top + c, B.GROUND, f - 0.2, t.Z0, WORLD.Roof)
+	box(roof, "RoofPodium", -hx - 0.2, t.X0, top + c, B.GROUND, t.Z0, bk + 0.2, WORLD.Roof)
 	box(roof, "ParapetPodium", -hx - 0.2, hx + 0.2, B.GROUND, B.GROUND + 0.8, f - 0.2, f + w, WORLD.Roof)
 end
 
@@ -956,27 +1026,224 @@ local function buildWaiting(model: Model, style: Style)
 	loose(marker(model, "ReceptionStaff", CFrame.new(r.Staff.X, 0.5, r.Staff.Z)), 1, 0)
 end
 
--- A station part in the Building (Station_<id>, tagged): its body with its icon badge (🔒 while closed).
-local function buildStation(model: Model, id: string, level: number, height: number)
+------------------------------------------------------------------------------------------------------------------
+-- The stations' furniture (Joshua, 2026-11-17: "the texture of the cabinets / places to take the bandage should be
+-- improved. now its just a rectangular block")
+------------------------------------------------------------------------------------------------------------------
+
+-- A box in a station's own frame (`frame`: Logic/Building's centre and Face, on the floor): x across its Width, y up
+-- from the floor, z from its front (-Depth/2, the side the player stands on) to its back (+Depth/2, at the wall).
+-- Walk-through: the Station_<id> part itself is what stops anyone.
+local function fit(
+	parent: Instance,
+	name: string,
+	frame: CFrame,
+	x0: number,
+	x1: number,
+	y0: number,
+	y1: number,
+	z0: number,
+	z1: number,
+	color: Color3,
+	material: Enum.Material?
+): Part
+	local p = part(
+		parent,
+		name,
+		Vector3.new(x1 - x0, y1 - y0, z1 - z0),
+		frame * CFrame.new((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2),
+		color,
+		material
+	)
+	soft(p)
+	return p
+end
+
+-- A small detail casts no shadow (the perf budget).
+local function tiny<T>(p: T): T
+	(p :: any).CastShadow = false
+	return p
+end
+
+-- An upright cylinder standing on y0 in a station's frame (rolls, bottles, the bucket, the measuring cup).
+local function cylinderOn(
+	parent: Instance,
+	name: string,
+	frame: CFrame,
+	x: number,
+	y0: number,
+	z: number,
+	height: number,
+	diameter: number,
+	color: Color3
+): Part
+	local p = cylinder(parent, name, height, diameter, frame * CFrame.new(x, y0 + height / 2, z), color)
+	soft(p)
+	return p
+end
+
+local PLASTER_TAN = Color3.fromRGB(226, 182, 138) -- a sticking plaster
+local function bottleColor(itemId: string, fallback: Color3): Color3
+	local row = rawget(ItemsData :: any, itemId)
+	return hexColor(if type(row) == "table" then row.Bottle else nil, fallback)
+end
+
+-- Each station's furniture round its part `p` (in `color`, the station's own, capped). Returns the furniture's
+-- highest point (its badge floats Pure.BADGE over it). Sizes: Logic/Building.STATION_SIZE, 4 across and 2.4 deep.
+type Furnish = (p: Part, frame: CFrame, color: Color3) -> number
+local FURNISH: { [string]: Furnish } = {
+	-- 🩹 A supply cabinet: the pink body (the part) with two doors and their knobs, a white countertop, and on it a box
+	-- of plasters (its lid pink) and a plaster.
+	Plaster = function(p, frame, color)
+		local h, t = Pure.STATION.Plaster, Pure.TOP
+		local door = tame(Parts.lighten(color, 0.3))
+		for _, side in { -1, 1 } do
+			local x0, x1 = if side < 0 then -1.85 else 0.06, if side < 0 then -0.06 else 1.85
+			fit(p, "Door", frame, x0, x1, 0.35, h - 0.25, -1.3, -1.2, door)
+			tiny(fit(p, "Knob", frame, side * 0.32 - 0.15, side * 0.32 + 0.15, 1.6, 1.9, -1.45, -1.3, WORLD.Trim))
+		end
+		fit(p, "Countertop", frame, -2, 2, h, h + t, -1.35, 1.2, WORLD.Trim)
+		local y = h + t
+		fit(p, "PlasterBox", frame, -1.5, 0.1, y, y + 0.7, -0.5, 0.6, WORLD.Trim)
+		fit(p, "PlasterBoxLid", frame, -1.55, 0.15, y + 0.7, y + 0.9, -0.55, 0.65, color)
+		tiny(fit(p, "Plaster", frame, 0.5, 1.7, y, y + 0.08, -0.6, -0.2, PLASTER_TAN))
+		tiny(fit(p, "PlasterPad", frame, 0.95, 1.25, y + 0.08, y + 0.12, -0.55, -0.25, WORLD.Trim))
+		return y + 0.9
+	end,
+	-- 🧊 A freezer chest: the white body (the part), its lid in the station's colour with a handle, ice cubes on top.
+	Ice = function(p, frame, color)
+		local h, t = Pure.STATION.Ice, Pure.TOP
+		fit(p, "Lid", frame, -2, 2, h, h + t, -1.3, 1.2, color)
+		tiny(fit(p, "Handle", frame, -0.8, 0.8, h + 0.04, h + t - 0.04, -1.45, -1.3, Palette.Navy))
+		local y = h + t
+		local ice = tame(Parts.lighten(color, 0.6))
+		local top = y
+		for _, c in { { -0.9, -0.15, 0.7, 15 }, { 0.15, 0.35, 0.6, -20 }, { 1, -0.25, 0.55, 35 } } do
+			local size = c[3]
+			local cube = tiny(
+				part(
+					p,
+					"IceCube",
+					Vector3.one * size,
+					frame * CFrame.new(c[1], y + size / 2, c[2]) * CFrame.Angles(0, math.rad(c[4]), 0),
+					ice,
+					Enum.Material.Ice
+				)
+			)
+			soft(cube)
+			cube.Transparency = 0.3
+			top = math.max(top, y + size)
+		end
+		return top
+	end,
+	-- 🧻 An open shelf unit in the station's colour (the part is an invisible box round it): two sides, a darker back,
+	-- four boards, and white bandage rolls standing on three of them.
+	Bandage = function(p, frame, color)
+		local h, w = Pure.STATION.Bandage, 0.3
+		for _, side in { -1, 1 } do
+			local x0 = if side < 0 then -2 else 2 - w
+			fit(p, "ShelfSide", frame, x0, x0 + w, 0, h, -1.2, 1.2, color)
+		end
+		fit(p, "ShelfBack", frame, -2 + w, 2 - w, 0, h, 1.2 - w, 1.2, tame(Parts.darken(color, 0.25)))
+		local boards = { 0, 1.4, 2.8, h - w }
+		for _, y in boards do
+			fit(p, "ShelfBoard", frame, -2 + w, 2 - w, y, y + w, -1.2, 1.2 - w, color)
+		end
+		for b, xs in { { -0.55, 0.55 }, { -1.05, 0, 1.05 }, { -0.55, 0.55 } } do
+			for _, x in xs do
+				cylinderOn(p, "BandageRoll", frame, x, boards[b] + w, -0.2, 0.8, 0.9, WORLD.Trim)
+			end
+		end
+		return h
+	end,
+	-- 🦴 A work table on four legs (the part is an invisible box round it) with a low shelf, a steel tray of white
+	-- plaster rolls and a small bucket.
+	Cast = function(p, frame, color)
+		local h, t, leg = Pure.STATION.Cast, Pure.TOP, 0.3
+		local legColor = tame(Parts.darken(color, 0.3))
+		fit(p, "TableTop", frame, -2, 2, h - t, h, -1.2, 1.2, color)
+		for _, sx in { -1, 1 } do
+			for _, sz in { -1, 1 } do
+				local x0 = if sx < 0 then -2 else 2 - leg
+				local z0 = if sz < 0 then -1.2 else 1.2 - leg
+				fit(p, "TableLeg", frame, x0, x0 + leg, 0, h - t, z0, z0 + leg, legColor)
+			end
+		end
+		fit(p, "TableShelf", frame, -2 + leg, 2 - leg, 0.5, 0.8, -1.2, 1.2, color)
+		tiny(fit(p, "Tray", frame, -1.7, 0.3, h, h + 0.15, -0.8, 0.8, WORLD.Edge))
+		local d = 0.5
+		for _, z in { -0.35, 0.3 } do
+			local rollPart =
+				part(p, "CastRoll", Vector3.new(1.2, d, d), frame * CFrame.new(-0.7, h + 0.15 + d / 2, z), WORLD.Trim)
+			rollPart.Shape = Enum.PartType.Cylinder
+			tiny(soft(rollPart))
+		end
+		cylinderOn(p, "Bucket", frame, 1.15, h, 0, 0.9, 0.9, tame(ACCENT.Blue))
+		return h + 0.9
+	end,
+	-- 💊 The dispensary counter: the purple body (the part) with four drawers and their pulls, a white countertop, and
+	-- on it three medicine bottles (their colours from Data/Items) and a measuring cup.
+	Remedy = function(p, frame, color)
+		local h, t = Pure.STATION.Remedy, Pure.TOP
+		local drawer = tame(Parts.lighten(color, 0.3))
+		for _, xs in { { -1.85, -0.08 }, { 0.08, 1.85 } } do
+			for _, ys in { { 0.35, 1.45 }, { 1.65, h - 0.25 } } do
+				fit(p, "Drawer", frame, xs[1], xs[2], ys[1], ys[2], -1.3, -1.2, drawer)
+				local mx, my = (xs[1] + xs[2]) / 2, (ys[1] + ys[2]) / 2
+				tiny(fit(p, "Pull", frame, mx - 0.4, mx + 0.4, my - 0.07, my + 0.07, -1.42, -1.3, WORLD.Trim))
+			end
+		end
+		fit(p, "Countertop", frame, -2, 2, h, h + t, -1.35, 1.2, WORLD.Trim)
+		local y = h + t
+		local bottles = {
+			{ -1.3, 0.3, "FeverMeds", ACCENT.Orange },
+			{ -0.6, 0.55, "EarDrops", ACCENT.Blue },
+			{ 0.1, 0.3, "Cream", ACCENT.Cyan },
+		}
+		for _, b in bottles do
+			cylinderOn(p, "Bottle", frame, b[1], y, b[2], 0.8, 0.5, bottleColor(b[3], b[4]))
+			tiny(cylinderOn(p, "BottleCap", frame, b[1], y + 0.8, b[2], 0.2, 0.3, WORLD.Trim))
+		end
+		tiny(cylinderOn(p, "MeasuringCup", frame, 1.1, y, -0.3, 0.6, 0.6, WORLD.Trim))
+		return y + 1
+	end,
+}
+
+-- A station in the Building: Station_<id> (tagged), Logic/Building.stationRect's box from the floor up to its Height,
+-- with its furniture as its own children and its icon badge over it (🔒 on a grey ring while closed; a closed station
+-- looks the same otherwise, so kids see what's coming). The body keeps the station's colour where it is one solid
+-- body (the cabinet, the counter; the freezer is white with a coloured lid), and the open furniture (the shelves, the
+-- table) is coloured itself round an invisible box.
+local function buildStation(model: Model, id: string, level: number)
 	local r = B.stationRect(id)
-	if not r then
+	local station = B.STATIONS[id]
+	if not (r and station) then
 		return
 	end
 	local data = rawget(Stations :: any, id)
-	-- The ring is the station's own candy colour (kids match a plan step to it); the body is the same, capped like
-	-- every world colour.
+	-- The ring is the station's own candy colour (kids match a plan step to it); the furniture's is the same, capped
+	-- like every world colour.
 	local color = if data and typeof(data.Color) == "Color3" then data.Color else WORLD.Trim
+	local height = rawget(Pure.STATION :: any, id) or 3
 	local open = B.stationOpen(id, level)
-	local p = loose(box(model, "Station_" .. id, r.X0, r.X1, 0, height, r.Z0, r.Z1, tame(color)), 1, 0)
+	local body = if id == "Ice" then WORLD.Trim else tame(color)
+	local p = loose(box(model, "Station_" .. id, r.X0, r.X1, 0, height, r.Z0, r.Z1, body), 1, 0)
 	p:SetAttribute("StationId", id)
 	p:SetAttribute("Open", open)
+	local frame = CFrame.new(station.X, 0, station.Z) * CFrame.Angles(0, math.rad(station.Face), 0)
+	local furnish = FURNISH[id]
+	local top = if furnish then furnish(p, frame, tame(color)) else height
+	if id == "Bandage" or id == "Cast" then
+		p.Transparency = 1 -- open furniture: the part is only the box that stops you
+		p.CastShadow = false
+	end
 	iconBadge(
 		p,
 		"IconGui",
 		if open and data then data.Icon else "🔒",
 		if open then color else CLOSED_RING,
 		2.6,
-		height / 2 + 2.1
+		top + Pure.BADGE - height / 2
 	)
 	CollectionService:AddTag(p, HospitalBuilder.STATION_TAG)
 end
@@ -1022,7 +1289,7 @@ local function buildDispensary(model: Model, level: number)
 			Parts.rounded(bottle, UDim.new(0.35, 0))
 		end
 	end
-	buildStation(model, "Remedy", level, Pure.STATION.Counter)
+	buildStation(model, "Remedy", level)
 end
 
 -- One exam bay: ExamBay_<id> (Bed, Pillow, Curtain, Tray, Sign, DoctorSpot). `signAt` is its number sign's
@@ -1169,7 +1436,7 @@ local function buildXRay(model: Model, level: number)
 		)
 	).CastShadow =
 		false
-	buildStation(model, "Cast", level, Pure.STATION.Counter)
+	buildStation(model, "Cast", level)
 end
 
 -- The back rooms' walls: the long wall onto corridor B (three doorways, their doors are Door_<room>) and the walls
@@ -1288,9 +1555,15 @@ end
 -- The dog-leg stairs (Logic/Building's well): each storey's two half-flights (Flight_<k>A up toward +x to Mid_<k>,
 -- Flight_<k>B back to the next floor), the wall between the lanes, each floor's rail along the well, and on the top
 -- floor the rails round its open half. Below the first open floor a shut gate stands at the foot.
+-- A half-flight is its Flight_<k><lane> (the invisible walking ramp: smooth, so feet never catch) and its steps
+-- (Step_<k><lane>_<i>, Pure.steps): blocky tiled treads, every nose on the ramp's line, so the ramp is never under a
+-- tread and the walker stands on it. On the ground the steps are solid blocks from the floor up: they fill the space
+-- under both flights (nobody walks or jumps in under them). Upstairs they are walk-through, with a stepped underside.
+-- Nothing in the well shares a face with anything else or reaches inside it: each lane stops at the rail's and the
+-- lane wall's faces, the walls stack slab to slab, the ground's rail stops at the mid landing.
 local function buildStairs(model: Model, style: Style, level: number, standing: number)
 	local stairs = piece(model, "Stairs", 1, 0)
-	local well, mid, laneA, laneB = B.STAIRWELL, B.STAIR_MID, B.LANE_A, B.LANE_B
+	local well, mid, laneA = B.STAIRWELL, B.STAIR_MID, B.LANE_A
 	local rail, half = Pure.RAIL, B.DIVIDER / 2
 	local between = laneA.Z1 -- the lanes' shared edge
 	for k = 0, standing - 1 do
@@ -1298,7 +1571,7 @@ local function buildStairs(model: Model, style: Style, level: number, standing: 
 		for _, lane in { "A", "B" } do
 			local r = Pure.ramp(B, k, lane)
 			local fr = Pure.rampFrame(r, Pure.RAMP)
-			loose(
+			local ramp = loose(
 				part(
 					stairs,
 					"Flight_" .. k .. lane,
@@ -1310,6 +1583,32 @@ local function buildStairs(model: Model, style: Style, level: number, standing: 
 				since,
 				k
 			)
+			ramp.Transparency = 1
+			ramp.CastShadow = false
+			for i, s in Pure.steps(B, k, lane) do
+				local bottom = if k == 0 then 0 else s.Top - s.Rise - Pure.WAIST
+				if s.Top - bottom > 1e-3 then -- the ground's own floor is lane A's first tread there
+					local step = loose(
+						box(
+							stairs,
+							"Step_" .. k .. lane .. "_" .. (i - 1),
+							s.X0,
+							s.X1,
+							bottom,
+							s.Top,
+							r.Z0,
+							r.Z1,
+							WORLD.FloorTile,
+							Enum.Material.CeramicTiles
+						),
+						since,
+						k
+					)
+					if k > 0 then
+						soft(step)
+					end
+				end
+			end
 		end
 		-- The mid landing (a solid block on the ground, so nothing hides under the stairs).
 		local midTop = (B.slabTop(k) + B.slabTop(k + 1)) / 2
@@ -1329,13 +1628,14 @@ local function buildStairs(model: Model, style: Style, level: number, standing: 
 			since,
 			k
 		)
+		-- The wall between the lanes: slab to slab (each storey's stands on the one below it).
 		loose(
 			box(
 				stairs,
 				"StairWall",
 				laneA.X0,
 				laneA.X1,
-				B.slabTop(k),
+				Pure.wallBase(B, k),
 				Pure.wallTop(B, k),
 				between - half,
 				between + half,
@@ -1345,19 +1645,18 @@ local function buildStairs(model: Model, style: Style, level: number, standing: 
 			k
 		)
 	end
-	-- The ground: a wall closes the space under lane B's high end.
-	box(stairs, "StairSide", laneB.X0, laneB.X0 + rail.Thick, 0, B.GROUND - 1.2, between + half, laneB.Z1, INSIDE)
-	-- Each floor's rail along the well's front edge; on the top floor the rails round the hole over lane A.
+	-- Each floor's rail along the well's front edge (the ground's stops at the mid landing's block); on the top floor
+	-- the rails round the hole over lane A, the middle one standing on the lane wall below.
 	for k = 0, standing do
 		local y = B.slabTop(k)
 		local since = if k == 0 then 1 else Pure.sinceStanding(B, k)
-		local function railBox(name: string, x0: number, x1: number, z0: number, z1: number)
-			loose(painted(box(stairs, name, x0, x1, y, y + rail.Height, z0, z1, style.Trim), "Trim"), since, k)
+		local function railBox(name: string, x0: number, x1: number, y0: number, z0: number, z1: number)
+			loose(painted(box(stairs, name, x0, x1, y0, y + rail.Height, z0, z1, style.Trim), "Trim"), since, k)
 		end
-		railBox("Rail", well.X0, well.X1, well.Z0, well.Z0 + rail.Thick)
+		railBox("Rail", well.X0, if k == 0 then mid.X0 else well.X1, y, well.Z0, well.Z0 + rail.Thick)
 		if k == standing then
-			railBox("RailEnd", well.X0, well.X0 + rail.Thick, well.Z0 + rail.Thick, between - half)
-			railBox("RailMid", laneA.X0, laneA.X1, between - half, between + half)
+			railBox("RailEnd", well.X0, well.X0 + rail.Thick, y, well.Z0 + rail.Thick, between - half)
+			railBox("RailMid", laneA.X0, laneA.X1, Pure.wallBase(B, k), between - half, between + half)
 		end
 	end
 	-- Below the first open floor: a shut gate at lane A's foot.
@@ -1602,8 +1901,12 @@ local function buildFloor(model: Model, style: Style, level: number, k: number, 
 		box(floorModel, "ParapetRight", t.X1 - w, t.X1, base, y + p, t.Z0 + w, t.Z1 - w, WORLD.Roof)
 		return floorModel
 	end
+	-- F1's street and -x walls stand over the podium: on the ground's ceiling (its top), never through it (their
+	-- undersides and the ceiling's lay in one plane and flickered; Joshua, 2026-11-17). Its back and +x walls stand on
+	-- the ground's outer walls.
+	local podium = if k == 1 then Pure.wallTop(B, 0) + Pure.CEILING else base
 	-- The street face: a studded spandrel and the glass band over it, with the floor's icon floating on the glass.
-	outerWall(floorModel, "WallSpandrel", t.X0, t.X1, base, y + Pure.SPANDREL, t.Z0, t.Z0 + w, style)
+	outerWall(floorModel, "WallSpandrel", t.X0, t.X1, podium, y + Pure.SPANDREL, t.Z0, t.Z0 + w, style)
 	local glassBand = glass(floorModel, "GlassBand", t.X0, t.X1, y + Pure.SPANDREL, top, t.Z0, t.Z0 + w)
 	glassBand:SetAttribute("Outer", true)
 	local width = t.X1 - t.X0
@@ -1614,7 +1917,7 @@ local function buildFloor(model: Model, style: Style, level: number, k: number, 
 	})
 	-- The back and the sides, with a ribbon window on each.
 	outerWall(floorModel, "WallBack", t.X0, t.X1, base, top, t.Z1 - w, t.Z1, style)
-	outerWall(floorModel, "WallLeft", t.X0, t.X0 + w, base, top, t.Z0 + w, t.Z1 - w, style)
+	outerWall(floorModel, "WallLeft", t.X0, t.X0 + w, podium, top, t.Z0 + w, t.Z1 - w, style)
 	outerWall(floorModel, "WallRight", t.X1 - w, t.X1, base, top, t.Z0 + w, t.Z1 - w, style)
 	local out = Pure.PROUD
 	local wy0, wy1 = y + Pure.WINDOW.Y0 + 0.5, y + Pure.WINDOW.Y1 + 0.5
@@ -1948,7 +2251,7 @@ local function placeholderBuilding(
 	buildDispensary(model, level)
 	buildBays(model, level)
 	for _, id in { "Plaster", "Ice", "Bandage" } do
-		buildStation(model, id, level, Pure.STATION.Height) -- the supply alcove
+		buildStation(model, id, level) -- the supply alcove
 	end
 	buildXRay(model, level)
 	buildBackRooms(model)

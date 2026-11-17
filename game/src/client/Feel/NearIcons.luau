@@ -81,7 +81,9 @@ function NearIcons.init(_ctx: Types.Ctx)
 					local gui = inst :: BillboardGui
 					local part = gui.Parent
 					if part and part:IsA("BasePart") then
-						local at = part.Position + Vector3.new(0, gui.StudsOffset.Y, 0)
+						-- the badge floats StudsOffsetWorldSpace over the part (the builders' iconBadge), or StudsOffset
+						local up = gui.StudsOffsetWorldSpace.Y + gui.StudsOffset.Y
+						local at = part.Position + Vector3.new(0, up, 0)
 						local was = hiddenByUs[gui] == true
 						local now = Pure.hidden((at - eye).Magnitude, was)
 						if now and not was and gui.Enabled then
