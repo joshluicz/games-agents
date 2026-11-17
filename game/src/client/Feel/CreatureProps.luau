@@ -769,8 +769,20 @@ function CreatureProps.setFace(kit: Kit, name: string?)
 	kit.Face = name
 end
 
+-- Called every frame a creature acts. The eyes' LocalTransparencyModifier is re-asserted while nothing changes: the
+-- camera's Invisicam writes the same property on a part between the camera and the player and later puts back the
+-- value it found, which may be a stale one of ours (an eye left hidden after the squint ended, or shown during one).
+-- Hidden always wins; when the eyes should show, only our own "hidden" (1) is undone, so Invisicam's fade is left be.
 function CreatureProps.setSquint(kit: Kit, on: boolean)
 	if kit.Squinting == on then
+		for _, eye in kit.Eyes do
+			local now = eye.LocalTransparencyModifier
+			if on and now ~= 1 then
+				eye.LocalTransparencyModifier = 1
+			elseif not on and now == 1 then
+				eye.LocalTransparencyModifier = 0
+			end
+		end
 		return
 	end
 	kit.Squinting = on

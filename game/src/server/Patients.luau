@@ -244,8 +244,10 @@ K.REPEAT_WEIGHT = 0.35 -- the same patient twice in a row is less likely
 K.TUTORIAL_STATION = { First = "Remedy", Second = "Plaster" } :: { [string]: string }
 K.TUTORIAL_WING = "Starter"
 
-K.PROMPT_DISTANCE = 9 -- a bay's prompt reaches the whole bay round its DoctorSpot (inside the bay now); the next
--- bay's DoctorSpot is Logic/Building.BAY_WIDTH (9.5) away, and the nearest prompt shows
+K.PROMPT_DISTANCE = 9 -- a waiting patient's own Send prompt (it hangs on the patient)
+-- A bay's Examine prompt, on its DoctorSpot (inside the bay): the bay's mouth and the bed's foot, and nothing through
+-- a wall (Logic/Building.BAY_PROMPT_REACH, tests/Prompts.spec). The next bay's DoctorSpot is BAY_WIDTH (9.5) away.
+K.BAY_PROMPT_DISTANCE = Building.BAY_PROMPT_REACH
 K.PROMPT_HEIGHT = 2.6 -- studs above the floor
 K.DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
 K.TREAT_COOLDOWN = 0.3 -- per player
@@ -2002,7 +2004,7 @@ local function ensurePrompts(state: PlotState)
 				prompt.ActionText = "Examine"
 				prompt.ObjectText = ""
 				prompt.HoldDuration = 0 -- a tap: no precision timing
-				prompt.MaxActivationDistance = K.PROMPT_DISTANCE
+				prompt.MaxActivationDistance = K.BAY_PROMPT_DISTANCE
 				prompt.RequiresLineOfSight = false
 				prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
 				prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -3364,7 +3366,7 @@ local function nearBay(player: Player, state: PlotState, bayId: string): boolean
 	if not (root and root:IsA("BasePart")) then
 		return false
 	end
-	return (root.Position - U.spotWorld(state, bayId)).Magnitude <= K.PROMPT_DISTANCE + K.DISTANCE_SLACK
+	return (root.Position - U.spotWorld(state, bayId)).Magnitude <= K.BAY_PROMPT_DISTANCE + K.DISTANCE_SLACK
 end
 
 onBayPrompt = function(plot: Plot, bayId: string, player: Player)

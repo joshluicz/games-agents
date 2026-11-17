@@ -216,8 +216,8 @@ Config.Treat = {
 -- The Nurse Belt: one shared conveyor along the town's main street (memory-20261116-012/-013/-017, Logic/Belt,
 -- Server/NurseBelt). Cash only. Every odd, event odds included, is printed on the belt's sign and in the 🎲 popup.
 -- Where (Joshua, 2026-11-17, memory-20261117-001 #3: the belt runs down the road's CENTRE line): on z = 0, from just
--- inside the east welcome arch (x = +180 from Town.Origin) to just inside the west one (x = -180), past every plot's
--- gate (the street runs x -197..197 and the arches stand 5 inside its ends since the plots grew to 110 x 110, 8
+-- inside the east welcome arch (x = +220 from Town.Origin) to just inside the west one (x = -220), past every plot's
+-- gate (the street runs x -242..242 and the arches stand 5 inside its ends since the plots grew to 140 x 140, 8
 -- apart). The spawn plaza moved off it (Config.Town.SpawnOffset / Plaza; nothing else solid stands within
 -- Config.Town.BeltClear of the centre line). Riders move west, toward the Hall of Fame end (it stays clear, past the
 -- street's end), and face the plaza (+z). The conveyor is low enough to step over anywhere.

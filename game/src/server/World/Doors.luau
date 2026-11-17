@@ -27,7 +27,7 @@
 --   Doors.start()        once (Main.server)
 --   Doors.Pure           locked(level, opens, room, owned) · near(points, x, y, z, radius, height) · state(locked,
 --                        near) · floorAt(y, slabTops) · trapped(x, y, z, rooms, floorsOpen, slabTops) ·
---                        tests/Hospital.spec loads the PURE block
+--                        shut(rooms, floorsOpen, hasStairsDoor, stairwell) · tests/Hospital.spec loads the PURE block
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -117,6 +117,18 @@ function Pure.trapped(x: number, y: number, z: number, rooms: { any }, floorsOpe
 		end
 	end
 	return false
+end
+
+-- The rects nobody may stand in on the ground floor: the locked rooms, plus the stair flights (`stairwell` =
+-- Logic/Building.STAIRWELL) while upstairs is closed in a building that has no Door_Stairs to lock them behind (a kit
+-- building: HospitalBuilder's own has the door, and its whole enclosure is then one of `rooms`).
+function Pure.shut(rooms: { any }, floorsOpen: number, hasStairsDoor: boolean, stairwell: any): { any }
+	if floorsOpen >= 1 or hasStairsDoor then
+		return rooms
+	end
+	local out = table.clone(rooms)
+	table.insert(out, stairwell)
+	return out
 end
 -- PURE-END
 
@@ -241,6 +253,7 @@ end
 -- (entry.State), so a room is only emptied once its door really is solid.
 local function rescue()
 	local locked: { [Instance]: { any } } = {} -- per Building: the rects of its locked rooms
+	local stairsDoor: { [Instance]: boolean } = {} -- the Buildings that have a Door_Stairs
 	for model, entry in entries do
 		local building = model:FindFirstAncestor("Building")
 		if building then
@@ -250,6 +263,9 @@ local function rescue()
 				locked[building] = rooms
 			end
 			local door = model:GetAttribute("Door")
+			if door == "Stairs" then
+				stairsDoor[building] = true
+			end
 			local roomName = if type(door) == "string" then ROOM_BEHIND[door] else nil
 			local rect = if roomName then (Building.ROOMS :: any)[roomName] else nil
 			if entry.State == "Locked" and rect then
@@ -275,8 +291,10 @@ local function rescue()
 			end
 			local level = building:GetAttribute("Level")
 			local floorsOpen = Building.floors(if type(level) == "number" then level else Building.MIN_LEVEL)
-			-- (upstairs closed: Door_Stairs is Locked, so the whole stairwell is in `rooms`)
-			if Pure.trapped(at.X, at.Y, at.Z, rooms, floorsOpen, Building.SLAB_TOPS) then
+			-- Upstairs closed: Door_Stairs is Locked and the whole stairwell is in `rooms`; a building without that
+			-- door gets the flights added (Pure.shut).
+			local shut = Pure.shut(rooms, floorsOpen, stairsDoor[building] == true, Building.STAIRWELL)
+			if Pure.trapped(at.X, at.Y, at.Z, shut, floorsOpen, Building.SLAB_TOPS) then
 				character:PivotTo(origin * CFrame.new(stop.X, RESCUE_HEIGHT, stop.Z))
 			end
 			break -- a player stands in one building at most

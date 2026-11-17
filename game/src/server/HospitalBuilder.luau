@@ -1450,14 +1450,19 @@ function HospitalBuilder.syncStations(plotModel: Model)
 end
 
 -- Hooks syncStations to a plot's Rooms folder, once per plot (PlotBuilder makes the folder with the plot; a room is
--- named Room_<id> before it is parented). Weak-keyed: a plot that is destroyed takes its entry with it.
-local watching: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+-- named Room_<id> before it is parented). A strong table: a weak key could be collected while the folder still
+-- lives (nothing else in Luau holds the Instance's wrapper), and every rebuild would hook it again. The entry goes
+-- when the folder is destroyed.
+local watching: { [Instance]: boolean } = {}
 local function watchRooms(plotModel: Model)
 	local rooms = plotModel:FindFirstChild("Rooms")
 	if not rooms or watching[rooms] then
 		return
 	end
 	watching[rooms] = true
+	rooms.Destroying:Connect(function()
+		watching[rooms] = nil
+	end)
 	local function changed()
 		HospitalBuilder.syncStations(plotModel)
 	end

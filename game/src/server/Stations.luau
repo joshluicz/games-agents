@@ -878,8 +878,9 @@ local function refresh(w: Wired, open: boolean?)
 	w.Prompt.Enabled = on and isOpen(w)
 end
 
--- Where a station's prompt hangs. A Building station's: on an Attachment just off its front face, reaching
--- Building.PROMPT_REACH, so a neighbour's prompt through a wall never beats it at its own stand (Logic/Building).
+-- Where a station's prompt hangs. A Building station's: on an Attachment Building.PROMPT_OUT off its front face,
+-- reaching Building.PROMPT_REACH, so no prompt is in reach through a wall and a neighbour's never beats it at its own
+-- stand (Logic/Building, tests/Prompts.spec).
 -- Anything else (a room's station, a kit's, a part not where Logic/Building puts it): the part, as before.
 local function promptHolder(plot: Plot, holder: Instance, part: BasePart, stationId: string, prompt: ProximityPrompt)
 	-- `holder` is the Station_<id> instance: a Building's own station is that Part, straight under the Building.
@@ -892,7 +893,7 @@ local function promptHolder(plot: Plot, holder: Instance, part: BasePart, statio
 	local here = pivot:PointToObjectSpace(part.Position)
 	local offset = part.CFrame:PointToObjectSpace(pivot:PointToWorldSpace(Vector3.new(at.X, here.Y, at.Z)))
 	local half = part.Size / 2
-	if math.abs(offset.X) > half.X + 1 or math.abs(offset.Z) > half.Z + 1 then
+	if math.abs(offset.X) > half.X + 1 or math.abs(offset.Z) > half.Z + Building.PROMPT_OUT + 1 then
 		return part -- this part isn't the one Logic/Building describes
 	end
 	local attachment = Instance.new("Attachment")

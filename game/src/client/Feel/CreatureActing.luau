@@ -412,10 +412,22 @@ end
 
 -- A night creature's glow pad is under its feet; on a seat it would be a neon slab round the chair, so it fades out
 -- as the creature sits down (`hidden` 0..1) and back in as it gets up. Local only: the server's part is untouched.
+-- Called every frame: at rest (fully hidden or fully shown) the value is re-asserted, because the camera's Invisicam
+-- writes the same property on a part in its way and later puts back the value it found, which may be a stale one of
+-- ours. Hidden always wins; shown only undoes our own "hidden" (1), so Invisicam's fade of a shown pad is left be.
 local function showRing(c: Creature, hidden: number)
 	local ring = c.Ring
-	if ring and math.abs(c.RingHidden - hidden) > 1e-3 then
+	if not ring then
+		return
+	end
+	if math.abs(c.RingHidden - hidden) > 1e-3 then
 		c.RingHidden = hidden
+		ring.LocalTransparencyModifier = hidden
+	elseif hidden >= 0.999 then
+		if ring.LocalTransparencyModifier ~= hidden then
+			ring.LocalTransparencyModifier = hidden
+		end
+	elseif hidden <= 1e-3 and ring.LocalTransparencyModifier >= 0.999 then
 		ring.LocalTransparencyModifier = hidden
 	end
 end

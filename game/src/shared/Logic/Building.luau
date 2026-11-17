@@ -65,11 +65,12 @@
 --   Building.doctorSpot(bay): Point              the bay's DoctorSpot, at the bed's foot, inside the bay (bay X: its
 --                                                Spot, at the bed's side): the doctor stands here, and a patient
 --                                                hops on from here
+--                                                (its Examine prompt hangs here, BAY_PROMPT_REACH studs reach)
 --   Building.bayOpen(bay, level, rooms?): boolean   level >= Opens, and for a room's bay that room is owned
 --                                                (rooms = { [RoomId]: boolean })
 --   Building.openBays(level, rooms?): { Bay }    in BAYS order
 --   Building.stationRect(id): Rect? · Building.stationStand(id): Point?
---   Building.stationPromptAt(id): Point?         where the station's E prompt hangs: just off its front face
+--   Building.stationPromptAt(id): Point?         where the station's E prompt hangs: PROMPT_OUT off its front face
 --                                                (PROMPT_REACH studs reach; Server/Stations)
 --                                                a station's body, and where the player stands to use it
 --   Building.stationOpen(id, level, rooms?): boolean   level >= Opens, and for a pantry station (Cocoa, Bath: its
@@ -170,8 +171,12 @@ Building.MAX_LEVEL = 5
 
 -- The open building's rules (design §4; tests/Building.spec holds the layout to them).
 Building.CORRIDOR_MIN = 10 -- every corridor and hall is at least this wide, wall to wall
-Building.DOOR_WIDTH = 6 -- every inside doorway is at least this wide (the big creatures fit) ...
-Building.DOOR_HEIGHT = 10 -- ... and this tall (the front pair stays 8, under the canopy and the name sign)
+-- Every inside doorway is at least DOOR_WIDTH wide and DOOR_HEIGHT tall (the front pair stays 8, under the canopy
+-- and the name sign). Not every creature fits: the widest (CloudSheep, 6.9 across) is wider than a 6-wide doorway
+-- and its sides pass through the frame. Nothing can get stuck, because no creature part collides (CreatureBuilder
+-- builds every one CanCollide = false; tests/BlockyCreatures.spec holds that).
+Building.DOOR_WIDTH = 6
+Building.DOOR_HEIGHT = 10
 -- The bays' dividers and their curtains are this high (was the doorways' 10): you see over them, so the row of bays
 -- reads as one open ward. HospitalBuilder builds both to it.
 Building.CURTAIN_HEIGHT = 6
@@ -297,12 +302,23 @@ Building.BAY_DIVIDERS = bayDividers()
 -- Cast stays in the X-ray room, where its patient is.
 Building.STATION_SIZE = table.freeze({ Width = 4, Depth = 2.4 })
 Building.STATION_STAND = 2.8
--- A Building station's prompt hangs PROMPT_OUT off its front face and reaches PROMPT_REACH. On the station's centre
--- with 10 studs' reach, a neighbour's prompt (through a wall, too) beat the Cast Table's at its own stand, and a
--- cast could not be taken (Studio test 2026-11-17). Roblox shows one prompt per key. SUPPLY_PITCH keeps a neighbour's
--- prompt out of reach at each stand (5.2 away).
-Building.PROMPT_OUT = 0.2
-Building.PROMPT_REACH = 5
+-- A Building station's prompt hangs PROMPT_OUT off its front face (half the way to its stand: 0.2 from where the
+-- player stands) and reaches PROMPT_REACH. On the station's centre with 10 studs' reach, a neighbour's prompt
+-- (through a wall, too) beat the Cast Table's at its own stand, and a cast could not be taken (Studio test
+-- 2026-11-17). Roblox shows one prompt per key. The two numbers together keep every prompt on its own side of the
+-- walls (tests/Prompts.spec): the prompt is 4.2 from the far face of the wall behind its station (the dispensary's
+-- inside, corridor A behind the Cast Table) and 4 from the Hall's side of the X-ray room's wall, where a character's
+-- root is never nearer than half a stud; and SUPPLY_PITCH keeps a neighbour's prompt a stud out of reach at each stand
+-- (5.0 away). No line of sight on these prompts: Roblox casts it from the CAMERA, and with Invisicam the camera is
+-- often behind a wall the player is not.
+Building.PROMPT_OUT = 1.4
+Building.PROMPT_REACH = 4
+-- A bay's Examine prompt hangs on its DoctorSpot and reaches this far (Server/Patients). No one sphere covers a whole
+-- bay (9.5 x 12) and stays inside its walls: bay 1's DoctorSpot is 5.15 from the Hall's side of its end wall, bay X's
+-- 4.1 from the yard's side of the outer wall and 5.2 from corridor A's side of the X-ray wall (the nurses' station).
+-- 4.5 covers the bay's mouth and the floor round the bed's foot, where the doctor stands, and reaches no root on a
+-- wall's far side (half a stud off it at the nearest; tests/Prompts.spec). It was 9: bay 1's showed in the Hall.
+Building.BAY_PROMPT_REACH = 4.5
 Building.SUPPLY_ORDER = table.freeze({ "Remedy", "Plaster", "Ice", "Bandage", "Cocoa", "Bath" }) -- from the lobby end
 Building.SUPPLY_PITCH = 5
 Building.SUPPLY_FIRST = 4 -- from the recess's lobby end to the first station's centre
