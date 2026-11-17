@@ -9,6 +9,10 @@
 --   HospitalBuilder.Pure          the building's own numbers (plot-local studs; PlotBuilder.Pure re-exports it;
 --                                 tests/Hospital.spec loads the PURE block). Its functions take Shared/Logic/Building
 --                                 (the interface numbers everyone else builds to) as their first argument
+--   HospitalBuilder.syncStations(plotModel)
+--       the pantry's stations (Logic/Building.STATIONS with a Room: Cocoa, Bath) follow the rooms the plot owns NOW:
+--       their Open attribute, their badge (the icon, or 🔒 on a grey ring) and their "Needs ❄️ Winter Wing" hint.
+--       build() calls it and hooks it to the plot's Rooms folder, so buying (or losing) a room needs no rebuild
 --   HospitalBuilder.STATION_TAG   ("BuildingStation")  every Station_<id> part in the Building (Server/Stations)
 --   HospitalBuilder.LIFT_TAG      ("HospitalLift")     each Building's Lift Model (UI/LiftPanel slides its car)
 --   HospitalBuilder.DOOR_TAG      ("ClinicDoor")       each door Model (Server/World/Doors slides and locks them)
@@ -16,41 +20,56 @@
 -- The plot's colour comes from the plot Model's `Accent` attribute (a Color3 PlotBuilder sets; its PlotIndex's
 -- Palette.PlotColors entry when missing). It never requires PlotBuilder (PlotBuilder requires this).
 --
--- THE BIG CLINIC (Joshua, 2026-11-17: "realistic and big enough from the first moment"). The whole 64 x 44 block
--- (Logic/Building, x -32..32, z -24..20) stands at EVERY level, with its tower over the back right (x -5..32,
--- z -5..20). A level only OPENS what is already there: bays, the A&E door, the X-ray room, the floors upstairs.
+-- THE BIG CLINIC (Joshua, 2026-11-17: "realistic and big enough from the first moment"), made BIGGER AND OPEN
+-- (memory-20261117-006; docs/plan/2026-11-17-simple-start-design.md §4): the whole 96 x 66 block (Logic/Building,
+-- x -48..48, z -36..30) stands at EVERY level, with its tower over the back right (x -9.4..48, z -8..30). A level
+-- only OPENS what is already there: bays, the A&E door, the X-ray room, the stairwell's door, the floors upstairs.
 -- A closed door is shut and solid with a navy "🔒 Opens at Lv N" (or "💰 150 to open") plate; a closed bay has its
--- curtain drawn and a 🔒 sign; a closed station shows a 🔒 badge.
+-- curtain drawn and a 🔒 sign; a closed station shows a 🔒 badge. Every inside doorway is Logic/Building.DOOR_WIDTH
+-- (6) wide and DOOR_HEIGHT (10) tall (the front pair stays 8); each lintel starts at its own door's Height.
 --   Ground floor (Storey 0), as the sketch in Logic/Building:
 --     the front: a sliding glass pair (FrontDoor) in the middle, the canopy over it and the clinic's name floating
 --       on the fascia; studded walls in the plot's colour with dark ribbon windows; the A&E door on the -x wall
 --       (shut until Lv 2) with its red canopy; the Garden door in the back wall (shut until the Garden is bought)
---     the waiting room: 6 chairs (WaitSeat_<n> markers on their seats), a plant; ReceptionStop and ReceptionStaff
---       markers by the desk. The desk itself is the plot's Counter (Server/PlotBuilder): its rect is left clear
---     the dispensary: its glass hatch onto the lobby, Station_Remedy (the counter behind it, with drawers, bottles
---       and a measuring cup), bottle shelves
---     the exam bays 1-6 in a row (ExamBay_<id>: a couch, a curtain, a tool tray, a number sign, the DoctorSpot)
---     the supply alcove between the two corridors: Station_Plaster (a supply cabinet with a box of plasters),
---       Station_Ice (a freezer chest with ice cubes on its lid), Station_Bandage (an open shelf of bandage rolls)
+--     the waiting room (+x of the lobby): 6 chairs (WaitSeat_<n> markers on their seats), a plant; ReceptionStop
+--       and ReceptionStaff markers by the desk. The desk itself is the plot's Counter (Server/PlotBuilder): its rect
+--       is left clear
+--     the dispensary (-x of the lobby): its open doorway onto the lobby, bottle shelves, and its glass HATCH in the
+--       wall along corridor A, over Station_Remedy (the counter, with drawers, bottles and a measuring cup)
+--     THE SUPPLY WALL (Joshua, 2026-11-17: "the alley way for the cabinets are narrow"): all six ground stations
+--       side by side in the recess of that wall, facing the bays across corridor A: Station_Remedy (under the hatch),
+--       Station_Plaster (a supply cabinet with a box of plasters), Station_Ice (a freezer chest with ice cubes on its
+--       lid), Station_Bandage (an open shelf of bandage rolls), then the pantry (memory-20261117-006: "move the hot
+--       cocoa into like a pantry"): Station_Cocoa (a counter with a cocoa pot and two mugs; open while the Winter
+--       Wing is owned) and Station_Bath (an open shelf of bath-foam bottles and a towel stack; open while the Bath
+--       Room is owned). Closed from Lv 2 on, each pantry unit floats a short-range hint naming its room (RoomHint)
+--     the nurses' station (NurseStation): a long counter at corridor A's far end, past the X-ray door, where idle
+--       nurses wait (Logic/Building.NURSE_STATION)
+--     the exam bays 1-6 in a row (ExamBay_<id>: a couch, a curtain, a tool tray, a number sign, the DoctorSpot
+--       inside the bay), bay 1 nearest the lobby; their dividers and curtains are only CURTAIN_HEIGHT (6) high, so
+--       you see over the row, and their number signs hang on the bays' back wall over that height
+--     the Hall between the two corridors (x 10..26): open floor, no walls of its own
 --     the X-ray room (shut until Lv 3): ExamBay_X under the X-ray arm, Station_Cast (a work table on legs: a tray of
 --       plaster rolls and a bucket)
 --     the Bath Room, Winter Wing and Cozy Ward behind their doors (shut until bought; their fit-outs are
---       PlotBuilder's, ExamBay_W1/W2 included), the lift (glass shaft, door on its -x face) and the dog-leg stairs
---       (tiled steps over an invisible walking ramp a half-flight)
---   Upstairs (Floor_<n>, Storey n): F1 the Injury Ward (stands from Lv 1, shut; opens at Lv 2), F2 the Rest Ward
---     (Lv 3), F3 the staff room with more Rest beds (Lv 4); each with its slab, landing, glass front band, studded
---     walls, ribbon windows and a row of beds: BedSpot_<k> (Model; Floor, Ward) round Bed_<k> (the mattress; Floor,
---     Ward) for the functional beds (Logic/Building.wardBeds), made-up beds (Dressing.DressBed_<k>, never named Bed_*)
---     for the rest, one with a sleeper. A floor that stands but isn't open (F1 at Lv 1) has every bed made up and no
---     Landing. Lv 5: Floor_4 is the roof deck (the helipad, Roof.HeliSpot) and the lift tower with the neon sign
---   AmbulanceBay (Lv 2+) in the -x yard (Logic/Building.BAY_AMBULANCE): the Ambulance and the StretcherSpot
+--       PlotBuilder's, ExamBay_W1/W2 included), the lift (glass shaft, door on its -x face)
+--     THE STAIRWELL (Joshua, 2026-11-17: "the stairs model is stupid. i can see it. the door is narrow too"): the
+--       dog-leg stairs stand in their own enclosure (Logic/Building.ROOMS.Stairwell), walled floor to ceiling on
+--       every storey and round the stair head on the roof deck. On the ground its door is Door_Stairs, a ClinicDoor
+--       6 wide and 10 tall, shut and signed "⬆️ Upstairs / 🔒 Opens at Lv 2" until floor 1 opens; upstairs the same
+--       span is an open doorway. Below Lv 2 no step, flight or rail is built at all (the camera's Invisicam makes
+--       walls between it and the player see-through, so a hidden flight is not enough). From Lv 2: tiled steps over
+--       an invisible walking ramp a half-flight
 -- Contract C2's markers are DIRECT children of the Building: FrontDoor, ReceptionStop, WaitSeat_<n>, ExamBay_<id>,
--- Station_<id>, Landing_0, Lift, Stairs, Floor_<n>, AmbulanceBay, Roof (with HeliSpot). Facing: a marker's LookVector
--- is its Logic/Building Face (a WaitSeat_<n> looks where its sitter looks, a DoctorSpot at its bed, a landing into
--- the lift); a marker RESTS on its surface (its bottom face is the seat top, the floor), like the lift landings.
+-- Station_<id>, Landing_0, Lift, Stairs (the flights: empty below Lv 2), Floor_<n>, AmbulanceBay, Roof (with
+-- HeliSpot). Stairwell holds the enclosure's walls (Storey on each part) and StairHead (Lv 5) the stair head's on
+-- the roof deck. Facing: a marker's LookVector is its Logic/Building Face (a WaitSeat_<n> looks where its sitter
+-- looks, a DoctorSpot at its bed, a landing into the lift); a marker RESTS on its surface (its bottom face is the
+-- seat top, the floor), like the lift landings.
 -- An ExamBay_<id> Model's Bed is the couch the patient sits on (its top at Pure.COUCH; its LookVector toward the
 -- foot, where the DoctorSpot is), with the attributes Bay, Kind, Opens, Face and Open (level >= Opens).
--- Station_<id> parts carry Open (Logic/Building.stationOpen) and StationId and are tagged STATION_TAG. Each is
+-- Station_<id> parts carry Open (Logic/Building.stationOpen, with the plot's rooms), StationId and, the pantry's,
+-- Room (the RoomId that opens it), and are tagged STATION_TAG. Each is
 -- Logic/Building.stationRect's box from the floor (what stops you; invisible round the open shelf and the table) with
 -- its walk-through furniture as its own children and its IconGui badge over that furniture.
 --
@@ -73,6 +92,8 @@
 -- ServerStorage.ClinicKit.Building<level> (pivot = the plot's ground-top centre, facing the street) replaces the
 -- placeholder for that level: it needs the same names (FrontDoor, WaitSeat_<n>, ExamBay_<id>, Station_<id>,
 -- Landing_0, Floor_<n>.Landing, Lift ...). Its stations, doors and lift get their tags and its landings their prompts.
+-- A kit without the pantry's Station_Cocoa / Station_Bath gets the placeholder units at Logic/Building's places (no
+-- room has a station any more: without them those rooms' cases never come).
 --
 -- Coordinates: plot-local studs, the plot's ground-top centre at the origin, x right as you face the street, -z the
 -- street, y up. The Building's pivot is the plot's.
@@ -117,9 +138,9 @@ local Pure = {}
 
 -- Every slab and roof (Logic/Building.SLAB_MAX): F1's underside is at 11.4, over the 10.4 it must clear.
 Pure.SLAB = 0.6
--- The tall doorways' height (Logic/Building.DOORS Height, raised from 8; Joshua 2026-11-17: "the door is so low,
--- things look cluttered"; the front pair and the dispensary's stay 8): the bays' header and dividers start here. Each
--- lintel starts at its own door's Height.
+-- The tall doorways' height (Logic/Building.DOORS Height and DOOR_HEIGHT, raised from 8; Joshua 2026-11-17: "the door
+-- is so low, things look cluttered"; only the front pair stays 8). Each lintel starts at its own door's Height; the
+-- X-ray bay's sign hangs over its door, from here up.
 Pure.DOOR = 10
 -- An open door's panel slides this far past its jamb into the wall, so its edge never lies flush with the jamb's face
 -- (two faces in one plane flicker).
@@ -135,6 +156,8 @@ Pure.PAINT = 0.05 -- the ground floor's painted tiles (walk-through: markers and
 Pure.PROUD = 0.1 -- trim and ribbon windows stand this far proud of an outer face
 Pure.CEILING = 0.4 -- the ground storey's light ceiling under the podium's dark roof
 Pure.PARAPET = 1.2
+-- The handrail inside the stairwell (from Lv 2): along the well's edge on the enclosure's wall, and round the hole on
+-- the top floor. Lane A's walking ramp starts past its thickness.
 Pure.RAIL = { Height = 3, Thick = 0.3 }
 -- A half-flight's walking ramp: a tilted slab this thick, INVISIBLE (the steps are what you see; Joshua, 2026-11-17:
 -- "look at how this block is glitchy"). It carries the walker; a storey of headroom under the next one.
@@ -147,7 +170,7 @@ Pure.WAIST = 0.6
 Pure.WINDOW = { Y0 = 3.5, Y1 = 7 } -- ribbon windows, from the storey's floor
 Pure.HATCH = { Sill = 3, Top = 7 } -- the dispensary's glass hatch over its counter
 Pure.COUCH = 1.8 -- an exam bay's Bed: its top, where the patient sits
--- The lift's prompts. Upstairs they sit over the landing and reach Reach studs. The GROUND landing stands 2.5 studs
+-- The lift's prompts. Upstairs they sit over the landing and reach Reach studs. The GROUND landing stands 2 studs
 -- from the X-ray room's back wall, and a prompt needs no line of sight, so there the PromptPoint stands Away studs
 -- along the hall from the landing's middle (+z, away from that wall) and reaches only GroundReach: far enough for
 -- anyone in the hall in front of the lift, too short for the X-ray bay's DoctorSpot behind the wall (where "Lift"
@@ -163,15 +186,43 @@ Pure.STATION = {
 	Bandage = 4.6, -- the open shelf unit (an invisible box round it: the shelves are open)
 	Cast = 3.2, -- the work table's top (an invisible box round it: the table stands on legs)
 	Remedy = 3, -- the dispensary counter's body (its countertop on it)
+	Cocoa = 3, -- the pantry's cocoa counter's body (its countertop, the pot and the mugs on it)
+	Bath = 4.6, -- the pantry's shelf unit (an invisible box round it: bath-foam bottles and towels on open shelves)
 }
+-- A room-gated station's hint while it is closed (a BillboardGui over its badge: no part, no SurfaceGui): which room
+-- opens it. A room is bought with in-game cash at its own door (the price is on the door, never here).
+-- Simple at the start (REVIEW-P2 item 4): no hint on a Lv 1 clinic (a closed unit just shows its 🔒), and from Since on
+-- only within MaxDistance studs, so a street of plots never floats a row of "Needs ..." signs.
+Pure.HINT = { Width = 7, Height = 1, Over = 1.9, MaxDistance = 15, Since = 2 }
+-- Whether a closed pantry unit shows its hint at that level.
+function Pure.hintShown(level: any, open: boolean): boolean
+	return not open and type(level) == "number" and level >= Pure.HINT.Since
+end
+function Pure.roomHint(room: any): string
+	local icon = if type(room) == "table" and type(room.Icon) == "string" then room.Icon .. " " else ""
+	local name = if type(room) == "table" and type(room.Name) == "string" then room.Name else "a room"
+	return "Needs " .. icon .. name
+end
 Pure.TOP = 0.3 -- a countertop's (and the freezer lid's) thickness
+-- The nurses' station's desk (Logic/Building.NURSE_STATION.Desk, a long counter): its body's height (counter height,
+-- like the dispensary's), with a countertop and a clipboard on it. Three parts: the Building is near its budget.
+Pure.NURSE_DESK = 3
 Pure.BADGE = 1.6 -- a station's icon badge floats this far over its furniture's highest point
 Pure.SEAT = { Height = 1.6, Back = 0.6, BackHeight = 4 } -- a waiting-room chair: the seat, its back
 Pure.PANEL = 0.2 -- a door panel's thickness, in its wall's middle
-Pure.SIGN = { Width = 3, Y0 = 10.1, Y1 = 11.3, Out = 0.1 } -- a bay's number sign on the header over its mouth
--- A bay's curtain: hung this far inside the mouth; drawn back it is Bunch wide at one side, drawn shut across. It
--- hangs from just under the bays' header (Pure.DOOR).
-Pure.CURTAIN = { Inset = 0.5, Bunch = 1, Height = 9.3, Thick = 0.2, Half = 3 }
+-- The X-ray bay's sign, on the lintel over its door (corridor A's side).
+Pure.SIGN = { Width = 3, Y0 = 10.1, Y1 = 11.3, Out = 0.1 }
+-- An exam bay's number sign: on the bays' back wall over its bed, high over the curtains (Logic/Building
+-- CURTAIN_HEIGHT), so you read it across corridor A over a drawn curtain. There is no header over the bays' mouths.
+Pure.BAY_SIGN = { Width = 3.6, Y0 = 7.8, Y1 = 9.4, Out = 0.1 }
+-- A bay's curtain: from Floor over the floor up to Logic/Building.CURTAIN_HEIGHT, hung Inset inside the bay's mouth
+-- (bay X: Inset past its bed's foot); drawn back it is Bunch wide at one side, drawn shut across. Shut, an exam bay's
+-- reaches Edge short of its dividers, bay X's runs from its bed's side to Half.
+Pure.CURTAIN = { Inset = 0.5, Bunch = 1, Floor = 0.5, Thick = 0.2, Half = 3, Edge = 0.2 }
+-- An exam bay's curtain's half width, shut: its mouth less Edge each side.
+function Pure.curtainHalf(B: any): number
+	return (B.BAY_WIDTH - B.DIVIDER) / 2 - Pure.CURTAIN.Edge
+end
 Pure.XRAY = { Head = 9, HeadTop = 10, Width = 2.8, Depth = 2.4 } -- the scanner over bay X (clear of a sitter's head)
 Pure.LOGO = 6 -- the paw-heart sign on the tower's roof edge (Lv 1-4)
 -- A ward bed. Functional: Frame + Headboard + Bed_<k> (the mattress). Made up: Base (frame and mattress in one block)
@@ -191,11 +242,14 @@ Pure.BED = {
 -- A sleeper: a head on the pillow and a blanket over the foot two-thirds (blocky, like every creature).
 Pure.SLEEPER = { Width = 2, Height = 1.8, Depth = 1.8, Blocky = true, Blanket = 0.5 }
 -- The roof deck (Lv 5): the planters behind the helipad, and where a theme's prop stands (front right of the top
--- roof or the deck, off the pad, the lift and the stairs).
-Pure.PLANTERS = { { X = -2.5, Z = 16.5 }, { X = 1.5, Z = 16.5 } }
+-- roof or the deck, off the pad, the lift and the stair head).
+Pure.PLANTERS = { { X = -5.5, Z = 24 }, { X = -1.5, Z = 24 } }
 Pure.PLANTER = 2
 Pure.PROP = { X = 22, Z = -1 }
 Pure.CAP = 240 -- no world colour brighter than this in any channel (theme colours are capped to it)
+-- Lv 5: the stair head on the roof deck, the stairwell's enclosure one storey up (a storey's clear height under its
+-- flat roof), so nobody on the deck looks down the well.
+Pure.STAIR_HEAD = 10.4
 
 type Rect = { X0: number, X1: number, Z0: number, Z1: number }
 type Named = { Name: string, X0: number, X1: number, Z0: number, Z1: number }
@@ -366,6 +420,30 @@ function Pure.segments(z0: number, z1: number, gaps: { Span }): { Span }
 		table.insert(out, { Z0 = at, Z1 = z1 })
 	end
 	return out
+end
+
+-- The stairwell's own two walls on a storey, in plan (Logic/Building.ROOMS.Stairwell; the outer walls close its other
+-- two sides): the one onto the hall behind the lift, its doorway (DOORS.Stairs) left out, and the one onto the Garden
+-- way, from the first one's back face to the back wall. They meet and never overlap (two faces in one plane flicker).
+function Pure.stairWalls(B: any): { Named }
+	local well, p, w, door = B.ROOMS.Stairwell, B.PARTITION, B.WALL, B.DOORS.Stairs
+	local out: { Named } = {}
+	local function add(name: string, x0: number, x1: number, z0: number, z1: number)
+		if x1 - x0 > 1e-6 and z1 - z0 > 1e-6 then
+			table.insert(out, { Name = name, X0 = x0, X1 = x1, Z0 = z0, Z1 = z1 })
+		end
+	end
+	add("WallStairs", well.X0, door.X0, well.Z0, well.Z0 + p)
+	add("WallStairs", door.X1, well.X1 - w, well.Z0, well.Z0 + p)
+	add("WallStairsSide", well.X0, well.X0 + p, well.Z0 + p, well.Z1 - w)
+	return out
+end
+
+-- Whether a doorway from `from` up to a wall's top `to` gets a lintel: only one at least LINTEL_MIN tall. Under that the
+-- opening simply runs up to the slab over it (upstairs, where a storey is 10.4 clear over a 10-tall doorway).
+Pure.LINTEL_MIN = 1
+function Pure.lintel(from: number, to: number): boolean
+	return to - from >= Pure.LINTEL_MIN
 end
 
 -- A waiting-room chair inside its seat's rect (Logic/Building.seatRect): the seat, and its back behind the sitter.
@@ -718,7 +796,7 @@ local function pawSign(parent: Instance, name: string, at: CFrame, diameter: num
 	return p
 end
 
--- A navy plate with one or two lines on a part's face: a closed door's lock, the stair gate's.
+-- A navy plate with one or two lines on a part's face: a closed door's lock.
 local function lockGui(p: BasePart, face: Enum.NormalId, lines: { string }, enabled: boolean): SurfaceGui
 	local gui = surface(p, "LockGui", face, 24, 60, 0)
 	gui.Enabled = enabled
@@ -770,7 +848,19 @@ local DOOR_SPECS: { DoorSpec } = {
 	{ Key = "WinterWing", Name = "Door_WinterWing", Slide = -1, Face = Enum.NormalId.Front, Color = ACCENT.Blue },
 	{ Key = "CozyWard", Name = "Door_CozyWard", Slide = -1, Face = Enum.NormalId.Front, Color = WARDS_COLOR },
 	{ Key = "Garden", Name = "Door_Garden", Slide = 1, Face = Enum.NormalId.Front, Color = WORLD.LeavesA },
+	-- The stairwell's door: the same lock plate as A&E and X-ray ("⬆️ Upstairs", "🔒 Opens at Lv 2") on the hall's
+	-- side; open, it slides along the enclosure's wall over the flights (the wall's -x end is too short for it).
+	{
+		Key = "Stairs",
+		Name = "Door_Stairs",
+		Slide = 1,
+		Face = Enum.NormalId.Front,
+		Color = WARDS_COLOR,
+		Title = "⬆️ Upstairs",
+	},
 }
+
+local NO_ROOMS: { [string]: boolean } = table.freeze({}) -- for a station no room gates
 
 -- The rooms the plot owns now (Plot.Rooms.Room_<RoomId>).
 local function ownedRooms(plotModel: Model): { [string]: boolean }
@@ -977,7 +1067,17 @@ local function buildShell(model: Model, style: Style, levelName: string)
 			Enum.Material.CeramicTiles
 		)
 	)
-	for _, at in { Vector3.new(-16, top - 1, -14), Vector3.new(16, top - 1, -12), Vector3.new(0, top - 1, 8) } do
+	-- Three lights over the open hall (the perf budget): the lobby and waiting room, corridor A by the supply wall,
+	-- and corridor B. Logic/Building.ROOMS places them.
+	local rooms = B.ROOMS
+	local function middle(r: Rect): (number, number)
+		return (r.X0 + r.X1) / 2, (r.Z0 + r.Z1) / 2
+	end
+	local lx, lz = middle({ X0 = rooms.Lobby.X0, X1 = rooms.Waiting.X1, Z0 = rooms.Lobby.Z0, Z1 = rooms.Lobby.Z1 })
+	local ax = middle(rooms.Supply)
+	local _, cz = middle(rooms.CorridorA)
+	local bx, bz = middle(rooms.CorridorB)
+	for _, at in { Vector3.new(lx, top - 1, lz), Vector3.new(ax, top - 1, cz), Vector3.new(bx, top - 1, bz) } do
 		roomLight(floorPart, at)
 	end
 	local t = B.TOWER
@@ -1083,6 +1183,12 @@ local function cylinderOn(
 end
 
 local PLASTER_TAN = Color3.fromRGB(226, 182, 138) -- a sticking plaster
+local COCOA_BROWN = Color3.fromRGB(122, 74, 46) -- the pantry's cocoa pot
+-- Half a station's width in its own frame (Logic/Building.stationRect: a station's own Width, else STATION_SIZE's).
+local function stationHalf(id: string): number
+	local station = B.STATIONS[id]
+	return ((station and station.Width) or B.STATION_SIZE.Width) / 2
+end
 local function bottleColor(itemId: string, fallback: Color3): Color3
 	local row = rawget(ItemsData :: any, itemId)
 	return hexColor(if type(row) == "table" then row.Bottle else nil, fallback)
@@ -1091,6 +1197,7 @@ end
 -- Each station's furniture round its part `p` (in `color`, the station's own, capped). Returns the furniture's
 -- highest point (its badge floats Pure.BADGE over it). Sizes: Logic/Building.STATION_SIZE, 4 across and 2.4 deep.
 type Furnish = (p: Part, frame: CFrame, color: Color3) -> number
+local OPEN_FURNITURE: { [string]: boolean } = { Bandage = true, Cast = true, Bath = true } -- an invisible box round it
 local FURNISH: { [string]: Furnish } = {
 	-- 🩹 A supply cabinet: the pink body (the part) with two doors and their knobs, a white countertop, and on it a box
 	-- of plasters (its lid pink) and a plaster.
@@ -1207,14 +1314,76 @@ local FURNISH: { [string]: Furnish } = {
 		tiny(cylinderOn(p, "MeasuringCup", frame, 1.1, y, -0.3, 0.6, 0.6, WORLD.Trim))
 		return y + 1
 	end,
+	-- ☕ The pantry's cocoa counter: the orange body (the part) with one wide door, a white countertop, and on it a
+	-- chocolate-brown pot with its lid and two white mugs.
+	Cocoa = function(p, frame, color)
+		local h, t = Pure.STATION.Cocoa, Pure.TOP
+		local half = stationHalf("Cocoa")
+		fit(p, "Door", frame, -half + 0.15, half - 0.15, 0.35, h - 0.25, -1.3, -1.2, tame(Parts.lighten(color, 0.3)))
+		fit(p, "Countertop", frame, -half, half, h, h + t, -1.35, 1.2, WORLD.Trim)
+		local y = h + t
+		cylinderOn(p, "CocoaPot", frame, -0.7, y, 0.2, 0.9, 1.1, COCOA_BROWN)
+		tiny(cylinderOn(p, "CocoaPotLid", frame, -0.7, y + 0.9, 0.2, 0.2, 0.6, WORLD.Trim))
+		for _, x in { 0.45, 1.1 } do
+			tiny(cylinderOn(p, "Mug", frame, x, y, -0.35, 0.55, 0.5, WORLD.Trim))
+		end
+		return y + 1.1
+	end,
+	-- 🛁 The pantry's bath shelf: an open shelf unit in the station's blue (the part is an invisible box round it):
+	-- two sides, a darker back, three boards, bottles of bath foam on the middle board and a stack of two towels on
+	-- the bottom one.
+	Bath = function(p, frame, color)
+		local h, w = Pure.STATION.Bath, 0.3
+		local half = stationHalf("Bath")
+		for _, side in { -1, 1 } do
+			local x0 = if side < 0 then -half else half - w
+			fit(p, "ShelfSide", frame, x0, x0 + w, 0, h, -1.2, 1.2, color)
+		end
+		fit(p, "ShelfBack", frame, -half + w, half - w, 0, h, 1.2 - w, 1.2, tame(Parts.darken(color, 0.25)))
+		local boards = { 0, 2.1, h - w }
+		for _, y in boards do
+			fit(p, "ShelfBoard", frame, -half + w, half - w, y, y + w, -1.2, 1.2 - w, color)
+		end
+		for i, x in { -0.75, 0, 0.75 } do
+			local foam = if i == 2 then tame(ACCENT.Cyan) else tame(ACCENT.Pink)
+			tiny(cylinderOn(p, "FoamBottle", frame, x, boards[2] + w, -0.2, 1.1, 0.55, foam))
+		end
+		for i = 1, 2 do
+			local y0 = boards[1] + w + (i - 1) * 0.5
+			local towel = fit(p, "Towel", frame, -0.8, 0.8, y0, y0 + 0.5, -0.8, 0.5, WORLD.Trim, Enum.Material.Fabric)
+			tiny(towel)
+		end
+		return h
+	end,
 }
+
+-- A station's floating badge: its icon in its own colour's ring, or 🔒 on a grey ring while it is closed. `height`
+-- is the badge's offset over the part's centre. A room-gated station's RoomHint shows only while it is closed, and
+-- not on a Lv 1 clinic (Pure.hintShown).
+local function stationBadge(p: BasePart, id: string, open: boolean, height: number, level: number)
+	local data = rawget(Stations :: any, id)
+	local color = if data and typeof(data.Color) == "Color3" then data.Color else WORLD.Trim
+	iconBadge(
+		p,
+		"IconGui",
+		if open and data then data.Icon else "🔒",
+		if open then color else CLOSED_RING,
+		2.6,
+		height
+	)
+	local hint = p:FindFirstChild("RoomHint")
+	if hint and hint:IsA("BillboardGui") then
+		hint.Enabled = Pure.hintShown(level, open)
+	end
+end
 
 -- A station in the Building: Station_<id> (tagged), Logic/Building.stationRect's box from the floor up to its Height,
 -- with its furniture as its own children and its icon badge over it (🔒 on a grey ring while closed; a closed station
 -- looks the same otherwise, so kids see what's coming). The body keeps the station's colour where it is one solid
--- body (the cabinet, the counter; the freezer is white with a coloured lid), and the open furniture (the shelves, the
--- table) is coloured itself round an invisible box.
-local function buildStation(model: Model, id: string, level: number)
+-- body (the cabinet, the counters; the freezer is white with a coloured lid), and the open furniture (the shelves, the
+-- table) is coloured itself round an invisible box. `owned`: the rooms the plot owns (the pantry's stations open with
+-- theirs; closed, from Lv 2 each also floats a short-range hint naming its room).
+local function buildStation(model: Model, id: string, level: number, owned: { [string]: boolean })
 	local r = B.stationRect(id)
 	local station = B.STATIONS[id]
 	if not (r and station) then
@@ -1225,7 +1394,7 @@ local function buildStation(model: Model, id: string, level: number)
 	-- like every world colour.
 	local color = if data and typeof(data.Color) == "Color3" then data.Color else WORLD.Trim
 	local height = rawget(Pure.STATION :: any, id) or 3
-	local open = B.stationOpen(id, level)
+	local open = B.stationOpen(id, level, owned)
 	local body = if id == "Ice" then WORLD.Trim else tame(color)
 	local p = loose(box(model, "Station_" .. id, r.X0, r.X1, 0, height, r.Z0, r.Z1, body), 1, 0)
 	p:SetAttribute("StationId", id)
@@ -1233,68 +1402,145 @@ local function buildStation(model: Model, id: string, level: number)
 	local frame = CFrame.new(station.X, 0, station.Z) * CFrame.Angles(0, math.rad(station.Face), 0)
 	local furnish = FURNISH[id]
 	local top = if furnish then furnish(p, frame, tame(color)) else height
-	if id == "Bandage" or id == "Cast" then
+	if OPEN_FURNITURE[id] then
 		p.Transparency = 1 -- open furniture: the part is only the box that stops you
 		p.CastShadow = false
 	end
-	iconBadge(
-		p,
-		"IconGui",
-		if open and data then data.Icon else "🔒",
-		if open then color else CLOSED_RING,
-		2.6,
-		top + Pure.BADGE - height / 2
-	)
+	local badgeAt = top + Pure.BADGE - height / 2
+	if station.Room then
+		p:SetAttribute("Room", station.Room)
+		local hint = Instance.new("BillboardGui")
+		hint.Name = "RoomHint"
+		hint.Size = UDim2.fromScale(Pure.HINT.Width, Pure.HINT.Height)
+		hint.StudsOffsetWorldSpace = Vector3.new(0, badgeAt + Pure.HINT.Over, 0)
+		hint.LightInfluence = 0
+		hint.MaxDistance = Pure.HINT.MaxDistance
+		floatText(hint, Pure.roomHint(rawget(RoomsData :: any, station.Room)))
+		hint.Parent = p
+	end
+	stationBadge(p, id, open, badgeAt, level)
 	CollectionService:AddTag(p, HospitalBuilder.STATION_TAG)
 end
 
--- The dispensary: the wall onto the lobby with its glass hatch over the counter (Station_Remedy), the wall onto
--- corridor A with its open doorway and sign, and the bottle shelves.
-local function buildDispensary(model: Model, level: number)
+-- The pantry's stations follow the rooms the plot owns now (see the header): Open, the badge and the hint. A kit
+-- Building's Station_Cocoa / Station_Bath get their Open the same way (their look is the kit's own).
+function HospitalBuilder.syncStations(plotModel: Model)
+	local building = plotModel:FindFirstChild("Building")
+	if not building then
+		return
+	end
+	local raw = building:GetAttribute("Level")
+	local level = if type(raw) == "number" then raw else 1
+	local owned = ownedRooms(plotModel)
+	for id, station in B.STATIONS do
+		local p = if station.Room then building:FindFirstChild("Station_" .. id, true) else nil
+		if p then
+			local open = B.stationOpen(id, level, owned)
+			if p:GetAttribute("Open") ~= open then
+				p:SetAttribute("Open", open)
+				local badge = p:FindFirstChild("IconGui")
+				if p:IsA("BasePart") and p:FindFirstChild("RoomHint") and badge and badge:IsA("BillboardGui") then
+					local height = badge.StudsOffsetWorldSpace.Y
+					badge:Destroy()
+					stationBadge(p, id, open, height, level)
+				end
+			end
+		end
+	end
+end
+
+-- Hooks syncStations to a plot's Rooms folder, once per plot (PlotBuilder makes the folder with the plot; a room is
+-- named Room_<id> before it is parented). A strong table: a weak key could be collected while the folder still
+-- lives (nothing else in Luau holds the Instance's wrapper), and every rebuild would hook it again. The entry goes
+-- when the folder is destroyed.
+local watching: { [Instance]: boolean } = {}
+local function watchRooms(plotModel: Model)
+	local rooms = plotModel:FindFirstChild("Rooms")
+	if not rooms or watching[rooms] then
+		return
+	end
+	watching[rooms] = true
+	rooms.Destroying:Connect(function()
+		watching[rooms] = nil
+	end)
+	local function changed()
+		HospitalBuilder.syncStations(plotModel)
+	end
+	rooms.ChildAdded:Connect(changed)
+	rooms.ChildRemoved:Connect(changed)
+end
+
+-- The dispensary (a back room you see through its hatch): the wall onto the lobby with its open doorway and sign
+-- (Logic/Building.DOORS.Dispensary), the wall along corridor A with the glass HATCH over Station_Remedy (the counter
+-- stands outside it, first of the supply wall), and the bottle shelves on its -x wall and its street wall. Each wall
+-- stops at the face of the one it meets (the outer walls, each other): no two walls share a corner's volume.
+local function buildDispensary(model: Model)
 	local disp = piece(model, "Dispensary", 1, 0)
 	local r = B.ROOMS.Dispensary
 	local p, w = B.PARTITION, B.WALL
 	local top = Pure.wallTop(B, 0)
+	-- The wall along corridor A (the supply wall's back), with the hatch: sill, glass and header between its pieces.
 	local hatch = B.HATCH
-	local x0, x1 = r.X0, r.X0 + p
-	partition(disp, "WallHatch", x0, x1, 0, top, B.FRONT + w, hatch.Z0)
-	partition(disp, "WallHatch", x0, x1, 0, top, hatch.Z1, r.Z1)
-	partition(disp, "HatchSill", x0, x1, 0, Pure.HATCH.Sill, hatch.Z0, hatch.Z1)
-	partition(disp, "HatchHeader", x0, x1, Pure.HATCH.Top, top, hatch.Z0, hatch.Z1)
-	glass(disp, "GlassHatch", x0 + 0.1, x1 - 0.1, Pure.HATCH.Sill, Pure.HATCH.Top, hatch.Z0, hatch.Z1)
+	local z0, z1 = r.Z1 - p, r.Z1
+	partition(disp, "WallHatch", r.X0 + w, hatch.X0, 0, top, z0, z1)
+	partition(disp, "WallHatch", hatch.X1, r.X1, 0, top, z0, z1)
+	partition(disp, "HatchSill", hatch.X0, hatch.X1, 0, Pure.HATCH.Sill, z0, z1)
+	partition(disp, "HatchHeader", hatch.X0, hatch.X1, Pure.HATCH.Top, top, z0, z1)
+	glass(disp, "GlassHatch", hatch.X0, hatch.X1, Pure.HATCH.Sill, Pure.HATCH.Top, z0 + 0.1, z1 - 0.1)
+	-- The wall onto the lobby, from the street wall to the hatch wall, with its doorway and the sign over it.
 	local d = B.DOORS.Dispensary
-	local d0, d1 = d.X0 :: number, d.X1 :: number
-	partition(disp, "WallDispensary", x1, d0, 0, top, r.Z1 - p, r.Z1)
-	partition(disp, "WallDispensary", d1, r.X1 - w, 0, top, r.Z1 - p, r.Z1)
-	local lintel = partition(disp, "LintelDispensary", d0, d1, d.Height, top, r.Z1 - p, r.Z1)
-	local sign = surface(lintel, "SignGui", Enum.NormalId.Back, 24, 80, 0)
-	navyPlate(sign, { Size = UDim2.fromScale(0.94, 0.6), Position = UDim2.fromScale(0.5, 0.45) })
-	floatText(sign, "💊 Dispensary", { Size = UDim2.fromScale(0.84, 0.4), Position = UDim2.fromScale(0.08, 0.25) })
-	-- The shelves: the long one along the +x wall carries the coloured bottles (seen through the hatch).
+	local d0, d1 = d.Z0 :: number, d.Z1 :: number
+	local x0, x1 = r.X1 - p, r.X1
+	partition(disp, "WallDispensary", x0, x1, 0, top, B.FRONT + w, d0)
+	partition(disp, "WallDispensary", x0, x1, 0, top, d1, z0)
+	local lintel = partition(disp, "LintelDispensary", x0, x1, d.Height, top, d0, d1)
+	local sign = surface(lintel, "SignGui", Enum.NormalId.Right, 24, 80, 0) -- the lobby's side (+x)
+	navyPlate(sign, { Size = UDim2.fromScale(0.94, 0.8), Position = UDim2.fromScale(0.5, 0.5) })
+	floatText(sign, "💊 Dispensary", { Size = UDim2.fromScale(0.84, 0.6), Position = UDim2.fromScale(0.08, 0.2) })
+	-- The shelves: the long one on the street wall carries the coloured bottles (seen through the hatch).
 	local side, back = B.SHELVES[1], B.SHELVES[2]
+	box(disp, "Shelf", side.X0, side.X1, 0, 7, side.Z0, side.Z1, WORLD.PlankAlt, Enum.Material.WoodPlanks)
 	local shelf =
-		box(disp, "ShelfBottles", side.X0, side.X1, 0, 7, side.Z0, side.Z1, WORLD.PlankAlt, Enum.Material.WoodPlanks)
-	box(disp, "Shelf", back.X0, back.X1, 0, 7, back.Z0, back.Z1, WORLD.PlankAlt, Enum.Material.WoodPlanks)
-	local gui = surface(shelf, "BottleGui", Enum.NormalId.Left, 16, 80)
+		box(disp, "ShelfBottles", back.X0, back.X1, 0, 7, back.Z0, back.Z1, WORLD.PlankAlt, Enum.Material.WoodPlanks)
+	local gui = surface(shelf, "BottleGui", Enum.NormalId.Back, 16, 80) -- its face into the room (+z)
 	local bottles = { ACCENT.Pink, ACCENT.Yellow, ACCENT.Cyan, ACCENT.Purple, ACCENT.Orange, ACCENT.Blue }
+	local cols = 16
 	for row = 1, 3 do
-		for col = 1, 8 do
+		for col = 1, cols do
 			local bottle = band(
 				gui,
 				"Bottle",
-				UDim2.fromScale(0.06, 0.11),
-				UDim2.fromScale((col - 0.5) / 8, 0.12 + (row - 1) * 0.28),
+				UDim2.fromScale(0.025, 0.11),
+				UDim2.fromScale((col - 0.5) / cols, 0.12 + (row - 1) * 0.28),
 				bottles[(col + row - 2) % #bottles + 1]
 			)
 			Parts.rounded(bottle, UDim.new(0.35, 0))
 		end
 	end
-	buildStation(model, "Remedy", level)
 end
 
--- One exam bay: ExamBay_<id> (Bed, Pillow, Curtain, Tray, Sign, DoctorSpot). `signAt` is its number sign's
--- middle, on the corridor side of the wall over its mouth.
-local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
+-- The nurses' station (Logic/Building.NURSE_STATION; Joshua 2026-11-17: "nurses look like theyre in the middle of
+-- nowhere"): a small desk at corridor A's far end, where Healers and idle nurses wait. Like the station furniture: a
+-- calm blue body (solid: Logic/Building's NurseDesk obstacle), a white countertop overhanging the corridor side, and a
+-- clipboard on it. No sign, no emblem. Three parts.
+local function buildNurseStation(model: Model)
+	local station = piece(model, "NurseStation", 1, 0)
+	local d = B.NURSE_STATION.Desk
+	local h, t = Pure.NURSE_DESK, Pure.TOP
+	box(station, "Desk", d.X0, d.X1, 0, h, d.Z0, d.Z1, tame(ACCENT.Blue))
+	soft(box(station, "Countertop", d.X0 - 0.15, d.X1, h, h + t, d.Z0, d.Z1, WORLD.Trim))
+	local cx, cz = (d.X0 + d.X1) / 2, (d.Z0 + d.Z1) / 2
+	tiny(soft(box(station, "Clipboard", cx - 0.3, cx + 0.3, h + t, h + t + 0.08, cz - 0.4, cz + 0.4, WORLD.PlankAlt)))
+end
+
+-- One exam bay: ExamBay_<id> (Bed, Pillow, Curtain, Tray, Sign, DoctorSpot). `sign` is its number sign's box (the
+-- face toward the street carries the number): bays 1-6 on their back wall, bay X on the lintel over its door.
+local function buildBay(
+	model: Model,
+	bay: any,
+	level: number,
+	sign: { X: number, Y: number, Z: number, Width: number, Height: number }
+)
 	local open = B.bayOpen(bay, level)
 	local bayModel = Instance.new("Model")
 	bayModel.Name = "ExamBay_" .. bay.Id
@@ -1325,23 +1571,27 @@ local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
 		)
 	).CastShadow =
 		false
-	-- The curtain, just inside the mouth: drawn back to one side while the bay is open, shut across it while closed.
-	-- Bays 1-6 bunch it on their -x side; bay X on the side away from its back wall.
+	-- The curtain: drawn back to one side while the bay is open, shut across while closed, CURTAIN_HEIGHT at its
+	-- top (you see over it). Bays 1-6 hang it just inside their mouth and bunch it on their -x side; bay X past its
+	-- bed's foot, bunched on the side away from its back wall.
 	local c = Pure.CURTAIN
-	local bunchSign = if bay.Kind == "XRay" then 1 else -1
+	local xray = bay.Kind == "XRay"
+	local half = if xray then c.Half else Pure.curtainHalf(B)
 	local a0: number, a1: number
 	if open then
-		a0, a1 =
-			if bunchSign < 0 then -c.Half else c.Half - c.Bunch, if bunchSign < 0 then -c.Half + c.Bunch else c.Half
+		a0, a1 = if xray then half - c.Bunch else -half, if xray then half else -half + c.Bunch
 	else
-		a0, a1 = if bay.Kind == "XRay" then -(width / 2) else -c.Half, c.Half
+		a0, a1 = if xray then -(width / 2) else -half, half
 	end
+	-- along the bay's look (its -z): past the foot (bay X), or in from the mouth (the bay's Face is 0: toward -z)
+	local out = if xray then length / 2 + c.Inset else bay.Z - (B.ROOMS.Bays.Z0 + c.Inset)
+	local height = B.CURTAIN_HEIGHT - c.Floor
 	soft(
 		part(
 			bayModel,
 			"Curtain",
-			Vector3.new(a1 - a0, c.Height, c.Thick),
-			frame * CFrame.new((a0 + a1) / 2, 0.5 + c.Height / 2, -(length / 2 + c.Inset)),
+			Vector3.new(a1 - a0, height, c.Thick),
+			frame * CFrame.new((a0 + a1) / 2, c.Floor + height / 2, -out),
 			CURTAIN_COLOR,
 			Enum.Material.Fabric
 		)
@@ -1350,14 +1600,13 @@ local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
 	-- The tool tray: a shelf on the wall over the bed's head (soft: it never stops anyone).
 	soft(part(bayModel, "Tray", Vector3.new(2.4, 0.25, 0.5), frame * CFrame.new(0, 3.6, length / 2 - 0.25), WORLD.Trim)).CastShadow =
 		false
-	-- The number sign over the mouth (🔒 while closed).
-	local s = Pure.SIGN
+	-- The number sign (🔒 while closed), its face toward the corridor.
 	local signPart = paint(
 		part(
 			bayModel,
 			"Sign",
-			Vector3.new(s.Width, s.Y1 - s.Y0, s.Out),
-			CFrame.new(signAt.X, (s.Y0 + s.Y1) / 2, signAt.Z),
+			Vector3.new(sign.Width, sign.Height, Pure.SIGN.Out),
+			CFrame.new(sign.X, sign.Y, sign.Z),
 			Palette.Navy
 		)
 	)
@@ -1380,8 +1629,10 @@ local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
 	bayModel.Parent = model
 end
 
--- The exam bays' row: the back wall onto corridor B, the side wall at bay 6, the header over the mouths (the signs
--- hang on it), the dividers, and bays 1-6. (The Cozy Ward's W1 and W2 are PlotBuilder's.)
+-- The exam bays' row, open to corridor A: the back wall onto corridor B, the end wall at bay 1 (onto the Hall), the
+-- thin dividers between the bays (Logic/Building.BAY_DIVIDERS, CURTAIN_HEIGHT high, up to the back wall's face), and
+-- bays 1-6, each with its number sign on the back wall. No header over the mouths: the row reads as one open ward.
+-- (The Cozy Ward's W1 and W2 are PlotBuilder's.)
 local function buildBays(model: Model, level: number)
 	local bays = piece(model, "Bays", 1, 0)
 	local r = B.ROOMS.Bays
@@ -1389,15 +1640,19 @@ local function buildBays(model: Model, level: number)
 	local top = Pure.wallTop(B, 0)
 	partition(bays, "WallBays", r.X0 + w, r.X1, 0, top, r.Z1 - p, r.Z1)
 	partition(bays, "WallBaysSide", r.X1 - p, r.X1, 0, top, r.Z0, r.Z1 - p)
-	partition(bays, "BayHeader", r.X0 + w, r.X1 - p, Pure.DOOR, top, r.Z0, r.Z0 + p)
-	local half = B.DIVIDER / 2
-	for k = 1, 5 do
-		local x = r.X0 + w + k * B.BAY_WIDTH
-		partition(bays, "BayDivider", x - half, x + half, 0, Pure.DOOR, r.Z0 + p, r.Z1 - p)
+	for _, d in B.BAY_DIVIDERS do
+		partition(bays, "BayDivider", d.X0, d.X1, 0, B.CURTAIN_HEIGHT, d.Z0, math.min(d.Z1, r.Z1 - p))
 	end
+	local s = Pure.BAY_SIGN
 	for _, bay in B.BAYS do
 		if bay.Kind == "Exam" and not bay.Room then
-			buildBay(model, bay, level, Vector3.new(bay.X, 0, r.Z0 - Pure.SIGN.Out / 2))
+			buildBay(model, bay, level, {
+				X = bay.X,
+				Y = (s.Y0 + s.Y1) / 2,
+				Z = r.Z1 - p - Pure.SIGN.Out / 2,
+				Width = s.Width,
+				Height = s.Y1 - s.Y0,
+			})
 		end
 	end
 end
@@ -1416,7 +1671,14 @@ local function buildXRay(model: Model, level: number)
 	partition(xray, "LintelXRay", d0, d1, d.Height, top, r.Z0, r.Z0 + p)
 	partition(xray, "WallXRayBack", r.X0 + p, r.X1 - w, 0, top, r.Z1 - p, r.Z1)
 	local bay = B.bay("X") :: any
-	buildBay(model, bay, level, Vector3.new((d0 + d1) / 2, 0, r.Z0 - Pure.SIGN.Out / 2))
+	local s = Pure.SIGN
+	buildBay(model, bay, level, {
+		X = (d0 + d1) / 2,
+		Y = (s.Y0 + s.Y1) / 2,
+		Z = r.Z0 - s.Out / 2,
+		Width = s.Width,
+		Height = s.Y1 - s.Y0,
+	})
 	-- The arm: a column from the ceiling and the scanner head over the bed, clear of a sitting creature (soft).
 	local x = Pure.XRAY
 	local cx = bay.X + 0.8 -- a little toward the head
@@ -1436,7 +1698,7 @@ local function buildXRay(model: Model, level: number)
 		)
 	).CastShadow =
 		false
-	buildStation(model, "Cast", level)
+	buildStation(model, "Cast", level, NO_ROOMS)
 end
 
 -- The back rooms' walls: the long wall onto corridor B (three doorways, their doors are Door_<room>) and the walls
@@ -1552,9 +1814,59 @@ local function buildLift(model: Model, style: Style, level: number, standing: nu
 	end
 end
 
--- The dog-leg stairs (Logic/Building's well): each storey's two half-flights (Flight_<k>A up toward +x to Mid_<k>,
--- Flight_<k>B back to the next floor), the wall between the lanes, each floor's rail along the well, and on the top
--- floor the rails round its open half. Below the first open floor a shut gate stands at the foot.
+-- The stairwell's enclosure (Logic/Building.ROOMS.Stairwell; Joshua, 2026-11-17: "the stairs model is stupid. i can
+-- see it"): on every storey that stands, its two own walls (Pure.stairWalls) from the slab's underside to the next
+-- one's. The outer walls close the other two sides. On the ground the doorway holds Door_Stairs (shut until floor 1
+-- opens: buildDoor) under a lintel from the door's Height; upstairs it is an open doorway up to the slab over it
+-- (Pure.lintel: a 0.4-stud lintel is no lintel, and the Building is near its part budget). Each part carries its own
+-- Since and Storey (Feel/Cutaway hides a storey over you, like the flights).
+local function buildStairwell(model: Model, standing: number)
+	local well = piece(model, "Stairwell", 1, 0)
+	local door = B.DOORS.Stairs
+	local d0, d1 = door.X0 :: number, door.X1 :: number
+	local front = B.ROOMS.Stairwell.Z0
+	for k = 0, math.min(standing, #B.SLAB_TOPS - 1) do
+		local since = if k == 0 then 1 else Pure.sinceStanding(B, k)
+		local base, top = Pure.wallBase(B, k), Pure.wallTop(B, k)
+		for _, r in Pure.stairWalls(B) do
+			loose(partition(well, r.Name, r.X0, r.X1, base, top, r.Z0, r.Z1), since, k)
+		end
+		local lintel = B.slabTop(k) + door.Height
+		if Pure.lintel(lintel, top) then
+			loose(partition(well, "LintelStairs", d0, d1, lintel, top, front, front + B.PARTITION), since, k)
+		end
+	end
+end
+
+-- Lv 5: the stair head on the roof deck. The stairwell rises one more storey (Pure.STAIR_HEAD) inside walls in the
+-- plot's colour, its doorway open onto the deck, under a flat roof: nobody on the deck sees into the well. On the
+-- deck's edges its back and +x walls stand on the parapets.
+local function buildStairHead(model: Model, style: Style)
+	local k = ROOF_FLOOR
+	local head = piece(model, "StairHead", Pure.sinceOpen(B, k), k)
+	local well, w, door = B.ROOMS.Stairwell, B.WALL, B.DOORS.Stairs
+	local y = B.slabTop(k)
+	local base, top = Pure.wallBase(B, k), y + Pure.STAIR_HEAD
+	local onParapet = y + Pure.PARAPET
+	local function wall(name: string, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number)
+		Studs.apply(box(head, name, x0, x1, y0, y1, z0, z1, style.Accent))
+	end
+	for _, r in Pure.stairWalls(B) do
+		wall(r.Name, r.X0, r.X1, base, top, r.Z0, r.Z1)
+	end
+	if Pure.lintel(y + door.Height, top) then
+		wall("LintelStairs", door.X0 :: number, door.X1 :: number, y + door.Height, top, well.Z0, well.Z0 + B.PARTITION)
+	end
+	wall("WallStairsBack", well.X0, well.X1, onParapet, top, well.Z1 - w, well.Z1)
+	wall("WallStairsEnd", well.X1 - w, well.X1, onParapet, top, well.Z0, well.Z1 - w)
+	box(head, "RoofStairHead", well.X0, well.X1, top, top + Pure.SLAB, well.Z0, well.Z1, WORLD.Roof)
+end
+
+-- The dog-leg stairs (Logic/Building's well), built only once the first floor upstairs is open (Lv 2): below that the
+-- Stairs Model stands empty behind the shut Door_Stairs, so not a step shows from anywhere, not even through a wall
+-- the camera's Invisicam makes see-through. Each storey's two half-flights (Flight_<k>A up toward +x to Mid_<k>,
+-- Flight_<k>B back to the next floor), the wall between the lanes, each floor's handrail along the well (against the
+-- enclosure's wall), and on the top floor the rails round its open half.
 -- A half-flight is its Flight_<k><lane> (the invisible walking ramp: smooth, so feet never catch) and its steps
 -- (Step_<k><lane>_<i>, Pure.steps): blocky tiled treads, every nose on the ramp's line, so the ramp is never under a
 -- tread and the walker stands on it. On the ground the steps are solid blocks from the floor up: they fill the space
@@ -1563,11 +1875,15 @@ end
 -- lane wall's faces, the walls stack slab to slab, the ground's rail stops at the mid landing.
 local function buildStairs(model: Model, style: Style, level: number, standing: number)
 	local stairs = piece(model, "Stairs", 1, 0)
+	local first = Pure.sinceOpen(B, 1) -- the level the flights come in with
+	if B.floors(level) < 1 then
+		return -- upstairs is closed: no flight at all (the Model stays, contract C2)
+	end
 	local well, mid, laneA = B.STAIRWELL, B.STAIR_MID, B.LANE_A
 	local rail, half = Pure.RAIL, B.DIVIDER / 2
 	local between = laneA.Z1 -- the lanes' shared edge
 	for k = 0, standing - 1 do
-		local since = Pure.sinceStanding(B, k + 1)
+		local since = math.max(first, Pure.sinceStanding(B, k + 1))
 		for _, lane in { "A", "B" } do
 			local r = Pure.ramp(B, k, lane)
 			local fr = Pure.rampFrame(r, Pure.RAMP)
@@ -1649,7 +1965,7 @@ local function buildStairs(model: Model, style: Style, level: number, standing: 
 	-- the rails round the hole over lane A, the middle one standing on the lane wall below.
 	for k = 0, standing do
 		local y = B.slabTop(k)
-		local since = if k == 0 then 1 else Pure.sinceStanding(B, k)
+		local since = math.max(first, Pure.sinceStanding(B, k))
 		local function railBox(name: string, x0: number, x1: number, y0: number, z0: number, z1: number)
 			loose(painted(box(stairs, name, x0, x1, y0, y + rail.Height, z0, z1, style.Trim), "Trim"), since, k)
 		end
@@ -1658,15 +1974,6 @@ local function buildStairs(model: Model, style: Style, level: number, standing: 
 			railBox("RailEnd", well.X0, well.X0 + rail.Thick, y, well.Z0 + rail.Thick, between - half)
 			railBox("RailMid", laneA.X0, laneA.X1, Pure.wallBase(B, k), between - half, between + half)
 		end
-	end
-	-- Below the first open floor: a shut gate at lane A's foot.
-	if B.floors(level) < 1 then
-		local gate = loose(
-			box(stairs, "StairGate", well.X0, well.X0 + 0.4, 0, 5, well.Z0 + rail.Thick, between - half, style.Accent),
-			1,
-			0
-		)
-		lockGui(gate, Enum.NormalId.Left, { "⬆️ Upstairs", Pure.levelLock(Pure.sinceOpen(B, 1)) }, true)
 	end
 end
 
@@ -2197,7 +2504,7 @@ end
 -- The names a ClinicKit building must carry (the brother's builds), so the systems find what they need.
 local KIT_NEEDS = { "FrontDoor", "ReceptionStop", "WaitSeat_1", "ExamBay_1", "Station_Remedy" }
 
-local function kitBuilding(level: number, themeId: string): Model?
+local function kitBuilding(plotModel: Model, level: number, themeId: string): Model?
 	local kit = ServerStorage:FindFirstChild("ClinicKit")
 	local template = kit and kit:FindFirstChild("Building" .. level)
 	if not (template and template:IsA("Model")) then
@@ -2221,6 +2528,25 @@ local function kitBuilding(level: number, themeId: string): Model?
 	for _, name in KIT_NEEDS do
 		if not model:FindFirstChild(name, true) then
 			warn("[HospitalBuilder] ClinicKit.Building" .. level .. " has no " .. name)
+		end
+	end
+	-- The pantry: no room has a station any more, so without these that room's cases never come. A kit that lacks
+	-- one gets the placeholder unit at its Logic/Building place (in the kit's own frame: its pivot is the plot's
+	-- ground-top centre, so it is built at the origin before the caller moves the whole Building onto the plot).
+	local missing: { string } = {}
+	for _, id in B.PANTRY_ORDER do
+		if not model:FindFirstChild("Station_" .. id, true) then
+			table.insert(missing, id)
+		end
+	end
+	if #missing > 0 then
+		local owned = ownedRooms(plotModel)
+		model:PivotTo(CFrame.identity)
+		for _, id in missing do
+			buildStation(model, id, level, owned)
+			warn(
+				"[HospitalBuilder] ClinicKit.Building" .. level .. " has no Station_" .. id .. ": built the placeholder"
+			)
 		end
 	end
 	if B.floors(level) > 0 and not model:FindFirstChild("Landing_0", true) then
@@ -2248,14 +2574,16 @@ local function placeholderBuilding(
 		buildDoor(model, level, owned, spec)
 	end
 	buildWaiting(model, style)
-	buildDispensary(model, level)
+	buildDispensary(model)
+	buildNurseStation(model)
 	buildBays(model, level)
-	for _, id in { "Plaster", "Ice", "Bandage" } do
-		buildStation(model, id, level) -- the supply alcove
+	for _, id in B.SUPPLY_ORDER do
+		buildStation(model, id, level, owned) -- the supply wall (the pantry's two open with their rooms)
 	end
 	buildXRay(model, level)
 	buildBackRooms(model)
 	buildLift(model, style, level, standing)
+	buildStairwell(model, standing)
 	buildStairs(model, style, level, standing)
 	for k = 1, standing do
 		buildFloor(model, style, level, k, keep[k] or {})
@@ -2263,6 +2591,7 @@ local function placeholderBuilding(
 	local spot: CFrame, edge: CFrame, width: number, storey: number
 	if standing >= ROOF_FLOOR then
 		spot, edge, width = buildRoofDeck(model, style)
+		buildStairHead(model, style)
 		storey = ROOF_FLOOR
 	else
 		spot, edge, width = buildRoofTop(model, style, standing)
@@ -2282,7 +2611,7 @@ function HospitalBuilder.build(plotModel: Model, level: number, grewFrom: number
 	local lv = if row then level else 1
 	local themeId = themeOf(theme)
 	local old = plotModel:FindFirstChild("Building")
-	local model = kitBuilding(lv, themeId)
+	local model = kitBuilding(plotModel, lv, themeId)
 	if model then
 		model:PivotTo(plotModel:GetPivot())
 	else
@@ -2328,6 +2657,9 @@ function HospitalBuilder.build(plotModel: Model, level: number, grewFrom: number
 	building.Parent = plotModel
 	plotModel:SetAttribute("Level", lv)
 	plotModel:SetAttribute("Theme", themeId)
+	-- The pantry follows the plot's rooms: now (a kit Building's too) and whenever one is bought or lost.
+	HospitalBuilder.syncStations(plotModel)
+	watchRooms(plotModel)
 	return building
 end
 

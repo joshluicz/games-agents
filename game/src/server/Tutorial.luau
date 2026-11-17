@@ -11,7 +11,10 @@
 --              The client acks as the welcome sweep ends. If no ack comes, by itself WELCOME_FALLBACK_SECONDS after
 --              they got their clinic
 --   2 -> 3     ARRIVED_SECONDS after a patient on their clinic sits down on an exam bay's bed (its `Bay` attribute
---              is set and its State is past "ToBay"). Server-side watch of the plot's Patients folder while in steps
+--              is set and its State is past "ToBay"). Simple start (design §2): the patient gets there because the
+--              player SENT it from the waiting room (Server/Patients: the Send prompt; through the one-at-a-time
+--              steps it goes to the first free bay in order, bay 1). That is a part of step 2, never a step of its
+--              own: the saved numbers stay, and a save from before it resumes as it always did. Server-side watch of the plot's Patients folder while in steps
 --              2-3 (attribute signals, no polling), so it never hangs on a hook; Patients' onFrontArrived only makes
 --              it look again
 --   2..3 -> 4  an exam on their clinic reveals a case, by them, a friend or a nurse (Patients calls onExamined; the

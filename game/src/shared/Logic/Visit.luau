@@ -15,7 +15,9 @@
 --                                                 { [RoomId]: boolean }, the rooms owned) and EVERY plan item's
 --                                                 station open (stationOpen(stationId)). A case never comes to a
 --                                                 clinic where this is false (Review Focus 1)
---   Visit.unlocked(level, tools): { ToolId }      the tools in use at that level, in Tools.ORDER (the X-ray: Lv 3)
+--   Visit.unlocked(level, tools): { ToolId }      the tools in use at that level, in Tools.ORDER: 🩺 🌡️ 🔍 at Lv 1
+--                                                 (so the exam card shows exactly those three), the 🔦 Light from
+--                                                 Lv 2, the X-ray from Lv 3 (Data/Tools Level)
 --   Visit.examTools(answer, unlocked, roll): { ToolId }
 --                                                 the exam card's tools: 3 distinct ones (fewer when fewer are
 --                                                 unlocked), the answer always among them, the other two and the

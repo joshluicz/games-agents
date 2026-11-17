@@ -12,6 +12,11 @@
 --   AgencyNews(view: AgencyView)        to one player: the Nurse Agency as THEY see it (a restock, their buy or sell)
 --   MarketNews(view: MarketView)        to everyone: the Player Market's listings (debounced)
 --   BeltScout(info: BeltScoutInfo)      to 🔭 Belt Scout perk owners: the next belt arrival's rarity
+-- Client -> server event (no reply; the server answers with a Toast when it helps):
+--   SendPatient(visitId: number, choice: "Exam" | "XRay")   the two-button Send card's pick (UI/SendCard; simple-start
+--                   design §2). Server/Patients checks everything: the rate limit (Remotes.allow), the types, that the
+--                   caller may work the clinic that patient is at (Plots.canWork), that it still waits to be sent,
+--                   that the caller stands by it, and the pick itself (Logic/Routing.check)
 -- Client -> server functions (each returns ok: boolean, message: string, except GetState):
 --   Purchase(kind, id) · PlaceDecor(slotKey, decorId?) · ClaimGoal(index) · ClaimMailbox() · GetState() -> Snapshot
 --   TutorialAck()   the welcome card was tapped (or shown 4 s). Server/Tutorial: it only ever moves step 1 -> 2
@@ -22,8 +27,8 @@
 --                   non-admin gets false and nothing happens) and validates action and arg (Logic/Admin)
 --   GetBoards() -> Payload?   the 🏆 leaderboards from the server's cache, with your own rank (Server/Leaderboards;
 --                   never a DataStore call, nil when rate-limited)
---   SetHelpers(on)  the owner's ⚙️ "👥 Friends only / 🤝 Anyone can help" switch: sets their own plot's OpenHelpers
---                   (Server/Visits; `on` must be a boolean, the caller must own a plot, 1 s cooldown)
+--   SetHelpers(on)  the owner's Settings switch "Anyone can help" (off = friends only): sets their own plot's
+--                   OpenHelpers (Server/Visits; `on` must be a boolean, the caller must own a plot, 1 s cooldown)
 --   Depth update:
 --   TreatResult(session: number, ratings: { Rating }, choice: ItemId?) -> ok, message, TreatOutcome?  (Server/Treatment)
 --   SetSimple(on: boolean)                               Simple mode, saved (Server/Treatment)
@@ -78,6 +83,8 @@ local EVENTS = {
 	"AgencyNews",
 	"MarketNews",
 	"BeltScout",
+	-- Simple start: client -> server (Server/Patients connects and validates it)
+	"SendPatient",
 }
 local FUNCTIONS = {
 	"Purchase",
@@ -174,6 +181,8 @@ local Remotes = {
 	AgencyNews = folder:WaitForChild("AgencyNews") :: RemoteEvent,
 	MarketNews = folder:WaitForChild("MarketNews") :: RemoteEvent,
 	BeltScout = folder:WaitForChild("BeltScout") :: RemoteEvent,
+	-- client -> server (an event: Server/Patients validates every argument)
+	SendPatient = folder:WaitForChild("SendPatient") :: RemoteEvent,
 	-- client -> server
 	Purchase = folder:WaitForChild("Purchase") :: RemoteFunction,
 	PlaceDecor = folder:WaitForChild("PlaceDecor") :: RemoteFunction,

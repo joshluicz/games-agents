@@ -106,7 +106,8 @@ end
 -- Where the owner stands on joining and respawning: on the forecourt just outside the front doors, facing the
 -- reception desk through them, so the first view is the clinic's front and the way in. Worked out from the Counter
 -- and PatientSpawn markers (the desk is in the lobby, the spawn at the gate), so a kit plot gets the same spot:
--- HOME_OUT studs from the desk toward the gate. On the built plot that is about (3, -29), under the canopy's edge.
+-- HOME_OUT studs from the desk toward the gate. On the built plot that is about (3.3, -41.3), on the forecourt just
+-- past the canopy (z -40..-36), in front of the doors (x -4..4).
 local HOME_OUT = 14
 local HOME_HEIGHT = 3.5 -- the HumanoidRootPart above the ground
 

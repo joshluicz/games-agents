@@ -112,7 +112,7 @@ local MODEL_NAME = "NurseBelt"
 local MOTION_TAG = "CreatureMotion"
 local TICK = 0.25 -- the belt's clock: arrivals, Golden Hour and the server step are checked this often
 -- Riders already on the belt when the server opens (as if it had been running), so it never starts empty: as many as
--- the cadence keeps on it (100 s rides, one every 40 s: 2, plus the one that steps on at once).
+-- the cadence keeps on it (133 s rides, one every 40 s: 3, plus the one that steps on at once).
 local PREFILL = math.max(0, math.floor((Config.Belt.RideSeconds - 1) / Config.Belt.ArriveSeconds))
 -- Studs: a player this close to a rider has seen it (the Journal's silhouette fills in). Config.Belt.SeenDistance once
 -- the Foundation adds it.

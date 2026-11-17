@@ -360,10 +360,10 @@ describe("goal helpers", function()
 end)
 
 -- What Server/Daily asks: can this clinic (its level and rooms) treat this case? (Logic/Visit.canTreat, with the
--- Building's stations by level and the bought rooms' stations once owned.)
+-- Building's stations by level, the pantry's two once their room is owned.)
 local function clinic(level: number, rooms: { [string]: boolean }): (string) -> boolean
 	local function open(stationId: string): boolean
-		if Building.stationOpen(stationId, level) then
+		if Building.stationOpen(stationId, level, rooms) then
 			return true
 		end
 		for roomId, owned in rooms do

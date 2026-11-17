@@ -4,37 +4,49 @@
 -- OWNER: T6. The names and signatures are the Foundation's (T2, T5, T7 and T8 code against them).
 --
 --   Modal.modal(ctx, spec): Modal        a panel or popup shell (= Hud.modal), THE template:
---                                          header  one Kit.HEADER (64) px NAVY band (Theme.Colors.Header) with the
---                                                  icon and a title of at most two words (white display text, the
---                                                  Title stroke), ONE meta chip (white, ink: "📔 6%", "💰 726") and
---                                                  the red ✖ at 56 x 56: the only red on the chrome. spec.Accent is
---                                                  accepted and IGNORED: every header is navy
---                                          body    flat white paper (no gradient); panels put tinted cards on it
+--                                          header  one Kit.HEADER (64) px NAVY band (Theme.Colors.Header) with a
+--                                                  title of at most two WORDS (white display text, the Title
+--                                                  stroke; an emoji a caller still passes is dropped: Joshua,
+--                                                  memory-20261117-007), ONE meta in plain Loud text with no box
+--                                                  ("3/3", "18%") and the red ✖ at 48 x 48 inside the band: the
+--                                                  only red on the chrome. spec.Accent is accepted and IGNORED:
+--                                                  every header is navy
+--                                          body    flat white paper (no gradient); panels put Kit.cards on it
 --                                          shadow  the one Theme.Shadow under the card
 --                                        A dim behind it, pop in and out, one Panel open at a time, gamepad focus and
 --                                        ButtonB to close. spec.HudMode ("Panel" for Layer Panel, "None" for a Popup,
---                                        unless given; "Game" for the mini-game) and spec.Meta (the chip's text;
---                                        modal.setMeta(text) changes it, "" hides it). A modal with neither a ✖ nor a
+--                                        unless given; "Game" for the mini-game) and spec.Meta (the meta's text;
+--                                        modal.setMeta(text, unit?) changes it, "" hides it; `unit` is a Unit emoji
+--                                        (Icons.Unit.Cash) drawn as its own label in front of the number, because an
+--                                        emoji can't sit inside outlined text: setMeta("726", Icons.Unit.Cash)). A modal with neither a ✖ nor a
 --                                        dim that closes (the mini-game) is never closed by ButtonB, and its dim is a
 --                                        plain Frame that takes no input (the thumbstick still works under it). A
 --                                        "Game" modal stays up when a Panel opens (the Panel opens under it)
---   modal.setTitle(text)                 changes the header's title (the mini-game's game name)
+--   modal.setTitle(text)                 changes the header's title (the mini-game's game name): words only too
 --   modal.setTop(px)                     keeps the top `px` of the modal's screen free (the mini-game leaves room for
 --                                        the tutorial's slim Now strip): the card centres in what is left. 0 = off
---   modal.Header · modal.Title · modal.Meta   the header band, its title label and the meta chip (for a caller's own
---                                        chip in the header, or a count-up on the meta)
+--   modal.Header · modal.Title · modal.Meta   the header band, its title label and the meta label (for a count-up
+--                                        on the meta)
 --   Modal.isOpen(name?): boolean         a modal is open (that one, or any)
 --   Modal.tabs(modal, tabs, onSelect): { select, Column, Content, Buttons }
 --                                        THE tab pattern: a left column of tabs (fitTabs sizes them, the column
 --                                        scrolls when they don't fit a short phone), each a Kit.iconButton painted
---                                        by Kit.tab. tabs = { { Id, Icon, Caption, Stripe? } }. select(id) paints the
---                                        tabs and calls onSelect(id); the first tab starts selected (without calling
+--                                        by Kit.tab (unselected: no plate, no line; selected: navy). tabs = { { Id,
+--                                        Icon, Caption, Stripe?, Hidden? } }. select(id) paints the tabs and calls
+--                                        onSelect(id); the first shown tab starts selected (without calling
 --                                        onSelect). Content is the body's space beside the column; Buttons[id] is
---                                        each tab button (for Kit.setDot and pointers)
+--                                        each tab button (for Kit.setDot and pointers).
+--                                        ONLY THE TABS WITH SOMETHING IN THEM (UI direction R0): setVisible(id, shown)
+--                                        shows or hides a tab as its feature unlocks (Hidden = true starts it
+--                                        hidden). With fewer than two tabs showing there is NO tab column at all and
+--                                        Content takes the whole body. Hiding the selected tab selects the first
+--                                        one left (and calls onSelect). visible(): the ids showing, in order
 --   Modal.confirm(ctx, spec, onYes)      a 420 x 360 Popup on the same shell. spec = { Title, Line, Yes, No?, Kind?,
 --                                        Hold? }. "Not now" (spec.No) is the default focus; Hold > 0 makes Yes a
 --                                        Kit.holdButton of that many seconds. Every confirm in the game goes
---                                        through Hud.confirm
+--                                        through Hud.confirm. The calm wording (UI direction): the Title is the
+--                                        question in words ("Sell Dew Duck?"), the Line says what happens with its
+--                                        Unit ("You get 💰 120"), Yes is the verb alone ("Sell"), No is "Keep"
 --   Modal.oddsPopup(ctx, spec)           ONE odds popup for the belt (sign, hire card), the Agency and the Journal.
 --                                        spec = { Title, Rows = { { Icon, Name, Percent } }, Notes? }. Every row
 --                                        shows the word AND the number ("Rare 20%"), as Roblox's paid-random-item
@@ -43,7 +55,8 @@
 --                                        a width is given)
 --   Modal.fitHeight(content, area, min?) scales a block down to fit a short screen (not below min, default 0.6)
 --   Modal.Pure                           hudMode(layer, given) · confirm(spec) (the defaults) · percent(n) ·
---                                        oddsLine(row) · closable(spec) · TAB_WIDTH: tests load the PURE block on its own
+--                                        oddsLine(row) · closable(spec) · TAB_WIDTH · tabColumn(count) · shownTabs(tabs,
+--                                        hidden) · CLOSE (48): tests load the PURE block on its own
 -- Client bus: fires "ModalOpened" (name, hudMode) and "ModalClosed" (name, hudMode) (Hud hides its rails by the
 -- mode; Tutorial pauses its nudge), and "Sound" (Whoosh on open, Close on close).
 -- Every motion honours Kit.reducedMotion(). Radii from Theme.Radius, strokes from Theme.Stroke, text >= 18 px.
@@ -56,6 +69,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
+local Icons = require(script.Parent.Icons)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -65,11 +79,11 @@ export type Layer = "Panel" | "Popup"
 export type HudMode = Types.HudMode
 export type ModalSpec = {
 	Name: string,
-	Title: string?, -- header text: an emoji and at most two words
+	Title: string?, -- header text: at most two words, no emoji (one a caller passes is dropped)
 	Accent: Color3?, -- IGNORED (every header is Theme.Colors.Header); kept so old callers compile
 	Layer: Layer?, -- "Panel" (default): only one open at a time · "Popup": stacks above panels
 	HudMode: HudMode?, -- what the HUD does while it's open: default "Panel" for a Panel, "None" for a Popup
-	Meta: string?, -- the header's one meta chip ("💰 726"); nil or "" = none
+	Meta: string?, -- the header's one meta, plain Loud text ("3/3", "18%"); nil or "" = none
 	MaxSize: Vector2?, -- default Theme PanelMaxWidth x PanelMaxHeight
 	Scale: Vector2?, -- share of the safe area, default 0.94 x 0.94
 	CloseButton: boolean?, -- default true
@@ -89,19 +103,26 @@ export type Modal = {
 	Body: Frame, -- the space under the header
 	Header: Frame?, -- the navy band (nil without a title or ✖)
 	Title: TextLabel?, -- the header's title
-	Meta: TextLabel, -- the header's meta chip (hidden while it has no text)
+	Meta: TextLabel, -- the header's meta text (hidden while it has no text)
 	CloseButton: TextButton?,
 	Focus: GuiObject?, -- what a gamepad selects on open (set it after building; default the ✖)
 	open: () -> (),
 	close: () -> (),
 	toggle: () -> (),
 	isOpen: () -> boolean,
-	setMeta: (text: string?) -> (),
+	setMeta: (text: string?, unit: string?) -> (),
 	setTitle: (text: string) -> (),
 	setTop: (px: number) -> (),
 }
-export type TabSpec = { Id: string, Icon: string, Caption: string, Stripe: Color3? }
-export type Tabs = { select: (id: string) -> (), Column: Frame, Content: Frame, Buttons: { [string]: TextButton } }
+export type TabSpec = { Id: string, Icon: string, Caption: string, Stripe: Color3?, Hidden: boolean? }
+export type Tabs = {
+	select: (id: string) -> (),
+	setVisible: (id: string, shown: boolean) -> (),
+	visible: () -> { string },
+	Column: Frame,
+	Content: Frame,
+	Buttons: { [string]: TextButton },
+}
 export type ConfirmSpec = {
 	Title: string,
 	Line: string,
@@ -175,6 +196,29 @@ function Pure.percent(n: any): string
 	return text .. "%"
 end
 
+-- The ✖: 48 x 48, inside the 64 px band with 8 px around it (UI direction change 3; it was 56 with 4 px).
+Pure.CLOSE = 48
+
+-- The tab ids that show, in the tabs' own order: every tab not in `hidden` (R0: only the tabs with something in them).
+function Pure.shownTabs(tabs: any, hidden: any): { string }
+	local out = {}
+	if type(tabs) ~= "table" then
+		return out
+	end
+	for _, tab in tabs do
+		local id = if type(tab) == "table" then tab.Id else nil
+		if type(id) == "string" and not (type(hidden) == "table" and hidden[id]) then
+			table.insert(out, id)
+		end
+	end
+	return out
+end
+
+-- Whether the tab column is drawn at all: only with two tabs or more (one kind of thing needs no tabs).
+function Pure.tabColumn(count: any): boolean
+	return type(count) == "number" and count >= 2
+end
+
 -- One odds row: the word and the number.
 function Pure.oddsLine(row: any): string
 	local name = if type(row) == "table" and type(row.Name) == "string" then row.Name else "?"
@@ -187,9 +231,9 @@ Modal.Pure = Pure
 local SLIDE_FROM = 36 -- px below its place a panel starts as it pops in
 local DIM_BLEED = 400 -- the dim reaches past the safe area so the whole screen darkens (decoration may bleed)
 local CLOSE_ACTION = "ClinicCloseModal"
-local CLOSE = Theme.Size.ButtonHeight -- the ✖: 56 x 56
+local CLOSE = Pure.CLOSE -- the ✖: 48 x 48 (= Theme.Calm.Close)
 local META_HEIGHT = 40
-local EDGE = Theme.Space.Step[1] -- the ✖ sits this far inside the band's right end
+local EDGE = (Kit.HEADER - CLOSE) / 2 -- the ✖ sits this far inside the band, on every side (8)
 
 local function sound(ctx: Types.Ctx, name: string, volume: number?)
 	ctx.fire("Sound", name, volume)
@@ -373,7 +417,7 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		closeButton = Kit.button({
 			Name = "Close",
 			Kind = "Destructive",
-			Text = "✖",
+			Text = Icons.Mark.Close,
 			TextSize = Theme.TextSize.Title,
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, pad - EDGE, 0, middle),
@@ -381,19 +425,22 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 			ZIndex = 3,
 			Parent = panel,
 		})
+		-- A Kit button is at least 56 px; the ✖ is the one smaller one, so it stays inside the band.
+		local minimum = closeButton:FindFirstChildOfClass("UISizeConstraint")
+		if minimum then
+			minimum.MinSize = Vector2.new(CLOSE, CLOSE)
+		end
 	end
 
-	-- The header's one meta chip: white, ink text, left of the ✖. Hidden while it has no text.
-	local metaRight = pad - EDGE - (if closeButton then CLOSE + Theme.Space.Gap else 0)
+	-- The header's one meta: plain Loud text on the band (white, outlined), left of the ✖. No box (UI direction C3:
+	-- no pills for plain facts). Hidden while it has no text.
+	local metaRight = pad - EDGE - (if closeButton then CLOSE + Theme.Space.PadCard else 0)
 	local meta = Kit.label({
 		Name = "Meta",
 		Text = "",
-		Font = Theme.DisplayFont,
+		Outlined = true,
 		TextSize = Theme.TextSize.Body,
-		TextColor3 = Theme.Colors.Ink,
 		TextWrapped = false,
-		BackgroundTransparency = 0,
-		BackgroundColor3 = Theme.Colors.Plate,
 		AutomaticSize = Enum.AutomaticSize.X,
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, metaRight, 0, middle),
@@ -402,24 +449,37 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		ZIndex = 3,
 		Parent = panel,
 	})
-	Kit.corner(meta, Theme.Radius.Small)
-	Kit.stroke(meta, Theme.Colors.Stroke, Theme.Stroke.Fine)
-	local metaPad = Instance.new("UIPadding")
-	metaPad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
-	metaPad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
-	metaPad.Parent = meta
 
-	-- The title makes room for the ✖ and the meta chip.
+	-- The meta's Unit (💰 in front of the Shop's cash): its own plain label left of the number, never inside the
+	-- outlined text (Roblox can't outline an emoji).
+	local metaUnit = Kit.label({
+		Name = "MetaUnit",
+		Text = "",
+		TextSize = Theme.TextSize.Body,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, metaRight, 0, middle),
+		Size = UDim2.fromOffset(0, META_HEIGHT),
+		Visible = false,
+		ZIndex = 3,
+		Parent = panel,
+	})
+
+	-- The title makes room for the ✖ and the meta (and the unit sits just left of the meta's text).
 	local function fitTitle()
+		metaUnit.Position = UDim2.new(1, metaRight - meta.AbsoluteSize.X - Theme.Space.Tight, 0, middle)
 		if not title then
 			return
 		end
-		local used = (if closeButton then CLOSE + Theme.Space.Gap else 0)
+		local used = (if closeButton then CLOSE + Theme.Space.PadCard else 0)
 			- (pad - EDGE)
-			+ (if meta.Visible then meta.AbsoluteSize.X + Theme.Space.Gap else 0)
+			+ (if meta.Visible then meta.AbsoluteSize.X + Theme.Space.PadCard else 0)
+			+ (if metaUnit.Visible then metaUnit.AbsoluteSize.X + Theme.Space.Tight else 0)
 		title.Size = UDim2.new(1, -math.max(used, 0), 0, Kit.HEADER - Theme.Space.PadCard * 2)
 	end
 	meta:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTitle)
+	metaUnit:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTitle)
 
 	local top = if hasHeader then Kit.HEADER - pad + Theme.Space.Gap else 0
 	local body = Instance.new("Frame")
@@ -484,17 +544,21 @@ function Modal.modal(ctx: Types.Ctx, spec: ModalSpec): Modal
 		root.Position = rest()
 	end
 
-	function modal.setMeta(text: string?)
+	function modal.setMeta(text: string?, unit: string?)
 		local shown = type(text) == "string" and text ~= ""
 		meta.Text = if shown then text :: string else ""
 		meta.Visible = shown
+		local hasUnit = shown and type(unit) == "string" and unit ~= ""
+		metaUnit.Text = if hasUnit then unit :: string else ""
+		metaUnit.Visible = hasUnit
 		fitTitle()
 	end
 	modal.setMeta(spec.Meta)
 
+	-- Words only: whatever a caller passes, the header never shows an emoji (memory-20261117-007).
 	function modal.setTitle(text: string)
 		if title then
-			title.Text = text
+			title.Text = Icons.words(text)
 		end
 	end
 
@@ -705,12 +769,25 @@ function Modal.tabs(modal: Modal, tabs: { TabSpec }, onSelect: (id: string) -> (
 	local buttons: { [string]: TextButton } = {}
 	local stripes: { [string]: Color3? } = {}
 	local ordered: { GuiObject } = {}
+	local hidden: { [string]: boolean } = {}
 	local selected: string? = nil
 
 	local function paint()
 		for id, button in buttons do
 			Kit.tab(button, id == selected, stripes[id])
 		end
+	end
+
+	-- R0: only the tabs with something in them. Under two, there is no column and the content takes the body.
+	local function layoutTabs()
+		local shown = Pure.shownTabs(tabs, hidden)
+		for id, button in buttons do
+			button.Visible = not hidden[id]
+		end
+		local hasColumn = Pure.tabColumn(#shown)
+		column.Visible = hasColumn
+		content.Position = UDim2.fromOffset(if hasColumn then columnWidth + gap else 0, 0)
+		content.Size = UDim2.new(1, if hasColumn then -(columnWidth + gap) else 0, 1, 0)
 	end
 
 	local function choose(id: string)
@@ -734,6 +811,7 @@ function Modal.tabs(modal: Modal, tabs: { TabSpec }, onSelect: (id: string) -> (
 		})
 		buttons[tab.Id] = button
 		stripes[tab.Id] = tab.Stripe
+		hidden[tab.Id] = tab.Hidden == true
 		table.insert(ordered, button)
 		button.Activated:Connect(function()
 			choose(tab.Id)
@@ -741,11 +819,37 @@ function Modal.tabs(modal: Modal, tabs: { TabSpec }, onSelect: (id: string) -> (
 	end
 	Modal.fitTabs(list, ordered, gap, Pure.TAB_WIDTH)
 
-	if tabs[1] then
-		selected = tabs[1].Id
-	end
+	selected = Pure.shownTabs(tabs, hidden)[1]
+	layoutTabs()
 	paint()
-	return { select = choose, Column = column, Content = content, Buttons = buttons }
+
+	local function setVisible(id: string, shown: boolean)
+		if not buttons[id] or hidden[id] == not shown then
+			return
+		end
+		hidden[id] = not shown
+		layoutTabs()
+		local left = Pure.shownTabs(tabs, hidden)
+		if selected == nil or hidden[selected] then
+			if left[1] then
+				choose(left[1])
+			else
+				selected = nil
+				paint()
+			end
+		end
+	end
+
+	return {
+		select = choose,
+		setVisible = setVisible,
+		visible = function(): { string }
+			return Pure.shownTabs(tabs, hidden)
+		end,
+		Column = column,
+		Content = content,
+		Buttons = buttons,
+	}
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -777,16 +881,12 @@ function Modal.confirm(ctx: Types.Ctx, spec: ConfirmSpec, onYes: () -> ())
 	local gap = Theme.Space.Gap
 	local row = Theme.Size.ButtonHeight
 
-	-- The one line, on a tinted card.
-	local card = Instance.new("Frame")
-	card.Name = "Card"
-	card.BackgroundColor3 = Theme.Colors.Card
-	card.BorderSizePixel = 0
-	card.Size = UDim2.new(1, 0, 1, -(row + Theme.Space.PadPanel))
-	Kit.corner(card, Theme.Radius.Medium)
-	Kit.stroke(card, Theme.Colors.CardLine, Theme.Stroke.Fine)
-	Kit.pad(card, Theme.Space.PadCard)
-	card.Parent = modal.Body
+	-- The one line, on a card (the Card fill, no line).
+	local card = Kit.card({
+		AutomaticSize = Enum.AutomaticSize.None,
+		Size = UDim2.new(1, 0, 1, -(row + Theme.Space.PadPanel)),
+		Parent = modal.Body,
+	})
 	local line = Kit.label({
 		Name = "Line",
 		Text = c.Line,
@@ -867,15 +967,14 @@ function Modal.oddsPopup(ctx: Types.Ctx, spec: OddsSpec)
 	list.Parent = modal.Body
 
 	for index, entry in spec.Rows do
-		local row = Instance.new("Frame")
-		row.Name = "Row_" .. index
-		row.LayoutOrder = index
-		row.Size = UDim2.new(1, -gap, 0, rowHeight)
-		row.BackgroundColor3 = Theme.Colors.Card
-		row.BorderSizePixel = 0
-		Kit.corner(row, Theme.Radius.Small)
-		Kit.stroke(row, Theme.Colors.CardLine, Theme.Stroke.Fine)
-		row.Parent = list
+		local row = Kit.card({
+			Name = "Row_" .. index,
+			Pad = false,
+			LayoutOrder = index,
+			AutomaticSize = Enum.AutomaticSize.None,
+			Size = UDim2.new(1, -gap, 0, rowHeight),
+			Parent = list,
+		})
 		local name = Kit.label({
 			Name = "Name",
 			Text = entry.Icon .. " " .. entry.Name,

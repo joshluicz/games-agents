@@ -1,11 +1,17 @@
 --!strict
 -- The Day Report: what you did this clinic day, shown when the night ends (build plan §B5, design §5.4).
 -- Server only.
---   DayReport.record(p, ctx, newPage, stars)   adds one cure to p's report. Cure calls it for the helper (with
---                                              their new page) and again for the owner when that's someone else
---                                              (with the stars their clinic earned). Each call counts for p only.
+--   DayReport.record(p, ctx, newPage, stars, cash?)   adds one cure to p's report. Cure calls it for the helper
+--                                              (with their new page and the cash Cure just paid them) and again
+--                                              for the owner when that's someone else (with the stars their clinic
+--                                              earned, no cash: the helper got it). Each call counts for p only.
 --   DayReport.flush()                          DayNight calls it when the night ends: sends every player their
---                                              DayReport { Cured, NewPages, StarsGained, Next } and starts a new day
+--                                              DayReport { Cured, CashGained, NewPages, StarsGained, Next } and
+--                                              starts a new day
+--   DayReport.report(counter?, next)           the payload from a day's tally (pure; a missing tally or field is 0)
+--
+-- CashGained is the cash the player's treatments paid that day (Logic/Pay's reward, the number Cure hands to
+-- Economy.addCash): counted here on the server, never read from the client. Gifts, mail and sales aren't in it.
 --
 -- A player who joined moments ago and hasn't cured anything yet gets no report (an empty pop-up 10 seconds after
 -- joining is noise), and neither does a player in the first-session tutorial (it stays quiet: their counter is
@@ -31,6 +37,7 @@ type Counter = {
 	NewPages: { string },
 	Seen: { [string]: boolean },
 	StarsGained: number,
+	CashGained: number,
 }
 
 local counters: { [Player]: Counter } = {}
@@ -47,7 +54,7 @@ end
 local function counterFor(player: Player): Counter
 	local counter = counters[player]
 	if not counter then
-		counter = { Cured = 0, NewPages = {}, Seen = {}, StarsGained = 0 }
+		counter = { Cured = 0, NewPages = {}, Seen = {}, StarsGained = 0, CashGained = 0 }
 		counters[player] = counter
 	end
 	return counter
@@ -67,7 +74,19 @@ local function nextGoal(player: Player): Types.NextGoal
 	return { Kind = "None", Id = "", Icon = "⭐" }
 end
 
-function DayReport.record(player: Player, ctx: Types.CureCtx, newPage: boolean, stars: number)
+-- What flush sends for one player's day. No tally yet (a quiet day) or a tally without a field reads as 0.
+function DayReport.report(counter: any, next: Types.NextGoal): Types.DayReportInfo
+	local tally = if type(counter) == "table" then counter else {}
+	return {
+		Cured = if isCount(tally.Cured) then math.floor(tally.Cured) else 0,
+		CashGained = if isCount(tally.CashGained) then math.floor(tally.CashGained) else 0,
+		NewPages = if type(tally.NewPages) == "table" then table.clone(tally.NewPages) else {},
+		StarsGained = if isCount(tally.StarsGained) then math.floor(tally.StarsGained) else 0,
+		Next = next,
+	}
+end
+
+function DayReport.record(player: Player, ctx: Types.CureCtx, newPage: boolean, stars: number, cash: number?)
 	if not isPlayer(player) or player.Parent ~= Players then
 		return
 	end
@@ -83,6 +102,9 @@ function DayReport.record(player: Player, ctx: Types.CureCtx, newPage: boolean, 
 	if isCount(stars) then
 		counter.StarsGained += math.floor(stars)
 	end
+	if isCount(cash) then
+		counter.CashGained += math.floor(cash :: number)
+	end
 end
 
 function DayReport.flush()
@@ -93,13 +115,7 @@ function DayReport.flush()
 		local newcomer = now - (joinedAt[player] or 0) < QUIET_NEWCOMER_SECONDS
 		local data = PlayerData.get(player)
 		if data and not TutorialLogic.active(data.Tutorial) and (cured > 0 or not newcomer) then
-			local report: Types.DayReportInfo = {
-				Cured = cured,
-				NewPages = if counter then table.clone(counter.NewPages) else {},
-				StarsGained = if counter then counter.StarsGained else 0,
-				Next = nextGoal(player),
-			}
-			Remotes.DayReport:FireClient(player, report)
+			Remotes.DayReport:FireClient(player, DayReport.report(counter, nextGoal(player)))
 		end
 	end
 	table.clear(counters)

@@ -17,8 +17,8 @@
 -- What each one covers now:
 --   Reception  the lobby, the desk and the waiting room
 --   Pharmacy   the supply shelf and the dispensary (Makers stocking supplies; the future Pharmacist), and the
---              Winter Wing's Cocoa Corner
---   Hydro      the Bath Room (the Bath station and Sore-muscles patients)
+--              pantry's Cocoa Corner (open with the Winter Wing)
+--   Hydro      the Bath Room (Sore-muscles patients) and the pantry's bath-foam shelf, the Bath station
 --   AE         the ambulance bay and its side door
 --   Wards      the Injury Ward on F1 (sprains, broken bones)
 --   Imaging    the X-ray room (the X-ray bay and the Cast Table)

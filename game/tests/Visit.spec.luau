@@ -102,18 +102,24 @@ T.describe("Visit.rollCase", function()
 end)
 
 T.describe("Visit.canTreat (Review Focus 1: never a case needing an item no open station makes)", function()
-	test("a Lv 1 clinic treats the five Lv 1 cases and nothing else", function()
+	test("a Lv 1 clinic treats the three Lv 1 cases and nothing else (simple start)", function()
 		local allowed = {}
 		for _, id in Cases.ORDER do
 			if can(1, {})(id) then
 				table.insert(allowed, id)
 			end
 		end
-		expect(allowed).toEqual({ "Cough", "Fever", "CutKnee", "BumpedHead", "Earache" })
+		expect(allowed).toEqual({ "Cough", "Fever", "CutKnee" })
 	end)
 
 	test("levels and rooms open the rest", function()
 		expect(can(1, {})("Sprain")).toBe(false) -- bandages are Lv 2
+		expect(can(1, {})("BumpedHead")).toBe(false) -- the Ice chest is Lv 2
+		expect(can(2, {})("BumpedHead")).toBe(true)
+		expect(can(1, {})("Earache")).toBe(false) -- the 🔦 Light is Lv 2
+		expect(can(2, {})("Earache")).toBe(true)
+		expect(can(2, {})("Rash")).toBe(false) -- Lv 3
+		expect(can(3, {})("SoreThroat")).toBe(true)
 		expect(can(2, {})("Sprain")).toBe(true)
 		expect(can(2, {})("BrokenArm")).toBe(false) -- the X-ray and casts are Lv 3
 		expect(can(3, {})("BrokenArm")).toBe(true)
@@ -212,8 +218,8 @@ T.describe("Visit.examTools", function()
 		expect(#Visit.examTools("Light", nil, 0 / 0)).toBe(1)
 	end)
 
-	test("unlocked(level, tools): the hand tools from Lv 1, the X-ray from Lv 3", function()
-		expect(Visit.unlocked(1, Tools)).toEqual({ "Stethoscope", "Thermometer", "Light", "Magnifier" })
+	test("unlocked(level, tools): three hand tools at Lv 1, the Light from Lv 2, the X-ray from Lv 3", function()
+		expect(Visit.unlocked(1, Tools)).toEqual({ "Stethoscope", "Thermometer", "Magnifier" })
 		expect(Visit.unlocked(2, Tools)).toEqual({ "Stethoscope", "Thermometer", "Light", "Magnifier" })
 		expect(Visit.unlocked(3, Tools)).toEqual(Tools.ORDER)
 	end)

@@ -189,7 +189,7 @@ local LIST: { Badge } = {
 		Name = "Ice Packs",
 		Icon = "🧊",
 		Category = "Stations",
-		Stat = "Made:Ice",
+		Stat = "Made:Ice", -- from Lv 2 (simple start: no Ice chest at Lv 1)
 		Goal = "Make ice packs",
 		Thresholds = MAKE,
 		Boost = { Kind = "MakeSpeed", Scope = "Ice", Percent = 3 },

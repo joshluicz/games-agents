@@ -482,7 +482,8 @@ T.describe("Data", function()
 			expect(GAMES[tool.Game]).toBe(true)
 			expect(type(tool.Name) == "string" and tool.Name ~= "").toBe(true)
 			expect(tool.Machine == true).toBe(id == "XRay")
-			expect(tool.Level).toBe(if id == "XRay" then 3 else nil)
+			-- simple start (memory-20261117-006): the 🔦 Light from Lv 2, the X-ray from Lv 3, the rest from Lv 1
+			expect(tool.Level).toBe(if id == "XRay" then 3 elseif id == "Light" then 2 else nil)
 		end
 		expect(rows).toEqual({
 			Stethoscope = { "🩺", "Listen" },
@@ -526,22 +527,28 @@ T.describe("Data", function()
 			expect(case.Room == nil or Rooms[case.Room] ~= nil).toBe(true)
 			expect(case.Stay == nil or case.Stay == "Wards" or case.Stay == "Rest").toBe(true)
 			expect(type(case.Name) == "string" and case.Name ~= "").toBe(true)
-			-- the symptom bubble: the case's icon, then two words at most
-			expect(string.sub(case.Bubble, 1, #case.Icon)).toBe(case.Icon)
+			-- the symptom bubble: the case's icon (an X-ray case's: the 🦴, so it can be sent to the X-ray), then two
+			-- words at most
+			local lead = if case.Tool == "XRay" then Cases.BONE else case.Icon
+			expect(string.sub(case.Bubble, 1, #lead)).toBe(lead)
 			expect(words(case.Bubble) <= 3).toBe(true)
-			-- a case that needs a machine opens no sooner than the machine
+			-- a case opens no sooner than its tool (the Light, the X-ray) and every plan station
 			expect(case.Level >= (Tools[case.Tool].Level or 1)).toBe(true)
+			for _, item in case.Plan do
+				local station = Building.STATIONS[Items[item].Station]
+				expect(station == nil or case.Level >= station.Opens).toBe(true)
+			end
 			rows[id] = { case.Tool, table.concat(case.Plan, ","), case.Stay or "", case.Level, case.Room or "" }
 		end
 		expect(rows).toEqual({
 			Cough = { "Stethoscope", "CoughSyrup", "", 1, "" },
 			Fever = { "Thermometer", "FeverMeds", "Rest", 1, "" },
 			CutKnee = { "Magnifier", "Plaster", "", 1, "" },
-			BumpedHead = { "Magnifier", "Ice", "", 1, "" },
-			Earache = { "Light", "EarDrops", "", 1, "" },
+			BumpedHead = { "Magnifier", "Ice", "", 2, "" },
+			Earache = { "Light", "EarDrops", "", 2, "" },
 			Sprain = { "Magnifier", "Ice,Bandage", "Wards", 2, "" },
-			SoreThroat = { "Light", "Lozenges,CoughSyrup", "", 2, "" },
-			Rash = { "Magnifier", "Cream,Ice", "", 2, "" },
+			SoreThroat = { "Light", "Lozenges,CoughSyrup", "", 3, "" },
+			Rash = { "Magnifier", "Cream,Ice", "", 3, "" },
 			BrokenArm = { "XRay", "Cast,PainRelief", "Wards", 3, "" },
 			SoreMuscles = { "Magnifier", "Bubbles,PainRelief", "", 1, "BathRoom" },
 			Chills = { "Thermometer", "Cocoa,FeverMeds", "Rest", 1, "WinterWing" },
@@ -567,7 +574,7 @@ T.describe("Data", function()
 	end)
 
 	test("a Lv 1 clinic can treat every Lv 1 case: its plan's first step comes from a station open at Lv 1", function()
-		local lv1 = { Remedy = true, Plaster = true, Ice = true }
+		local lv1 = { Remedy = true, Plaster = true } -- simple start: the Ice chest is Lv 2
 		local n = 0
 		for _, id in Cases.ORDER do
 			local case = Cases[id]
@@ -578,7 +585,7 @@ T.describe("Data", function()
 				end
 			end
 		end
-		expect(n).toBe(5)
+		expect(n).toBe(3)
 	end)
 
 	test("case pools: one per wing, every id a case; the Night pool is Lv 1 cases only", function()
@@ -595,7 +602,7 @@ T.describe("Data", function()
 			expect(Cases[id].Level).toBe(1)
 			expect(Cases[id].Room).toBeNil()
 		end
-		expect(Cases.POOLS.Night).toEqual({ "Cough", "Fever", "Earache" })
+		expect(Cases.POOLS.Night).toEqual({ "Cough", "Fever", "CutKnee" })
 		expect(Cases.POOLS.Starter).toEqual({
 			"Cough",
 			"Fever",
@@ -675,7 +682,7 @@ T.describe("Data", function()
 		end
 	end)
 
-	test("regulars: one fixed Lv 1 case each, which a fresh Lv 1 clinic with no rooms can treat", function()
+	test("regulars: one fixed case each with no room; the first two a fresh Lv 1 clinic can treat", function()
 		local function lv1(stationId: string): boolean
 			return Building.stationOpen(stationId, 1)
 		end
@@ -686,9 +693,13 @@ T.describe("Data", function()
 			if case == nil then
 				error(id .. ": unknown case " .. tostring(regular.Case))
 			end
-			expect(case.Level).toBe(1)
+			-- simple start: Dizzy Comet's bumped head is a Lv 2 case (it unlocks at 120 Clinic Stars, at night)
+			expect(case.Level).toBe(if id == "DizzyComet" then 2 else 1)
 			expect(case.Room).toBeNil()
-			expect(Visit.canTreat(case, 1, {}, lv1, Items)).toBe(true)
+			expect(Visit.canTreat(case, 1, {}, lv1, Items)).toBe(id ~= "DizzyComet")
+			expect(Visit.canTreat(case, 2, {}, function(stationId: string): boolean
+				return Building.stationOpen(stationId, 2)
+			end, Items)).toBe(true)
 			expect(regular.Ailment).toBeNil() -- the ailments and their recipes are gone
 			expect(regular.Recipe).toBeNil()
 			cases[id] = regular.Case

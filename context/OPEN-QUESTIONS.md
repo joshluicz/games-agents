@@ -31,6 +31,23 @@ was filed. Don't re-ask an answered question.
     was both brothers' pick (`-009`) and is public, so changing it needs both yeses (red line 4). Claude keeps the title
     until then. ⬜ **Both.**
 
+13. 🌠 **Dizzy Comet's case** (simple-start batch, 2026-11-18). Its fixed case is the bumped head, which moved to Lv 2,
+    so it now comes only from Lv 2 (the Story skips it until then). Keep that, or give it a Lv 1 case (e.g. the cut
+    knee)? Its story lines are about being bonked and dizzy. ⬜ **Both (optional; Claude keeps it at Lv 2).**
+14. 🛎️ **Routing pace numbers** (simple-start batch). The player now sends each patient. A hired Receptionist sends
+    seated patients by itself after 6 s, at most one every 2 s (`Config.Visit.ReceptionSeconds` / `ReceptionGap`), and
+    the HUD's "press Send" hint waits 12 s. These are Claude's numbers. From Lv 3 every send opens the Exam bay / X-ray
+    card, which may feel heavy. Tune after playing. ⬜ **Joshua.**
+15. 💰 **What "Cash" on the Day Report counts.** Today: the cash from treating patients only (gifts, mail, goals and
+    nurse sales are not in it), and a friend who helps gets that cash on their report. Keep, or count every coin
+    earned that day? ⬜ **Joshua (or Claude's call).**
+16. 🛤️ **The belt is faster.** The street grew with the bigger plots (440 long, was 360) and the ride time stayed 133 s,
+    so the nurse belt moves 3.3 studs/s (was 2.7). Fine, or slow it (longer rides mean fewer nurses on offer)?
+    ⬜ **Joshua, after seeing it.**
+17. 🎉 **Tutorial finale chips** show the Book, Goals and Nurses door icons, but with the one-door-at-a-time HUD the
+    Goals and Nurses doors may not be on the HUD yet at that moment. Keep, or show only doors already revealed?
+    ⬜ **Claude's call unless Joshua minds.**
+
 ## ✅ Answered
 - #8, the depth update review fixes (build plan §E5-E7): 2026-11-16, Joshua: "your call for all" → Claude's calls:
   keep the per-level spawns (13 / 11 / 10 / 9 / 8 s), the ×1.0-×1.4 nurse prices and +50% per extra recipe item (the

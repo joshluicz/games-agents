@@ -5,14 +5,14 @@
 --     Lv 5 with every room. The plot's trees, bushes and fences are World/Props' pieces: this spec counts each of
 --     them at its CONTRACT maximum (tree 7, bush 1, fence 2 + floor(length / 14) + 1), so the share holds whatever
 --     Props builds, and prints the measured share beside it
---   · the 110 x 110 plot (pad 107), the Counter on Building.RECEPTION.Desk, PatientSpawn and PatientExit at the gate,
+--   · the 140 x 140 plot (pad 137), the Counter on Building.RECEPTION.Desk, PatientSpawn and PatientExit at the gate,
 --     no queue (no QueueStart, no QueueLane, no queueSpot), the floating sign
 --   · the plank path from the gate to the Stand's forecourt and on to the front doors; nothing of the plot's own in
 --     the building's footprint but the Counter; the patients' walks, the ambulance yard and the Garden door clear
 --   · the rooms are interior fit-outs: each inside its Building.ROOMS rect and its walls, its doorway and the 3 studs
 --     inside it clear, nothing tall in its middle, no roof and no walls, CeramicTiles floors; each room's name sign
 --     upright over its door on the corridor side; nothing z-fights (no two faces in one plane, no thin part inside
---     another); the Cozy Ward's ExamBay_W1 / W2 to contract C2, made like bays 1-6; Station_Bath and Station_Cocoa;
+--     another); the Cozy Ward's ExamBay_W1 / W2 to contract C2, made like bays 1-6; no Station_ part in any room (the tub and a side table are decor);
 --     the Winter Wing's 3-part bed and its fireplace; the Garden
 --   · studs on whole studs, in both studs modes; the palette: no Texture or Decal, no big face at V >= 0.95 (the
 --     plot's own colour aside), no channel above 245
@@ -32,7 +32,7 @@ local roblox = World.roblox
 local Vector3, CFrame, Enum = roblox.Vector3, roblox.CFrame, roblox.Enum
 
 local EPS = 0.01
-local PLOT_HALF = Config.Town.PlotSize / 2 -- 55: the plot's front edge is z -55, its front fence z -54.6
+local PLOT_HALF = Config.Town.PlotSize / 2 -- 70: the plot's front edge is z -70, its front fence z -69.6
 local GATE = 5.6 -- PlotBuilder: the gate posts' inner faces at x = ±5.6 (posts at ±6.2)
 
 -- "Plot_1.Scenery.Tree.Leaves" (the mock has no GetFullName).
@@ -298,9 +298,9 @@ end)
 ------------------------------------------------------------------------------------------------------------------
 T.describe("Plot: the ground, the Counter, the markers and the sign", function()
 	test(
-		"the plot is 110 x 110: a dark studded Pad 107 x 107 (whole odd studs), four Slate Edges to its edge",
+		"the plot is 140 x 140: a dark studded Pad 137 x 137 (whole odd studs), four Slate Edges to its edge",
 		function()
-			expect(Config.Town.PlotSize).toBe(110)
+			expect(Config.Town.PlotSize).toBe(140)
 			local ground = plot.Ground
 			expect(ground.ClassName).toBe("Model")
 			local pad = ground.Pad
@@ -308,8 +308,8 @@ T.describe("Plot: the ground, the Counter, the markers and the sign", function()
 			expect(pad:GetAttribute("Studded")).toBe(true)
 			expect(pad.Material).toBe(Enum.Material.Plastic)
 			expect(pad.TopSurface).toBe(Enum.SurfaceType.Studs) -- Surface mode: no CureStuds variant in this world
-			expect(pad.Size.X).toBe(107)
-			expect(pad.Size.Z).toBe(107)
+			expect(pad.Size.X).toBe(137)
+			expect(pad.Size.Z).toBe(137)
 			local _, _, v = Look.hsv(pad.Color)
 			expect(Look.round(v) <= 0.32).toBe(true)
 			local padLo, padHi = localBox(pad)
@@ -992,28 +992,33 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 		end
 	end)
 
-	test("the rooms' stations: Station_Bath and Station_Cocoa, open; no room builds the Building's stations", function()
-		local bath = plot.Rooms.Room_BathRoom.Station_Bath
-		local cocoa = plot.Rooms.Room_WinterWing.Station_Cocoa
-		for id, station in { Bath = bath, Cocoa = cocoa } do
-			expect(station:GetAttribute("Open")).toBe(true)
-			expect(station:GetAttribute("StationId")).toBe(id)
-			expect(station.IconGui ~= nil).toBe(true)
-		end
-		expect(bath.Color).toBe(WORLD.Trim)
-		expect(cocoa.Color).toBe(ACCENT.Orange)
+	-- memory-20261117-006 (Joshua: "move the hot cocoa into like a pantry"): bath foam and hot chocolate are taken at
+	-- the Building's pantry now (Station_Bath, Station_Cocoa: tests/Pantry.spec). The rooms keep their look as decor.
+	test("no room has a station: the tub and the side table are decor (no Open, no StationId, no badge)", function()
 		for _, room in plot.Rooms:GetChildren() do
 			for _, d in room:GetDescendants() do
-				local id = string.match(d.Name, "^Station_(%w+)$")
-				if id and Building.STATIONS[id] then
-					error(room.Name .. " builds the Building's " .. d.Name)
+				if string.match(d.Name, "^Station_") then
+					error(room.Name .. " builds " .. d.Name)
+				end
+				if d:GetAttribute("StationId") ~= nil then
+					error(room.Name .. "." .. d.Name .. " carries a StationId")
 				end
 			end
 		end
+		local tub = plot.Rooms.Room_BathRoom.Tub
+		local side = plot.Rooms.Room_WinterWing.SideTable
+		for _, decor in { tub, side } do
+			expect(decor:GetAttribute("Open")).toBeNil()
+			expect(decor:FindFirstChild("IconGui")).toBeNil()
+		end
+		expect(tub.Color).toBe(WORLD.Trim)
+		-- wood like the mantel, never the Cocoa station's orange (that colour means "take it here")
+		expect(side.Color).toBe(WORLD.Beam)
+		expect(side.Material).toBe(Enum.Material.Wood)
 	end)
 
 	test(
-		"the Winter Wing: Bed_1's head on the back wall in a corner, the fireplace glowing, the cocoa by a wall",
+		"the Winter Wing: Bed_1's head on the back wall in a corner, the fireplace glowing, a side table by a wall",
 		function()
 			local winter = plot.Rooms.Room_WinterWing
 			local fLo, fHi = localBox(winter.Floor)
@@ -1031,22 +1036,22 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 			local light = winter.Flame.FireGlow:FindFirstChildWhichIsA("PointLight")
 			expect(light ~= nil and light.Shadows == false and light.Range <= 16).toBe(true)
 			expect(winter.Rug ~= nil).toBe(true)
-			-- the cocoa: a small table flush to a side wall, its front (LookVector) into the room
-			local cocoa = winter.Station_Cocoa
-			local cLo, cHi = localBox(cocoa)
+			-- the side table (decor; it was the Cocoa station): small, flush to a side wall, a mug ON it
+			local side = winter.SideTable
+			local cLo, cHi = localBox(side)
 			expect(near(cLo.X, fLo.X) or near(cHi.X, fHi.X)).toBe(true)
-			expect(cocoa.Size.X * cocoa.Size.Z <= 6 + EPS).toBe(true)
-			local look = pivot:VectorToObjectSpace(cocoa.CFrame.LookVector)
-			local mid = (fLo + fHi) / 2
-			local at = pivot:PointToObjectSpace(cocoa.Position)
-			expect(look.X * (mid.X - at.X) + look.Z * (mid.Z - at.Z) > 0).toBe(true)
+			expect(side.Size.X * side.Size.Z <= 6 + EPS).toBe(true)
+			local mugLo, mugHi = localBox(winter.Mug)
+			expect(near(mugLo.Y, cHi.Y)).toBe(true)
+			expect(mugLo.X >= cLo.X and mugHi.X <= cHi.X and mugLo.Z >= cLo.Z and mugHi.Z <= cHi.Z).toBe(true)
+			expect(winter:FindFirstChild("Pot")).toBeNil() -- the pot is the pantry's
 		end
 	)
 
 	test("the Bath Room: the tub on its tiles against the back wall, its water and bubbles ON it", function()
 		local bath = plot.Rooms.Room_BathRoom
 		local _, fHi = localBox(bath.Floor)
-		local tLo, tHi = localBox(bath.Station_Bath)
+		local tLo, tHi = localBox(bath.Tub)
 		local _, tilesHi = localBox(bath.Tiles)
 		expect(near(tilesHi.Z, fHi.Z) and bath.Tiles.Material == Enum.Material.CeramicTiles).toBe(true)
 		expect(near(tHi.Z, tilesHi.Z - bath.Tiles.Size.Z)).toBe(true)
@@ -1104,6 +1109,42 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 			end
 			expect(room:FindFirstChild("DecorSlot_" .. RoomsData[roomId].DecorSlots + 1)).toBeNil()
 		end
+	end)
+
+	-- The bigger, open building (simple-start design §4): the bought rooms are about 1.5x as big, their furniture the
+	-- same size against the walls, so every decor slot is a full Server/DecorBuilder square (4 x 4) and none stands
+	-- on the walk from the door to a DoctorSpot or a bed's foot.
+	test("the bigger rooms: >= 18 x 14 inside, every decor slot a full 4 x 4 off the patients' ways", function()
+		for roomId, info in INTERIOR do
+			local room = plot.Rooms["Room_" .. roomId]
+			local fLo, fHi = localBox(room.Floor)
+			expect(fHi.X - fLo.X >= 18 and fHi.Z - fLo.Z >= 14).toBe(true)
+			local inner = Building.doorPoints(info.Door)
+			local targets = {}
+			for _, d in room:GetDescendants() do
+				if d.Name == "DoctorSpot" then
+					table.insert(targets, pivot:PointToObjectSpace(d.Position))
+				elseif string.match(d.Name, "^Bed_%d+$") then
+					table.insert(
+						targets,
+						pivot:PointToObjectSpace((d.CFrame * CFrame.new(0, 0, -d.Size.Z / 2 - 1.6)).Position)
+					)
+				end
+			end
+			for n = 1, RoomsData[roomId].DecorSlots do
+				local slot = room["DecorSlot_" .. n]
+				expect(near(slot.Size.X, 4) and near(slot.Size.Z, 4)).toBe(true)
+				local lo, hi = localBox(slot)
+				for _, target in targets do
+					if crosses(point(inner), Vector3.new(target.X, 0, target.Z), lo, hi, 0.3) then
+						error(string.format("%s.DecorSlot_%d is on the way in", room.Name, n))
+					end
+				end
+			end
+		end
+		local garden = plot.Rooms.Room_Garden.Floor
+		local gLo, gHi = localBox(garden)
+		expect(gHi.X - gLo.X >= 36 - EPS and gHi.Z - gLo.Z >= 26 - EPS).toBe(true)
 	end)
 
 	test(

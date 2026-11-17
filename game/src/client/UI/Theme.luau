@@ -18,6 +18,27 @@
 --   Theme.Shadow      the one shadow: only under modals, the Now card and toasts
 --   Theme.Motion      Perpetual = 1: at most one looping effect on screen, on the one Collect button
 --   Theme.Zone        the HUD zone numbers (mirrors Shared/Logic/HudZones)
+--
+-- THE CALM UI (docs/plan/2026-11-17-ui-direction.md; Joshua, memory-20261117-007). "Candy on the verbs, calm on the
+-- nouns": the candy look is spent on what the player can press right now and what they just won; everything else
+-- is flat, quiet and aligned. The tokens it added (every older key still works):
+--   Theme.Colors      Progress (navy: EVERY progress bar, so green only means "collect, ready, done") ·
+--                     ProgressMax (gold: a bar at MAX) · Track (a bar's or a switch's empty track)
+--   Theme.Voice       THE THREE VOICES. Text can't go under 18 px, so hierarchy is font and ink, not size:
+--                       Loud    DisplayFont, Title 30 (Number 36, Hero 56), white outlined on colour: the panel
+--                               title, HUD numbers, candy buttons, Celebrate. Nothing else
+--                       Normal  Font, Body 22, Ink: a card's name (once per card), row titles, Secondary and Quiet
+--                               buttons
+--                       Soft    Font, Caption 18, InkSoft: facts, counts, hints, captions
+--                     Kit.voice(label, name) paints one; Kit.name and Kit.fact make a Normal and a Soft line
+--   Theme.Emoji       the size per emoji role: Art 40 (alone in a tile) · ArtBig 56 (a mini-game card) · State 18
+--                     (the badge on a tile's corner). A Unit takes its number's size; a Door fills 60% of its plate
+--   Theme.Calm        the calm parts' sizes: Bar 8 (a progress bar) · Close 48 (the ✖, inside the 64 px band) ·
+--                     ArtTile 56 · Badge 24 (the State badge's plate) · SwitchWidth 52 / SwitchHeight 30 / Knob 24 ·
+--                     MenuWidth 200
+--   Theme.Space       Tight 4 (icon to its label) · Line 8 (lines of one group) · PadCard 12 (inside a card and
+--                     between cards) · PadPanel 16 · Section 24 (between sections). ONLY Space.Step values
+--   Theme.Tween       Switch (a toggle slides, it doesn't bounce)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -38,8 +59,8 @@ Theme.Colors = table.freeze({
 	-- Chrome
 	Paper = PAPER, -- panels: flat white
 	PaperEdge = PAPER, -- (old key) the panel gradient's bottom: the same white now, so there is no gradient
-	Card = hex("#EEF3FA"), -- rows and cards inside panels ...
-	CardLine = hex("#C3D0E6"), -- ... and their 2 px stroke
+	Card = hex("#EEF3FA"), -- rows and cards inside panels: a fill with NO line (Kit.card)
+	CardLine = hex("#C3D0E6"), -- (old key) the card stroke the calm UI dropped; kept for files not rebuilt yet
 	Well = hex("#D6E3F5"), -- a card's image tile; every row's icon tile (neutral)
 	Locked = hex("#6A5FA0"), -- "???" silhouettes
 	Header = Palette.Navy, -- EVERY panel header (no per-panel colour)
@@ -57,7 +78,7 @@ Theme.Colors = table.freeze({
 	PrimaryEnd = hex("#F27A0C"),
 	Collect = COLLECT, -- Claim, Open!, Yay!: the only role that may shine or breathe
 	CollectEnd = hex("#2BA52A"),
-	Secondary = QUIET, -- everything else: a quiet fill with ink text
+	Secondary = QUIET, -- everything else: a quiet fill with ink text and no outline
 	Destructive = DESTRUCTIVE, -- Sell, Reset, Throw away (always behind a confirm or a hold), and the ✖
 	DestructiveEnd = hex("#D9283F"),
 	Disabled = hex("#B3B6C9"),
@@ -76,6 +97,10 @@ Theme.Colors = table.freeze({
 	Pink = Candy.Pink, -- rarity, wing and station stripes only
 	Purple = Candy.Purple,
 	Cyan = Candy.Cyan,
+	-- The calm UI (memory-20261117-007): progress is navy, so green only means "collect, ready, done"
+	Progress = Palette.Navy, -- every progress bar's fill (Kit.bar)
+	ProgressMax = hex("#FFD43B"), -- a bar at MAX: gold (= Cash)
+	Track = hex("#D6E3F5"), -- a bar's or a switch's empty track (= Well)
 })
 
 Theme.Transparency = table.freeze({
@@ -103,6 +128,33 @@ Theme.TextSize = table.freeze({
 	Big = 48,
 })
 
+-- The three voices (UI direction R5). Each names a font ("DisplayFont" or "Font"), a Theme.TextSize key and a
+-- Theme.Colors key; Outlined = white text with the dark outline (text over colour). Kit.voice paints from this.
+Theme.Voice = table.freeze({
+	Loud = table.freeze({ Font = "DisplayFont", Size = "Title", Ink = "OnColor", Outlined = true }),
+	Normal = table.freeze({ Font = "Font", Size = "Body", Ink = "Ink", Outlined = false }),
+	Soft = table.freeze({ Font = "Font", Size = "Caption", Ink = "InkSoft", Outlined = false }),
+})
+
+-- The size of an emoji by its role (UI direction "The emoji rules"; the roles are in UI/Icons).
+Theme.Emoji = table.freeze({
+	Art = 40, -- alone in an art tile (= TextSize.Icon)
+	ArtBig = 56, -- a mini-game card (= TextSize.Hero)
+	State = 18, -- the badge on a tile's corner (= TextSize.Caption)
+})
+
+-- The calm parts' sizes (Kit.bar, Kit.artTile, Kit.toggle, Kit.menu, Modal's ✖).
+Theme.Calm = table.freeze({
+	Bar = 8, -- a progress bar's height: no text inside
+	Close = 48, -- the modal's ✖: inside the 64 px band with 8 px around it
+	ArtTile = 56, -- an art tile's side (one 40 px emoji on Well)
+	Badge = 24, -- the State badge's round plate
+	SwitchWidth = 52,
+	SwitchHeight = 30,
+	Knob = 24,
+	MenuWidth = 200, -- the "More" menu
+})
+
 Theme.Radius = table.freeze({
 	Small = 8, -- chips, bars, small tiles
 	Medium = 14, -- buttons, cards, tabs
@@ -111,7 +163,7 @@ Theme.Radius = table.freeze({
 })
 
 Theme.Stroke = table.freeze({
-	Fine = 2, -- cards (in CardLine), tiles, chips
+	Fine = 2, -- the red dot, a ring's beads (cards, tiles and chips have NO line now: UI direction R2)
 	Bold = 3, -- buttons, HUD plates
 	Panel = 4, -- panels
 	Text = 2.5, -- labels on colour
@@ -125,6 +177,10 @@ Theme.Space = table.freeze({
 	PadPanel = 16,
 	Margin = 16, -- from the safe-area edge (desktop and tablet)
 	MarginPhone = 8,
+	-- The calm UI's names for the steps (UI direction R4)
+	Tight = 4, -- inside a group: an icon to its label
+	Line = 8, -- between the lines of one group
+	Section = 24, -- between sections
 })
 
 -- The one shadow: only under modals, the Now card and toasts. None on the HUD (the outline does that job).
@@ -187,6 +243,7 @@ Theme.Tween = table.freeze({
 	Slide = TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out), -- toasts and panels slide in
 	SlideOut = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 	Fill = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), -- progress bars filling up
+	Switch = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), -- a toggle slides, no bounce
 })
 Theme.PressScale = 0.9
 Theme.HoverScale = 1.05 -- a mouse over a Kit button (computers only; touch never hovers)

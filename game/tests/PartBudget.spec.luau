@@ -1,6 +1,6 @@
 --!nocheck
 -- The parts budget (docs/plan/2026-11-16-perf-budget.md; look build plan §C3; Config.Look): one plot at any level, in
--- any branch theme, with every room, is at most Config.Look.PlotBudget (640) parts, not counting creatures, nurses
+-- any branch theme, with every room, is at most Config.Look.PlotBudget (660) parts, not counting creatures, nurses
 -- or decor. Moved here from Hospital.spec by the look overhaul's Foundation; the integrator owns it from there.
 -- It builds the REAL PlotBuilder (and through it TownBuilder, HospitalBuilder and World/*) under tests/worldmock
 -- and prints the count per level and per share, for the perf note's table.
@@ -60,12 +60,17 @@ T.describe("Part budget (the built plot)", function()
 		"the budgets are in Config.Look (the Real Clinic, design §8.5), and the shares fit the plot's budget",
 		function()
 			local L = Config.Look
-			expect(L.PlotBudget).toBe(640)
-			expect(L.BuildingParts).toBe(420)
-			expect(L.RoomParts).toBe(90)
-			expect(L.PlotParts).toBe(130)
+			-- the bigger, open building (simple-start design §4): each plot got 20 more parts (640 -> 660), 10 of them
+			-- taken from the town (600 -> 540): 4,440 -> 4,500 for six plots and the town, the design's cap
+			expect(L.PlotBudget).toBe(660)
+			-- the pantry moved the Cocoa and Bath stations into the Building: 20 parts of budget moved from the rooms
+			-- (420 -> 440, 90 -> 70); the stairwell's enclosure and door added 15 (455), the longer fence 5 (130 -> 135)
+			expect(L.BuildingParts).toBe(455)
+			expect(L.RoomParts).toBe(70)
+			expect(L.BuildingParts + L.RoomParts + L.PlotParts).toBe(L.PlotBudget)
+			expect(L.PlotParts).toBe(135)
 			expect(L.BuildingParts + L.RoomParts + L.PlotParts <= L.PlotBudget).toBe(true)
-			expect(L.TownParts).toBe(600)
+			expect(L.TownParts).toBe(540)
 			expect(L.SurfaceGuisPerBuilding).toBe(24)
 			expect(L.GlassPerBuilding).toBe(10)
 			-- six full plots and the town stay under 4,500 parts (design §8.5)

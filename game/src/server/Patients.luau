@@ -19,16 +19,26 @@
 --      Station_<id> parts, a usable bay of the case's kind and its exam tool unlocked). A case that needs an item no
 --      open station makes is never picked (Review Focus 1), for anyone: the usual pool, regulars, Today's Visitor,
 --      night patients, ambulances and the helicopter. A species comes only when its pool has such a case; Bath-wing
---      patients also need the Bath Room and Winter-wing ones the Winter Wing, as they always did (Pure.wingRoom). The
+--      patients also need the Bath Room and Winter-wing ones the Winter Wing, as they always did (Pure.wingRoom).
+--      Their supplies (bath foam, hot chocolate) are taken at the Building's PANTRY (Station_Bath, Station_Cocoa:
+--      open while that room is owned), never in the room: no patient walks into a room to be treated. The
 --      plan is the case's Plan cut to the level (Logic/Visit.plan with Levels.recipeCap; 1 step through the
 --      tutorial). Variants: Sparkly, Frosty in winter, 🌟 Golden from R3 (Pure.variant). Night patients only at
 --      night (and in 🦉 Night Owl's morning); 🌻 Sunny from R1; 🚁 Sky only by air ambulance (Pure.wingOpen).
---   2. To a bay. Every tick each usable empty bay (an ExamBay_<id> under the Building or Rooms whose
---      Logic/Building.bayOpen holds) takes the checked-in patient who has waited longest and fits it
---      (Logic/Visit.nextForBay: an X-ray case only the X-ray bay, every other case only an exam bay), once it has sat
---      Config.Visit.SeatSeconds (Pure.mayCall; a 🚑/🚁 patient at once, straight from its door). It gets up,
---      walks there (Logic/Building.path: round the walls and through open doors, never a shut one) and sits on the
---      bay's Bed.
+--   2. To a bay: THE PLAYER SENDS IT (simple-start design §2; memory-20261117-006, Joshua: "you do it"). A walk-in
+--      stays on its seat until it is sent. While it waits it carries a "Send" prompt (SendPrompt, on the patient
+--      itself; anyone who may work the clinic, Plots.canWork). One press sends it to the nearest free bay that fits
+--      it (Logic/Routing.pickBay: an X-ray case only the X-ray bay, every other case only an exam bay; a usable bay
+--      is an ExamBay_<id> under the Building or Rooms whose Logic/Building.bayOpen holds) through U.callToBay; no
+--      free bay: the toast "All bays are busy!"; no usable place of its kind at all (Logic/Routing.hasKind): it goes
+--      home kindly, "No place for it today!", no penalty. From Lv 3, with the X-ray bay open (Logic/Routing.needsChoice), the
+--      prompt opens a two-button card on the client instead ("🩺 Exam bay" / "📸 X-ray": UI/SendCard) and the pick
+--      comes by the SendPatient RemoteEvent (U.onSendRemote checks everything); a wrong pick is a gentle toast and
+--      the patient stays seated, no penalty. The tick sends nobody by itself, except (U.autoCall): a 🚑/🚁 patient
+--      (at once, straight from its door), a patient that was sent before and whose bay closed under it, and, with a
+--      Receptionist on duty (Nurses.reception), each walk-in that has sat K.RECEPTION_SECONDS, one at a time
+--      K.RECEPTION_GAP apart (U.receptionSend). Sent, it gets up, walks there (Logic/Building.path: round the walls
+--      and through open doors, never a shut one) and sits on the bay's Bed.
 --   3. Examine. The bay's BayPrompt (on its DoctorSpot, tag TreatPrompt) says "Examine": Treatment.open Kind "Exam"
 --      with Tools (Logic/Visit.examTools: 3 unlocked tools, the right one among them), Answer, Glow
 --      (Logic/Visit.glow: the player's first Config.Visit.ExamsGlow exams by their own saved count Stats.Exams, never
@@ -148,6 +158,10 @@
 --   ExamBay_<id>.DoctorSpot.BayPromptAt.BayPrompt (tag TreatPrompt, attribute Bay): enabled only while a patient sits
 --     on that bay's bed needing the doctor and nobody is playing with it; ActionText "Examine" or "Treat"; ObjectText
 --     its symptom or case icon.
+--   patient Model: <Root>.SendPromptAt.SendPrompt (tag TreatPrompt, attributes VisitId and Choice): enabled only
+--     while that patient waits in the waiting room to be sent; ActionText "Send"; ObjectText its symptom. Choice =
+--     true: the client opens the two-button card and fires the SendPatient remote (VisitId, "Exam" | "XRay");
+--     false: the press itself sends it.
 --
 -- Movement: no Humanoids, no physics. A creature is one anchored Root with its parts welded on (CreatureBuilder).
 -- The server never moves a creature every frame (the creature motion contract): each hop, shake, droop and
@@ -230,7 +244,10 @@ K.REPEAT_WEIGHT = 0.35 -- the same patient twice in a row is less likely
 K.TUTORIAL_STATION = { First = "Remedy", Second = "Plaster" } :: { [string]: string }
 K.TUTORIAL_WING = "Starter"
 
-K.PROMPT_DISTANCE = 8 -- a bay's prompt reaches this far (the next bay's DoctorSpot is 6.5 away; the nearest shows)
+K.PROMPT_DISTANCE = 9 -- a waiting patient's own Send prompt (it hangs on the patient)
+-- A bay's Examine prompt, on its DoctorSpot (inside the bay): the bay's mouth and the bed's foot, and nothing through
+-- a wall (Logic/Building.BAY_PROMPT_REACH, tests/Prompts.spec). The next bay's DoctorSpot is BAY_WIDTH (9.5) away.
+K.BAY_PROMPT_DISTANCE = Building.BAY_PROMPT_REACH
 K.PROMPT_HEIGHT = 2.6 -- studs above the floor
 K.DISTANCE_SLACK = 6 -- lag allowance on the server's own distance check
 K.TREAT_COOLDOWN = 0.3 -- per player
@@ -241,8 +258,20 @@ K.ITEM_PATIENCE = Config.Treat.ItemPatience -- each plan step given (and the exa
 K.BAY_REFILL = math.clamp(tonumber(Config.Visit and (Config.Visit :: any).BayRefill) or 1, 0, 1)
 K.ROOM_BED_FOOT = 1.6 -- a room bed's foot spot: this far past the mattress (as a ward bed's)
 K.CHECK_IN_SECONDS = 0.6 -- a patient stands at reception this long before it sits down
--- ... and sits in the waiting room at least this long before it's called to a bay, even with one free (Pure.mayCall)
+-- ... and sits in the waiting room at least this long before a Receptionist sends it (the player may send it as
+-- soon as it has settled: Config.Visit.SeatSeconds)
 K.SEAT_SECONDS = math.max(tonumber(Config.Visit and (Config.Visit :: any).SeatSeconds) or 3, 0)
+-- Sending (Logic/Routing, in K: the local limit). A Receptionist on duty sends a walk-in that has sat this long (never
+-- sooner than SEAT_SECONDS), one at a time this far apart.
+K.Routing = require(Shared.Logic.Routing)
+K.RECEPTION_SECONDS = math.max(
+	tonumber(Config.Visit and (Config.Visit :: any).ReceptionSeconds) or K.Routing.RECEPTION_WAIT,
+	K.SEAT_SECONDS
+)
+K.RECEPTION_GAP = math.max(tonumber(Config.Visit and (Config.Visit :: any).ReceptionGap) or K.Routing.RECEPTION_GAP, 0)
+K.SEND_COOLDOWN = 0.3 -- per player, the Send prompt and the SendPatient remote alike
+K.DENIED_COOLDOWN = 2 -- per player: the "ask the owner" toast for a press at a clinic they may not work
+K.SEND_REMOTE = "SendPatient" -- its name for the rate limit (Remotes.allow)
 K.URGENT_HEAD = 1e6 -- seconds an urgent patient counts as having waited already: it takes the next free bay
 K.LAYOUT_SECONDS = 3 -- the bays, stations and ward beds are looked up again at least this often
 K.RAY_UP = 3.5 -- the floor under a point is found with a ray from this far above that floor's slab
@@ -253,6 +282,8 @@ K.HOP_SECONDS = 0.3
 K.HOP_HEIGHT = 0.9
 K.LEAN = 0.14 -- radians forward at the top of a hop
 K.SIT_HEIGHT = 1.8 -- a hop onto (or off) a seat or a bed
+K.CreatureSize = require(Shared.Logic.CreatureSize) -- how a sitter fits a seat (seatFit; in K: the local limit)
+K.SEAT_BACK = 0.6 -- a chair back's thickness (HospitalBuilder Pure.SEAT.Back; tests/Sit.spec keeps them equal)
 K.SIT_SECONDS = 0.45
 K.RING_STEPS = 48 -- the ring moves in 7.5 degree steps, so it replicates a few times a second at most
 K.PATIENCE_STEPS = 20 -- the PatienceFraction attribute moves in 0.05 steps (about 20 changes in a whole wait)
@@ -350,6 +381,7 @@ type PlotState = {
 	ForceUrgent: { string }, -- the admin panel's calls ("AE" | "VIP"), first come first
 	PausedUntil: number, -- os.clock(): a Calm Song pauses every patience ring until then
 	LiftBusy: boolean, -- one ride at a time on this plot's lift
+	LastSent: number, -- os.clock() a Receptionist last sent a patient (the next one RECEPTION_GAP later)
 }
 
 type Patient = {
@@ -392,6 +424,8 @@ type Patient = {
 	-- bay may call it K.SEAT_SECONDS later (Pure.mayCall). Kept all visit: one whose bay closed needn't sit again
 	SeatedAt: number?,
 	BaySince: number, -- os.clock() it sat on its bay bed: who is the front patient
+	Sent: boolean, -- it was sent to a bay once (a player, a Receptionist): if that bay closes, the tick re-sends it
+	Send: ProximityPrompt?, -- its own "Send" prompt (on while it waits to be sent)
 	Seat: number?,
 	OnSeat: boolean,
 	Bay: string?,
@@ -745,6 +779,20 @@ function Pure.eligible(case: any, plotState: any): boolean
 	end
 	local kind = if case.Tool == Visit.XRAY then "XRay" else "Exam"
 	return type(plotState.Bays) == "table" and plotState.Bays[kind] == true
+end
+
+-- The case a regular (a Data/Regulars row) brings to this clinic: its own fixed Case when the clinic can treat it,
+-- or one from its wing's pool for a row without a case. nil = it can't be treated here, so the regular isn't due
+-- yet (Logic/Story.nextDue's `can`): Dizzy Comet's Bumped head is a Lv 2 case.
+function Pure.regularCase(regular: any, plotState: any, roll: number): string?
+	if type(regular) ~= "table" then
+		return nil
+	end
+	local caseId = regular.Case
+	if type(caseId) ~= "string" then
+		return Pure.pickCase(regular.Wing, plotState, roll)
+	end
+	return if Pure.eligible(rawget(Cases :: any, caseId), plotState) then caseId else nil
 end
 
 -- A wing's case pool (Data/Cases.POOLS; a wing without one uses the Starter pool).
@@ -1327,7 +1375,8 @@ local function scanLayout(state: PlotState, building: Instance?, key: string, no
 			}
 		end
 	end
-	-- The stations: a Station_<id> Part by contract (a kit room may use a Model), open unless it says Open = false.
+	-- The stations: a Station_<id> Part by contract (a kit may use a Model), open unless it says Open = false (the
+	-- pantry's Station_Cocoa and Station_Bath say so until their room is owned: Server/HospitalBuilder.syncStations).
 	local inBuilding = false
 	for _, holder in { building, rooms } do
 		if holder then
@@ -1343,9 +1392,10 @@ local function scanLayout(state: PlotState, building: Instance?, key: string, no
 		end
 	end
 	if not inBuilding then
-		-- A Building without Station_ parts (a kit one, or one still being built): its stations by the numbers.
+		-- A Building without Station_ parts (a kit one, or one still being built): its stations by the numbers (the
+		-- pantry's Cocoa and Bath with the rooms the save owns).
 		for stationId in Building.STATIONS do
-			if Building.stationOpen(stationId, state.Level) then
+			if Building.stationOpen(stationId, state.Level, state.Rooms) then
 				layout.Stations[stationId] = true
 			end
 		end
@@ -1379,6 +1429,49 @@ local function bayUsable(state: PlotState, bayId: string): boolean
 	return spot ~= nil and spot.Model.Parent ~= nil and Building.bayOpen(spot.Info, state.Level, state.Rooms)
 end
 
+-- The places a patient can be sent to, for Logic/Routing: every usable bay in Logic/Building.BAYS order, Free = empty.
+function U.places(state: PlotState): { { Id: string, Kind: string, X: number, Z: number, Free: boolean } }
+	local out = {}
+	for _, info in Building.BAYS do
+		if bayUsable(state, info.Id) then
+			table.insert(
+				out,
+				{ Id = info.Id, Kind = info.Kind, X = info.X, Z = info.Z, Free = state.BayOf[info.Id] == nil }
+			)
+		end
+	end
+	return out
+end
+
+-- A patient's own "Send" prompt, made once as it comes (off until it waits to be sent: refreshPrompts). Tagged
+-- TreatPrompt, so UI/PromptFilter shows it only to those who may work this clinic; the server checks again
+-- (U.onSendPrompt).
+function U.sendPrompt(state: PlotState, p: Patient): ProximityPrompt
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "SendPromptAt"
+	attachment.Parent = p.Root
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "SendPrompt"
+	prompt.ActionText = K.Routing.TEXT.Action
+	prompt.ObjectText = p.Symptom
+	prompt.HoldDuration = 0 -- a tap: no precision timing
+	prompt.MaxActivationDistance = K.PROMPT_DISTANCE
+	prompt.RequiresLineOfSight = false
+	prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
+	prompt.Enabled = false
+	prompt:SetAttribute("VisitId", p.Id)
+	prompt:SetAttribute("Choice", false)
+	prompt:AddTag("TreatPrompt")
+	prompt.Parent = attachment
+	local plot, visitId = state.Plot, p.Id
+	prompt.Triggered:Connect(function(player: Player)
+		U.onSendPrompt(plot, visitId, player)
+	end)
+	return prompt
+end
+
 -- What this clinic can treat right now (Pure.eligible's plotState).
 local function plotView(state: PlotState): any
 	local bays = { Exam = false, XRay = false }
@@ -1390,15 +1483,88 @@ local function plotView(state: PlotState): any
 	return { Level = state.Level, Rooms = state.Rooms, Stations = state.Layout.Stations, Bays = bays }
 end
 
--- A seat's pose: on the seat (its WaitSeat_<n> marker, else the seat's top under its numbers), facing out.
-function U.seatPose(state: PlotState, index: number): CFrame
+-- How this creature sits (Logic/CreatureSize.seatFit's fit, in studs from its pivot at its size now): Hip = its
+-- Body's bottom, Body = how far its Body and Head reach back, Reach = how far any part but its tail reaches back (the
+-- client curls the tail up). A kit model with no Body: its whole box, sitting on its bottom. Its effects are not its
+-- body: a night creature's GlowRing pad (wider than the creature) pushed it forward off the chair (the Phase 0
+-- review); Feel/CreatureActing hides the pad while it sits.
+function U.sitFit(p: Patient): { Hip: number, Body: number, Reach: number, Tail: number? }
+	local fit: { Hip: number, Body: number, Reach: number, Tail: number? } = { Hip = 0, Body = 0, Reach = 0 }
+	local root = p.Root
+	local found = false
+	local core = p.Model:FindFirstChild("Core")
+	local tailJoint = if core then core:FindFirstChild("TailJoint") else nil
+	local curls = tailJoint ~= nil and tailJoint:IsA("Motor6D") -- a tail on its joint: the client curls it
+	-- the joint's pivot, from Root (CreatureBuilder: Core.TailJoint.C0 is the tail's root on Core)
+	local pivot = if curls
+		then root.CFrame:ToObjectSpace((core :: any).CFrame * (tailJoint :: any).C0).Position
+		else nil
+	for _, part in p.Model:GetDescendants() do
+		if
+			not part:IsA("BasePart")
+			or part == root
+			or part.Name == "Core"
+			or part.Name == "GlowRing"
+			or part.Transparency >= 1
+		then
+			continue
+		end
+		local rel = root.CFrame:ToObjectSpace(part.CFrame)
+		local _, y, z, _, _, _, r10, r11, r12, r20, r21, r22 = rel:GetComponents()
+		local size = part.Size
+		local back = z + (math.abs(r20) * size.X + math.abs(r21) * size.Y + math.abs(r22) * size.Z) / 2
+		if part.Name == "Body" or part.Name == "Head" then
+			fit.Body = math.max(fit.Body, back)
+			if part.Name == "Body" then
+				fit.Hip = y - (math.abs(r10) * size.X + math.abs(r11) * size.Y + math.abs(r12) * size.Z) / 2
+				found = true
+			end
+		end
+		if pivot and (part.Name == "Tail" or part.Name == "TailTip") then
+			-- curled up over its back: how far back it still reaches (it stops short of the chair back too)
+			local halfY = (math.abs(r10) * size.X + math.abs(r11) * size.Y + math.abs(r12) * size.Z) / 2
+			local curled = pivot.Z + K.CreatureSize.curlBack(y - pivot.Y, z - pivot.Z, halfY, back - z)
+			fit.Tail = math.max(fit.Tail or -math.huge, curled)
+		else
+			fit.Reach = math.max(fit.Reach, back)
+		end
+	end
+	if not found then
+		fit.Body = fit.Reach
+	end
+	return fit
+end
+
+-- A seat's pose for patient `p`: sitting on the seat (its WaitSeat_<n> marker, else the seat's top under its numbers)
+-- facing out of it into the room, its bottom on the seat top and its back against the chair back
+-- (Logic/CreatureSize.seatFit: a big creature sits further forward, so it never pokes through the back or the wall).
+function U.seatPose(state: PlotState, index: number, p: Patient): CFrame
 	local seat = Building.SEATS[index]
 	local dx, dz = Building.facing(seat.Face)
 	local marker = state.Layout.Seats[index]
 	local at = if marker and marker.Parent
 		then U.markerGround(marker).Position
 		else surface(state, U.worldAt(state, seat.X, seat.Z, 0), 0)
-	return facing(at, worldDir(state, dx, dz))
+	local half = Building.SEAT_SIZE / 2
+	local forward, drop = K.CreatureSize.seatFit(U.sitFit(p), { Cushion = half - K.SEAT_BACK, Wall = half })
+	return facing(at, worldDir(state, dx, dz)) * CFrame.new(0, -drop, -forward)
+end
+
+-- On its seat or not: OnSeat and the model's Seated attribute together (Feel/CreatureActing settles it into the sit
+-- while it's set: a little recline, its tail curled up). Every way off a seat comes through here.
+function U.setSeated(p: Patient, on: boolean)
+	p.OnSeat = on
+	p.Model:SetAttribute("Seated", if on then true else nil)
+end
+
+-- Its seat is free for the next patient, but it still sits there (OnSeat and Seated stay: a sad patient droops on
+-- its chair until it puffs away; removePatient's freeSeat clears them with the model).
+function U.vacateSeat(p: Patient)
+	local seat = p.Seat
+	if seat and p.Plot.Seats[seat] == p then
+		p.Plot.Seats[seat] = nil
+	end
+	p.Seat = nil
 end
 
 -- On a bay bed (the Bed's top), facing its foot (the DoctorSpot).
@@ -1739,6 +1905,21 @@ local function refreshPrompts(state: PlotState)
 			prompt.ObjectText = icon
 		end
 	end
+	-- Each waiting patient's own "Send" prompt: on while it waits to be sent (Logic/Routing.waiting). Choice = the
+	-- client opens the two-button card first (Lv 3+, both kinds of place open).
+	local choice = K.Routing.needsChoice(state.Level, U.places(state))
+	for p in state.All do
+		local prompt = p.Send
+		if prompt then
+			local on = state.Active and K.Routing.waiting(p.Phase, p.Bay, p.Urgent)
+			if prompt.Enabled ~= on then
+				prompt.Enabled = on
+			end
+			if prompt:GetAttribute("Choice") ~= choice then
+				prompt:SetAttribute("Choice", choice)
+			end
+		end
+	end
 end
 
 -- QueueIndex on every patient, the plot's Front* / QueueNeeds attributes and the prompts follow the clinic. Cheap (a
@@ -1823,7 +2004,7 @@ local function ensurePrompts(state: PlotState)
 				prompt.ActionText = "Examine"
 				prompt.ObjectText = ""
 				prompt.HoldDuration = 0 -- a tap: no precision timing
-				prompt.MaxActivationDistance = K.PROMPT_DISTANCE
+				prompt.MaxActivationDistance = K.BAY_PROMPT_DISTANCE
 				prompt.RequiresLineOfSight = false
 				prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
 				prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -1876,7 +2057,7 @@ local function freeSeat(p: Patient)
 		p.Plot.Seats[seat] = nil
 	end
 	p.Seat = nil
-	p.OnSeat = false
+	U.setSeated(p, false)
 end
 
 local function freeBay(p: Patient)
@@ -2220,7 +2401,7 @@ local function getUp(p: Patient): boolean
 		local info = Building.SEATS[seat]
 		local front = Building.seatFront(info)
 		local dx, dz = Building.facing(info.Face)
-		p.OnSeat = false
+		U.setSeated(p, false)
 		local at = surface(state, U.worldAt(state, front.X, front.Z, 0), 0)
 		if not hop(p, facing(at, worldDir(state, dx, dz)), K.SIT_HEIGHT, K.SIT_SECONDS) then
 			return false
@@ -2443,12 +2624,12 @@ local function arrive(p: Patient): boolean
 end
 
 -- To its seat (Joshua, 2026-11-17: "when the patient first arrives, he should sit down at the chair"): a walk-in
--- sits down first, even with a bay free, and a bay calls it no sooner than Config.Visit.SeatSeconds after it sat
--- (Pure.mayCall in assignBays; patience drains at the waiting room's rate meanwhile). The free bays are handed out
--- here and now to those who may go (the same rule as every tick: the longest wait first), so a 🚑 patient goes from
--- the A&E door straight to its bay and a 🚁 one from the lift to the X-ray bay, and one whose bay closed (it sat
--- once already) takes another free bay without sitting again; it gets up first. No free seat: it waits standing
--- where it is (settled from then on).
+-- sits down first, even with a bay free, and stays there until it is sent (the player's Send, or a Receptionist:
+-- U.send; patience drains at the waiting room's rate meanwhile). The free bays are handed out here and now to the
+-- few the tick may call by itself (U.autoCall, the longest wait first), so a 🚑 patient goes from the A&E door
+-- straight to its bay and a 🚁 one from the lift to the X-ray bay, and one that was sent before and whose bay closed
+-- takes another free bay without sitting again; it gets up first. No free seat: it waits standing where it is
+-- (settled from then on, and it can be sent from there).
 local assignBays: (state: PlotState) -> ()
 local function findSeat(p: Patient): boolean
 	local state = p.Plot
@@ -2483,18 +2664,17 @@ local function findSeat(p: Patient): boolean
 			p.Phase = "ToBay"
 			return true
 		end
-		if not hop(p, U.seatPose(state, seat), K.SIT_HEIGHT, K.SIT_SECONDS) then
+		if not hop(p, U.seatPose(state, seat, p), K.SIT_HEIGHT, K.SIT_SECONDS) then
 			return false
 		end
-		p.OnSeat = true
-		p.NextIdle = os.clock() + rng:NextNumber(2.5, 4.5) -- it sits still a moment before its first little hop
+		U.setSeated(p, true) -- it sits still now: no idle hops on a seat (waitSeated)
 	end
 	if p.Phase ~= "Arriving" then
 		return alive(p)
 	end
 	p.Phase = "Seated"
 	if p.SeatedAt == nil then
-		p.SeatedAt = os.clock() -- settled: a bay may call it SEAT_SECONDS from now
+		p.SeatedAt = os.clock() -- settled: it can be sent from now (a Receptionist RECEPTION_SECONDS later)
 	end
 	setState(p, "Waiting")
 	if p.Regular and not p.Examined then
@@ -2504,7 +2684,8 @@ local function findSeat(p: Patient): boolean
 	return alive(p)
 end
 
--- In the waiting room (little hops now and then) until a bay is its, or it goes.
+-- In the waiting room until a bay is its, or it goes. On a seat it sits still (it may sit a long while: no hops, no
+-- drift; the client breathes and acts its ailment); one standing (every seat taken) hops a little now and then.
 local function waitSeated(p: Patient): boolean
 	while alive(p) and p.Phase == "Seated" do
 		if p.Bay then
@@ -2512,7 +2693,7 @@ local function waitSeated(p: Patient): boolean
 			break
 		end
 		local now = os.clock()
-		if now >= p.NextIdle then
+		if now >= p.NextIdle and not p.OnSeat then
 			local low = p.Patience / p.PatienceMax < 0.3 -- impatient: bouncier
 			p.NextIdle = now + (if low then rng:NextNumber(0.8, 1.4) else rng:NextNumber(2.5, 4.5))
 			if not hop(p, p.Pivot, if low then 0.35 else 0.5, 0.3) then
@@ -3185,7 +3366,7 @@ local function nearBay(player: Player, state: PlotState, bayId: string): boolean
 	if not (root and root:IsA("BasePart")) then
 		return false
 	end
-	return (root.Position - U.spotWorld(state, bayId)).Magnitude <= K.PROMPT_DISTANCE + K.DISTANCE_SLACK
+	return (root.Position - U.spotWorld(state, bayId)).Magnitude <= K.BAY_PROMPT_DISTANCE + K.DISTANCE_SLACK
 end
 
 onBayPrompt = function(plot: Plot, bayId: string, player: Player)
@@ -3459,6 +3640,8 @@ local function spawnPatient(
 		Since = math.huge,
 		SeatedAt = nil,
 		BaySince = math.huge,
+		Sent = false,
+		Send = nil,
 		Seat = nil,
 		OnSeat = false,
 		Bay = nil,
@@ -3544,6 +3727,9 @@ local function spawnPatient(
 	model:SetAttribute("Station", "")
 	model:SetAttribute("Bay", "")
 	model:SetAttribute("QueueIndex", 0)
+	if urgentKind == "" then
+		p.Send = U.sendPrompt(state, p) -- a walk-in is sent by hand; a 🚑/🚁 patient goes straight to a bay
+	end
 	-- PivotTo, not root.CFrame: the model isn't in Workspace yet, so its welds aren't live and the body would stay
 	-- behind at the origin (each weld then locks in that gap when the model is parented in).
 	model:PivotTo(start)
@@ -3627,25 +3813,19 @@ local function trySpawn(state: PlotState, plan: string)
 	-- 1. A regular whose story beat is due (never the very first patient: that one teaches the loop). Story reserves
 	--    whoever it names, so it's only asked when there's room, and whoever it names comes. Their own case.
 	if guests and state.Spawned >= 1 then
-		local ok, regular = pcall(Story.dueRegular, owner)
+		-- Story only names a regular whose case this clinic can treat (Pure.regularCase): the others aren't due yet.
+		local ok, regular = pcall(Story.dueRegular, owner, function(regularId: string): boolean
+			return Pure.regularCase(rawget(RegularsData :: any, regularId), view, 0) ~= nil
+		end)
 		if not ok then
 			report("Story.dueRegular", regular)
 		elseif type(regular) == "string" then
 			local entry: any = rawget(RegularsData :: any, regular)
-			local caseId = if type(entry) == "table" then entry.Case else nil
-			if type(entry) == "table" and type(caseId) ~= "string" then
-				caseId = Pure.pickCase(entry.Wing, view, rng:NextNumber()) -- (a regular row without its own case)
-			end
-			if
-				not (
-					type(entry) == "table"
-					and type(caseId) == "string"
-					and Pure.eligible(rawget(Cases :: any, caseId), view)
-				)
-			then
+			local caseId = Pure.regularCase(entry, view, rng:NextNumber())
+			if not caseId then
 				report("regular " .. regular, "named by Story but its case can't be treated here")
 			elseif not U.hasGuest(state, regular, false) then -- (Story never names one who's already here)
-				spawnPatient(state, entry.Patient, regular, false, nil, cap, caseId :: string)
+				spawnPatient(state, entry.Patient, regular, false, nil, cap, caseId)
 				return
 			end
 		end
@@ -3946,16 +4126,25 @@ local function refreshLayout(state: PlotState, now: number)
 	end
 end
 
--- Whether a bay may call this patient now: checked in and waiting (on its seat, standing in the waiting room, or
--- still walking there), with no bay yet, and Pure.mayCall (it has sat SEAT_SECONDS; a 🚑/🚁 one at once).
+-- Whether a bay may take this patient now: checked in and waiting (on its seat, standing in the waiting room, or
+-- still walking there), with no bay yet, and settled in the waiting room once (Pure.mayCall: SeatedAt; a 🚑/🚁 one at
+-- once). WHO sends it is the caller's rule: a player's Send (U.send), a Receptionist (U.receptionSend) or the tick's
+-- own short list (U.autoCall).
 function U.canCall(p: Patient, now: number): boolean
 	return p.Bay == nil
 		and (p.Phase == "Seated" or (p.Phase == "Arriving" and p.CheckedIn))
-		and Pure.mayCall(now, p.SeatedAt, p.Urgent ~= "", K.SEAT_SECONDS)
+		and Pure.mayCall(now, p.SeatedAt, p.Urgent ~= "", 0)
 end
 
--- THE step from the waiting room to a bay: calls patient `p` to bay `bayId`. Today the tick (assignBays) is its only
--- caller; it checks everything itself, so a player's tap may call it too (any input: false = nothing changed). The
+-- The only patients the tick calls to a bay by itself (Logic/Routing.auto): a 🚑/🚁 one, and one that was sent before
+-- (its bay closed under it). A walk-in nobody has sent yet stays on its seat.
+function U.autoCall(p: Patient, now: number): boolean
+	return K.Routing.auto(p.Urgent, p.Sent) and U.canCall(p, now)
+end
+
+-- THE step from the waiting room to a bay: calls patient `p` to bay `bayId`. Its callers: a player's Send (U.send),
+-- a Receptionist (U.receptionSend) and the tick's own short list (assignBays). It checks everything itself (any
+-- input: false = nothing changed). The
 -- patient is this plot's and U.canCall holds; the bay is built, open and empty (bayUsable) and fits its case
 -- (Logic/Visit.nextForBay: an X-ray case only the X-ray bay, every other case only an exam bay). Never yields: the
 -- patient's own thread gets it up and walks it there (waitSeated -> goToBay; one still walking to its seat turns
@@ -3972,6 +4161,7 @@ function U.callToBay(state: PlotState, p: Patient, bayId: string): boolean
 		return false
 	end
 	p.Bay = bayId
+	p.Sent = true
 	state.BayOf[bayId] = p
 	p.Model:SetAttribute("Bay", bayId)
 	if p.Phase == "Seated" then
@@ -3980,8 +4170,158 @@ function U.callToBay(state: PlotState, p: Patient, bayId: string): boolean
 	return true
 end
 
--- The automatic call (every tick, and as a patient checks in): each usable empty bay calls the patient who has waited
--- longest and fits it (Pure.assign), among those U.canCall allows, through U.callToBay.
+-- Sends waiting patient `p` to the nearest free place that fits it (Logic/Routing.pickBay, from where it sits; through
+-- the tutorial's one-at-a-time steps the first in order, so the first patient takes bay 1). `choice`: the player's
+-- pick on the two-button card ("Exam" | "XRay"), nil for a plain press or a Receptionist. Returns (sent, toast?): a
+-- wrong pick or no free place sends nobody and changes nothing (no penalty: it stays seated). When the clinic has
+-- no usable place of its kind at all (an X-ray case seated as the X-ray bay stopped being usable), "All bays are
+-- busy!" would be untrue and it would sit until its patience ran out: it goes home kindly instead (goHome: no
+-- penalty, a regular comes back another time), with a toast that says so.
+function U.send(state: PlotState, p: Patient, choice: string?): (boolean, string?)
+	if not K.Routing.waiting(p.Phase, p.Bay, p.Urgent) then
+		return false, nil
+	end
+	local kind = K.Routing.kindFor(p.Case.Tool)
+	local places = U.places(state)
+	if not K.Routing.hasKind(places, kind) then
+		goHome(state, p)
+		return false, K.Routing.TEXT.NoPlace
+	end
+	if choice ~= nil then
+		local right, correction = K.Routing.check(choice, kind)
+		if not right then
+			return false, correction
+		end
+	end
+	local from: Point? = nil
+	if U.tutorialAsk("queueCap", nil, state.Owner) == nil then
+		from = U.localOf(state, p.Pivot.Position)
+	end
+	local bayId = K.Routing.pickBay(places, kind, from)
+	if not bayId or not U.callToBay(state, p, bayId) then
+		return false, K.Routing.TEXT.Busy
+	end
+	return true, nil
+end
+
+U.lastSend = {} :: { [Player]: number } -- os.clock() of each player's last press (cleared when they leave)
+
+U.lastDenied = {} :: { [Player]: number } -- os.clock() of each player's last "ask the owner" toast
+
+-- A worker's press, from the Send prompt or the SendPatient remote: one every SEND_COOLDOWN per player; the player may
+-- work this clinic (Plots.canWork: the owner, a friend, or anyone with OpenHelpers), the patient is this clinic's and
+-- still waiting to be sent, and the player stands by it. Returns the patient, or nil (with a toast where it helps).
+-- Only a press that passes all of that spends the cooldown: a press that was never going to send anyone (a patient
+-- just sent, one out of reach) no longer swallows the next press on the patient beside it. The checks before the
+-- cooldown are cheap and change nothing; the locked-out toast has its own limit, and the remote has Remotes.allow.
+function U.mayPress(player: Player, state: PlotState?, visitId: any): Patient?
+	if not state or not state.Active or type(visitId) ~= "number" then
+		return nil
+	end
+	local now = os.clock()
+	if now - (U.lastSend[player] or 0) < K.SEND_COOLDOWN then
+		return nil
+	end
+	if not Plots.canWork(player, state.Plot) then
+		if now - (U.lastDenied[player] or 0) >= K.DENIED_COOLDOWN then
+			U.lastDenied[player] = now
+			Remotes.toast(player, "🔒 Ask the owner to open up!")
+		end
+		return nil
+	end
+	local p = state.ById[visitId]
+	if not p or not K.Routing.waiting(p.Phase, p.Bay, p.Urgent) then
+		return nil
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (root and root:IsA("BasePart")) then
+		return nil
+	end
+	if (root.Position - p.Pivot.Position).Magnitude > K.PROMPT_DISTANCE + K.DISTANCE_SLACK then
+		return nil
+	end
+	U.lastSend[player] = now -- a real press: the next one waits SEND_COOLDOWN
+	return p
+end
+
+-- The Send prompt was pressed. With one kind of place it sends the patient now; with two (Lv 3+) the client's card
+-- asks which place first and the pick comes by the SendPatient remote, so this press does nothing.
+function U.onSendPrompt(plot: Plot, visitId: number, player: Player)
+	local state = active[plot]
+	if not state or K.Routing.needsChoice(state.Level, U.places(state)) then
+		return
+	end
+	local p = U.mayPress(player, state, visitId)
+	if p then
+		local _, message = U.send(state, p, nil)
+		if message then
+			Remotes.toast(player, message)
+		end
+		refreshFront(state)
+	end
+end
+
+-- The SendPatient RemoteEvent (client -> server; UI/SendCard): (visitId, choice). Nothing the client says is trusted:
+-- the rate limit (Remotes.allow), the types (a whole number and one of the two strings), then U.mayPress (the player
+-- may work the clinic that patient is at, it is still waiting, the player stands by it) and Logic/Routing.check.
+function U.onSendRemote(player: Player, visitId: any, choice: any)
+	if not Remotes.allow(player, K.SEND_REMOTE) then
+		return
+	end
+	if type(visitId) ~= "number" or visitId ~= visitId or visitId % 1 ~= 0 or not K.Routing.isChoice(choice) then
+		return
+	end
+	local state: PlotState? = nil
+	for _, candidate in active do
+		if candidate.ById[visitId] then
+			state = candidate
+			break
+		end
+	end
+	local p = U.mayPress(player, state, visitId)
+	if state and p then
+		local _, message = U.send(state, p, choice)
+		if message then
+			Remotes.toast(player, message)
+		end
+		refreshFront(state)
+	end
+end
+
+-- "Nurses help later": with a Receptionist on duty (Nurses.reception), each walk-in that has sat RECEPTION_SECONDS is
+-- sent to the right kind of place, the longest wait first, one at a time RECEPTION_GAP apart
+-- (Logic/Routing.receptionistReady). One with no free place waits; the next may go. No Receptionist: nobody.
+function U.receptionSend(state: PlotState, now: number)
+	if not state.Receptionist.Triage then
+		return
+	end
+	local ready: { Patient } = {}
+	for p in state.All do
+		if
+			K.Routing.waiting(p.Phase, p.Bay, p.Urgent)
+			and K.Routing.receptionistReady(p.SeatedAt, now, state.LastSent, K.RECEPTION_SECONDS, K.RECEPTION_GAP)
+		then
+			table.insert(ready, p)
+		end
+	end
+	table.sort(ready, function(a: Patient, b: Patient): boolean
+		if a.Since ~= b.Since then
+			return a.Since < b.Since
+		end
+		return a.Id < b.Id
+	end)
+	for _, p in ready do
+		if U.send(state, p, nil) then
+			state.LastSent = now
+			return
+		end
+	end
+end
+
+-- The tick's own call (every tick, and as a patient checks in), only for those U.autoCall allows (a 🚑/🚁 patient; one
+-- sent before whose bay closed): each usable empty bay calls the one who has waited longest and fits it (Pure.assign),
+-- through U.callToBay. Walk-ins wait for the player's Send (or a Receptionist).
 assignBays = function(state: PlotState)
 	local free: { { Id: string, Kind: string } } = {}
 	for _, info in Building.BAYS do
@@ -3995,7 +4335,7 @@ assignBays = function(state: PlotState)
 	local now = os.clock()
 	local waiting: { any } = {}
 	for p in state.All do
-		if U.canCall(p, now) then
+		if U.autoCall(p, now) then
 			table.insert(waiting, { Id = p.Id, Since = p.Since, Tool = p.Case.Tool })
 		end
 	end
@@ -4015,7 +4355,7 @@ local function makeSad(state: PlotState, p: Patient)
 		return
 	end
 	p.Phase = "Sad"
-	freeSeat(p) -- the seat and the bay are free for the next one at once; it puffs away where it sits
+	U.vacateSeat(p) -- the seat and the bay are free for the next one at once; it puffs away where it sits (Seated)
 	freeBay(p)
 	local regular = p.Regular
 	local storyLeft = (Story :: any).left -- a regular who leaves untreated comes back later (Story's extra)
@@ -4068,6 +4408,7 @@ local function tick(state: PlotState, now: number, dt: number)
 	refreshLayout(state, now)
 	tickPatience(state, dt)
 	assignBays(state)
+	U.receptionSend(state, now)
 	-- The waiting room holds the level's line (never past Config.MaxQueue); the tutorial's cap counts everyone whose
 	-- plan isn't done (one at a time). A higher level refills it sooner (spawnSeconds) and opens more bays.
 	local tutorialCap = U.tutorialAsk("queueCap", nil, state.Owner)
@@ -4234,6 +4575,7 @@ local function activate(owner: Player, plot: Plot)
 		ForceUrgent = {},
 		PausedUntil = 0,
 		LiftBusy = false,
+		LastSent = -math.huge,
 	}
 	active[plot] = state
 	for _, name in FRONT_ATTRIBUTES do
@@ -4475,8 +4817,16 @@ function Patients.start()
 	Plots.PlotReleased:Connect(function(_owner: Player, plot: Plot)
 		deactivate(plot)
 	end)
+	Remotes.SendPatient.OnServerEvent:Connect(function(player: Player, visitId: any, choice: any)
+		local ok, err = pcall(U.onSendRemote, player, visitId, choice)
+		if not ok then
+			report("SendPatient", err)
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(player)
 		lastTreat[player] = nil
+		U.lastSend[player] = nil
+		U.lastDenied[player] = nil
 	end)
 	for _, plot in Plots.all() do
 		local owner = plot.Owner

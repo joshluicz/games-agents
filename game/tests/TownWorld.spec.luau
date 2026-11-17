@@ -15,6 +15,7 @@ local World = require("./worldmock")
 local Config = require("./config")
 local Look = require("./look")
 local UiRules = require("./uirules")
+local Icons = UiRules.Icons
 local BeltLogic = require("../src/shared/Logic/Belt")
 local NurseLogic = require("../src/shared/Logic/Nurse")
 local TutorialLogic = require("../src/shared/Logic/Tutorial")
@@ -29,9 +30,9 @@ local BASE_TOP = 0.3 -- TownBuilder's lawn top above the origin (TownLayout.spec
 local STREET_TOP = BASE_TOP + 0.2
 -- World positions are float32 (Roblox Vector3): compare them to about a thousandth of a stud.
 local TOL = 1e-3
--- PlotBuilder's town: 110-stud plots (the Real Clinic) 8 apart (PLOT_GAP), so the columns stand PITCH (118) apart and
--- the street (and the lawn) runs x -STREET_END..STREET_END (197). The belt runs x -180..180 (Config.Belt); its lane
--- reaches its end rollers, 1.5 past each end.
+-- PlotBuilder's town: 140-stud plots (the bigger, open clinic) 8 apart (PLOT_GAP), so the columns stand PITCH (148)
+-- apart and the street (and the lawn) runs x -STREET_END..STREET_END (242). The belt runs x -220..220 (Config.Belt);
+-- its lane reaches its end rollers, 1.5 past each end.
 local PITCH = Config.Town.PlotSize + 8
 local STREET_END = (math.ceil(Config.Town.Plots / 2) * PITCH + 40) / 2
 local BELT_END = Config.Belt.Offset.X + 1.5
@@ -113,7 +114,7 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 	local plots = Pure.plotRects(Config.Town.Plots, size, half, gap)
 	local tiles = Pure.checker(regions)
 
-	test("the plots are where PlotBuilder puts them: x -118 / 0 / 118, rows at z 18..128 either side", function()
+	test("the plots are where PlotBuilder puts them: x -148 / 0 / 148, rows at z 18..158 either side", function()
 		expect(#plots).toBe(6)
 		local xs = {}
 		for _, r in plots do
@@ -122,7 +123,8 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 			expect(math.abs((r.Z0 + r.Z1) / 2)).toBe(half + size / 2)
 		end
 		expect(xs).toEqual({ -PITCH, 0, PITCH, -PITCH, 0, PITCH })
-		expect(PITCH).toBe(118)
+		expect(PITCH).toBe(148)
+		expect(STREET_END).toBe(242)
 	end)
 
 	test("the regions never reach the street or a plot, and stay on the lawn", function()
@@ -389,7 +391,7 @@ T.describe("The built town (Surface mode)", function()
 					expect(math.abs((e.Z0 + e.Z1) / 2) > 12).toBe(true)
 				else
 					crossings += 1
-					expect(math.abs(math.abs((e.X0 + e.X1) / 2) - PITCH) < TOL).toBe(true) -- the crossings at x +-118
+					expect(math.abs(math.abs((e.X0 + e.X1) / 2) - PITCH) < TOL).toBe(true) -- the crossings at x +-148
 				end
 			end
 		end
@@ -505,7 +507,7 @@ T.describe("The built town (Surface mode)", function()
 		end
 	end)
 
-	test("the street lamps (x +-59, z +-16.4) are dark posts with NightLights heads", function()
+	test("the street lamps (x +-74, z +-16.4) are dark posts with NightLights heads", function()
 		local found = 0
 		for _, d in town:GetDescendants() do
 			if d.ClassName == "Model" and d.Name == "Lamp" then
@@ -526,7 +528,7 @@ T.describe("The built town (Surface mode)", function()
 		for _, p in parts do
 			if p.Name == "ArchBeam" then
 				local e = extent(world, p)
-				expect(math.abs(math.abs((e.X0 + e.X1) / 2) - (STREET_END - 5)) < TOL).toBe(true) -- the arches at x +-192
+				expect(math.abs(math.abs((e.X0 + e.X1) / 2) - (STREET_END - 5)) < TOL).toBe(true) -- the arches at x +-237
 				for _, gui in p:GetChildren() do
 					if gui.ClassName == "SurfaceGui" then
 						guis += 1
@@ -655,7 +657,7 @@ T.describe("World/Props: the shared scenery pieces", function()
 		local kiosk = Props.kiosk(holder(), at, {
 			Name = "TestKiosk",
 			Title = "🏢 AGENCY",
-			Lines = { "🔄 New nurses every 5 min" },
+			Lines = { "New nurses every 5 min" },
 			Accent = Palette.Accent.Cyan,
 		})
 		local list = world.parts(kiosk.Model)
@@ -685,7 +687,7 @@ T.describe("World/Props: the shared scenery pieces", function()
 			end
 		end
 		expect(table.find(texts, "🏢 AGENCY") ~= nil).toBe(true)
-		expect(table.find(texts, "🔄 New nurses every 5 min") ~= nil).toBe(true)
+		expect(table.find(texts, "New nurses every 5 min") ~= nil).toBe(true)
 		-- 7 x 4.5 footprint (tests/TownLayout.spec's KIOSK_WIDTH / KIOSK_DEPTH)
 		local base = kiosk.Model:FindFirstChild("Base")
 		expect({ base.Size.X, base.Size.Z }).toEqual({ 7, 4.5 })
@@ -704,7 +706,7 @@ T.describe("The Hall of Fame garden (BoardBuilder)", function()
 	local gantry = BoardBuilder.build(ids)
 	local model = gantry.Model
 
-	test("it stays past the street's west end (x < -197), off the street and clear of every plot", function()
+	test("it stays past the street's west end (x < -242), off the street and clear of every plot", function()
 		local plotBoxes = {}
 		for _, plot in world.Workspace:FindFirstChild("Clinics"):GetChildren() do
 			for _, p in world.parts(plot:FindFirstChild("Ground")) do
@@ -885,13 +887,16 @@ T.describe("BeltView: the odds popup and the UI rules", function()
 		for _, note in notes do
 			expect(words(note) <= 6).toBe(true)
 		end
-		expect(table.find(notes, "👑 Golden Hour: Secret 1%") ~= nil).toBe(true)
-		expect(table.find(notes, "🏥 Epic+ from Lv 3") ~= nil).toBe(true)
-		expect(table.find(notes, "🏢 Mythic/Secret from R1") ~= nil).toBe(true)
-		expect(table.find(notes, "🎁 Rare+ in 7") ~= nil).toBe(true)
+		expect(table.find(notes, "Golden Hour: Secret 1%") ~= nil).toBe(true)
+		expect(table.find(notes, "Epic+ from Lv 3") ~= nil).toBe(true)
+		expect(table.find(notes, "Mythic/Secret from R1") ~= nil).toBe(true)
+		expect(table.find(notes, "Rare+ in 7") ~= nil).toBe(true)
+		for _, note in notes do
+			expect(Icons.count(note)).toBe(0) -- plain words; the odds themselves are the rows above
+		end
 		local golden = VP.popupNotes(Config, order, true, true, 0)
-		expect(golden[1]).toBe("👑 Golden Hour now!")
-		expect(table.find(golden, "🎁 Rare+ next!") ~= nil).toBe(true)
+		expect(golden[1]).toBe("Golden Hour now!")
+		expect(table.find(golden, "Rare+ next!") ~= nil).toBe(true)
 	end)
 
 	test("BeltView follows the UI rules (no text under 18, Kit.textLimit, token corners, no header colour)", function()
@@ -901,18 +906,15 @@ T.describe("BeltView: the odds popup and the UI rules", function()
 		end
 	end)
 
-	test(
-		"the floating 🎲 chip is gone; the card's Quiet '🎲 Odds' and the sign's prompt open Hud.oddsPopup",
-		function()
-			local text = fs.readFile(World.find("src/client/UI/BeltView.luau"))
-			expect(string.find(text, 'Name = "BeltOddsChip"', 1, true)).toBeNil()
-			expect(string.find(text, "Hud.oddsPopup(", 1, true) ~= nil).toBe(true)
-			expect(string.find(text, 'Kind = "Quiet"', 1, true) ~= nil).toBe(true)
-			expect(string.find(text, '"🎲 Odds"', 1, true) ~= nil).toBe(true)
-			expect(string.find(text, "PromptTriggered", 1, true) ~= nil).toBe(true)
-			expect(string.find(text, "Hud.modal(", 1, true)).toBeNil() -- no odds popup of its own
-		end
-	)
+	test("the floating 🎲 chip is gone; the card's Quiet 'Odds' and the sign's prompt open Hud.oddsPopup", function()
+		local text = fs.readFile(World.find("src/client/UI/BeltView.luau"))
+		expect(string.find(text, 'Name = "BeltOddsChip"', 1, true)).toBeNil()
+		expect(string.find(text, "Hud.oddsPopup(", 1, true) ~= nil).toBe(true)
+		expect(string.find(text, 'Kind = "Quiet"', 1, true) ~= nil).toBe(true)
+		expect(string.find(text, 'Text = "Odds",', 1, true) ~= nil).toBe(true)
+		expect(string.find(text, "PromptTriggered", 1, true) ~= nil).toBe(true)
+		expect(string.find(text, "Hud.modal(", 1, true)).toBeNil() -- no odds popup of its own
+	end)
 end)
 
 ------------------------------------------------------------------------------------------------------------------

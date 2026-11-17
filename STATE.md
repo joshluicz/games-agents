@@ -3,7 +3,7 @@
 > Live state first, narrative second. New entries go at the **top** of `## Recent sessions`.
 
 ## Phase
-**Stage 0: Creature Clinic, live (16+) with Update 1; Update 2 "the Real Clinic" built and in Studio testing, unpublished** (2026-11-17). The concept moved from the shop sim to a creature clinic on
+**Stage 0: Creature Clinic, live (16+) with Update 1; Update 2 "the Real Clinic" built and in Studio testing, unpublished; the simple-start batch built in the cloud on `claude/simple-start`, awaiting Studio** (2026-11-18). The concept moved from the shop sim to a creature clinic on
 your own plot (`memory-20261116-003` to `-006`). Design: `docs/plan/2026-11-16-creature-clinic-design.md`. Build plan
 and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 are built, merged and ran in Studio
 (`logs/playtests/2026-11-16-clinic-first-studio-run.md`). Winter build private and playtested by about 7 Dec.
@@ -48,12 +48,12 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
       Rulings `-006` (simple start: you route patients, fewer places at Lv 1, cocoa to a pantry, a 1.5x bigger
       building with a see-through camera) and `-007` (calm UI, emoji rules) are recorded. UI direction:
       `docs/plan/2026-11-17-ui-direction.md`. Open-source research: `docs/research/2026-11-17-open-source-roblox.md`.
-- [ ] **Claude, next batch (`-006` + `-007`):**
-      - simple start (3 cases at Lv 1);
-      - tap a waiting patient to send it (`U.callToBay`);
-      - a pantry for cocoa and bath foam;
-      - the building about 1.5x bigger with Invisicam and low bay dividers;
-      - the UI rebuild (T0 foundation, then 5 tasks).
+- [x] **Claude (cloud), the next batch (`-006` + `-007` + Joshua's notes a-e) is built on `claude/simple-start`**
+      (`c18b514`, 1974 specs, unmerged, untested in Studio): patients sit, nurses' places, 3 cases at Lv 1, Send a
+      waiting patient, the pantry, the 96 x 66 building with a supply wall and an enclosed stairwell, Invisicam, the
+      calm UI with a HUD level bar. Handoff: `logs/2026-11-18-simple-start-handoff.md`.
+- [ ] **Claude (lead) + Joshua:** Studio-test `claude/simple-start` with the handoff's 15-point list, fix, then merge.
+      New questions: OPEN #13-17.
 - [ ] **Joshua:** the arrow image for the strip (optional): Claude makes the PNG, Joshua imports it in Asset Manager.
 - [ ] **Claude, still on the Real Clinic:**
       - the broken arm's timing by hand;
@@ -84,6 +84,16 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-17 → 18 (cloud, Claude + 22 agents, no Studio). The simple-start batch, on `claude/simple-start`.**
+  - Joshua's newest notes after playing: patients don't visibly sit; nurses stand in the middle of nowhere; the
+    supply alley is narrow; the Lv 1 stairs go into the ceiling and the doors are narrow; "how to level up... where to
+    see my level?".
+  - Phases, each green and adversarially reviewed: 0 sit + nurses' places; 1 simple start + the player sends
+    patients (Send prompt, Lv 3 card, Receptionist); 2 the pantry; 3 the 96 x 66 building (supply wall, enclosed
+    stairwell, 6-wide doors, low dividers, Invisicam, plot 140); 4 the calm UI (T0 + T1-T5 + integration; the HUD
+    level bar answers note e).
+  - 1637 → 1974 specs, 0 failed; stylua, selene, rojo clean. No saved id or field changed. Not merged, not published.
+  - Handoff with the Studio check list and risks: `logs/2026-11-18-simple-start-handoff.md`. Questions OPEN #13-17.
 - **2026-11-17 (night, Joshua's PC, Claude + 7 agents). Joshua's first-play notes.**
   - He sent 9 notes with screenshots: the medicine pick, sitting first, block-like stations, the hot-chocolate room,
     the arrows, glitchy stairs, low doors, purple flicker, cramped rooms, the cluttered UI and emojis.

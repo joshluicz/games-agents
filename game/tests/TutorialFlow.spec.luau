@@ -45,7 +45,10 @@ end
 
 local Server = block("src/server/Tutorial.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure", { Logic = Logic })
 local Way = block("src/client/UI/Wayfinder.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure")
-local Card = block("src/client/UI/Tutorial.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure")
+-- UI/Icons is a library with no requires (the chrome emoji dictionary): the card's block reads it from its
+-- environment, as the module reads its own upvalue.
+local Icons = require("../src/client/UI/Icons")
+local Card = block("src/client/UI/Tutorial.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure", { Icons = Icons })
 local GuidePure = block("src/client/UI/Guide.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure")
 local Visit = require("../src/shared/Logic/Visit")
 local Items = require("../src/shared/Data/Items")
@@ -821,6 +824,8 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 										Cures = if carrying then 2 else 0,
 										Total = Logic.MORE_CURES,
 										Shop = examined and atBay,
+										-- Nobody in a bay and one waiting to be sent (simple-start design §2).
+										Waiting = not atBay and bay == "1",
 									})
 								end
 							end
@@ -870,8 +875,18 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 			end
 			-- (1) welcome, Doctor
 			expect(w(1, "Keyboard").Title).toBe("WELCOME, DOCTOR!")
-			expect(w(1, "Keyboard").Sub).toBe("🤧 A patient is coming!")
-			expect(w(1, "Keyboard", { AtBay = true }).Sub).toBe("🤧 A patient in bay 1!")
+			expect(w(1, "Keyboard").Sub).toBe("A patient is coming!")
+			expect(w(1, "Keyboard", { AtBay = true }).Sub).toBe("A patient in bay 1!")
+			-- (1, still) simple start §2: the first patient sits in the waiting room until you send it. The same card
+			-- and the same saved step (no new step number): only the words change
+			expect(w(1, "Keyboard", { Waiting = true })).toEqual({
+				Title = "YOUR PATIENT IS WAITING",
+				Sub = "Walk over · Send",
+				Key = "Prompt",
+			})
+			expect(w(1, "Touch", { Waiting = true }).Sub).toBe("Walk over · tap Send")
+			expect(w(1, "Pad", { Waiting = true }).Key).toBe("Prompt")
+			expect(w(1, "Keyboard", { Waiting = true, AtBay = true }).Sub).toBe("A patient in bay 1!") -- sent
 			-- (2) a patient is in bay 1, tap Examine
 			expect(w(2, "Keyboard")).toEqual({
 				Title = "PATIENT IN BAY 1",
@@ -890,7 +905,7 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 			-- (4) the plan: get it from the shelf or the dispensary
 			expect(w(4, "Keyboard", { Item = "Plaster", Where = "Shelf" })).toEqual({
 				Title = "GET THE PLASTER",
-				Sub = "From the supply shelf · hold",
+				Sub = "From the supply wall · hold",
 				Key = "Prompt",
 			})
 			expect(w(4, "Keyboard", { Item = "Cough syrup", Where = "Dispensary" })).toEqual({
@@ -898,10 +913,8 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 				Sub = "At the dispensary · hold",
 				Key = "Prompt",
 			})
-			expect(w(4, "Touch", { Item = "Ice pack", Where = "Shelf" }).Sub).toBe("From the shelf · hold 👆")
-			expect(w(4, "Touch", { Item = "Ear drops", Where = "Dispensary" }).Sub).toBe(
-				"Dispensary · hold 👆 Dispense"
-			)
+			expect(w(4, "Touch", { Item = "Ice pack", Where = "Shelf" }).Sub).toBe("Supply wall · hold Take")
+			expect(w(4, "Touch", { Item = "Ear drops", Where = "Dispensary" }).Sub).toBe("Dispensary · hold Dispense")
 			expect(w(4, "Keyboard").Title).toBe("GET THE TREATMENT") -- the plan isn't on the patient yet
 			expect(w(4, "Keyboard", { Game = "Pick" }).Title).toBe("FIND THE BOTTLE!") -- the dispensing card is up
 			-- (5) tap Treat
@@ -917,13 +930,20 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 			-- (7) treat 3 more
 			expect(w(7, "Keyboard").Title).toBe("TREAT 3 MORE ○○○")
 			expect(w(7, "Keyboard", { Cures = 1 }).Title).toBe("TREAT 3 MORE ●○○")
-			expect(w(7, "Keyboard").Sub).toBe("🤕 New patient! Check its bubble")
+			expect(w(7, "Keyboard").Sub).toBe("New patient! Check its bubble")
 			expect(w(7, "Keyboard", { AtBay = true, Bay = "2" })).toEqual({
 				Title = "TREAT 3 MORE ○○○",
 				Sub = "Go to bay 2 · Examine",
 				Key = "Prompt",
 			})
 			expect(w(7, "Keyboard", { AtBay = true, Examined = true, Need = "🧴" }).Sub).toBe("It needs a 🧴!")
+			-- a patient waits to be sent and no bay needs you: send it (bay work always comes first)
+			expect(w(7, "Keyboard", { Waiting = true })).toEqual({
+				Title = "TREAT 3 MORE ○○○",
+				Sub = "Walk over · Send",
+				Key = "Prompt",
+			})
+			expect(w(7, "Keyboard", { Waiting = true, AtBay = true, Bay = "2" }).Sub).toBe("Go to bay 2 · Examine")
 			expect(w(7, "Keyboard", { AtBay = true, Examined = true, Carrying = true }).Sub).toBe(
 				"Back to bay 1 · Treat"
 			)
@@ -1015,11 +1035,13 @@ T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, 
 		end
 		expect(w(2).Sub).toBe("Tap Examine at bay 1")
 		expect(w(3, { Glow = true }).Sub).toBe("Tap the glowing tool!")
-		expect(w(4, { Where = "Dispensary" }).Sub).toBe("Hold 👆 Dispense")
-		expect(w(4, { Where = "Shelf" }).Sub).toBe("Hold 👆 at the shelf")
+		expect(w(4, { Where = "Dispensary" }).Sub).toBe("Hold Dispense")
+		expect(w(4, { Where = "Shelf" }).Sub).toBe("Hold Take at the wall")
 		expect(w(5).Sub).toBe("Tap Treat at bay 1")
 		expect(w(6).Sub).toBe("First patient treated!")
-		expect(w(7).Sub).toBe("🤕 Check its bubble")
+		expect(w(7).Sub).toBe("Check its bubble")
+		expect(w(1, { Waiting = true }).Sub).toBe("Tap Send on it")
+		expect(w(7, { Waiting = true }).Sub).toBe("Tap Send on it")
 		expect(w(7, { AtBay = true, Examined = true, Carrying = true }).Sub).toBe("Tap Treat at bay 1")
 		for cardNumber = 1, Logic.CARDS do
 			for _, extra in
@@ -1029,6 +1051,7 @@ T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, 
 					{ AtBay = true, Examined = true, Need = "🧴", Where = "Dispensary" },
 					{ AtBay = true, Examined = true, Carrying = true, Bay = "W1", Where = "Shelf" },
 					{ Glow = false, Where = "Room" },
+					{ Waiting = true },
 					{ Shop = true },
 				}
 			do
@@ -1056,9 +1079,9 @@ end)
 T.describe("Skip and Replay (the confirms; memory-20261117-002)", function()
 	test("Skip: the binding words, and 'Keep going' as the safe default", function()
 		expect(Card.SKIP).toEqual({
-			Title = "⏭️ Skip the tutorial?",
+			Title = "Skip the tutorial?",
 			Line = "You can replay it any time from ⚙️",
-			Yes = "⏭️ Skip",
+			Yes = "Skip",
 			No = "Keep going",
 		})
 		-- the one line past 6 words (look build plan §F11), on purpose
@@ -1067,9 +1090,9 @@ T.describe("Skip and Replay (the confirms; memory-20261117-002)", function()
 
 	test("Replay: its words, 'Not now' as the safe default", function()
 		expect(Card.REPLAY).toEqual({
-			Title = "🔁 Replay the tutorial?",
+			Title = "Replay the tutorial?",
 			Line = "Your waiting patients go home",
-			Yes = "🔁 Replay",
+			Yes = "Replay",
 			No = "Not now",
 		})
 		for _, text in { Card.REPLAY.Title, Card.REPLAY.Line, Card.SKIP.Title, Card.SKIP_CHIP } do
@@ -1274,5 +1297,154 @@ T.describe("T8's files follow the rules", function()
 			expect(string.find(text, "LEGO", 1, true)).toBeNil()
 			expect(string.find(text, "crossSign", 1, true)).toBeNil()
 		end
+	end)
+end)
+
+------------------------------------------------------------------------------------------------------------------
+-- T4 (the calm UI, play flow): the tutorial card in words, chrome icons from UI/Icons, the supply wall
+-- (UI direction §2 and §4 row 9; memory-20261117-007)
+------------------------------------------------------------------------------------------------------------------
+
+T.describe("T4: the tutorial's words are calm (UI direction §2)", function()
+	local Building = require("../src/shared/Logic/Building")
+	local stations = source("src/shared/Data/Stations.luau")
+	local text = source("src/client/UI/Tutorial.luau")
+
+	test("no card line opens with an emoji, and no line has two emoji except the Shop pointer", function()
+		local situations = {
+			{},
+			{ AtBay = true },
+			{ Waiting = true },
+			{ AtBay = true, Examined = true, Need = "🩹" },
+			{ AtBay = true, Examined = true, Carrying = true },
+			{ Item = "Plaster", Where = "Shelf" },
+			{ Item = "Cough syrup", Where = "Dispensary" },
+			{ Item = "Cast", Where = "Room" },
+			{ Shop = true },
+		}
+		for _, device in { "Keyboard", "Touch", "Pad" } do
+			for _, narrow in { false, true } do
+				for cardNumber = 1, Card.CARDS do
+					for _, extra in situations do
+						local s = table.clone(extra) :: any
+						s.Device = device
+						s.Narrow = narrow
+						local card = Card.words(cardNumber, s)
+						for _, line in { card.Title, card.Sub } do
+							local first = Icons.clusters(line)[1]
+							if first then
+								assert(string.sub(line, 1, #first) ~= first, "opens with an emoji: " .. line)
+							end
+							assert(not string.find(line, "👆", 1, true), "a gesture emoji in chrome: " .. line)
+							if not s.Shop then
+								assert(Icons.count(line) <= 1, "two emoji: " .. line)
+							end
+						end
+					end
+				end
+			end
+		end
+	end)
+
+	test("the Shop pointer names the Shop door from UI/Icons (Tap 🛒)", function()
+		expect(Card.words(7, { Device = "Touch", Shop = true }).Sub).toBe("Tap " .. Icons.Door.Shop .. " · buy a ⚡")
+		expect(Card.words(7, { Device = "Keyboard", Shop = true }).Sub).toBe(
+			"Click " .. Icons.Door.Shop .. " · buy a ⚡"
+		)
+		expect(Card.words(7, { Device = "Pad", Shop = true }).Sub).toBe("on " .. Icons.Door.Shop)
+		-- loaded with no Icons at all (another spec's loader), the words still stand
+		local bare = block("src/client/UI/Tutorial.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure")
+		expect(bare.words(7, { Device = "Pad", Shop = true }).Sub).toBe("on")
+		expect(bare.SKIP.Line).toBe("You can replay it any time from")
+	end)
+
+	test(
+		"confirm titles and buttons are words; the Skip line keeps its binding ⚙️ (Icons.Door.Settings)",
+		function()
+			for _, confirm in { Card.SKIP, Card.REPLAY } do
+				expect(Icons.count(confirm.Title)).toBe(0)
+				expect(Icons.count(confirm.Yes)).toBe(0)
+				expect(Icons.count(confirm.No)).toBe(0)
+			end
+			expect(Card.SKIP.Line).toBe("You can replay it any time from " .. Icons.Door.Settings)
+			expect(Card.SKIP_CHIP).toBe("Skip")
+			for name, line in Card.SAY do
+				expect(Icons.count(line) == 0 or name == "Nudge").toBe(true)
+			end
+		end
+	)
+
+	test("the finale's chips and the 'coming up' events wear UI/Icons' own icons", function()
+		expect(Card.FINALE.Chips).toEqual({
+			Icons.Door.Book .. " Collect them all",
+			Icons.Door.Goals .. " Daily goals",
+			Icons.Door.Nurses .. " Hire nurses",
+		})
+		local icons = {}
+		for _, candidate in Card.candidates(1000, 1720, false, 1200, 90) do
+			icons[candidate.Id] = candidate.Icon
+		end
+		expect(icons).toEqual({ Golden = Icons.Status.Golden, Night = Icons.Status.Night, Gift = Icons.Door.Gifts })
+	end)
+
+	test(
+		"card 4 says 'supply wall' for every station on it: the shelves, the hot chocolate and the bath foam",
+		function()
+			-- The card's SHELF set is Logic/Building's supply wall, not a hand list (Cocoa and Bath moved onto it).
+			local shelf = string.match(text, "local SHELF[^\n]*\n(.-)\nend")
+			assert(shelf, "SHELF is built from a loop")
+			assert(string.find(shelf, "BuildingLogic.SUPPLY_ORDER", 1, true), "SHELF reads Logic/Building.SUPPLY_ORDER")
+			for _, id in { "Plaster", "Ice", "Bandage", "Cocoa", "Bath" } do
+				expect(table.find(Building.SUPPLY_ORDER, id) ~= nil).toBe(true)
+				local row = string.match(stations, "\n%s*" .. id .. " = (%b{})")
+				assert(row and not string.find(row, "Dispense", 1, true), id .. " is a supply, not the dispensary")
+			end
+			-- the Remedy counter stands on the wall too, but it is the dispensary: that check comes first
+			local remedy = string.match(stations, "\n%s*Remedy = (%b{})")
+			assert(remedy and string.find(remedy, "Dispense = true", 1, true), "Remedy is the dispensary")
+			local look = string.match(
+				text,
+				'if type%(station%) == "table" and station.Dispense == true then.-SHELF%[stationId%]'
+			)
+			assert(look, "the Dispense check comes before the supply wall's")
+			for _, device in { "Keyboard", "Touch" } do
+				for _, narrow in { false, true } do
+					local sub =
+						Card.words(4, { Device = device, Narrow = narrow, Item = "Hot chocolate", Where = "Shelf" }).Sub
+					assert(string.find(string.lower(sub), "wall", 1, true), device .. ": " .. sub)
+					assert(not string.find(sub, "shelf", 1, true), sub)
+				end
+			end
+			expect(Card.words(4, { Device = "Keyboard", Item = "Hot chocolate", Where = "Shelf" }).Title).toBe(
+				"GET THE HOT CHOCOLATE"
+			)
+			expect(Card.words(4, { Device = "Keyboard", Item = "Bath foam", Where = "Shelf" }).Sub).toBe(
+				"From the supply wall · hold"
+			)
+		end
+	)
+
+	test("the waiting patient's part of the first card keeps its behaviour (simple-start design §2)", function()
+		expect(Card.words(1, { Device = "Keyboard", Waiting = true })).toEqual({
+			Title = "YOUR PATIENT IS WAITING",
+			Sub = "Walk over · Send",
+			Key = "Prompt",
+		})
+		expect(Card.words(1, { Device = "Touch", Waiting = true }).Sub).toBe("Walk over · tap Send")
+	end)
+
+	test("the ratchet: every calm rule at 0 on the play-flow files (allowed lines carry their reason)", function()
+		local files = {
+			"src/client/UI/MiniGames.luau",
+			"src/client/UI/Tutorial.luau",
+			"src/client/UI/Guide.luau",
+			"src/client/UI/LiftPanel.luau",
+			"src/client/UI/SendCard.luau",
+		}
+		local over = UiRules.ratchet(files, {})
+		assert(#over == 0, "\n" .. table.concat(over, "\n"))
+		-- and the old hard rules
+		local found = UiRules.check(files)
+		assert(#found == 0, "\n" .. UiRules.format(found))
 	end)
 end)

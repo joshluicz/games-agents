@@ -11,9 +11,10 @@
 --   things behind"). A ProximityPrompt shows for everyone, so it also answers the owner kindly; it carries the
 --   CollectionService tag SIGN_PROMPT_TAG and an `Audience` attribute, so Client/UI/PromptFilter hides it from the
 --   owner.
--- The helpers switch: the RemoteFunction SetHelpers(on: boolean), from the owner's ⚙️ Settings panel (Client/UI/Hud
---   "👥 Friends only" / "🤝 Anyone can help"). Only a plot's owner may call it; it sets the plot's OpenHelpers (off =
---   only the owner and their Roblox friends may work the clinic, on = anyone; Plots.canWork reads it) and toasts.
+-- The helpers switch: the RemoteFunction SetHelpers(on: boolean), from the owner's Settings panel (Client/UI/Hud, the
+--   "Anyone can help" switch). Only a plot's owner may call it; it sets the plot's OpenHelpers (off = only the owner
+--   and their Roblox friends may work the clinic, on = anyone; Plots.canWork reads it) and toasts it in plain words
+--   ("Anyone can help now" / "Only friends can help now": no emoji in front of a sentence, UI direction §5).
 --   Rate-limited (Remotes.serve) with a 1 s cooldown per player. Off on every new owner (Plots).
 --
 -- Referral: a player who joins through a friend's invite (Player:GetJoinData().ReferredByPlayerId) gets the
@@ -240,7 +241,7 @@ local function setHelpers(player: Player, on: any): (boolean, string)
 	end
 	lastToggle[player] = now
 	plot.Model:SetAttribute("OpenHelpers", on)
-	Remotes.toast(player, if on then "🤝 Anyone can help now!" else "🔒 Only friends can help now")
+	Remotes.toast(player, if on then "Anyone can help now" else "Only friends can help now")
 	return true, ""
 end
 

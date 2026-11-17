@@ -1,7 +1,8 @@
 --!strict
 -- The clinic's doors (Real Clinic build plan, Task 1; design §8.1-§8.2). Server only. OWNER: Task 1 (the building).
 -- Server/HospitalBuilder builds every door as a Model tagged Doors.TAG ("ClinicDoor"): the FrontDoor (a glass pair,
--- DoorL and DoorR) and Door_<name> for the A&E door, the X-ray room and the bought rooms (one Panel each). Each has:
+-- DoorL and DoorR) and Door_<name> for the A&E door, the X-ray room, the stairwell and the bought rooms (one Panel
+-- each). Each has:
 --   panels      BaseParts with the attribute Slide (a Vector3 in the panel's own space: where it slides to when open,
 --               into the wall beside the doorway). Built shut
 --   Sensor      an invisible marker at the doorway's middle, on the floor
@@ -13,11 +14,11 @@
 -- PivotTo, and nobody is ever shut in if this module stops) and slide open while a player's character or a creature
 -- (tag "CreatureMotion") is within Pure.RADIUS studs of its Sensor on the same floor.
 -- Nobody is ever sealed in. A room can lock with a player inside it: the owner leaves or rebirths and the Building is
--- rebuilt at Lv 1 (the X-ray room's and the bought rooms' doors are solid again, the storeys upstairs stand closed
--- behind the stair gate and the lift's locked door). Every Pure.RESCUE_SECONDS each player standing inside a room
--- whose door is Locked, or on a floor the Building's level hasn't opened, is set down in the lobby in front of
--- reception (Logic/Building.RECEPTION.Stop), which is open at every level. (At Lv 1 the stair flights behind the shut
--- stair gate count as such a room.)
+-- rebuilt at Lv 1 (the X-ray room's, the stairwell's and the bought rooms' doors are solid again, the storeys
+-- upstairs stand closed behind the stairwell's door and the lift's locked door). Every Pure.RESCUE_SECONDS each player
+-- standing inside a room whose door is Locked (the stairwell's whole enclosure, Logic/Building.ROOMS.Stairwell,
+-- counts as Door_Stairs's room), or on a floor the Building's level hasn't opened, is set down in the lobby in front of
+-- reception (Logic/Building.RECEPTION.Stop), which is open at every level.
 -- One loop for every door in the town, Pure.CHECK_SECONDS apart; a door changes only when its state does, with ONE
 -- server tween per panel (never per frame). A level-up rebuilds the Building, and the old doors drop out by
 -- themselves. Buying a room needs no rebuild: the next check unlocks its door.
@@ -26,7 +27,7 @@
 --   Doors.start()        once (Main.server)
 --   Doors.Pure           locked(level, opens, room, owned) · near(points, x, y, z, radius, height) · state(locked,
 --                        near) · floorAt(y, slabTops) · trapped(x, y, z, rooms, floorsOpen, slabTops) ·
---                        tests/Hospital.spec loads the PURE block
+--                        shut(rooms, floorsOpen, hasStairsDoor, stairwell) · tests/Hospital.spec loads the PURE block
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -117,14 +118,31 @@ function Pure.trapped(x: number, y: number, z: number, rooms: { any }, floorsOpe
 	end
 	return false
 end
+
+-- The rects nobody may stand in on the ground floor: the locked rooms, plus the stair flights (`stairwell` =
+-- Logic/Building.STAIRWELL) while upstairs is closed in a building that has no Door_Stairs to lock them behind (a kit
+-- building: HospitalBuilder's own has the door, and its whole enclosure is then one of `rooms`).
+function Pure.shut(rooms: { any }, floorsOpen: number, hasStairsDoor: boolean, stairwell: any): { any }
+	if floorsOpen >= 1 or hasStairsDoor then
+		return rooms
+	end
+	local out = table.clone(rooms)
+	table.insert(out, stairwell)
+	return out
+end
 -- PURE-END
 
 Doors.Pure = Pure
 
 local MOTION_TAG = "CreatureMotion" -- every creature (CreatureBuilder.MOTION_TAG): patients and nurses
 -- A door (its Door attribute, a Logic/Building.DOORS name) and the walled room behind it (Logic/Building.ROOMS)
-local ROOM_BEHIND: { [string]: string } =
-	{ XRay = "XRay", BathRoom = "BathRoom", WinterWing = "WinterWing", CozyWard = "CozyWard" }
+local ROOM_BEHIND: { [string]: string } = {
+	XRay = "XRay",
+	BathRoom = "BathRoom",
+	WinterWing = "WinterWing",
+	CozyWard = "CozyWard",
+	Stairs = "Stairwell",
+}
 local RESCUE_HEIGHT = 3.5 -- a rescued character's root over the lobby floor
 
 type Panel = { Part: BasePart, Closed: CFrame, Open: CFrame }
@@ -235,6 +253,7 @@ end
 -- (entry.State), so a room is only emptied once its door really is solid.
 local function rescue()
 	local locked: { [Instance]: { any } } = {} -- per Building: the rects of its locked rooms
+	local stairsDoor: { [Instance]: boolean } = {} -- the Buildings that have a Door_Stairs
 	for model, entry in entries do
 		local building = model:FindFirstAncestor("Building")
 		if building then
@@ -244,6 +263,9 @@ local function rescue()
 				locked[building] = rooms
 			end
 			local door = model:GetAttribute("Door")
+			if door == "Stairs" then
+				stairsDoor[building] = true
+			end
 			local roomName = if type(door) == "string" then ROOM_BEHIND[door] else nil
 			local rect = if roomName then (Building.ROOMS :: any)[roomName] else nil
 			if entry.State == "Locked" and rect then
@@ -269,12 +291,9 @@ local function rescue()
 			end
 			local level = building:GetAttribute("Level")
 			local floorsOpen = Building.floors(if type(level) == "number" then level else Building.MIN_LEVEL)
-			local shut = rooms
-			if floorsOpen < 1 then
-				-- Upstairs is closed: the flights behind the shut stair gate are no place to stand either.
-				shut = table.clone(rooms)
-				table.insert(shut, Building.STAIRWELL)
-			end
+			-- Upstairs closed: Door_Stairs is Locked and the whole stairwell is in `rooms`; a building without that
+			-- door gets the flights added (Pure.shut).
+			local shut = Pure.shut(rooms, floorsOpen, stairsDoor[building] == true, Building.STAIRWELL)
 			if Pure.trapped(at.X, at.Y, at.Z, shut, floorsOpen, Building.SLAB_TOPS) then
 				character:PivotTo(origin * CFrame.new(stop.X, RESCUE_HEIGHT, stop.Z))
 			end

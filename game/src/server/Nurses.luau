@@ -89,21 +89,25 @@
 -- walls, through the open doors; cached), so nobody walks through a wall.
 --   Maker        stocks what the bay patients still need (front first), minus what's already in the tray, being made
 --                by another Maker or carried by the owner: SUPPLIES only (Data/Items Kind "Supply"), from an open
---                Station_<id> (Open ~= false) under the Building (Plaster, Ice, Bandage, Cast) or the Rooms (Bath in
---                the Bath Room, Cocoa in the Winter Wing). Never the dispensary (Remedy): medicines are the player's
---                job. It walks to that station, works for its Every seconds, and puts the item in the tray
---   Healer       waits in corridor A by the bays; at most every Every seconds, when the front bay patient (or, with 👯
+--                Station_<id> (Open ~= false) under the Building: Plaster, Ice, Bandage, Cast, and the pantry's Bath
+--                and Cocoa while their rooms are owned (a kit room's own station too, were there one). Never the
+--                dispensary (Remedy): medicines are the player's job. It walks to that station (Logic/Building's
+--                stand, a step to its side), works for its Every seconds, and puts the item in the tray
+--   Healer       waits at the bays' end (Pure.home); at most every Every seconds, when the front bay patient (or, with 👯
 --                Twin Counters, the next one when the front can't be helped) needs its exam
 --                (a nurse examines: no game, no tip) or a supply the tray holds, walks to that bay's side and fires Heal
 --                (target "Front"). A front patient whose only missing steps are medicines gets nothing from a nurse.
 --                Healers and Medics leave everything to the owner until their first-session tutorial is done
 --   Cheerer      stands in the waiting room and cheers while patients wait (CheerPatience, CheerTip: the best one)
 --   Receptionist stands behind the reception desk and greets arrivals ("Greeting"): patients come sooner and, from
---                Lv 3, a Stay patient's ward is picked at once (Reception, Triage)
---   Medic        waits in the A&E yard; while a 🚑/🚁 patient waits for the doctor in a bay it goes to that bay
+--                Lv 3, a Stay patient's ward is picked at once (Reception, Triage). Simple start (design §2): with one
+--                on duty, Server/Patients sends each seated walk-in to the right kind of bay by itself after a short
+--                wait, one at a time (it reads Nurses.reception(plot).Triage: U.receptionSend); with none on duty
+--                only the player sends
+--   Medic        waits at the bays' end with the Healers; while a 🚑/🚁 patient waits for the doctor in a bay it goes to that bay
 --                ("Treating") and fires Heal (target "Urgent") when it needs its exam or a supply the tray holds
 --                (MedicPatience: they wait longer)
---   Porter       idles by the ground landing until Patients claims it to ride a Stay patient upstairs ("Escorting")
+--   Porter       idles beside the lift's ground landing until Patients claims it to ride a Stay patient upstairs ("Escorting")
 -- Nurses work only while the owner is in the server (their plot is released when they leave): no offline income.
 -- Never requires Treatment, Abilities, Agency, Market or Rebirth (some of them require this). Patients requires this
 -- module too, so it is required LAZILY (at call time, from a worker, never while loading) for Patients.bayView, and
@@ -193,7 +197,6 @@ Pure.REMEDY = "Remedy" -- the dispensary: medicines are the player's job (design
 Pure.WAITING = table.freeze({ Waiting = true, ToBay = true, AtBay = true, Planned = true }) :: { [string]: boolean }
 Pure.ARRIVING = table.freeze({ Arriving = true, Waiting = true }) :: { [string]: boolean } -- the Receptionist greets
 Pure.BUSY = table.freeze({ Examining = true, Treating = true }) :: { [string]: boolean } -- in a mini-game right now
-Pure.SPACING = 2.6 -- studs between nurses of one job standing side by side
 Pure.BEDSIDE = 2.2 -- a Healer or Medic stands this far beside a bay's DoctorSpot (the player's spot stays free)
 Pure.STATION_SIDE = 1.3 -- a Maker stands this far beside a station's stand spot (the player's)
 
@@ -473,34 +476,18 @@ function Pure.any(states: { any }, set: { [string]: boolean }): boolean
 	return false
 end
 
--- Where nurse number `index` of a job waits when there's nothing to do (Logic/Building's rooms):
---   Healer        corridor A by the exam bays, facing them
---   Maker         corridor A at the supply alcove's mouth, facing it
---   Cheerer       the waiting room, facing the seats
---   Receptionist  behind the reception desk (RECEPTION.Staff), facing the lobby
---   Medic         the A&E yard beside the StretcherSpot, facing the side door
---   Porter        corridor B beside the lift's landing, facing the lift
-function Pure.home(job: string, index: number): Spot
-	local B = BuildingLogic
-	local rooms = B.ROOMS
-	local k = if type(index) == "number" and index == index then math.clamp(math.floor(index), 1, 99) else 1
-	if job == "Healer" then
-		return { X = rooms.Bays.X1 - 10 - (k - 1) * Pure.SPACING, Z = rooms.CorridorA.Z0 + 1.5, Face = 180 }
-	elseif job == "Cheerer" then
-		return { X = rooms.Waiting.X1 - 3.5 - (k - 1) * 2.4, Z = rooms.Waiting.Z1 - 3, Face = 0 }
-	elseif job == "Receptionist" then
-		local staff = B.RECEPTION.Staff
-		return { X = staff.X + Pure.SPACING - (k - 1) * Pure.SPACING, Z = staff.Z, Face = 0 }
-	elseif job == "Medic" then
-		-- between the van and the wall, off the walk from the StretcherSpot to the side door (either side of it)
-		local stretcher = B.BAY_AMBULANCE.Stretcher
-		local off = 3 + math.floor((k - 1) / 2) * 2.2
-		return { X = stretcher.X + 0.9, Z = stretcher.Z + (if k % 2 == 1 then -off else off), Face = 270 }
-	elseif job == "Porter" then
-		local landing = B.LANDING
-		return { X = landing.X - landing.Size / 2 - 2 - (k - 1) * 2.4, Z = landing.Z + 1.5, Face = 270 }
-	end
-	return { X = rooms.Supply.X0 + 5 + (k - 1) * 2.3, Z = rooms.CorridorA.Z0 + 2.5, Face = 180 } -- a Maker
+-- Where nurse number `index` of a job waits when there's nothing to do: Logic/Building.nurseSlot (all of it data
+-- there, derived from the rooms; Joshua 2026-11-17: "nurses look like theyre in the middle of nowhere"):
+--   Maker         in the supply recess past the Bath unit (the supply wall's A&E end)
+--   Cheerer       between the waiting seats, facing the room
+--   Receptionist  behind the reception desk (RECEPTION.Staff first), facing the lobby
+--   Healer, Medic the Hall, against the outside of bay 1's end wall (Healers first)
+--   Porter        on corridor B against the X-ray room's back wall, beside the lift's ground landing
+--   any other job, and those past their own place's slots
+--                 the nurses' station at corridor A's far +x end, past the X-ray door
+-- `counts` (nurses per job at this plot) keeps the jobs that share a place or the station off each other's slots.
+function Pure.home(job: string, index: number, counts: { [string]: number }?): Spot
+	return BuildingLogic.nurseSlot(job, index, counts)
 end
 
 -- Where a Healer or Medic stands to help the patient on `bay` (a Logic/Building bay): BEDSIDE beside its DoctorSpot,
@@ -532,7 +519,7 @@ function Pure.bedside(bay: any, index: number, level: number): Spot
 end
 
 -- Where a Maker stands at a Building station (Logic/Building.STATIONS): beside the player's stand spot, facing the
--- station. nil for a station outside the Building (a room's: its part says where).
+-- station. nil for a station outside the Building (a kit room's own: its part says where).
 function Pure.stationSpot(stationId: string, index: number): Spot?
 	local B = BuildingLogic
 	local station = B.STATIONS[stationId]
@@ -590,7 +577,8 @@ function Pure.matches(specialty: any, dept: any): boolean
 end
 
 -- The job works in the nurse's own department (Logic/Jobs.department: a Maker's is its station's, `stations` =
--- Data/Departments.Stations): a Pharmacy specialist at the supply shelf or the Cocoa Corner, a Hydro one at the Bath.
+-- Data/Departments.Stations): a Pharmacy specialist at the supply shelf or the pantry's Cocoa Corner, a Hydro one at
+-- the pantry's bath-foam shelf.
 function Pure.specialty(job: string, specialty: any, stationId: string?, jobs: any, stations: any): boolean
 	return Pure.matches(specialty, JobsLogic.department(job, stationId, jobs, stations))
 end
@@ -1158,8 +1146,22 @@ local function at(work: Work, spot: Spot): CFrame
 	return CFrame.lookAt(ground, ground + flat(origin:VectorToWorldSpace(Vector3.new(dx, 0, dz))))
 end
 
-local function homeFor(work: Work, job: string, index: number): CFrame
-	return at(work, Pure.home(job, index))
+-- Nurses per job at this plot, so the jobs that share a place or the nurses' station take distinct slots (Pure.home).
+local function headCount(work: Work): { [string]: number }
+	local counts: { [string]: number } = {}
+	for _, w in work.Workers do
+		counts[w.Job] = (counts[w.Job] or 0) + 1
+	end
+	return counts
+end
+
+-- `joining` true: for a nurse not in work.Workers yet (addWorker), counted in so its slot is the one it keeps.
+local function homeFor(work: Work, job: string, index: number, joining: boolean?): CFrame
+	local counts = headCount(work)
+	if joining then
+		counts[job] = (counts[job] or 0) + 1
+	end
+	return at(work, Pure.home(job, index, counts))
 end
 
 -- Beside a bay's DoctorSpot (Pure.bedside), facing the bed; nil for an unknown bay.
@@ -1193,13 +1195,13 @@ local function stationPart(instance: Instance): BasePart?
 	return nil
 end
 
-type Source = { Part: BasePart, Station: string, Built: boolean }
+type Source = { Part: BasePart, Holder: Instance, Station: string, Built: boolean }
 
 local SUPPLY_STATIONS = Pure.supplyStations(ItemsData) -- the stations a Maker may use (never the dispensary)
 
 -- Every supply this plot's OPEN stations make (a Station_<id> whose Open isn't false), with its part: the Building's
--- (Plaster, Ice, Bandage, Cast) and the bought rooms' (Bath in the Bath Room, Cocoa in the Winter Wing). Never the
--- dispensary (Remedy): medicines are the player's job.
+-- (Plaster, Ice, Bandage, Cast, and the pantry's Bath and Cocoa: open while the Bath Room / the Winter Wing is owned)
+-- and any a room model carries (none today). Never the dispensary (Remedy): medicines are the player's job.
 local function stationsOf(plot: Plot): { [string]: Source }
 	local found: { [string]: Source } = {}
 	for _, holderName in { "Building", "Rooms" } do
@@ -1216,7 +1218,12 @@ local function stationsOf(plot: Plot): { [string]: Source }
 				then
 					for _, itemId in Pure.makeable(ItemsData, stationId) do
 						if not found[itemId] then
-							found[itemId] = { Part = part, Station = stationId, Built = holderName == "Building" }
+							found[itemId] = {
+								Part = part,
+								Holder = instance,
+								Station = stationId,
+								Built = holderName == "Building",
+							}
 						end
 					end
 				end
@@ -1224,6 +1231,16 @@ local function stationsOf(plot: Plot): { [string]: Source }
 		end
 	end
 	return found
+end
+
+-- The station a Maker took its item from is still there and still open (REVIEW-P2 #3: a rebuild, a lost room or a
+-- level change may have taken it while the Maker worked): its part and its Station_<id> are in the world and
+-- neither's Open is false.
+local function stillOpen(source: Source): boolean
+	return source.Part.Parent ~= nil
+		and source.Holder.Parent ~= nil
+		and source.Part:GetAttribute("Open") ~= false
+		and source.Holder:GetAttribute("Open") ~= false
 end
 
 -- Where a Maker works at a station: Logic/Building's numbers for one of the Building's, else by its part.
@@ -1466,6 +1483,13 @@ local function makerLoop(work: Work, w: Worker)
 			if not sleep(w, everyFor(work, w, source.Station)) then
 				return
 			end
+			if not stillOpen(source) then
+				-- Its station went (or shut) while it worked: nothing lands; it looks again.
+				w.Making = nil
+				setAttribute(w.Model, "Station", "")
+				NurseBuilder.setTask(w.Model, "Idle")
+				continue
+			end
 			deposit(work, item)
 			w.Making = nil
 			setAttribute(w.Model, "Station", "")
@@ -1612,7 +1636,7 @@ local function receptionistLoop(work: Work, w: Worker)
 end
 
 -- A Medic goes to the 🚑/🚁 bay patient waiting for the doctor (Pure.urgentRow) and helps it when it can (its exam, or
--- a supply the tray holds); with none, it waits in the A&E yard.
+-- a supply the tray holds); with none, it waits at the bays' end.
 local function medicLoop(work: Work, w: Worker)
 	local nextAt = os.clock() + everyFor(work, w) * rng:NextNumber(0.25, 0.6)
 	local nextIdle = os.clock() + rng:NextNumber(3, 6)
@@ -1834,7 +1858,7 @@ local function addWorker(work: Work, nurseId: string, job: string, level: number
 		report("NurseBuilder.build " .. nurseId, model)
 		return
 	end
-	local start = homeFor(work, job, index)
+	local start = homeFor(work, job, index, true)
 	model:PivotTo(start)
 	model:SetAttribute("Specialty", if type(nurse.Specialty) == "string" then nurse.Specialty else "")
 	dressModel(model, job, level)
@@ -2577,8 +2601,17 @@ function Nurses.escort(plotArg: any, nurseId: string, to: CFrame): boolean
 	resync(w)
 	NurseBuilder.setTask(w.Model, "Escorting")
 	-- Patients may give up waiting (a timeout) and release it mid-walk: the walk then stops at its next hop.
-	local walked, arrived = pcall(walkTo, work, w, to, true, function(): boolean
+	local function still(): boolean
 		return w.Claimed and w.Escort == token
+	end
+	-- On the ground it goes round the walls like any other walk (route: {} upstairs, or when the way is straight).
+	local walked, arrived = pcall(function(): boolean
+		for _, waypoint in route(work, w.Pivot.Position, to.Position) do
+			if not walkTo(work, w, waypoint, false, still) then
+				return false
+			end
+		end
+		return walkTo(work, w, to, true, still)
 	end)
 	if w.Escort == token then
 		w.Busy = false

@@ -1,18 +1,21 @@
 --!strict
--- BadgeBook (game/README.md "Badges"): the 🏅 Badge Book, and the cheer for tier-ups and Doctor ranks.
---   init(ctx)   opens on ctx.fire("Open", "Badges") (the HUD's 🏅 rail button, shown once the tutorial is done)
+-- BadgeBook (game/README.md "Badges"): the Badge Book, and the cheer for tier-ups and Doctor ranks.
+--   init(ctx)   opens on ctx.fire("Open", "Badges") (the HUD's badge link, shown once the tutorial is done)
+--   BadgeBook.Pure   the words each card shows (tests/Badges.spec loads the PURE block on its own)
 --
--- The Book (the look overhaul's template, look build plan §B8): UI/Modal's navy header, then
+-- The Book (UI/Modal's navy header, the title in words; the calm UI, docs/plan/2026-11-17-ui-direction.md §4 #10;
+-- Joshua, memory-20261117-007), then
 --   category tabs    THE tab column (Modal.tabs): one per Data/Badges category (🏥 Clinic, 🗺️ Wings, 🩹 Stations,
---                    💛 Friends), down the left like every panel (it was a row)
---   your boosts      Hud.boostLine at the top of the page: timed boosts with their play time left, then the
---                    permanent percents
---   badge cards      tinted cards: per badge its icon on a tile framed in its tier's colour (Bronze, Silver, Gold,
---                    Diamond, Ruby, Mythic; grey before Bronze; the Bold stroke) with the tier's medal, the name and
---                    what to do, a bar and "n/next" to the next tier, then that tier's boost and rewards ("🥇 Gold →
---                    +3% 💰 · 💰400 ⭐8"); a maxed badge says so. Values come from Logic/Badges.statValue on the
---                    Snapshot (Stats, Playtime, Story, Rooms, Decor), the tiers from Snapshot.Badges. The server
---                    decides; this only shows it.
+--                    💛 Friends), down the left like every panel
+--   your boosts      Hud.boostLine at the top of the page (a Soft line): timed boosts with their play time left,
+--                    then the permanent percents
+--   badge cards      Kit.card cards with no line: per badge its Art on a tile tinted in its tier's colour (Bronze,
+--                    Silver, Gold, Diamond, Ruby, Mythic; the Well before Bronze) with the tier's medal as its one
+--                    State badge, the name (Normal) and what to do (Soft), a Kit.bar (navy; gold when maxed) with
+--                    "n/next" beside it, then ONE Soft line for the next tier in words with one Unit ("Gold: +3%
+--                    cash at night · 💰 400 + 8 stars"); a maxed badge says so in words. Values come from
+--                    Logic/Badges.statValue on the Snapshot (Stats, Playtime, Story, Rooms, Decor), the tiers from
+--                    Snapshot.Badges. The server decides; this only shows it.
 -- The cheer (ctx.on "Cheer" (icon, text, colour), and every tier-up the Snapshot shows after the save loaded): one
 -- banner in THE notice stack (the bus "Banner": UI/Toasts draws it under the Now card) with a fanfare, one at a time.
 -- It never blocks play, waits while the first-session tutorial runs, and leaves by itself.
@@ -23,20 +26,93 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local BadgesLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Badges"))
-local BoostsLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Boosts"))
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
+local Icons = require(script.Parent.Icons)
 
 local BadgeBook = {}
 
+------------------------------------------------------------------------------------------------------------------
+-- Pure: the card's words. Only UI/Icons (a pure library); tests/Badges.spec loads the block with the real Data.
+------------------------------------------------------------------------------------------------------------------
+-- PURE-BEGIN
+local Pure = {}
+
+Pure.TITLE = "Badges"
+Pure.MANY_UP = " badges up!"
+
+-- What each boost kind (Logic/Boosts.KINDS) is, in words.
+Pure.KIND_WORDS = {
+	Cash = "cash",
+	Tips = "tips",
+	Stars = "stars",
+	MakeSpeed = "faster making",
+	Patience = "patience",
+} :: { [string]: string }
+
+local function formatWhole(n: any): string
+	local value = if type(n) == "number" and n == n and n ~= math.huge then math.max(0, math.floor(n)) else 0
+	local digits = tostring(value)
+	local grouped = string.reverse((string.gsub(string.reverse(digits), "(%d%d%d)", "%1,")))
+	if string.sub(grouped, 1, 1) == "," then
+		grouped = string.sub(grouped, 2)
+	end
+	return grouped
+end
+
+-- "+3% cash", with the scope in words when the boost is only for some patients or one station ("+5% cash at
+-- night", "+2% cash in Meadow", "+3% faster making at Pharmacy").
+function Pure.boostWords(data: any, boost: any, percent: number): string
+	local kind = if type(boost) == "table" then boost.Kind else nil
+	local text = "+" .. percent .. "% " .. (Pure.KIND_WORDS[kind] or "boost")
+	local scope = if type(boost) == "table" then boost.Scope else nil
+	if type(scope) == "string" and type(data) == "table" then
+		local wing = if type(data.Wings) == "table" then rawget(data.Wings, scope) else nil
+		local station = if type(data.Stations) == "table" then rawget(data.Stations, scope) else nil
+		if scope == "Night" then
+			text ..= " at night"
+		elseif type(wing) == "table" then
+			text ..= " in " .. tostring(wing.Name)
+		elseif type(station) == "table" then
+			text ..= " at " .. tostring(station.Name)
+		end
+	end
+	return text
+end
+
+-- The next tier in one Soft line: its name, the boost it brings and what it pays, with ONE Unit (the cash).
+function Pure.nextLine(data: any, tier: any, boost: any, percent: number): string
+	return tostring(tier.Name)
+		.. ": "
+		.. Pure.boostWords(data, boost, percent)
+		.. " · "
+		.. Icons.unit("Cash", formatWhole(tier.Cash))
+		.. " + "
+		.. formatWhole(tier.Stars)
+		.. " stars"
+end
+
+-- A maxed badge, in words.
+function Pure.maxLine(data: any, boost: any, percent: number): string
+	return "Maxed · " .. Pure.boostWords(data, boost, percent)
+end
+
+-- A tier-up's banner words ("Gold Fast Hands!"); the banner's icon is the badge's own Art.
+function Pure.cheerText(tier: any, def: any): string
+	return tostring(tier.Name) .. " " .. tostring(def.Name) .. "!"
+end
+-- PURE-END
+
+BadgeBook.Pure = Pure
+
 local NAME = "Badges"
-local CARD_HEIGHT = 124
-local GAP = Theme.Space.Gap
+local CARD_HEIGHT = 136
+local GAP = Theme.Space.PadCard
+local TILE = 80
 local BOOSTS_HEIGHT = 30
-local NO_TIER = Color3.fromRGB(190, 190, 210)
 local BANNER_SECONDS = 3.2
 local BANNER_GAP = 0.4 -- between two cheers in a row
 
@@ -48,29 +124,12 @@ local function hex(value: any, fallback: Color3): Color3
 	return if ok then color else fallback
 end
 
--- "+3% 💰", with the scope's icon when the boost is only for some cures or one station ("+5% 💰 🌙").
-local function boostText(data: any, boost: any, percent: number): string
-	local text = "+" .. percent .. "% " .. ((BoostsLogic.ICONS :: any)[boost.Kind] or "✨")
-	local scope = boost.Scope
-	if type(scope) == "string" then
-		local wing = rawget(data.Wings, scope)
-		local station = rawget(data.Stations, scope)
-		local icon = if scope == "Night" then "🌙" elseif wing then wing.Icon elseif station then station.Icon else nil
-		if icon then
-			text ..= " " .. icon
-		end
-	end
-	return text
-end
-
 type Card = {
 	Frame: Frame,
 	Def: any,
 	Tile: Frame,
-	TileStroke: UIStroke,
-	Medal: TextLabel,
 	Title: TextLabel,
-	Fill: Frame,
+	SetBar: (fraction: number, atMax: boolean?) -> (),
 	Count: TextLabel,
 	Next: TextLabel,
 }
@@ -84,7 +143,7 @@ function BadgeBook.init(ctx: Types.Ctx)
 
 	local modal = Hud.modal(ctx, {
 		Name = NAME,
-		Title = "🏅 Badges",
+		Title = Pure.TITLE,
 		MaxSize = Vector2.new(620, 640),
 	})
 
@@ -109,14 +168,12 @@ function BadgeBook.init(ctx: Types.Ctx)
 	end)
 	local page = tabView.Content
 
-	local boostLine = Kit.label({
+	local boostLine = Kit.fact({
 		Name = "Boosts",
 		Text = "",
-		TextScaled = true,
-		Size = UDim2.new(1, 0, 0, BOOSTS_HEIGHT - Theme.Space.Step[1]),
+		Size = UDim2.new(1, 0, 0, BOOSTS_HEIGHT - Theme.Space.Tight),
 		Parent = page,
 	})
-	Kit.textLimit(boostLine, Theme.TextSize.Body)
 
 	scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "List"
@@ -134,9 +191,9 @@ function BadgeBook.init(ctx: Types.Ctx)
 	local list = Kit.list(scroll, Enum.FillDirection.Vertical, GAP)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, Theme.Space.Step[1])
-	pad.PaddingBottom = UDim.new(0, Theme.Space.Gap)
-	pad.PaddingLeft = UDim.new(0, Theme.Space.Step[1]) -- scrolling frames clip: keep the tier frames whole
+	pad.PaddingTop = UDim.new(0, Theme.Space.Tight)
+	pad.PaddingBottom = UDim.new(0, Theme.Space.Line)
+	pad.PaddingLeft = UDim.new(0, Theme.Space.Tight)
 	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
 	pad.Parent = scroll
 
@@ -145,122 +202,70 @@ function BadgeBook.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The cards
+	-- The cards: the Art tile (tinted by its tier, the medal its State badge), the name, the goal, the bar and
+	-- its count, and the next tier in one line
 	--------------------------------------------------------------------------------------------------------------
 	for index, def in defs do
-		local frame = Instance.new("Frame")
-		frame.Name = def.Id
-		frame.LayoutOrder = index
-		frame.BackgroundColor3 = Theme.Colors.Card
-		frame.BorderSizePixel = 0
+		local frame = Kit.card({ Name = def.Id, LayoutOrder = index, Pad = false, Parent = scroll })
+		frame.AutomaticSize = Enum.AutomaticSize.None
 		frame.Size = UDim2.new(1, 0, 0, CARD_HEIGHT)
-		Kit.corner(frame, Theme.Radius.Medium)
-		Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
-		frame.Parent = scroll
+		local padCard = Theme.Space.PadCard
 
-		-- The badge's own tile, framed in its tier's colour (the tier is what the colour means here).
-		local tile = Instance.new("Frame")
-		tile.Name = "Tile"
-		tile.AnchorPoint = Vector2.new(0, 0.5)
-		tile.Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0)
-		tile.Size = UDim2.fromOffset(80, 80)
-		tile.BackgroundColor3 = Theme.Colors.Well
-		tile.BorderSizePixel = 0
-		Kit.corner(tile, Theme.Radius.Medium)
-		local tileStroke = Kit.stroke(tile, NO_TIER, Theme.Stroke.Bold)
-		tile.Parent = frame
-		Kit.label({
-			Name = "Icon",
-			Text = def.Icon,
-			TextScaled = true,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromScale(0.66, 0.66),
-			Parent = tile,
-		})
-		local medal = Kit.label({
-			Name = "Medal",
-			Text = "",
-			TextScaled = true,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(1, -2, 0, 4),
-			Size = UDim2.fromOffset(32, 32),
-			ZIndex = 3,
-			Parent = tile,
+		local tile = Kit.artTile({
+			Name = "Tile",
+			Icon = def.Icon,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, padCard, 0.5, 0),
+			Size = UDim2.fromOffset(TILE, TILE),
+			Parent = frame,
 		})
 
-		local left = 106
-		local title = Kit.label({
+		local left = padCard * 2 + TILE
+		local width = UDim2.new(1, -left - padCard, 0, 0)
+		local title = Kit.name({
 			Name = "Title",
 			Text = def.Name,
-			Font = Theme.DisplayFont,
-			TextScaled = true,
-			TextWrapped = false,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(left, Theme.Space.Gap),
-			Size = UDim2.new(1, -left - Theme.Space.PadCard, 0, 28),
+			Position = UDim2.fromOffset(left, padCard - Theme.Space.Tight),
+			Size = width + UDim2.fromOffset(0, Theme.TextSize.Body + Theme.Space.Tight),
 			Parent = frame,
 		})
-		Kit.textLimit(title, Theme.TextSize.Body)
-		local goal = Kit.label({
+		Kit.fact({
 			Name = "Goal",
 			Text = def.Goal,
-			TextScaled = true,
-			TextWrapped = false,
-			TextColor3 = Theme.Colors.InkSoft,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(left, 38),
-			Size = UDim2.new(1, -left - Theme.Space.PadCard, 0, 22),
+			Position = UDim2.fromOffset(left, padCard + 26),
+			Size = width + UDim2.fromOffset(0, Theme.TextSize.Caption + Theme.Space.Tight),
 			Parent = frame,
 		})
-		Kit.textLimit(goal, Theme.TextSize.Caption)
-
-		local track = Instance.new("Frame")
-		track.Name = "Track"
-		track.Position = UDim2.fromOffset(left, 66)
-		track.Size = UDim2.new(1, -left - 96, 0, 16)
-		track.BackgroundColor3 = Theme.Colors.Well
-		track.BorderSizePixel = 0
-		Kit.corner(track, Theme.Radius.Small)
-		track.Parent = frame
-		local fill = Instance.new("Frame")
-		fill.Name = "Fill"
-		fill.Size = UDim2.fromScale(0, 1)
-		fill.BorderSizePixel = 0
-		Kit.corner(fill, Theme.Radius.Small)
-		fill.Parent = track
-		local countLabel = Kit.label({
+		local countWidth = 96
+		local _, setBar = Kit.bar({
+			Name = "Bar",
+			Position = UDim2.fromOffset(left, padCard + 60),
+			Size = UDim2.new(1, -left - padCard - countWidth - Theme.Space.Line, 0, Theme.Calm.Bar),
+			Parent = frame,
+		})
+		local countLabel = Kit.fact({
 			Name = "Count",
 			Text = "",
-			Font = Theme.DisplayFont,
-			TextScaled = true,
-			TextWrapped = false,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -Theme.Space.PadCard, 0, 60),
-			Size = UDim2.fromOffset(80, 26),
+			TextXAlignment = Enum.TextXAlignment.Right,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -padCard, 0, padCard + 60 + Theme.Calm.Bar / 2),
+			Size = UDim2.fromOffset(countWidth, Theme.TextSize.Caption + Theme.Space.Tight),
 			Parent = frame,
 		})
-		Kit.textLimit(countLabel, Theme.TextSize.Body)
-		local nextLabel = Kit.label({
+		local nextLabel = Kit.fact({
 			Name = "Next",
 			Text = "",
-			TextScaled = true,
-			TextWrapped = false,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(left, 92),
-			Size = UDim2.new(1, -left - Theme.Space.PadCard, 0, 24),
+			Position = UDim2.fromOffset(left, padCard + 78),
+			Size = width + UDim2.fromOffset(0, Theme.TextSize.Caption + Theme.Space.Tight),
 			Parent = frame,
 		})
-		Kit.textLimit(nextLabel, Theme.TextSize.Body)
 
 		table.insert(cards, {
 			Frame = frame,
 			Def = def,
 			Tile = tile,
-			TileStroke = tileStroke,
-			Medal = medal,
 			Title = title,
-			Fill = fill,
+			SetBar = setBar,
 			Count = countLabel,
 			Next = nextLabel,
 		})
@@ -275,33 +280,22 @@ function BadgeBook.init(ctx: Types.Ctx)
 			local tierIndex = math.clamp(math.floor(saved[def.Id] or 0), 0, #tiers)
 			local tier = tiers[tierIndex]
 			local value = BadgesLogic.statValue(state, def.Stat)
-			local tierColor = if tier then hex(tier.Color, NO_TIER) else NO_TIER
-			card.TileStroke.Color = tierColor
-			card.Tile.BackgroundColor3 = if tier then Kit.lighten(tierColor, 0.55) else Theme.Colors.Well
-			card.Medal.Text = if tier then tier.Icon else ""
+			card.Tile.BackgroundColor3 = if tier
+				then Kit.lighten(hex(tier.Color, Theme.Colors.Well), 0.55)
+				else Theme.Colors.Well
+			Kit.setState(card.Tile, if tier then tier.Icon else nil) -- the medal: the card's one State badge
 			card.Title.Text = def.Name .. (if tier then " · " .. tier.Name else "")
 			local nextTier = tiers[tierIndex + 1]
 			local nextAt = def.Thresholds[tierIndex + 1]
 			if nextTier and nextAt then
 				local from = if tierIndex > 0 then def.Thresholds[tierIndex] else 0
-				local ratio = math.clamp((value - from) / math.max(1, nextAt - from), 0, 1)
-				card.Fill.Size = UDim2.fromScale(ratio, 1)
-				card.Fill.BackgroundColor3 = hex(nextTier.Color, NO_TIER)
+				card.SetBar(Kit.Juice.barFraction(value - from, math.max(1, nextAt - from)), false)
 				card.Count.Text = Hud.format(value) .. "/" .. Hud.format(nextAt)
-				card.Next.Text = nextTier.Icon
-					.. " "
-					.. nextTier.Name
-					.. " → "
-					.. boostText(data, def.Boost, BadgesLogic.boostAt(def, tierIndex + 1))
-					.. " · 💰"
-					.. Hud.format(nextTier.Cash)
-					.. " ⭐"
-					.. nextTier.Stars
+				card.Next.Text = Pure.nextLine(data, nextTier, def.Boost, BadgesLogic.boostAt(def, tierIndex + 1))
 			else
-				card.Fill.Size = UDim2.fromScale(1, 1)
-				card.Fill.BackgroundColor3 = tierColor
+				card.SetBar(1, true)
 				card.Count.Text = Hud.format(value)
-				card.Next.Text = "🎉 Maxed! " .. boostText(data, def.Boost, BadgesLogic.boostAt(def, tierIndex))
+				card.Next.Text = Pure.maxLine(data, def.Boost, BadgesLogic.boostAt(def, tierIndex))
 			end
 		end
 	end
@@ -370,15 +364,11 @@ function BadgeBook.init(ctx: Types.Ctx)
 				end
 			end
 			if #ups > 2 then
-				cheer("🏅", #ups .. " badges up!", Theme.Colors.Cash) -- one banner, not a long queue
+				-- one banner, not a long queue
+				cheer(Icons.Door.Badges, #ups .. Pure.MANY_UP, Theme.Colors.Cash)
 			else
 				for _, up in ups do
-					local tier = up.Tier
-					cheer(
-						up.Def.Icon,
-						tier.Icon .. " " .. tier.Name .. " " .. up.Def.Name .. "!",
-						hex(tier.Color, Theme.Colors.Cash)
-					)
+					cheer(up.Def.Icon, Pure.cheerText(up.Tier, up.Def), hex(up.Tier.Color, Theme.Colors.Cash))
 				end
 			end
 		end

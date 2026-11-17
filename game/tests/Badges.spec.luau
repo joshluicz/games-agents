@@ -12,6 +12,12 @@ local Schema = require("../src/shared/Logic/Schema")
 local Wings = require("../src/shared/Data/Wings")
 local Patients = require("../src/shared/Data/Patients")
 local Regulars = require("../src/shared/Data/Regulars")
+-- Data/Stations needs Roblox (Color3): the one row the words read, as it is shipped.
+local Stations = { Remedy = { Name = "Dispensary" } }
+local Icons = require("../src/client/UI/Icons")
+local UiRules = require("./uirules")
+local fs = require("@lune/fs")
+local luau = require("@lune/luau")
 
 local DEFS = Data.List :: { Badges.Def }
 local TIERS = Data.Tiers :: { Badges.Tier }
@@ -286,5 +292,59 @@ T.describe("Badges stats", function()
 		expect(stats.Cures).toBe(99999)
 		expect(stats.NightCures).toBe(6000)
 		expect(stats.PlayHours).toBeNil() -- derived: worked out from the save, never a counter
+	end)
+end)
+
+------------------------------------------------------------------------------------------------------------------
+-- The Badge Book's words (UI/BadgeBook's PURE block, loaded on its own) and the calm UI (UI direction §4 #10;
+-- Joshua, memory-20261117-007): the title in words, one Unit per line, no Party or Status emoji on a card.
+------------------------------------------------------------------------------------------------------------------
+local BookPure = (function()
+	local root = if fs.isDir("src/client") then "." else "game"
+	local text = fs.readFile(root .. "/src/client/UI/BadgeBook.luau")
+	local first = string.find(text, "-- PURE-BEGIN", 1, true)
+	local last = string.find(text, "-- PURE-END", 1, true)
+	assert(first and last, "no PURE block in BadgeBook")
+	local block = string.sub(text, first, last - 1) .. "\nreturn Pure"
+	return luau.load(block, { debugName = "BadgeBook.Pure", environment = { Icons = Icons }, injectGlobals = true })()
+end)()
+
+T.describe("BadgeBook (pure): the calm cards", function()
+	local data = { Wings = Wings, Stations = Stations }
+	test("every boost kind has its words; the scope is words too (no 🌙, no Art in the line)", function()
+		for _, kind in Boosts.KINDS do
+			assert(BookPure.KIND_WORDS[kind], "no words for " .. kind)
+		end
+		expect(BookPure.boostWords(data, { Kind = "Cash" }, 3)).toBe("+3% cash")
+		expect(BookPure.boostWords(data, { Kind = "Cash", Scope = "Night" }, 5)).toBe("+5% cash at night")
+		expect(BookPure.boostWords(data, { Kind = "Cash", Scope = "Starter" }, 2)).toBe("+2% cash in Meadow")
+		expect(BookPure.boostWords(data, { Kind = "MakeSpeed", Scope = "Remedy" }, 3)).toBe(
+			"+3% faster making at Dispensary"
+		)
+		expect(BookPure.boostWords(nil, nil, 1)).toBe("+1% boost")
+	end)
+	test("every badge at every tier: one line, one Unit (the cash), never two emoji", function()
+		for _, def in DEFS do
+			for index = 0, #Data.Tiers do
+				local nextTier = Data.Tiers[index + 1]
+				local line = if nextTier
+					then BookPure.nextLine(data, nextTier, def.Boost, Badges.boostAt(def, index + 1))
+					else BookPure.maxLine(data, def.Boost, Badges.boostAt(def, index))
+				assert(Icons.count(line) <= 1, def.Id .. ": " .. line)
+			end
+		end
+		local gold = Data.Tiers[3]
+		expect(BookPure.nextLine(data, gold, { Kind = "Cash", Scope = "Night" }, 15)).toBe(
+			"Gold: +15% cash at night · 💰 400 + 8 stars"
+		)
+		expect(BookPure.maxLine(data, { Kind = "Stars" }, 6)).toBe("Maxed · +6% stars")
+		expect(BookPure.cheerText(gold, { Name = "Night Nurse" })).toBe("Gold Night Nurse!")
+		expect(Icons.count(BookPure.cheerText(gold, { Name = "Night Nurse" }))).toBe(0)
+		expect(BookPure.TITLE).toBe("Badges")
+	end)
+	test("the calm rules: BadgeBook is at 0 on every one (the ratchet, locked here)", function()
+		local over = UiRules.ratchet({ "src/client/UI/BadgeBook.luau" }, {})
+		assert(#over == 0, "\n" .. table.concat(over, "\n"))
+		expect(UiRules.check({ "src/client/UI/BadgeBook.luau" })).toEqual({})
 	end)
 end)

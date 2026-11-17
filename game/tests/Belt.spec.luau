@@ -325,7 +325,7 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 	local perRow = math.ceil(count / 2)
 	local half = plotBuilderNumber("STREET_HALF_WIDTH") -- 18
 	local gap = plotBuilderNumber("PLOT_GAP") -- 8
-	local streetEnd = (perRow * (size + gap) + 40) / 2 -- 197: the street (and the Hall of Fame past x < -197)
+	local streetEnd = (perRow * (size + gap) + 40) / 2 -- 242: the street (and the Hall of Fame past x < -242)
 	local archInner = streetEnd - 5 - 0.8 -- the welcome arches' posts (1.6 wide) at x = ±(end - 5)
 	local curb = half - 0.8 -- the curbs' inner edge
 	local beltHalf = 3.4 -- NurseBelt: the bed (BELT_WIDTH 5 + 1.6) and the rollers, either side of the line
@@ -340,7 +340,7 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 		local westReach = if sx > ex then cloudReach else houseReach
 		expect(east + eastReach <= archInner - 2).toBe(true)
 		expect(west - westReach >= -archInner + 2).toBe(true)
-		expect(west - westReach > -streetEnd).toBe(true) -- the Hall of Fame garden (x < -197) stays clear
+		expect(west - westReach > -streetEnd).toBe(true) -- the Hall of Fame garden (x < -242) stays clear
 	end)
 
 	test("down the road's centre line, alone in its lane, clear of the spawn pad (memory-20261117-001 #3)", function()
@@ -372,5 +372,85 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 		expect(signZ >= plaza.Z0 and signZ <= plaza.Z1).toBe(true)
 		expect(math.abs(signX) >= 6.2 + 0.6 + 1).toBe(true) -- ... and not in the middle gate's mouth (posts at +-6.8)
 		expect(Belt.distanceToPath(Config, signX, signZ) <= B.HireDistance).toBe(true)
+	end)
+end)
+
+------------------------------------------------------------------------------------------------------------------
+-- The belt cards' calm UI (T3: UI direction "What a Lv 1 player sees", Belt and odds; memory-20261117-007).
+-- UI/BeltView's PURE block on its own.
+------------------------------------------------------------------------------------------------------------------
+
+local luau = require("@lune/luau")
+local NurseLogic = require("../src/shared/Logic/Nurse")
+local TutorialLogic = require("../src/shared/Logic/Tutorial")
+local UiRules = require("./uirules")
+local Icons = UiRules.Icons
+
+local BELTVIEW = "src/client/UI/BeltView.luau"
+local function beltSource(): string
+	for _, prefix in { "", "game/" } do
+		if fs.isFile(prefix .. BELTVIEW) then
+			return fs.readFile(prefix .. BELTVIEW)
+		end
+	end
+	error("can't find " .. BELTVIEW .. " (run from game/)")
+end
+
+local VP = (function()
+	local text = beltSource()
+	local first = string.find(text, "-- PURE-BEGIN", 1, true)
+	local last = string.find(text, "-- PURE-END", 1, true)
+	assert(first and last and last > first, "no PURE block in BeltView")
+	local block = string.sub(text, first, last - 1) .. "\nreturn Pure\n"
+	return luau.load(block, {
+		debugName = "BeltView (pure)",
+		environment = { BeltLogic = Belt, NurseLogic = NurseLogic, TutorialLogic = TutorialLogic },
+	})()
+end)()
+
+T.describe("BeltView: the calm cards", function()
+	test(
+		"a card you can't hire yet says its gate in words and wears one 🔒 State badge (no banner, no price)",
+		function()
+			expect(VP.gateWords("🏥 Lv 3", 3)).toBe("Needs " .. Icons.level(3))
+			expect(VP.gateWords("🏢 R1", 3)).toBe("Needs 🏢 R1")
+			expect(VP.gateWords(nil, 3)).toBe(Icons.needs(3))
+			local text = beltSource()
+			assert(string.find(text, "Icons.State.Locked", 1, true), "the 🔒 State badge")
+			assert(string.find(text, "Kit.setState(", 1, true), "through Kit.setState")
+		end
+	)
+
+	test(
+		"odds stay on show (red line 3): every rarity that can come, day and Night Rush, the word and the number",
+		function()
+			local infos = {}
+			for _, rarity in Rarities.Order do
+				infos[rarity] = Rarities[rarity]
+			end
+			for _, night in { false, true } do
+				local rows = VP.popupRows(Config, Rarities.Order, infos, night, false)
+				local can = 0
+				for _, block in { false, true } do
+					for _, value in Belt.odds(Config, block, false) do
+						if value > 0 then
+							can += 1
+						end
+					end
+				end
+				expect(#rows).toBe(can)
+				for _, row in rows do
+					expect(row.Percent > 0 and #row.Name > 0 and #row.Icon > 0).toBe(true)
+				end
+			end
+		end
+	)
+
+	test("the popup title is words; the Golden Hour banner waits for the level its Secret nurses need", function()
+		local text = beltSource()
+		assert(string.find(text, 'local ODDS_TITLE = "Nurse odds"', 1, true))
+		assert(string.find(text, 'myLevel() >= BeltLogic.minLevel(cfg, "Secret")', 1, true))
+		local over = UiRules.ratchet({ BELTVIEW }, {})
+		assert(#over == 0, "\n" .. table.concat(over, "\n"))
 	end)
 end)

@@ -1,5 +1,5 @@
 --!strict
--- Mailbox (build plan Task 6): the 📬 letter and the 🎯 daily goals.
+-- Mailbox (build plan Task 6): the letter and the daily goals.
 --   init(ctx)   opens on ctx.fire("Open", "Mailbox") and ctx.fire("Open", "Goals")
 -- Letter: when you join and the server says MailboxReady, an envelope drops in and opens into a thank-you
 -- letter from patients you've treated (or a welcome note) with a 🎁 gift. Claim calls ClaimMailbox; the same gift
@@ -10,10 +10,13 @@
 -- calls ClaimGoal(index). Goals never expire.
 -- All amounts shown are from Config and Data/DailyGoals, for display only; the server decides what you get.
 -- Bus: fires "Claimed" ("Mailbox" | "Goal", id?) after the server says yes.
--- Look (the look overhaul's template, look build plan §B8): both on UI/Modal's navy header. The letter is a popup:
--- the envelope sits on turning rays while a gift waits (a reward moment), the gift amount is big gold outlined text,
--- and "🎁 Open!" is the Collect button (a plain Secondary "👍 OK" once nothing waits). Goals: tinted cards with
--- neutral icon tiles; a finished goal's 🎁 is Collect. The gift and the goals are free in-game 💰 and ⭐, never Robux.
+-- Look (UI/Modal's navy header, titles in words; the calm UI, docs/plan/2026-11-17-ui-direction.md §4 #10; Joshua,
+-- memory-20261117-007): the letter is a popup: the 📬 (Icons.Door.Mail: one icon for mail, no 📭/💌 swap) sits on
+-- turning rays while a gift waits (a reward moment), the gift amount is a Loud Unit (Kit.unit: the 💰 apart from
+-- the outlined number), and "Open" is the Collect button (a plain Secondary "OK" once nothing waits). Goals: Kit.card
+-- cards with no line, the goal's Art in a Kit.artTile, its words (Normal), a Kit.bar (navy) and its count, the
+-- reward as one Soft line with one Unit ("💰 40 + 2 stars"); a finished goal's "Claim" is Collect. The gift and
+-- the goals are free in-game cash and stars, never Robux.
 -- Juice (depth update, design §4): the gift amount rolls up from 0 as the letter unfolds (Kit.countUp); a Collect
 -- button whose reward waits shines and breathes (only one on screen at a time: Kit's motion budget); claiming bursts
 -- confetti from it and flies the 💰 and ⭐ into the HUD; goal bars fill up and their counts roll while the panel is
@@ -28,35 +31,72 @@ local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutoria
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
+local Icons = require(script.Parent.Icons)
 
 local Mailbox = {}
+
+------------------------------------------------------------------------------------------------------------------
+-- Pure: the words (tests/ProgressionPanels.spec loads the block with UI/Icons and a formatter)
+------------------------------------------------------------------------------------------------------------------
+-- PURE-BEGIN
+local Pure = {}
+
+Pure.TEXT = {
+	Title = "Mail",
+	GoalsTitle = "Goals",
+	Open = "Open",
+	Ok = "OK",
+	Claim = "Claim",
+	Busy = Icons.State.Waiting, -- alone in place of the button's label while the server answers
+	Thanks = "Thank you, doctor!",
+	Welcome = "Welcome to your clinic!",
+	Empty = "New goals come each day",
+	Oops = "Oops! Try again.",
+	Got = "You got ",
+}
+
+-- The keeper's welcome when no patient has been treated yet: one Art emoji, not a sentence of them.
+Pure.KEEPER = "🏡"
+
+-- Six words or fewer, in words. The kinds keep their saved ids ("Cure"...); the words say treat.
+function Pure.goalText(wings: any, def: any): string
+	if def.Kind == "Cure" then
+		return "Treat " .. def.Target .. " patients"
+	elseif def.Kind == "CureNight" then
+		return "Treat " .. def.Target .. " night patients"
+	elseif def.Kind == "Make" then
+		return "Make " .. def.Target .. " treatments"
+	elseif def.Kind == "CureWing" then
+		local wing = def.Wing and type(wings) == "table" and rawget(wings, def.Wing)
+		return "Treat "
+			.. def.Target
+			.. (if type(wing) == "table" then " " .. tostring(wing.Name) else "")
+			.. " patients"
+	end
+	return tostring(def.Icon)
+end
+
+-- What a goal pays, with ONE Unit: "💰 40 + 2 stars" (or "💰 40", or "2 stars").
+function Pure.rewardText(def: any, format: (n: number) -> string): string
+	local reward = if type(def) == "table" and type(def.Reward) == "table" then def.Reward else {}
+	local cash = if type(reward.Cash) == "number" then reward.Cash else 0
+	local stars = if type(reward.Stars) == "number" then reward.Stars else 0
+	local parts = {}
+	if cash > 0 then
+		table.insert(parts, Icons.unit("Cash", format(cash)))
+	end
+	if stars > 0 then
+		table.insert(parts, stars .. (if stars == 1 then " star" else " stars"))
+	end
+	return table.concat(parts, " + ")
+end
+-- PURE-END
+
+Mailbox.Pure = Pure
 
 local AUTO_POP_DELAY = 2 -- seconds after the save loads, so the world is on screen first
 local FIRST_CURE_DELAY = 4 -- a new player's letter: after the first cure's sparkle and NEW PAGE banner
 local MAX_THANKS = 3
-
--- An emoji on a neutral Well tile (rows never cycle candy colours).
-local function iconTile(parent: Instance, props: { [string]: any }): (Frame, TextLabel)
-	local tile = Instance.new("Frame")
-	tile.Name = "Tile"
-	tile.BackgroundColor3 = Theme.Colors.Well
-	tile.BorderSizePixel = 0
-	for key, value in props do
-		(tile :: any)[key] = value
-	end
-	Kit.corner(tile, Theme.Radius.Medium)
-	tile.Parent = parent
-	local icon = Kit.label({
-		Name = "Icon",
-		Text = "",
-		TextScaled = true,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.78, 0.78),
-		Parent = tile,
-	})
-	return tile, icon
-end
 
 local function goalDef(data: any, id: string): any
 	for _, def in data.DailyGoals do
@@ -67,30 +107,8 @@ local function goalDef(data: any, id: string): any
 	return nil
 end
 
--- Six words or fewer, icons doing most of the work. The kinds keep their saved ids ("Cure"...); the words say treat.
-local function goalText(data: any, def: any): string
-	if def.Kind == "Cure" then
-		return "Treat " .. def.Target .. " patients"
-	elseif def.Kind == "CureNight" then
-		return "Treat " .. def.Target .. " 🌙 patients"
-	elseif def.Kind == "Make" then
-		return "Make " .. def.Target .. " treatments"
-	elseif def.Kind == "CureWing" then
-		local wing = def.Wing and rawget(data.Wings, def.Wing)
-		return "Treat " .. def.Target .. " " .. (if wing then wing.Icon else "") .. " patients"
-	end
-	return def.Icon
-end
-
 local function rewardText(def: any): string
-	local parts = {}
-	if def.Reward and (def.Reward.Cash or 0) > 0 then
-		table.insert(parts, "💰" .. Hud.format(def.Reward.Cash))
-	end
-	if def.Reward and (def.Reward.Stars or 0) > 0 then
-		table.insert(parts, "⭐" .. def.Reward.Stars)
-	end
-	return table.concat(parts, " ")
+	return Pure.rewardText(def, Hud.format)
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -102,7 +120,7 @@ local function buildLetter(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = "Mailbox",
 		Layer = "Popup",
-		Title = "📬 Mail!",
+		Title = Pure.TEXT.Title,
 		MaxSize = Vector2.new(420, 440),
 		Scale = Vector2.new(0.9, 0.92),
 	})
@@ -130,13 +148,13 @@ local function buildLetter(ctx: Types.Ctx)
 	rays.Visible = false
 	local envelope = Kit.label({
 		Name = "Icon",
-		Text = "💌",
+		Text = Icons.Door.Mail,
 		TextScaled = true,
 		Size = UDim2.fromScale(1, 1),
 		Parent = envelopeHolder,
 	})
 
-	-- The letter: a pale gold note (gold = your gift) with the faces of patients who say thanks.
+	-- The letter: a pale gold note (gold = your gift; a fill, no line) with the faces of patients who say thanks.
 	local note = Instance.new("Frame")
 	note.Name = "Letter"
 	note.LayoutOrder = 2
@@ -144,7 +162,6 @@ local function buildLetter(ctx: Types.Ctx)
 	note.BorderSizePixel = 0
 	note.Size = UDim2.new(1, -Theme.Space.Step[5], 0, 120)
 	Kit.corner(note, Theme.Radius.Medium)
-	Kit.stroke(note, Theme.Colors.CardLine, Theme.Stroke.Fine)
 	note.Parent = content
 	local message = Kit.label({
 		Name = "Message",
@@ -164,23 +181,22 @@ local function buildLetter(ctx: Types.Ctx)
 	faces.Size = UDim2.new(1, -20, 0, 66)
 	faces.Parent = note
 
-	local gift = Kit.label({
+	-- The gift: a Loud Unit (the 💰 apart from its gold outlined number: an emoji can't be outlined).
+	local giftRow, gift = Kit.unit({
 		Name = "Gift",
-		Text = "",
-		TextScaled = true,
-		Outlined = true,
-		TextColor3 = Theme.Colors.Cash,
+		Icon = Icons.Unit.Cash,
+		Text = "0",
+		Voice = "Loud",
+		Px = Theme.TextSize.Number,
 		LayoutOrder = 3,
-		Size = UDim2.new(1, 0, 0, 44),
 		Parent = content,
 	})
-	Kit.textLimit(gift, Theme.TextSize.Number)
-	Kit.outline(gift, Theme.Stroke.Title)
+	gift.TextColor3 = Theme.Colors.Cash
 
 	local claim = Kit.button({
 		Name = "Claim",
 		Kind = "Collect",
-		Text = "🎁 Open!",
+		Text = Pure.TEXT.Open,
 		TextSize = Theme.TextSize.Title,
 		LayoutOrder = 4,
 		Size = UDim2.fromOffset(220, 64),
@@ -198,7 +214,7 @@ local function buildLetter(ctx: Types.Ctx)
 		end
 	end
 	local function giftText(n: number): string
-		return "🎁 💰" .. Hud.format(math.floor(n + 0.5))
+		return Hud.format(math.floor(n + 0.5))
 	end
 
 	-- The rays turn only while the letter is open and a gift waits.
@@ -208,7 +224,7 @@ local function buildLetter(ctx: Types.Ctx)
 
 	local function drawFaces(state: Types.Snapshot)
 		faces:ClearAllChildren()
-		local row = Kit.list(faces, Enum.FillDirection.Horizontal, 8)
+		local row = Kit.list(faces, Enum.FillDirection.Horizontal, Theme.Space.Line)
 		row.VerticalAlignment = Enum.VerticalAlignment.Center
 		local thanked = 0
 		for _, patientId in data.Patients.Order do
@@ -225,7 +241,6 @@ local function buildLetter(ctx: Types.Ctx)
 				holder.BorderSizePixel = 0
 				holder.Size = UDim2.fromOffset(60, 60)
 				Kit.corner(holder, Theme.Radius.Round)
-				Kit.stroke(holder, Theme.Colors.CardLine, Theme.Stroke.Fine)
 				local portrait = Hud.portrait(data.Patients[patientId].Look)
 				portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 				portrait.Position = UDim2.fromScale(0.5, 0.5)
@@ -247,7 +262,7 @@ local function buildLetter(ctx: Types.Ctx)
 		if thanked == 0 then
 			Kit.label({
 				Name = "Keeper",
-				Text = "🏡 🔑 💛",
+				Text = Pure.KEEPER,
 				TextScaled = true,
 				Size = UDim2.new(1, 0, 0, 50),
 				Parent = faces,
@@ -258,17 +273,16 @@ local function buildLetter(ctx: Types.Ctx)
 
 	local function render(state: Types.Snapshot)
 		local ready = state.MailboxReady == true
-		envelope.Text = if ready then "💌" else "📭"
 		note.Visible = ready
-		gift.Visible = ready
+		giftRow.Visible = ready
 		-- (A roll already heading to this amount carries on: see animateOpen.)
 		Kit.countUp(gift, ctx.Config.MailboxGiftCash or 0, giftText, 0)
-		claim.Text = if ready then "🎁 Open!" else "👍 OK"
+		claim.Text = if ready then Pure.TEXT.Open else Pure.TEXT.Ok
 		-- A gift waiting: the Collect "Open!" (it shines and breathes). Nothing waiting: a plain Secondary OK.
 		Kit.setRole(claim, if ready then "Collect" else "Secondary")
 		breathe(ready)
 		if ready then
-			message.Text = if drawFaces(state) > 0 then "Thank you, doctor!" else "Welcome to your clinic!"
+			message.Text = if drawFaces(state) > 0 then Pure.TEXT.Thanks else Pure.TEXT.Welcome
 		end
 		syncRays()
 	end
@@ -303,7 +317,7 @@ local function buildLetter(ctx: Types.Ctx)
 			-- The gift amount rolls up from 0 once the letter unfolds.
 			Kit.countUp(gift, 0, giftText, 0)
 			task.delay(0.35, function()
-				if gift.Visible then
+				if giftRow.Visible then
 					Kit.countUp(gift, ctx.Config.MailboxGiftCash or 0, giftText, 0.7)
 				end
 			end)
@@ -320,7 +334,7 @@ local function buildLetter(ctx: Types.Ctx)
 			return
 		end
 		claiming = true
-		claim.Text = "⏳"
+		claim.Text = Pure.TEXT.Busy
 		claim.Interactable = false
 		Kit.setRole(claim, "Secondary")
 		local ok, reply = Hud.ask(ctx.Remotes.ClaimMailbox)
@@ -329,16 +343,16 @@ local function buildLetter(ctx: Types.Ctx)
 		if ok then
 			ctx.fire("Claimed", "Mailbox")
 			breathe(false)
-			Kit.bump(gift)
+			Kit.bump(giftRow)
 			Kit.confetti(modal.Root, 24, UDim2.fromScale(0.5, 0.45))
-			Hud.fly(gift, "💰", "Cash", 8)
+			Hud.fly(giftRow, Icons.Unit.Cash, "Cash", 8)
 			Hud.sound("Chime")
 			if reply ~= "" then
 				ctx.toast(reply)
 			end
 			task.delay(0.9, modal.close)
 		else
-			ctx.toast(if reply ~= "" then reply else "Oops! Try again.")
+			ctx.toast(if reply ~= "" then reply else Pure.TEXT.Oops)
 			Hud.shake(claim)
 			render(ctx.State)
 		end
@@ -372,7 +386,7 @@ type GoalRow = {
 	Frame: Frame,
 	Icon: TextLabel,
 	Text: TextLabel,
-	Fill: Frame,
+	SetBar: (fraction: number, atMax: boolean?) -> (),
 	Count: TextLabel,
 	Reward: TextLabel,
 	Claim: TextButton,
@@ -384,7 +398,7 @@ local function buildGoals(ctx: Types.Ctx)
 	local data = ctx.Data :: any
 	local modal = Hud.modal(ctx, {
 		Name = "Goals",
-		Title = "🎯 Goals",
+		Title = Pure.TEXT.GoalsTitle,
 		MaxSize = Vector2.new(560, 460),
 	})
 
@@ -400,107 +414,84 @@ local function buildGoals(ctx: Types.Ctx)
 	scroll.ScrollBarImageColor3 = Theme.Colors.Stroke
 	scroll.Selectable = false
 	scroll.Parent = modal.Body
-	local list = Kit.list(scroll, Enum.FillDirection.Vertical, Theme.Space.Gap)
+	local list = Kit.list(scroll, Enum.FillDirection.Vertical, Theme.Space.PadCard)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, Theme.Space.Step[1])
-	pad.PaddingLeft = UDim.new(0, Theme.Space.Step[1]) -- scrolling frames clip: keep the rows' outlines whole
+	pad.PaddingTop = UDim.new(0, Theme.Space.Tight)
+	pad.PaddingLeft = UDim.new(0, Theme.Space.Tight)
 	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
 	pad.Parent = scroll
 
-	local empty = Kit.label({
+	local empty = Kit.fact({
 		Name = "Empty",
-		Text = "🎯 New goals come each day!",
-		TextScaled = true,
-		TextColor3 = Theme.Colors.InkSoft,
+		Text = Pure.TEXT.Empty,
+		TextXAlignment = Enum.TextXAlignment.Center,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.45),
 		Size = UDim2.new(0.9, 0, 0, 40),
 		Visible = false,
 		Parent = modal.Body,
 	})
-	Kit.textLimit(empty, Theme.TextSize.Button)
 
 	local rows: { GoalRow } = {}
 	local claimingIndex: number? = nil
 	local render: (state: Types.Snapshot) -> ()
 
 	local function makeRow(index: number): GoalRow
-		local frame = Instance.new("Frame")
-		frame.Name = "Goal" .. index
-		frame.LayoutOrder = index
-		frame.BackgroundColor3 = Theme.Colors.Card
-		frame.BorderSizePixel = 0
+		local inset = Theme.Space.PadCard
+		local art = Theme.Calm.ArtTile
+		local claimWidth = 124
+		local frame = Kit.card({ Name = "Goal" .. index, LayoutOrder = index, Pad = false, Parent = scroll })
+		frame.AutomaticSize = Enum.AutomaticSize.None
 		frame.Size = UDim2.new(1, 0, 0, 92)
-		Kit.corner(frame, Theme.Radius.Medium)
-		Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
-		frame.Parent = scroll
 
-		local _, icon = iconTile(frame, {
+		local tile = Kit.artTile({
+			Icon = "",
 			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, 10, 0.5, 0),
-			Size = UDim2.fromOffset(58, 58),
+			Position = UDim2.new(0, inset, 0.5, 0),
+			Parent = frame,
 		})
-		local text = Kit.label({
+		local icon = tile:FindFirstChild("Icon") :: TextLabel
+		local left = inset * 2 + art
+		local right = claimWidth + inset * 2
+		local text = Kit.name({
 			Name = "What",
 			Text = "",
-			Font = Theme.DisplayFont,
-			TextScaled = true,
-			TextWrapped = false,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(78, 10),
-			Size = UDim2.new(1, -78 - 146, 0, 28),
+			Position = UDim2.fromOffset(left, inset - Theme.Space.Tight),
+			Size = UDim2.new(1, -left - right, 0, Theme.TextSize.Body + Theme.Space.Tight),
 			Parent = frame,
 		})
-		Kit.textLimit(text, Theme.TextSize.Body)
-		local track = Instance.new("Frame")
-		track.Name = "Track"
-		track.BackgroundColor3 = Theme.Colors.Well
-		track.BorderSizePixel = 0
-		track.Position = UDim2.fromOffset(78, 46)
-		track.Size = UDim2.new(1, -78 - 146 - 60, 0, 16)
-		Kit.corner(track, Theme.Radius.Small)
-		track.Parent = frame
-		local fill = Instance.new("Frame")
-		fill.Name = "Fill"
-		fill.BackgroundColor3 = Theme.Colors.Collect
-		fill.BorderSizePixel = 0
-		fill.Size = UDim2.fromScale(0, 1)
-		Kit.corner(fill, Theme.Radius.Small)
-		fill.Parent = track
-		local count = Kit.label({
+		local countWidth = 56
+		local _, setBar = Kit.bar({
+			Name = "Bar",
+			Position = UDim2.fromOffset(left, 44),
+			Size = UDim2.new(1, -left - right - countWidth - Theme.Space.Line, 0, Theme.Calm.Bar),
+			Parent = frame,
+		})
+		local count = Kit.fact({
 			Name = "Count",
 			Text = "",
-			Font = Theme.DisplayFont,
-			TextScaled = true,
-			TextWrapped = false,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -146, 0, 42),
-			Size = UDim2.fromOffset(54, 26),
+			TextXAlignment = Enum.TextXAlignment.Right,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -right, 0, 44 + Theme.Calm.Bar / 2),
+			Size = UDim2.fromOffset(countWidth, Theme.TextSize.Caption + Theme.Space.Tight),
 			Parent = frame,
 		})
-		Kit.textLimit(count, Theme.TextSize.Body)
-		local reward = Kit.label({
+		local reward = Kit.fact({
 			Name = "Reward",
 			Text = "",
-			TextScaled = true,
-			Outlined = true,
-			TextColor3 = Theme.Colors.Cash,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(78, 66),
-			Size = UDim2.new(1, -78 - 146, 0, 20),
+			Position = UDim2.fromOffset(left, 60),
+			Size = UDim2.new(1, -left - right, 0, Theme.TextSize.Caption + Theme.Space.Tight),
 			Parent = frame,
 		})
-		Kit.textLimit(reward, Theme.TextSize.Caption)
-		Kit.outline(reward, Theme.Stroke.Fine)
 		local claim = Kit.button({
 			Name = "Claim",
 			Kind = "Collect",
-			Text = "🎁",
-			TextSize = Theme.TextSize.Title,
+			Text = Pure.TEXT.Claim,
+			TextSize = Theme.TextSize.Button,
 			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -12, 0.5, 0),
-			Size = UDim2.fromOffset(124, 60),
+			Position = UDim2.new(1, -inset, 0.5, 0),
+			Size = UDim2.fromOffset(claimWidth, 60),
 			Parent = frame,
 		})
 		-- Collect: it shines and breathes only while it shows (a goal is done), one button at a time.
@@ -510,7 +501,7 @@ local function buildGoals(ctx: Types.Ctx)
 			Frame = frame,
 			Icon = icon,
 			Text = text,
-			Fill = fill,
+			SetBar = setBar,
 			Count = count,
 			Reward = reward,
 			Claim = claim,
@@ -530,7 +521,7 @@ local function buildGoals(ctx: Types.Ctx)
 				return
 			end
 			claimingIndex = index
-			claim.Text = "⏳"
+			claim.Text = Pure.TEXT.Busy
 			claim.Interactable = false
 			local ok, reply = Hud.ask(ctx.Remotes.ClaimGoal, index)
 			claimingIndex = nil
@@ -540,14 +531,14 @@ local function buildGoals(ctx: Types.Ctx)
 				local origin = claim.AbsolutePosition + claim.AbsoluteSize / 2 - modal.Root.AbsolutePosition
 				Kit.confetti(modal.Root, 20, UDim2.fromOffset(origin.X, origin.Y))
 				if (def.Reward.Cash or 0) > 0 then
-					Hud.fly(claim, "💰", "Cash", 6)
+					Hud.fly(claim, Icons.Unit.Cash, "Cash", 6)
 				end
 				if (def.Reward.Stars or 0) > 0 then
-					Hud.fly(claim, "⭐", "Stars", math.min(def.Reward.Stars, 5))
+					Hud.fly(claim, Icons.Unit.Stars, "Stars", math.min(def.Reward.Stars, 5))
 				end
-				ctx.toast(if reply ~= "" then reply else "🎉 " .. rewardText(def))
+				ctx.toast(if reply ~= "" then reply else Pure.TEXT.Got .. rewardText(def))
 			else
-				ctx.toast(if reply ~= "" then reply else "Oops! Try again.")
+				ctx.toast(if reply ~= "" then reply else Pure.TEXT.Oops)
 				Hud.shake(claim)
 			end
 			claim.Interactable = true
@@ -575,20 +566,15 @@ local function buildGoals(ctx: Types.Ctx)
 				local live = modal.isOpen() and row.Goal == def.Id and not Hud.calm()
 				row.Goal = def.Id
 				row.Icon.Text = def.Icon
-				row.Text.Text = goalText(data, def)
+				row.Text.Text = Pure.goalText(data.Wings, def)
 				local target = def.Target
 				Kit.countUp(row.Count, progress, function(n: number): string
 					return math.floor(n + 0.5) .. "/" .. target
 				end, if live then nil else 0)
 				row.Reward.Text = rewardText(def)
-				local goalSize = UDim2.fromScale(progress / math.max(def.Target, 1), 1)
-				if live and row.Fill.Size ~= goalSize then
-					TweenService:Create(row.Fill, Theme.Tween.Fill, { Size = goalSize }):Play()
-				else
-					row.Fill.Size = goalSize
-				end
+				row.SetBar(Kit.Juice.barFraction(progress, def.Target)) -- Kit.bar slides there while it's on screen
 				row.Claim.Visible = done
-				row.Claim.Text = "🎁"
+				row.Claim.Text = Pure.TEXT.Claim
 				row.Frame.BackgroundColor3 = if done then Kit.lighten(Theme.Colors.Collect, 0.86) else Theme.Colors.Card
 				if done and not row.Done then
 					Kit.punch(row.Claim, 0.4, Theme.Tween.PopIn)

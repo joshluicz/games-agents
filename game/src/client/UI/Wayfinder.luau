@@ -817,7 +817,7 @@ local function ensurePin(): BillboardGui
 	point.BorderSizePixel = 0
 	point.ZIndex = 1
 	Kit.corner(point, Theme.Radius.Small)
-	Kit.stroke(point, Theme.Colors.Stroke, Theme.Stroke.Panel)
+	Kit.stroke(point, Theme.Colors.Stroke, Theme.Stroke.Panel) -- uirules: allow StrokeBudget (the pin: a candy shape in the world)
 	point.Parent = frame
 	local disc = Instance.new("Frame")
 	disc.Name = "Disc"
@@ -829,7 +829,7 @@ local function ensurePin(): BillboardGui
 	local round = Instance.new("UICorner")
 	round.CornerRadius = Theme.Radius.Round
 	round.Parent = disc
-	Kit.stroke(disc, Theme.Colors.Stroke, Theme.Stroke.Panel)
+	Kit.stroke(disc, Theme.Colors.Stroke, Theme.Stroke.Panel) -- uirules: allow StrokeBudget (the pin: a candy shape in the world)
 	disc.Parent = frame
 	local middle = Instance.new("Frame")
 	middle.Name = "Middle"
@@ -841,7 +841,7 @@ local function ensurePin(): BillboardGui
 	local middleRound = Instance.new("UICorner")
 	middleRound.CornerRadius = Theme.Radius.Round
 	middleRound.Parent = middle
-	Kit.stroke(middle, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(middle, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (the pin: a candy shape in the world)
 	middle.Parent = disc
 	local icon = Kit.label({
 		Name = "Icon",

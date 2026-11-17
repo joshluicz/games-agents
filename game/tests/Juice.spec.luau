@@ -310,7 +310,7 @@ T.describe("Celebrate words (Progression v2)", function()
 		expect(words.Sticker).toBe("🏢 1")
 		expect(words.Sub).toBe(Themes.Arctic.Icon .. " " .. Themes.Arctic.Name)
 		expect(words.Colors).toEqual({ Themes.Arctic.Wall, Themes.Arctic.Roof, Themes.Arctic.Trim })
-		expect(words.Chips[1]).toBe("💰⭐ ×" .. Words.decimal(RebirthLogic.multiplier(1, Config)))
+		expect(words.Chips[1]).toBe("×" .. Words.decimal(RebirthLogic.multiplier(1, Config)) .. " cash and stars")
 		expect(words.Chips[2]).toBe("🌳 +" .. Config.Rebirth.PointsPerRebirth)
 		expect(words.Chips[3]).toBe("👩‍⚕️ +1 nurse slot")
 		expect(words.Points).toBe(Config.Rebirth.PointsPerRebirth)
@@ -321,7 +321,9 @@ T.describe("Celebrate words (Progression v2)", function()
 	test("Rebirth: the multiplier matches Logic/Rebirth at every count; the slot stops at the roster max", function()
 		for count = 1, 12 do
 			local words = rebirth(count)
-			expect(words.Chips[1]).toBe("💰⭐ ×" .. Words.decimal(RebirthLogic.multiplier(count, Config)))
+			expect(words.Chips[1]).toBe(
+				"×" .. Words.decimal(RebirthLogic.multiplier(count, Config)) .. " cash and stars"
+			)
 			local roster = Config.Roster
 			local grows = math.min(roster.Base + roster.PerRebirth * count, roster.Max)
 				> math.min(roster.Base + roster.PerRebirth * (count - 1), roster.Max)
@@ -494,16 +496,17 @@ T.describe("Guide: station holds follow the plot (Progression v2)", function()
 end)
 
 T.describe("BookPanel: rebirth wings and the Golden sticker (Progression v2)", function()
-	test("gates are calm chips: the R-count, and 🚁 for the air-only wing", function()
-		expect(Gate.wing(Wings.Starter, 0)).toBe("")
-		expect(Gate.wing(Wings.Sunny, 0)).toBe("🏢 R1")
-		expect(Gate.wing(Wings.Sunny, 1)).toBe("")
-		expect(Gate.wing(Wings.Sky, 1)).toBe("🏢 R2 · 🚁")
-		expect(Gate.wing(Wings.Sky, 2)).toBe("🚁")
-		expect(Gate.wing(Wings.Sky, "x")).toBe("🏢 R2 · 🚁")
-		expect(Gate.wing(nil, 3)).toBe("")
+	test("gates are words: the branch count, and 'by air' for the air-only wing; no emoji, no lock", function()
+		expect(Gate.wingWords(Wings.Starter, 0)).toBe("")
+		expect(Gate.wingWords(Wings.Sunny, 0)).toBe("From branch 1")
+		expect(Gate.wingWords(Wings.Sunny, 1)).toBe("")
+		expect(Gate.wingWords(Wings.Sky, 1)).toBe("From branch 2 · by air")
+		expect(Gate.wingWords(Wings.Sky, 2)).toBe("By air only")
+		expect(Gate.wingWords(Wings.Sky, "x")).toBe("From branch 2 · by air")
+		expect(Gate.wingWords(nil, 3)).toBe("")
 		for _, id in Wings.Order do
-			expect(string.find(Gate.wing(Wings[id], 0), "🔒", 1, true)).toBeNil() -- no lock icon
+			expect(string.find(Gate.wingWords(Wings[id], 0), "🔒", 1, true)).toBeNil() -- no lock icon
+			expect(string.find(Gate.wingWords(Wings[id], 0), "🏢", 1, true)).toBeNil()
 		end
 	end)
 	test("stickers: Golden first, then Data/Variants order", function()

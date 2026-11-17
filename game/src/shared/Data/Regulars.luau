@@ -5,10 +5,13 @@
 --
 -- `Patient` is the creature id: CreatureBuilder.build(Patient) uses this entry's `Look` (same recipe as
 -- Data/Patients, with the same candy-pop colours, sizes and Bits) or a model at ServerStorage.Creatures.<Patient>.
--- `Case` is their one fixed case (Data/Cases; design §11: they keep their stories and get one case each). It is a
--- Lv 1 case with no Room, so every clinic can treat it (Logic/Visit.canTreat at Lv 1), and a regular goes through the
--- same visit as anyone: the exam, then its plan (cut by the hospital level), and from Lv 2-3 a ward rest if it Stays.
--- Their words fit their case: Shy Sprout coughs, Grumpy Teapot runs hot (a fever), Dizzy Comet bumped its head.
+-- `Case` is their one fixed case (Data/Cases; design §11: they keep their stories and get one case each). It has no
+-- Room, and a regular goes through the same visit as anyone: the exam, then its plan (cut by the hospital level), and
+-- from Lv 2-3 a ward rest if it Stays. Their words fit their case: Shy Sprout coughs, Grumpy Teapot runs hot (a
+-- fever), Dizzy Comet bumped its head.
+-- Simple start (memory-20261117-006): the first two have Lv 1 cases. Dizzy Comet's bumped head needs the Ice chest,
+-- from Lv 2, so it visits from Lv 2: below that Server/Patients finds its case can't be treated here and doesn't
+-- spawn it (Story keeps its beat for later; nothing is lost). It unlocks at 120 Clinic Stars and comes only at night.
 
 export type RegularId = string
 export type Beat = { Emote: string, Bubble: string }
@@ -25,7 +28,7 @@ export type Look = {
 export type Regular = {
 	Name: string,
 	Patient: string, -- creature id (equals the RegularId)
-	Case: string, -- CaseId: a Lv 1 case with no Room (Data/Cases)
+	Case: string, -- CaseId: a case with no Room (Data/Cases)
 	Wing: string, -- WingId, for the Book
 	UnlockStars: number, -- Clinic Stars needed before they start visiting
 	Beats: { Beat }, -- exactly 5

@@ -347,7 +347,7 @@ T.describe("Nurses.Pure: where nurses stand and walk (Logic/Building)", function
 			and spot.Z <= rect.Z1 - margin
 	end
 
-	test("every job's home, for a full roster, is clear at every level; inside the clinic but the Medic's", function()
+	test("every job's home, for a full roster, is clear at every level and inside the clinic", function()
 		local footprint = B.footprint(1, 0)
 		for _, job in JOBS do
 			for k = 1, ROSTER do
@@ -358,13 +358,8 @@ T.describe("Nurses.Pure: where nurses stand and walk (Logic/Building)", function
 						error(job .. " " .. k .. " stands in something at Lv " .. level)
 					end
 				end
-				if job == "Medic" then
-					-- the A&E yard: outside the -x wall, off the walk from the StretcherSpot to the side door
-					expect(spot.X < footprint.X0).toBe(true)
-					expect(math.abs(spot.Z - B.BAY_AMBULANCE.Stretcher.Z) >= 2.5).toBe(true)
-				else
-					expect(inside(spot, footprint, B.WALL + 0.8)).toBe(true)
-				end
+				-- every job inside (the Medic waits at the nurses' station now, not in the A&E yard: 2026-11-17)
+				expect(inside(spot, footprint, B.WALL + 0.8)).toBe(true)
 			end
 		end
 		-- two nurses of a job never share a spot
@@ -398,10 +393,10 @@ T.describe("Nurses.Pure: where nurses stand and walk (Logic/Building)", function
 						if not B.path({ X = home.X, Z = home.Z }, { X = spot.X, Z = spot.Z }, level, 0) then
 							error("no walk to bay " .. bay.Id .. " at Lv " .. level)
 						end
-						if level >= 2 then -- the Medic's job opens with the A&E side door
-							local yard = NP.home("Medic", index)
-							if not B.path({ X = yard.X, Z = yard.Z }, { X = spot.X, Z = spot.Z }, level, 0) then
-								error("no walk from the A&E yard to bay " .. bay.Id .. " at Lv " .. level)
+						if level >= 2 then -- the Medic's job opens with the A&E side door; it waits at the station
+							local station = NP.home("Medic", index, { Healer = 8 })
+							if not B.path({ X = station.X, Z = station.Z }, { X = spot.X, Z = spot.Z }, level, 0) then
+								error("no walk from the nurses' station to bay " .. bay.Id .. " at Lv " .. level)
 							end
 						end
 					end
@@ -431,6 +426,56 @@ T.describe("Nurses.Pure: where nurses stand and walk (Logic/Building)", function
 		end
 		expect(NP.stationSpot("Remedy", 1) ~= nil).toBe(true) -- a Building station, but no Maker ever goes there
 		expect(table.find(NP.supplyStations(ItemsData), "Remedy")).toBeNil()
+	end)
+
+	test("the bigger clinic: a helper stands inside its own bay, a Maker never on another station's stand", function()
+		for _, bay in B.BAYS do
+			if not bay.Room and not bay.Spot then -- bays 1-6 (the DoctorSpot is inside the bay now)
+				for index = 1, 2 do
+					local spot = NP.bedside(bay, index, B.MAX_LEVEL)
+					-- never past a divider into the next bay
+					expect(math.abs(spot.X - bay.X) < B.BAY_WIDTH / 2 - B.DIVIDER).toBe(true)
+					expect(spot.Z > B.ROOMS.Bays.Z0 and spot.Z < B.ROOMS.Bays.Z1).toBe(true)
+				end
+			end
+		end
+		for _, stationId in NP.supplyStations(ItemsData) do
+			if B.STATIONS[stationId] then
+				for index = 1, 2 do
+					local spot = NP.stationSpot(stationId, index)
+					for other in B.STATIONS do
+						local stand = B.stationStand(other)
+						local gap = math.abs(spot.X - stand.X) + math.abs(spot.Z - stand.Z)
+						if gap < 1 then
+							error(stationId .. " (" .. index .. ") stands on " .. other .. "'s stand")
+						end
+					end
+				end
+			end
+		end
+	end)
+
+	test("REVIEW-P2 #3: a Maker deposits only while its station is still there and open", function()
+		local text = source(ROOT .. "Nurses.luau")
+		local from = string.find(text, "local function makerLoop", 1, true)
+		local loop = string.sub(text, from, (string.find(text, "\nend\n", from, true)))
+		local check = string.find(loop, "if not stillOpen(source) then", 1, true)
+		local deposit = string.find(loop, "deposit(work, item)", 1, true)
+		expect(check ~= nil and deposit ~= nil and check < deposit).toBe(true)
+		local fn = string.sub(text, (string.find(text, "local function stillOpen", 1, true)))
+		fn = string.sub(fn, 1, (string.find(fn, "\nend\n", 1, true)))
+		for _, needle in
+			{
+				"source.Part.Parent ~= nil",
+				"source.Holder.Parent ~= nil",
+				'source.Part:GetAttribute("Open") ~= false',
+				'source.Holder:GetAttribute("Open") ~= false',
+			}
+		do
+			if not string.find(fn, needle, 1, true) then
+				error("stillOpen lacks " .. needle)
+			end
+		end
 	end)
 
 	test("pathKey: both ends to the half stud and the level", function()

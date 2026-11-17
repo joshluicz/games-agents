@@ -18,7 +18,9 @@
 --   Floors       OPEN floors above the ground (the 4th at Lv 5 is the roof deck with the helipad)
 --   Departments  the departments open at this level, cumulatively (Data/Departments; each one's Opens agrees). Hydro
 --                isn't listed: it comes with the Bath Room, not with a level
---   Unlocks      short chips for the Shop: an emoji, then two or three words
+--   Unlocks      short chips for the Shop: an emoji, then two or three words. Lv 1 is simple (memory-20261117-006):
+--                three cases, three exam tools, the Plaster shelf and the dispensary. The chips name the new places
+--                and tools (Logic/Building.STATIONS Opens, Data/Tools Level), and the celebration shows the first 4
 -- The Stars gates, cash costs, the line and the spawn seconds are unchanged from Progression v2.
 
 export type Level = {
@@ -39,7 +41,7 @@ export type Level = {
 local LEVELS: { Level } = {
 	{
 		Name = "Clinic",
-		Icon = "🏠",
+		Icon = "🏥",
 		Stars = 0,
 		Cash = 0,
 		Bays = 2,
@@ -63,7 +65,14 @@ local LEVELS: { Level } = {
 		SpawnSeconds = 11,
 		Floors = 1,
 		Departments = { "Reception", "Pharmacy", "AE", "Wards" },
-		Unlocks = { "🚑 A&E ambulances", "🛏️ Injury Ward upstairs", "🧻 Bandages", "📋 2-step plans" },
+		Unlocks = {
+			"🚑 A&E ambulances",
+			"🧊 Ice packs",
+			"🔦 Ear checks",
+			"🧻 Bandages",
+			"🛏️ Injury Ward upstairs",
+			"📋 2-step plans",
+		},
 	},
 	{
 		Name = "Hospital",
@@ -95,7 +104,7 @@ local LEVELS: { Level } = {
 	},
 	{
 		Name = "City Hospital",
-		Icon = "🏙️",
+		Icon = "🏥",
 		Stars = 200,
 		Cash = 15000,
 		Bays = 6,

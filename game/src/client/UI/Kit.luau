@@ -4,10 +4,11 @@
 -- LayoutOrder, ...), plus Parent (set last) and the extras noted below. Colours and sizes come from Theme.
 --
 --   Kit.screen(name, displayOrder): ScreenGui       ResetOnSpawn off, inside the safe area, in PlayerGui
---   Kit.panel(props?): Frame                       flat white card, the Panel stroke; extra: Title = "🛒 Shop" adds
+--   Kit.panel(props?): Frame                       flat white card, the Panel stroke; extra: Title = "Shop" adds
 --                                                  THE header: a Kit.HEADER (64) px navy band (Theme.Colors.Header)
---                                                  with the title in white display text. Accent is IGNORED (every
---                                                  header is navy: look build plan §B8)
+--                                                  with the title in white display text. A TITLE IS WORDS ONLY
+--                                                  (memory-20261117-007): any emoji in it is dropped (Icons.words).
+--                                                  Accent is IGNORED (every header is navy: look build plan §B8)
 --   Kit.label(props?): TextLabel                   extra: Outlined = true -> display font, white text, dark stroke
 --   Kit.button(props?): TextButton                 a button with a press bounce and (with a mouse) a hover grow, min
 --                                                  56 px tall; extras: Kind (its ROLE), Fill (a game piece's own
@@ -17,7 +18,8 @@
 --                                                                  view; NEVER shines or breathes (red line 3)
 --                                                    "Collect"     green candy: Claim, Open!, Yay!, ✅ Take it. The only
 --                                                                  role that may shine or breathe
---                                                    "Secondary"   a quiet flat fill, ink text: everything else
+--                                                    "Secondary"   a quiet flat fill, ink text, NO outline:
+--                                                                  everything else
 --                                                    "Quiet"       no fill, no outline, ink text: links ("See odds")
 --                                                    "Destructive" red candy: Sell, Reset, Throw away (always behind
 --                                                                  Hud.confirm or a hold), and the modal's ✖
@@ -26,10 +28,11 @@
 --                                                  Destructive, Pink/Purple/Cyan/Cash -> Secondary, Card -> Quiet; an
 --                                                  unknown kind is Secondary. Kind nil = Primary (as before)
 --   Kit.setRole(button, kind)                      repaints a Kit button as another role (or the "Disabled" look:
---                                                  grey with grey text, for "can't yet"; pair it with a gate chip)
---   Kit.tab(button, selected, stripe?)             THE tab look (Modal.tabs paints with it). Unselected: Card fill,
---                                                  ink caption · selected: Header (navy) fill, white outlined
---                                                  caption, the Bold outline · stripe: a 6 px left edge in the
+--                                                  grey with grey text and no outline, for "can't yet"; pair it with
+--                                                  a gate note)
+--   Kit.tab(button, selected, stripe?)             THE tab look (Modal.tabs paints with it). Unselected: NO plate
+--                                                  and no line, ink caption · selected: Header (navy) fill, white
+--                                                  outlined caption, no line · stripe: a 6 px left edge in the
 --                                                  section's own colour (a wing, a rarity, a board)
 --   Kit.textLimit(label, maxPx)                    THE text fit: a UITextSizeConstraint with MinTextSize =
 --                                                  Theme.TextSize.Caption (18, the floor) and MaxTextSize =
@@ -78,16 +81,64 @@
 --                                                  (any other role rests); returns stop
 -- Progression v2 (build plan §B9; T8 juiced the Foundation's first versions, same signatures):
 --   Kit.ring(parent, color): (fraction) -> ()      a filling ring (ability cooldowns) round the edge of `parent`:
---                                                  Theme.Juice.RingBeads beads light up clockwise (the newest pops),
---                                                  all lit + a bright outline + one bump when ready. Call the setter
---                                                  with 0..1 (Kit.Juice.ringFraction). It NEVER prints seconds (red
---                                                  line 3) and never loops on its own
+--                                                  Theme.Juice.RingBeads beads light up clockwise (the newest pops)
+--                                                  WHILE IT RECHARGES. Full (ready) = nothing is drawn at all (UI
+--                                                  direction R7: no decorative dots). Call the setter with 0..1
+--                                                  (Kit.Juice.ringFraction). It NEVER prints seconds (red line 3)
+--                                                  and never loops on its own
 --   Kit.holdButton(button, seconds, onDone): () -> ()   hold-to-confirm: a bright band fills across the button and
 --                                                  it swells a little while held, a rising tick each quarter
 --                                                  (Kit.Ticked); onDone runs once the hold lasts `seconds`; letting
 --                                                  go early empties it. Reduced motion: the same hold, the band steps
 --                                                  by quarters and nothing swells. Returns stop
 --   Kit.Juice                                      the pure helpers behind all this (no Roblox APIs; see below)
+-- THE CALM UI (docs/plan/2026-11-17-ui-direction.md; Joshua, memory-20261117-007). "Candy on the verbs, calm on the
+-- nouns." Panels build from these parts and never hand-build a card, a bar, a switch or a chip:
+--   Kit.card(props?): Frame                        THE card: the Card fill, NO line, the Medium radius, PadCard (12)
+--                                                  inside. Two surfaces, never three: the paper, then a card; the
+--                                                  only thing inside a card is one Kit.artTile. extra: Pad = false
+--                                                  (no padding). Default size: full width, as tall as its content
+--   Kit.name(props?): TextLabel                    the Normal voice: a card's name, ONCE per card (Font, Body 22,
+--                                                  Ink, left, one line, cut with "..." when too long)
+--   Kit.fact(props?): TextLabel                    the Soft voice: a fact, count, hint, caption or a section
+--                                                  heading in words (Font, Caption 18, InkSoft, left, one line).
+--                                                  Facts are plain text joined with " · ", never chips or pills
+--   Kit.voice(label, voice)                        paints any label or button text as "Loud", "Normal" or "Soft"
+--                                                  (Theme.Voice)
+--   Kit.bar(props?): (Frame, set)                  THE progress bar (one place): 8 px, navy on a Well track, no
+--                                                  line and no text inside. set(fraction, atMax?) fills it (0..1;
+--                                                  atMax = gold). extras: Value (the starting fraction), Max
+--   Kit.artTile(props?): Frame                     THE art tile: a Well square (Theme.Calm.ArtTile) with ONE emoji
+--                                                  at 40 px. extras: Icon (the Art emoji, from shared/Data), State
+--                                                  (a State emoji: Kit.setState), Rarity (its Kit.rarityFrame).
+--                                                  Without an Icon it is the well for a portrait
+--   Kit.setState(gui, emoji?)                      the State badge (Icons.State: 🔒 ✅ 💤 ⏳) on the top-right corner
+--                                                  of a tile or portrait: an 18 px emoji on a small round plate.
+--                                                  nil or "" removes it. One per card
+--   Kit.unit(props?): (Frame, TextLabel)           a Unit glued to its number where the number is Loud (outlined
+--                                                  display text can't hold an emoji: Roblox can't outline one). The
+--                                                  emoji and the number are two labels, 4 px apart. extras: Icon
+--                                                  (Icons.Unit.Cash), Text ("300"), Voice (default "Normal"), Px
+--                                                  (the text size). Returns the row and the number's label (for
+--                                                  Kit.countUp). In Normal or Soft text use Icons.unit("Cash", n)
+--   Kit.toggle(props?): (TextButton, set)          a Settings row: its Label on the left (words that never change
+--                                                  with state) and a switch on the right, green when on. set(on,
+--                                                  instant?) slides it (no bounce). The caller connects Activated.
+--                                                  extras: Label, On
+--   Kit.more(props?): TextButton                   THE "More" control: a Quiet text button that opens Kit.menu with
+--                                                  the card's other actions (Sell, List). extras: Text (default
+--                                                  "More"), Items ({ { Id, Text, Kind? } } or a function that
+--                                                  returns them when it opens), OnPick (id)
+--   Kit.menu(anchor, items, onPick): () -> ()      the overflow menu: a small paper card beside `anchor` with one
+--                                                  Secondary button per item (Kind overrides). A tap outside, a
+--                                                  pick, ButtonB or the screen closing shuts it; one at a time.
+--                                                  Returns close
+--   Kit.reveal(gui, shown): boolean                a HUD door arriving (UI direction R0): shown = true pops it ONCE
+--                                                  into its fixed slot (it never moves) and returns true if it just
+--                                                  appeared; false hides it. Kit.Juice.nextReveal picks which door
+--                                                  is next, one at a time
+-- THE OUTLINE BUDGET (R2): the dark outline is for the panel shell, candy buttons (Primary, Collect, Destructive),
+-- HUD plates over the 3D world and text over the world or over colour. Nothing else inside a white panel has one.
 -- ZIndex 0 is the decoration layer inside a Kit button or panel (Gloss, Shine, Header, Rays): it draws over the
 -- parent's own fill but under every other child, so give your own children ZIndex 1 or more (the default).
 --   Kit.Clicked: Signal (button)                   fires on every Kit button press (Sounds plays a click)
@@ -100,6 +151,7 @@
 -- DisplayOrder), the oldest first on a tie (Kit.Juice.pickPerpetual). The others rest until it goes.
 -- Radii come from Theme.Radius and strokes from Theme.Stroke (look build plan §B8).
 
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -110,6 +162,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Palette = require(Shared:WaitForChild("Palette"))
 local Signal = require(Shared:WaitForChild("Signal"))
 local Rarities = require(Shared:WaitForChild("Data"):WaitForChild("Rarities")) :: any
+local Icons = require(script.Parent.Icons)
 local Theme = require(script.Parent.Theme)
 
 type Props = { [string]: any }
@@ -302,14 +355,16 @@ export type Look = {
 	Clear: boolean, -- no fill at all
 }
 -- How each role (and the Disabled look) is drawn, by Theme key: Kit paints from this table.
+-- THE OUTLINE BUDGET (UI direction R2): only the candy roles and the Icon plate (HUD, over the 3D world) carry the
+-- dark outline. Secondary and Disabled are flat fills with no line.
 Juice.LOOKS = {
 	Primary = { Fill = "Primary", Text = "OnColor", Candy = true, Stroke = "Bold", Clear = false },
 	Collect = { Fill = "Collect", Text = "OnColor", Candy = true, Stroke = "Bold", Clear = false },
 	Destructive = { Fill = "Destructive", Text = "OnColor", Candy = true, Stroke = "Bold", Clear = false },
-	Secondary = { Fill = "Secondary", Text = "Ink", Candy = false, Stroke = "Fine", Clear = false },
+	Secondary = { Fill = "Secondary", Text = "Ink", Candy = false, Stroke = nil, Clear = false },
 	Quiet = { Fill = "Secondary", Text = "Ink", Candy = false, Stroke = nil, Clear = true },
 	Icon = { Fill = "Plate", Text = "Ink", Candy = false, Stroke = "Bold", Clear = false },
-	Disabled = { Fill = "Disabled", Text = "DisabledText", Candy = false, Stroke = "Fine", Clear = false },
+	Disabled = { Fill = "Disabled", Text = "DisabledText", Candy = false, Stroke = nil, Clear = false },
 } :: { [string]: Look }
 
 function Juice.look(kind: any): Look
@@ -337,6 +392,52 @@ function Juice.pickPerpetual(candidates: { { Order: number, Seq: number } }): nu
 	end
 	return best
 end
+
+-- The calm UI. A progress bar's fill: `value` of `goal` as 0..1 (junk, a zero or a negative goal = 0; at or past the
+-- goal = 1). With no goal, `value` is already the fraction.
+function Juice.barFraction(value: any, goal: any): number
+	local v = finite(value)
+	if v == nil then
+		return 0
+	end
+	if goal == nil then
+		return math.clamp(v, 0, 1)
+	end
+	local g = finite(goal)
+	if g == nil or g <= 0 then
+		return 0
+	end
+	return math.clamp(v / g, 0, 1)
+end
+
+-- HUD doors arrive ONE AT A TIME (UI direction R0): the first id in `order` that is wanted (it has content now) and
+-- not shown yet, or nil when nothing is waiting. The caller shows it (Kit.reveal), waits, and asks again.
+function Juice.nextReveal(order: { string }, wanted: { [string]: any }, shown: { [string]: any }): string?
+	for _, id in order do
+		if wanted[id] and not shown[id] then
+			return id
+		end
+	end
+	return nil
+end
+
+-- Where the "More" menu sits: under its anchor with their right edges in line, above it when there is no room
+-- below, and always inside the screen by `gap`. All in the screen's own px. Returns the menu's top-left corner.
+function Juice.menuPlace(
+	anchor: { X: number, Y: number, W: number, H: number },
+	menu: { W: number, H: number },
+	screen: { W: number, H: number },
+	gap: number
+): (number, number)
+	local x = anchor.X + anchor.W - menu.W
+	x = math.max(gap, math.min(x, screen.W - menu.W - gap))
+	local y = anchor.Y + anchor.H + gap
+	if y + menu.H > screen.H - gap then
+		y = anchor.Y - gap - menu.H
+	end
+	y = math.max(gap, math.min(y, screen.H - menu.H - gap))
+	return x, y
+end
 -- END JUICE
 
 Kit.Juice = Juice
@@ -346,7 +447,31 @@ Kit.HEADER = 64
 
 -- Props that are Kit's own, not Instance properties.
 local EXTRA_KEYS: { [string]: boolean } = {}
-for _, key in { "Parent", "Kind", "Title", "Icon", "Caption", "Accent", "Outlined", "Fill", "Glass" } do
+for _, key in
+	{
+		"Parent",
+		"Kind",
+		"Title",
+		"Icon",
+		"Caption",
+		"Accent",
+		"Outlined",
+		"Fill",
+		"Glass",
+		-- the calm parts' extras
+		"Pad",
+		"Value",
+		"Max",
+		"State",
+		"Rarity",
+		"Voice",
+		"Px",
+		"Label",
+		"On",
+		"Items",
+		"OnPick",
+	}
+do
 	EXTRA_KEYS[key] = true
 end
 
@@ -415,8 +540,8 @@ function Kit.pad(parent: Instance, px: number?): UIPadding
 	return pad
 end
 
-function Kit.stroke(parent: Instance, color: Color3?, px: number?): UIStroke
-	local stroke = Instance.new("UIStroke")
+function Kit.stroke(parent: Instance, color: Color3?, px: number?): UIStroke -- uirules: allow StrokeBudget
+	local stroke = Instance.new("UIStroke") -- uirules: allow StrokeBudget (the maker itself)
 	stroke.Color = color or Theme.Colors.Stroke
 	stroke.Thickness = px or Theme.Stroke.Bold
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
@@ -770,8 +895,9 @@ function Kit.label(props: Props?): TextLabel
 end
 
 -- The paper card: flat white (no gradient), the Large radius, the Panel stroke, PadPanel inside. With a Title, THE
--- header: one Kit.HEADER px navy band (Theme.Colors.Header) across the top, out through the padding, with the icon
--- and title in white display text (the Title stroke). Accent is ignored: every header is navy (look build plan §B8).
+-- header: one Kit.HEADER px navy band (Theme.Colors.Header) across the top, out through the padding, with the title
+-- in white display text (the Title stroke). The title is WORDS ONLY (memory-20261117-007): an emoji a caller still
+-- passes is dropped. Accent is ignored: every header is navy (look build plan §B8).
 function Kit.panel(props: Props?): Frame
 	local pad = Theme.Space.PadPanel
 	local panel = Instance.new("Frame")
@@ -781,7 +907,7 @@ function Kit.panel(props: Props?): Frame
 	panel.BackgroundColor3 = Theme.Colors.Paper
 	panel.BorderSizePixel = 0
 	Kit.corner(panel, Theme.Radius.Large)
-	Kit.stroke(panel, Theme.Colors.Stroke, Theme.Stroke.Panel)
+	Kit.stroke(panel, Theme.Colors.Stroke, Theme.Stroke.Panel) -- uirules: allow StrokeBudget (the panel shell)
 	Kit.pad(panel, pad)
 	local limit = Instance.new("UISizeConstraint")
 	limit.MaxSize = Vector2.new(Theme.Size.PanelMaxWidth, Theme.Size.PanelMaxHeight)
@@ -808,7 +934,7 @@ function Kit.panel(props: Props?): Frame
 		header.Parent = panel
 		local title = Kit.label({
 			Name = "Title",
-			Text = props.Title,
+			Text = Icons.words(props.Title),
 			TextScaled = true,
 			TextWrapped = false,
 			Outlined = true,
@@ -916,7 +1042,7 @@ function Kit.button(props: Props?): TextButton
 	button.TextStrokeTransparency = 1
 	button.Text = ""
 	Kit.corner(button, Theme.Radius.Medium)
-	Kit.stroke(button, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(button, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (candy and Icon looks)
 	Palette.candyGradient(button)
 	addGloss(button)
 	local minimum = Instance.new("UISizeConstraint")
@@ -989,7 +1115,7 @@ function Kit.iconButton(props: Props?): TextButton
 	dot.Visible = false
 	dot.ZIndex = 3
 	Kit.corner(dot, Theme.Radius.Round)
-	Kit.stroke(dot, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	Kit.stroke(dot, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a HUD plate's dot)
 	dot.Parent = button
 
 	apply(button, props)
@@ -997,12 +1123,13 @@ function Kit.iconButton(props: Props?): TextButton
 end
 
 -- THE tab look (look build plan §B8; Modal.tabs paints with it). `button` is a Kit.iconButton (its Icon and Caption
--- labels) or any text button. Unselected: the Card fill and ink · selected: the navy Header fill, white outlined
--- caption and the Bold outline · stripe: a 6 px left edge in the section's own colour (its only colour here).
+-- labels) or any text button. The calm UI (UI direction change 1): unselected = NO plate and no line, just the icon
+-- and an ink caption · selected: the navy Header fill and a white outlined caption (text over colour), no line ·
+-- stripe: a 6 px left edge in the section's own colour (its only colour here).
 function Kit.tab(button: GuiButton, selected: boolean, stripe: Color3?)
 	local fill = if selected then Theme.Colors.Header else Theme.Colors.Card
 	button.BackgroundColor3 = fill
-	button.BackgroundTransparency = 0
+	button.BackgroundTransparency = if selected then 0 else 1
 	button:SetAttribute("KitColor", fill)
 	button:SetAttribute("Selected", selected)
 	for _, name in { "Gloss", "CandyGradient" } do
@@ -1015,9 +1142,7 @@ function Kit.tab(button: GuiButton, selected: boolean, stripe: Color3?)
 	end
 	local border = borderOf(button)
 	if border then
-		border.Enabled = true
-		border.Color = Theme.Colors.Stroke
-		border.Thickness = if selected then Theme.Stroke.Bold else Theme.Stroke.Fine
+		border.Enabled = false -- the outline budget (R2): a tab inside a white panel has no dark line
 	end
 	local function ink(text: Instance?)
 		if text and (text:IsA("TextLabel") or text:IsA("TextButton")) then
@@ -1254,6 +1379,486 @@ function Kit.rays(parent: GuiObject, color: Color3?): Frame
 		return nil
 	end, nil)
 	return rays
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The calm UI (docs/plan/2026-11-17-ui-direction.md; Joshua, memory-20261117-007): candy on the verbs, calm on the
+-- nouns. The parts every panel builds from, so nobody hand-builds a card, a bar, a switch or a chip.
+------------------------------------------------------------------------------------------------------------------
+
+-- Paints a label's (or a button's) text in one of the three voices (Theme.Voice): Loud = display font, white,
+-- outlined (over colour only) · Normal = body font, Body, Ink · Soft = body font, Caption, InkSoft.
+function Kit.voice(text: TextLabel | TextButton, voice: string)
+	local look = (Theme.Voice :: any)[voice] or Theme.Voice.Normal
+	local size = (Theme.TextSize :: any)[look.Size] or Theme.TextSize.Body
+	text.Font = if look.Font == "DisplayFont" then Theme.DisplayFont else Theme.Font
+	text.TextColor3 = colorOf(look.Ink)
+	text.TextSize = size
+	if text.TextScaled then
+		Kit.textLimit(text, size)
+	end
+	local outline = text:FindFirstChild("TextOutline")
+	if look.Outlined then
+		Kit.outline(text).Enabled = true
+	elseif outline and outline:IsA("UIStroke") then
+		outline.Enabled = false
+	end
+end
+
+-- One line of text in a voice: left, one line, cut with an ellipsis when it is too long (never shrunk under 18 px).
+local function line(voice: string, name: string, props: Props?): TextLabel
+	local size = (Theme.TextSize :: any)[(Theme.Voice :: any)[voice].Size]
+	local label = Kit.label({
+		Name = name,
+		TextWrapped = false,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Size = UDim2.new(1, 0, 0, size + Theme.Space.Tight),
+	})
+	Kit.voice(label, voice)
+	apply(label, props)
+	return finish(label, props)
+end
+
+-- The Normal voice: a card's name. Once per card.
+function Kit.name(props: Props?): TextLabel
+	return line("Normal", "Name", props)
+end
+
+-- The Soft voice: a fact, a count, a hint, a caption, a section heading in words. Plain text, never a chip.
+function Kit.fact(props: Props?): TextLabel
+	return line("Soft", "Fact", props)
+end
+
+-- THE card (R2, R3): the Card fill and nothing else. No line, no shadow, no gloss. PadCard inside (Pad = false: none).
+function Kit.card(props: Props?): Frame
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.BackgroundColor3 = Theme.Colors.Card
+	card.BorderSizePixel = 0
+	card.Size = UDim2.fromScale(1, 0)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	Kit.corner(card, Theme.Radius.Medium)
+	if not (props and props.Pad == false) then
+		Kit.pad(card, Theme.Space.PadCard)
+	end
+	apply(card, props)
+	return finish(card, props)
+end
+
+-- THE progress bar (R6: progress is navy, gold at MAX; one place). Theme.Calm.Bar px tall, a Track with a fill, no
+-- line, no text inside (the count is a Kit.fact beside it). Returns the bar and set(fraction, atMax?): the fill
+-- slides there (Theme.Tween.Fill; at once the first time, with reduced motion or while not on screen).
+function Kit.bar(props: Props?): (Frame, (fraction: number, atMax: boolean?) -> ())
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.BackgroundColor3 = Theme.Colors.Track
+	bar.BorderSizePixel = 0
+	bar.Size = UDim2.new(1, 0, 0, Theme.Calm.Bar)
+	Kit.corner(bar, Theme.Radius.Round)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BackgroundColor3 = Theme.Colors.Progress
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.Visible = false
+	Kit.corner(fill, Theme.Radius.Round)
+	fill.Parent = bar
+
+	local first = true
+	local running: Tween? = nil
+	local function set(fraction: number, atMax: boolean?)
+		local share = Juice.barFraction(fraction, nil)
+		fill.BackgroundColor3 = if atMax == true then Theme.Colors.ProgressMax else Theme.Colors.Progress
+		bar:SetAttribute("Fraction", share)
+		if running then
+			running:Cancel()
+			running = nil
+		end
+		local target = UDim2.fromScale(share, 1)
+		if share > 0 then
+			fill.Visible = true
+		end
+		if first or Kit.reducedMotion() or not isShown(bar) then
+			fill.Size = target
+			fill.Visible = share > 0
+		else
+			local tween = TweenService:Create(fill, Theme.Tween.Fill, { Size = target })
+			running = tween
+			tween.Completed:Once(function(state)
+				if state == Enum.PlaybackState.Completed then
+					fill.Visible = share > 0
+				end
+			end)
+			tween:Play()
+		end
+		first = false
+	end
+	apply(bar, props)
+	set(if props and type(props.Value) == "number" then props.Value else 0, props ~= nil and props.Max == true)
+	return finish(bar, props), set
+end
+
+-- The State badge (Icons.State) on the top-right corner of a tile or a portrait: one 18 px emoji on a small round
+-- paper plate, no line. nil or "" takes it away. One per card.
+function Kit.setState(gui: GuiObject, emoji: string?)
+	local existing = gui:FindFirstChild("State")
+	if type(emoji) ~= "string" or emoji == "" then
+		if existing then
+			existing:Destroy()
+		end
+		return
+	end
+	local badge: Frame
+	if existing and existing:IsA("Frame") then
+		badge = existing
+	else
+		local side = Theme.Calm.Badge
+		local made = Instance.new("Frame")
+		made.Name = "State"
+		made.AnchorPoint = Vector2.new(0.5, 0.5)
+		made.Position = UDim2.new(1, -Theme.Space.Tight, 0, Theme.Space.Tight)
+		made.Size = UDim2.fromOffset(side, side)
+		made.BackgroundColor3 = Theme.Colors.Paper
+		made.BorderSizePixel = 0
+		made.ZIndex = gui.ZIndex + 2
+		Kit.corner(made, Theme.Radius.Round)
+		Kit.label({
+			Name = "Icon",
+			Text = "",
+			TextSize = Theme.Emoji.State,
+			TextWrapped = false,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = gui.ZIndex + 3,
+			Parent = made,
+		})
+		made.Parent = gui
+		badge = made
+	end
+	local icon = badge:FindFirstChild("Icon")
+	if icon and icon:IsA("TextLabel") then
+		icon.Text = emoji
+	end
+end
+
+-- THE art tile (R3: the one thing allowed inside a card): a Well square with ONE Art emoji at Theme.Emoji.Art (40),
+-- no line. Icon = the emoji (from shared/Data, never typed in a UI file); without one it is the well for a
+-- portrait. State = its State badge; Rarity = the rarity frame round it (rarity's only colour).
+function Kit.artTile(props: Props?): Frame
+	local side = Theme.Calm.ArtTile
+	local tile = Instance.new("Frame")
+	tile.Name = "ArtTile"
+	tile.BackgroundColor3 = Theme.Colors.Well
+	tile.BorderSizePixel = 0
+	tile.Size = UDim2.fromOffset(side, side)
+	Kit.corner(tile, Theme.Radius.Small)
+	if props and type(props.Icon) == "string" then
+		local icon = Kit.label({
+			Name = "Icon",
+			Text = props.Icon,
+			TextScaled = true,
+			TextWrapped = false,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.76, 0.76),
+			Parent = tile,
+		})
+		Kit.textLimit(icon, Theme.Emoji.Art)
+	end
+	apply(tile, props)
+	if props and type(props.Rarity) == "string" then
+		Kit.rarityFrame(tile, props.Rarity)
+	end
+	if props and type(props.State) == "string" then
+		Kit.setState(tile, props.State)
+	end
+	return finish(tile, props)
+end
+
+-- A Unit glued to its number (Icons.Unit: 💰 Cash, ⭐ Stars, 🏥 the level, 🌳 tree points): the emoji and the number
+-- are TWO labels 4 px apart, because Roblox can't outline or tint an emoji, so one inside Loud (outlined) text
+-- looks pasted on. Voice (default "Normal") paints the number; Px sets both sizes. Returns the row (as wide as its
+-- content) and the number's label, for Kit.countUp.
+function Kit.unit(props: Props?): (Frame, TextLabel)
+	local voice = if props and type(props.Voice) == "string" then props.Voice else "Normal"
+	local look = (Theme.Voice :: any)[voice] or Theme.Voice.Normal
+	local px = if props and type(props.Px) == "number"
+		then math.max(props.Px, Theme.TextSize.Caption)
+		else (Theme.TextSize :: any)[look.Size]
+	local row = Instance.new("Frame")
+	row.Name = "Unit"
+	row.BackgroundTransparency = 1
+	row.AutomaticSize = Enum.AutomaticSize.X
+	row.Size = UDim2.fromOffset(0, px + Theme.Space.Line)
+	local list = Kit.list(row, Enum.FillDirection.Horizontal, Theme.Space.Tight)
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	Kit.label({
+		Name = "Icon",
+		Text = if props and type(props.Icon) == "string" then props.Icon else "",
+		TextSize = px,
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromScale(0, 1),
+		LayoutOrder = 1,
+		Parent = row,
+	})
+	local amount = Kit.label({
+		Name = "Amount",
+		Text = if props and props.Text ~= nil then tostring(props.Text) else "",
+		TextWrapped = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromScale(0, 1),
+		LayoutOrder = 2,
+		Parent = row,
+	})
+	Kit.voice(amount, voice)
+	amount.TextSize = px
+	-- Text belongs to the Amount label, not the row Frame (a Frame has no Text).
+	local rowProps: Props = {}
+	for key, value in props or {} do
+		if key ~= "Text" then
+			rowProps[key] = value
+		end
+	end
+	apply(row, rowProps)
+	return finish(row, props), amount
+end
+
+-- A Settings row (UI direction: "Music" + a switch, not a button whose words change): the Label on the left in the
+-- Normal voice, a switch on the right, green (Collect) when on and grey when off, its knob on the right when on (so
+-- the state never rides on colour alone). The whole row is the tap target (56 px tall); the caller connects
+-- Activated and calls set(on). The knob SLIDES (Theme.Tween.Switch): a toggle doesn't bounce (R7).
+function Kit.toggle(props: Props?): (TextButton, (on: boolean, instant: boolean?) -> ())
+	local row = Kit.button({ Kind = "Quiet", Text = "", Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight) })
+	local width, height, knobSide = Theme.Calm.SwitchWidth, Theme.Calm.SwitchHeight, Theme.Calm.Knob
+	local inset = (height - knobSide) / 2
+	local label = Kit.name({
+		Name = "Label",
+		Text = if props and type(props.Label) == "string" then props.Label else "",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0),
+		Size = UDim2.new(1, -(width + Theme.Space.PadCard * 2 + Theme.Space.Line), 1, 0),
+		ZIndex = 2,
+		Parent = row,
+	})
+	label.TextScaled = true
+	Kit.textLimit(label, Theme.TextSize.Body)
+	local track = Instance.new("Frame")
+	track.Name = "Switch"
+	track.AnchorPoint = Vector2.new(1, 0.5)
+	track.Position = UDim2.new(1, -Theme.Space.PadCard, 0.5, 0)
+	track.Size = UDim2.fromOffset(width, height)
+	track.BackgroundColor3 = Theme.Colors.Disabled
+	track.BorderSizePixel = 0
+	track.ZIndex = 2
+	Kit.corner(track, Theme.Radius.Round)
+	local knob = Instance.new("Frame")
+	knob.Name = "Knob"
+	knob.AnchorPoint = Vector2.new(0, 0.5)
+	knob.Position = UDim2.new(0, inset, 0.5, 0)
+	knob.Size = UDim2.fromOffset(knobSide, knobSide)
+	knob.BackgroundColor3 = Theme.Colors.Paper
+	knob.BorderSizePixel = 0
+	knob.ZIndex = 3
+	Kit.corner(knob, Theme.Radius.Round)
+	knob.Parent = track
+	track.Parent = row
+
+	local running: Tween? = nil
+	local function set(on: boolean, instant: boolean?)
+		local isOn = on == true
+		row:SetAttribute("On", isOn)
+		track.BackgroundColor3 = if isOn then Theme.Colors.Collect else Theme.Colors.Disabled
+		local target = UDim2.new(0, if isOn then width - inset - knobSide else inset, 0.5, 0)
+		if running then
+			running:Cancel()
+			running = nil
+		end
+		if instant == true or Kit.reducedMotion() or not isShown(row) then
+			knob.Position = target
+		else
+			local tween = TweenService:Create(knob, Theme.Tween.Switch, { Position = target })
+			running = tween
+			tween:Play()
+		end
+	end
+	apply(row, props)
+	set(props ~= nil and props.On == true, true)
+	return finish(row, props), set
+end
+
+-- The overflow menu behind "More" (UI direction: Sell and List sit behind More, so a card has ONE obvious action
+-- and a stray tap never sells a nurse). A small paper card beside `anchor`, on the anchor's own screen above
+-- everything else on it: one Secondary button per item (an item's Kind overrides). It closes on a pick (then
+-- onPick(id) runs), a tap anywhere else, ButtonB, or when its screen closes. One menu at a time. Returns close.
+export type MenuItem = { Id: string, Text: string, Kind: string? }
+local MENU_ACTION = "KitCloseMenu"
+local MENU_Z = 900
+local closeMenu: (() -> ())? = nil
+
+function Kit.menu(anchor: GuiObject, items: { MenuItem }, onPick: (id: string) -> ()): () -> ()
+	if closeMenu then
+		closeMenu()
+	end
+	-- The anchor's screen: the menu sits on it, above everything else there.
+	local screen: LayerCollector? = nil
+	local node: Instance? = anchor.Parent
+	while node do
+		if node:IsA("LayerCollector") then
+			screen = node
+			break
+		end
+		node = node.Parent
+	end
+	if not screen or #items == 0 then
+		return function() end
+	end
+	local gap = Theme.Space.Line
+	local rowHeight = Theme.Size.ButtonHeight
+	local width = Theme.Calm.MenuWidth
+	local height = #items * rowHeight + (#items - 1) * Theme.Space.Tight + gap * 2
+
+	-- Anything tapped outside the menu closes it (and the tap goes no further).
+	local catcher = Instance.new("TextButton")
+	catcher.Name = "MenuCatcher"
+	catcher.Text = ""
+	catcher.AutoButtonColor = false
+	catcher.Selectable = false
+	catcher.BackgroundTransparency = 1
+	catcher.Position = UDim2.fromOffset(-400, -400)
+	catcher.Size = UDim2.new(1, 800, 1, 800)
+	catcher.ZIndex = MENU_Z
+	catcher.Parent = screen
+
+	local origin, bounds = screen.AbsolutePosition, screen.AbsoluteSize
+	local x, y = Juice.menuPlace({
+		X = anchor.AbsolutePosition.X - origin.X,
+		Y = anchor.AbsolutePosition.Y - origin.Y,
+		W = anchor.AbsoluteSize.X,
+		H = anchor.AbsoluteSize.Y,
+	}, { W = width, H = height }, { W = bounds.X, H = bounds.Y }, Theme.Space.Tight)
+	local card = Instance.new("Frame")
+	card.Name = "Menu"
+	card.Position = UDim2.fromOffset(x, y)
+	card.Size = UDim2.fromOffset(width, height)
+	card.BackgroundColor3 = Theme.Colors.Paper
+	card.BorderSizePixel = 0
+	card.ZIndex = MENU_Z + 1
+	card.Active = true
+	card.SelectionGroup = true
+	card.SelectionBehaviorUp = Enum.SelectionBehavior.Stop
+	card.SelectionBehaviorDown = Enum.SelectionBehavior.Stop
+	card.SelectionBehaviorLeft = Enum.SelectionBehavior.Stop
+	card.SelectionBehaviorRight = Enum.SelectionBehavior.Stop
+	Kit.corner(card, Theme.Radius.Medium)
+	Kit.stroke(card, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (a floating shell)
+	Kit.pad(card, gap)
+	local list = Kit.list(card, Enum.FillDirection.Vertical, Theme.Space.Tight)
+	list.VerticalAlignment = Enum.VerticalAlignment.Top
+
+	local closed = false
+	local connections: { RBXScriptConnection } = {}
+	local hadFocus = GuiService.SelectedObject ~= nil
+	local function close()
+		if closed then
+			return
+		end
+		closed = true
+		if closeMenu == close then
+			closeMenu = nil
+		end
+		ContextActionService:UnbindAction(MENU_ACTION)
+		for _, connection in connections do
+			connection:Disconnect()
+		end
+		local selected = GuiService.SelectedObject
+		if selected and selected:IsDescendantOf(card) then
+			GuiService.SelectedObject = if anchor.Parent and isShown(anchor) then anchor else nil
+		end
+		catcher:Destroy()
+		card:Destroy()
+	end
+
+	local firstButton: TextButton? = nil
+	for index, item in items do
+		local button = Kit.button({
+			Name = "Item_" .. item.Id,
+			Kind = item.Kind or "Secondary",
+			Text = item.Text,
+			TextScaled = true,
+			LayoutOrder = index,
+			Size = UDim2.new(1, 0, 0, rowHeight),
+			ZIndex = MENU_Z + 2,
+			Parent = card,
+		})
+		Kit.textLimit(button, Theme.TextSize.Body)
+		firstButton = firstButton or button
+		button.Activated:Connect(function()
+			close()
+			onPick(item.Id)
+		end)
+	end
+	card.Parent = screen
+	Kit.punch(card, 0.9, Theme.Tween.Fade)
+
+	table.insert(connections, catcher.Activated:Connect(close))
+	table.insert(connections, anchor.Destroying:Connect(close))
+	table.insert(connections, screen:GetPropertyChangedSignal("Enabled"):Connect(close))
+	-- ButtonB closes the menu first (above the modal's own close).
+	ContextActionService:BindActionAtPriority(MENU_ACTION, function(_, inputState: Enum.UserInputState)
+		if inputState == Enum.UserInputState.Begin then
+			close()
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value + 1, Enum.KeyCode.ButtonB)
+	if hadFocus and firstButton then
+		GuiService.SelectedObject = firstButton
+	end
+	closeMenu = close
+	return close
+end
+
+-- THE "More" control: a Quiet text button (no fill, no line). With Items it opens Kit.menu when tapped: Items is the
+-- list, or a function that returns it then (so what it offers can follow the save); OnPick(id) gets the choice.
+function Kit.more(props: Props?): TextButton
+	local button = Kit.button({
+		Name = "More",
+		Kind = "Quiet",
+		Text = if props and type(props.Text) == "string" then props.Text else "More",
+		TextSize = Theme.TextSize.Body,
+		Size = UDim2.fromOffset(88, Theme.Size.ButtonHeight),
+	})
+	local items = if props then props.Items else nil
+	local onPick = if props then props.OnPick else nil
+	if items ~= nil then
+		button.Activated:Connect(function()
+			local list = if type(items) == "function" then items() else items
+			if type(list) == "table" then
+				Kit.menu(button, list, function(id: string)
+					if type(onPick) == "function" then
+						onPick(id)
+					end
+				end)
+			end
+		end)
+	end
+	apply(button, props)
+	return finish(button, props)
+end
+
+-- A HUD door arriving (UI direction R0: a feature appears when it becomes usable, one door at a time). shown = true:
+-- the door pops ONCE into its slot (its slot never moves: HudZones) and this returns true if it just appeared
+-- (the caller then says what it is on the Now card). Already there: nothing happens. shown = false hides it.
+function Kit.reveal(gui: GuiObject, shown: boolean): boolean
+	if not shown then
+		gui.Visible = false
+		return false
+	end
+	if gui.Visible then
+		return false
+	end
+	Kit.popIn(gui)
+	return true
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -1539,7 +2144,7 @@ function Kit.rarityFrame(gui: GuiObject, rarity: string): () -> ()
 		existing:Destroy()
 	end
 	local look = shimmerFor(rarity)
-	local stroke = Instance.new("UIStroke")
+	local stroke = Instance.new("UIStroke") -- uirules: allow StrokeBudget (the rarity frame: rarity's only colour)
 	stroke.Name = "RarityFrame"
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
@@ -1561,10 +2166,10 @@ end
 
 -- A filling ring (Progression v2: ability cooldowns, build plan §B9). A circle of Theme.Juice.RingBeads beads round
 -- the edge of `parent` (its middle stays clear for the icon under it): they light up one by one, clockwise from the
--- top, in `color`, the next one glowing in as it nears; the newest lit bead pops. Full = ready: every bead lit, a
--- bright outline round the ring and one happy bump (no looping glow, so a ready ring never keeps the shared loop
--- awake). Returns a setter for the fraction (0 = empty, 1 = full: ready; junk = 0). It NEVER prints seconds (red
--- line 3): Kit.Juice.ringFraction turns AbilityReadyAt/AbilityCooldown into the fraction. Reduced motion: no pops.
+-- top, in `color`, the next one glowing in as it nears; the newest lit bead pops. Full = ready: NOTHING is drawn
+-- (UI direction R7 and C4: the beads are there only while the ability recharges, never as decoration). Returns a
+-- setter for the fraction (0 = empty, 1 = full: ready; junk = 0). It NEVER prints seconds (red line 3):
+-- Kit.Juice.ringFraction turns AbilityReadyAt/AbilityCooldown into the fraction. Reduced motion: no pops.
 function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
 	local count = Theme.Juice.RingBeads
 	local pale = Kit.lighten(color, 0.72)
@@ -1578,10 +2183,7 @@ function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
 	local aspect = Instance.new("UIAspectRatioConstraint")
 	aspect.Parent = holder
 	Kit.corner(holder, Theme.Radius.Round)
-	-- The ready outline: hidden until every bead is lit.
-	local glow = Kit.stroke(holder, color, Theme.Stroke.Bold)
-	glow.Name = "Glow"
-	glow.Enabled = false
+	holder.Visible = false -- until the first fraction says it is recharging
 
 	local beads: { Frame } = {}
 	local shown: { number } = {} -- each bead's drawn state: 0 pale, 1 lit, or the partial share
@@ -1596,7 +2198,7 @@ function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
 		bead.BorderSizePixel = 0
 		bead.ZIndex = holder.ZIndex
 		Kit.corner(bead, Theme.Radius.Round)
-		local edge = Kit.stroke(bead, Theme.Colors.Outline, Theme.Stroke.Fine)
+		local edge = Kit.stroke(bead, Theme.Colors.Outline, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (over the world)
 		edge.Transparency = 0.35
 		bead.Parent = holder
 		beads[index] = bead
@@ -1615,11 +2217,8 @@ function Kit.ring(parent: GuiObject, color: Color3): (fraction: number) -> ()
 			end
 		end
 		local ready = on >= count
-		glow.Enabled = ready
-		if lit >= 0 and on > lit and not Kit.reducedMotion() then
-			if ready then
-				Kit.punch(holder, 1.15, Theme.Tween.Bump)
-			end
+		holder.Visible = not ready
+		if not ready and lit >= 0 and on > lit and not Kit.reducedMotion() then
 			local newest = beads[on]
 			if newest then
 				Kit.punch(newest, 1.7, Theme.Tween.Bump)

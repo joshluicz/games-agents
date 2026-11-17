@@ -6,9 +6,13 @@
 --   Item      the supply (Data/Items, Kind "Supply") you take here with a hold prompt; "" for the dispensary
 --   Dispense  true: the dispensary. The player picks a medicine a bay patient needs, finds its bottle and measures
 --             the dose (a Dispense session, Server/Treatment). Nurses never dispense
--- Where they stand: Plaster, Ice, Bandage, Cast and Remedy are in the Building (Logic/Building.STATIONS, as
--- `Station_<id>` parts with an `Open` attribute); Bath is in the Bath Room and Cocoa in the Winter Wing (the bought
--- rooms' fit-outs). Ids are alphanumeric: the parts are named `Station_<id>`.
+-- Where they stand: ALL of them are in the Building (Logic/Building.STATIONS, as `Station_<id>` parts with an `Open`
+-- attribute). Plaster, Ice and Bandage on the supply shelf, Cast in the X-ray room, Remedy at the dispensary counter;
+-- Cocoa and Bath in the PANTRY, in the hall behind the supply shelf (Joshua, 2026-11-17: "minimise the patients
+-- walking around. yes move the hot cocoa into like a pantry"; memory-20261117-006). The pantry's two open with their
+-- rooms (Cocoa: the Winter Wing; Bath: the Bath Room), which no longer hold a station: they are themed recovery rooms
+-- that bring their case pools. The ids, the items (Cocoa, Bubbles) and the `Made:<id>` stats are as they were.
+-- Ids are alphanumeric: the parts are named `Station_<id>`.
 --
 -- Colours are candy pop (memory-20261116-007): full-saturation colours as far apart as the set allows, so a kid
 -- matches a plan step's ring to its station at a glance. None of them is green, yellow or red, which the patience
@@ -32,7 +36,7 @@ local ENTRIES: { [StationId]: Station } = {
 	Ice = { Name = "Ice Packs", Icon = "🧊", Item = "Ice", Color = Candy.Cyan },
 	Bandage = { Name = "Bandages", Icon = "🧻", Item = "Bandage", Color = Candy.Mint },
 	Cast = { Name = "Cast Table", Icon = "🦴", Item = "Cast", Color = Color3.fromRGB(214, 170, 110) },
-	Bath = { Name = "Warm Bath", Icon = "🛁", Item = "Bubbles", Color = Candy.Blue },
+	Bath = { Name = "Bath Foam", Icon = "🛁", Item = "Bubbles", Color = Candy.Blue },
 	Cocoa = { Name = "Cocoa Corner", Icon = "☕", Item = "Cocoa", Color = Candy.Orange },
 }
 

@@ -109,23 +109,26 @@ becomes **the bay patient who has waited longest for the doctor** (call).
 Gentle and realistic. Each line is: symptom bubble · exam tool · plan (in order) · Stay? · opens at. **(call: the
 exact list; a builder may tune names and icons but not add needles or blood.)**
 
+*(Simple start, memory-20261117-006: the Opens column below is as the game is now. Lv 1 has three cases; Bumped
+head and Earache moved to Lv 2, Sore throat and Itchy rash to Lv 3; `docs/plan/2026-11-17-simple-start-design.md` §1.)*
+
 | Case | Bubble | Exam | Plan | Stay | Opens |
 |---|---|---|---|---|---|
 | Cough | 😷 cough cough | 🩺 Listen | 🧴 Cough syrup | | Lv 1 |
 | Fever | 🤒 so hot | 🌡️ Temperature | 💊 Fever medicine | from Lv 2 | Lv 1 |
 | Cut knee | 🩹 ouchie | 🔍 Look | 🩹 Plaster | | Lv 1 |
-| Bumped head | 💫 bonk | 🔍 Look | 🧊 Ice pack | | Lv 1 |
-| Earache | 👂 ow ow | 🔦 Ear check | 💧 Ear drops | | Lv 1 |
+| Bumped head | 💫 bonk | 🔍 Look | 🧊 Ice pack | | Lv 2 |
+| Earache | 👂 ow ow | 🔦 Ear check | 💧 Ear drops | | Lv 2 |
 | Sprained ankle | 🦶 can't walk | 🔍 Look | 🧊 Ice pack, 🧻 Bandage | | Lv 2 |
-| Sore throat | 🗣️ scratchy | 🔦 Throat check | 🍬 Throat lozenges, 🧴 Cough syrup | | Lv 2 |
-| Itchy rash | 😖 itchy | 🔍 Look | 🧴 Soothing cream, 🧊 Ice pack | | Lv 2 |
+| Sore throat | 🗣️ scratchy | 🔦 Throat check | 🍬 Throat lozenges, 🧴 Cough syrup | | Lv 3 |
+| Itchy rash | 😖 itchy | 🔍 Look | 🧴 Soothing cream, 🧊 Ice pack | | Lv 3 |
 | Broken arm | 💢 my arm | 🩻 X-ray | 🦴 Cast, 💊 Pain relief | yes | Lv 3 |
 | Sore muscles | 😩 achy | 🔍 Look | 🛁 Bath foam, 💊 Pain relief | | Bath Room |
 | Chills | 🥶 brrr | 🌡️ Temperature | ☕ Hot chocolate, 💊 Fever medicine | yes | Winter Wing |
 | Broken leg (VIP) | 💢 my leg | 🩻 X-ray | 🦴 Cast, 💊 Pain relief, 🧻 Bandage | yes | Lv 5 heli |
 
 - The hospital level still cuts each plan (`Data/Levels.RecipeCap` 1/2/3), so a Lv 1 player always sees one step.
-- **Night patients** come to every clinic at night, so their cases use only Lv 1 cases (Cough, Fever, Earache).
+- **Night patients** come to every clinic at night, so their cases use only Lv 1 cases (Cough, Fever, Cut knee).
 - **Ambulance (A&E) patients** get a random case open at that clinic with at least 2 steps, padded with a 🧊 Ice pack
   if needed (replacing today's Potion/Plaster pad).
 - **Every creature species keeps its Patient ID** (the Book's key), its wing and its look. **A patient's case is
@@ -149,7 +152,7 @@ exact list; a builder may tune names and icons but not add needles or blood.)**
 | Supply | Station | Where | Treat game |
 |---|---|---|---|
 | 🩹 Plaster | `Plaster` (kept) | supply shelf, Lv 1 | tap-the-spots (today's Patch) |
-| 🧊 Ice pack | `Ice` (new) | supply shelf, Lv 1 | hold-and-release (hold till cool) |
+| 🧊 Ice pack | `Ice` (new) | supply shelf, Lv 2 (simple start; it was Lv 1) | hold-and-release (hold till cool) |
 | 🧻 Bandage | `Bandage` (new) | supply shelf, Lv 2 | timing (wrap, 3 beats) |
 | 🦴 Cast | `Cast` (new) | X-ray room, Lv 3 | timing (wrap, 4 beats) |
 | 🛁 Bath foam | `Bath` (kept) | Bath Room (bought) | pop (today's Scrub) |
@@ -288,8 +291,8 @@ the rest"), so these are Claude's calls. Where they disagree with an earlier sec
 
    | Wing | Pool |
    |---|---|
-   | Starter | Cough, Fever, Cut knee, Bumped head, Earache (Lv 1) + Sprained ankle, Sore throat, Itchy rash (Lv 2) + Broken arm (Lv 3) |
-   | Night | Cough, Fever, Earache |
+   | Starter | Cough, Fever, Cut knee (Lv 1) + Bumped head, Earache, Sprained ankle (Lv 2) + Sore throat, Itchy rash, Broken arm (Lv 3) |
+   | Night | Cough, Fever, Cut knee |
    | Bath | Sore muscles (+ the Starter pool) |
    | Winter | Chills (+ the Starter pool) |
    | Sunny (R1) | Itchy rash, Sprained ankle, Cut knee |

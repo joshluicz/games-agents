@@ -24,6 +24,10 @@
 --              treatment)                   server does the hop)
 --   Calm       (Leaving before it)          the props go quietly (it's going home with no sad penalty)
 --   Sad        (Sad)                        arms droop and it hangs its head (the server does the puff)
+-- Seated (the model's Seated attribute: the server sat it on a waiting-room seat, Logic/CreatureSize.seatFit) is
+-- played on top of any phase: it settles into the sit over SIT.EaseSeconds (and out of it as it gets up) with a
+-- tiny recline and its tail curled up over its back, off the chair back and the wall; a ghost stops hovering and
+-- rests on the seat. It breathes and acts its ailment as ever, and never drifts: Root is the server's.
 -- Only creatures within NEAR_STUDS of the camera act; the rest stand still and cost nothing. Calm effects (the
 -- ReduceEffects attribute, or the device's Reduced Motion: Kit.reducedMotion()) make every motion small and slow, with
 -- no shivering, no circling stars and no bounce, and fewer particles.
@@ -41,6 +45,7 @@ local CaseActing = require(DataFolder:WaitForChild("CaseActing"))
 local Cases = require(DataFolder:WaitForChild("Cases"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Kit = require(UI:WaitForChild("Kit"))
+local CreatureSize = require(Shared:WaitForChild("Logic"):WaitForChild("CreatureSize"))
 local Props = require(script.Parent:WaitForChild("CreatureProps"))
 
 local CreatureActing = {}
@@ -102,6 +107,8 @@ type Creature = {
 	ArmR: Motor6D?,
 	ArmL: Motor6D?,
 	Tail: Motor6D?,
+	Ring: BasePart?, -- a night creature's GlowRing pad (Server/CreatureBuilder): hidden while it sits
+	RingHidden: number, -- the pad's LocalTransparencyModifier now
 	Unit: number,
 	Acting: Acting,
 	Seconds: number, -- how long one beat of its motion lasts
@@ -120,6 +127,8 @@ type Creature = {
 	Wave: number?, -- when the current wave started
 	WaveBoth: boolean,
 	Since: number, -- when State last changed
+	Sit: number, -- 0 standing .. 1 sitting: eases toward the Seated attribute (CreatureSize.sitEase)
+	Stamp: number, -- when it last acted (the sit eases by the time since)
 	Connections: { RBXScriptConnection },
 }
 
@@ -401,6 +410,28 @@ local function between(range: { number }, scale: number): number
 	return rng:NextNumber(range[1], range[2]) * scale
 end
 
+-- A night creature's glow pad is under its feet; on a seat it would be a neon slab round the chair, so it fades out
+-- as the creature sits down (`hidden` 0..1) and back in as it gets up. Local only: the server's part is untouched.
+-- Called every frame: at rest (fully hidden or fully shown) the value is re-asserted, because the camera's Invisicam
+-- writes the same property on a part in its way and later puts back the value it found, which may be a stale one of
+-- ours. Hidden always wins; shown only undoes our own "hidden" (1), so Invisicam's fade of a shown pad is left be.
+local function showRing(c: Creature, hidden: number)
+	local ring = c.Ring
+	if not ring then
+		return
+	end
+	if math.abs(c.RingHidden - hidden) > 1e-3 then
+		c.RingHidden = hidden
+		ring.LocalTransparencyModifier = hidden
+	elseif hidden >= 0.999 then
+		if ring.LocalTransparencyModifier ~= hidden then
+			ring.LocalTransparencyModifier = hidden
+		end
+	elseif hidden <= 1e-3 and ring.LocalTransparencyModifier >= 0.999 then
+		ring.LocalTransparencyModifier = hidden
+	end
+end
+
 local function act(c: Creature, now: number, quiet: boolean)
 	local k = if quiet then CALM else 1
 	local grown = math.clamp(c.Root.Size.X / ROOT_SIZE, 0.02, 1.5) -- small while it pops in or out
@@ -410,11 +441,14 @@ local function act(c: Creature, now: number, quiet: boolean)
 	local state = c.State
 	local kit = c.Props
 	local sick = state == "Arriving" or state == "Waiting"
+	c.Sit = CreatureSize.sitEase(c.Sit, if c.Model:GetAttribute("Seated") == true then 1 else 0, now - c.Stamp)
+	c.Stamp = now
+	local sit = c.Sit
 
-	-- Breathing, always; a ghost hovers.
+	-- Breathing, always; a ghost hovers (one on a seat rests on it).
 	local breathe = 0.015 * math.sin(TAU * 0.45 * t)
 	if c.Ghost and state ~= "Recovering" then
-		breathe += 0.12 + (if quiet then 0 else 0.08 * math.sin(TAU * 0.4 * t))
+		breathe += (0.12 + (if quiet then 0 else 0.08 * math.sin(TAU * 0.4 * t))) * (1 - sit)
 	end
 	p.Body *= lift(u, 0, breathe, 0)
 
@@ -489,6 +523,13 @@ local function act(c: Creature, now: number, quiet: boolean)
 	if sick and c.Tail then -- a slow, hopeful little wag
 		p.Tail = CFrame.Angles(0, 0.12 * k * math.sin(TAU * 0.7 * t), 0)
 	end
+	if sit > 0 then -- sitting: a tiny recline under everything else, the tail curled up off the chair back
+		local ease = smooth(sit)
+		p.Body = CFrame.Angles(CreatureSize.SIT.Recline * ease, 0, 0) * p.Body
+		p.Tail = CFrame.Angles(-CreatureSize.SIT.TailCurl * ease, 0, 0) * p.Tail
+	end
+
+	showRing(c, smooth(sit))
 
 	c.Pose.Transform = p.Body
 	if c.ArmR then
@@ -508,6 +549,8 @@ local function still(c: Creature)
 		return
 	end
 	c.Still = true
+	c.Sit = if c.Model:GetAttribute("Seated") == true then 1 else 0
+	showRing(c, c.Sit)
 	c.Pose.Transform = IDENTITY
 	for _, motor in { c.ArmR, c.ArmL, c.Tail } do
 		if motor then
@@ -652,6 +695,11 @@ local function track(instance: Instance)
 		ArmR = motor("ArmRJoint"),
 		ArmL = motor("ArmLJoint"),
 		Tail = motor("TailJoint"),
+		Ring = (function(): BasePart?
+			local ring = model:FindFirstChild("GlowRing")
+			return if ring and ring:IsA("BasePart") then ring else nil
+		end)(),
+		RingHidden = 0,
 		Unit = if type(unit) == "number" and unit > 0 then unit else 1.6,
 		Acting = acting,
 		Seconds = BEAT_SECONDS[acting.Motion] or 1,
@@ -670,6 +718,8 @@ local function track(instance: Instance)
 		Wave = nil,
 		WaveBoth = false,
 		Since = now,
+		Sit = if model:GetAttribute("Seated") == true then 1 else 0, -- one that streams in seated is sitting
+		Stamp = now,
 		Connections = {},
 	}
 	onState(c)

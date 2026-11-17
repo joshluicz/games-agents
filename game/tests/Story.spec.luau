@@ -148,6 +148,41 @@ T.describe("Story.nextDue", function()
 	test("a nil story table is a fresh clinic", function()
 		expect(Story.nextDue(Regulars, nil, 0, 100, false)).toBe("ShySprout")
 	end)
+
+	test(
+		"a regular the clinic can't treat yet is not due (can): the next one is, and it is asked about each",
+		function()
+			-- nobody: everyone can come
+			expect(Story.nextDue(Regulars, {}, 120, 100, true, function()
+				return true
+			end)).toBe("ShySprout")
+			-- ShySprout can't be treated: GrumpyTeapot is named instead, never held back behind it
+			local asked = {}
+			local function notSprout(regularId)
+				table.insert(asked, regularId)
+				return regularId ~= "ShySprout"
+			end
+			expect(Story.nextDue(Regulars, {}, 120, 100, true, notSprout)).toBe("GrumpyTeapot")
+			expect(asked[1]).toBe("ShySprout")
+			expect(asked[2]).toBe("GrumpyTeapot")
+			-- DizzyComet (a Lv 2 case) at a Lv 1 clinic, the others told today: nobody is due
+			local story = {
+				ShySprout = { Beat = 2, LastBeatDay = 100 },
+				GrumpyTeapot = { Beat = 1, LastBeatDay = 100 },
+			}
+			expect(Story.nextDue(Regulars, story, 120, 100, true, function(regularId)
+				return regularId ~= "DizzyComet"
+			end)).toBeNil()
+			-- only a true answer lets it come; it isn't asked about one who isn't due anyway
+			asked = {}
+			expect(Story.nextDue(Regulars, story, 120, 100, true, function(regularId)
+				table.insert(asked, regularId)
+				return nil
+			end)).toBeNil()
+			expect(#asked).toBe(1)
+			expect(asked[1]).toBe("DizzyComet")
+		end
+	)
 end)
 
 T.describe("a whole story arc", function()

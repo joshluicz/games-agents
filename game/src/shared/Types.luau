@@ -91,7 +91,7 @@ export type Beat = { Emote: string, Bubble: string }
 export type Regular = {
 	Name: string,
 	Patient: PatientId,
-	Case: CaseId, -- their one fixed case (a Lv 1 case, so every clinic can treat it)
+	Case: CaseId, -- their one fixed case (a case with no Room; Dizzy Comet's is Lv 2)
 	Wing: WingId,
 	UnlockStars: number,
 	Beats: { Beat },
@@ -357,6 +357,7 @@ export type NextGoal = { Kind: string, Id: string, Icon: string }
 
 export type DayReportInfo = {
 	Cured: number,
+	CashGained: number, -- the cash this player's treatments paid that day (Server/DayReport; in memory, never saved)
 	NewPages: { PatientId },
 	StarsGained: number,
 	Next: NextGoal,

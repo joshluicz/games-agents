@@ -11,8 +11,9 @@ come from reading the scripts, and the lead fills in the measured column during 
 | Rule | Limit | Who keeps it |
 |---|---|---|
 | Frame rate | 60 fps on a mid phone with 6 full plots and the belt | everyone; the lead measures |
-| Parts per plot | ≤ 400 at hospital Lv 5 for the plot, rooms and building (look overhaul: 331, or 337 with the biggest theme prop; [table below](#look-overhaul-2026-11-17-the-counts-that-replace-v2s); the shares Building ≤ 160, rooms ≤ 90, plot ≤ 115), **plus decor**: 10 slots, ≤ 25 parts a piece (507 counted with every slot filled, the heaviest placeholder pieces) (review fix 2026-11-16: the two numbers used to disagree on whether decor counted) | `HospitalBuilder`, `PlotBuilder`, `World/Props` (`tests/PartBudget.spec` fails past 400, or past a share, at any level in any theme); `DecorBuilder` warns once per DecorId over 25 |
-| Parts in the town | ≤ 600 for `ClinicTown` (counted: 512) | `TownBuilder` (`tests/PartBudget.spec`, `tests/TownWorld.spec`) |
+| Parts per plot | ≤ 660 at hospital Lv 5 for the plot, rooms and building (`Config.Look.PlotBudget`; simple start, the bigger open clinic: 628 in Candy, 634 with the biggest theme prop; [table below](#simple-start-2026-11-17-the-bigger-open-clinic-the-counts-that-replace-the-look-overhauls); the shares Building ≤ 455, rooms ≤ 70, plot ≤ 135), **plus decor**: 10 slots, ≤ 25 parts a piece (804 counted with every slot filled, the heaviest placeholder pieces). It was ≤ 400 (look overhaul: 331 / 337), then ≤ 640 | `HospitalBuilder`, `PlotBuilder`, `World/Props` (`tests/PartBudget.spec` fails past 660, or past a share, at any level in any theme); `DecorBuilder` warns once per DecorId over 25 |
+| Parts in the town | ≤ 540 for `ClinicTown` (`Config.Look.TownParts`; counted: 510; it was ≤ 600, counted 512, on the smaller plots) | `TownBuilder` (`tests/PartBudget.spec`, `tests/TownWorld.spec`) |
+| Parts in the whole world | ≤ 4,500 without creatures, nurses and decor: 6 plots x 660 + the town's 540 (counted at most: 6 x 634 + 510 = 4,314) | the two rows above |
 | Parts per creature | under 40 (blocky placeholder: patients at most 39 with Root and Core, nurses at most 38 with the cap); a night creature adds 1 (its square glow pad, still named GlowRing) | `CreatureBuilder`, `NurseBuilder` |
 | Highlights | **at most 1 in the whole world**; creatures, nurses, riders and kit models never use one | `CreatureBuilder` (creatures and kit creatures); `PlotBuilder`, `DecorBuilder`, `NurseBuilder` and `NurseBelt` remove any in kit models (applied at integration) |
 | Lights | no light casts shadows (`Shadows = false` on every PointLight, SpotLight and SurfaceLight) | every builder; kit models are forced off |
@@ -58,7 +59,38 @@ existing ones). The Bloom at night (`DayNight`) makes the Neon glow.
 
 MicroProfiler labels to look for: `CreatureMotion`, `Atmosphere sway`, `Tutorial layout`.
 
+## Simple start (2026-11-17), the bigger open clinic: the counts that replace the look overhaul's
+Design `docs/plan/2026-11-17-simple-start-design.md` §4 (Phase 3: the 96 x 66 ground floor, 140 x 140 plots, the
+street to x ±242). The look overhaul's table below (331 / 337) is kept for history only. Counted the same way: the
+shipped builders under `tests/worldmock` in Lune (`tests/PartBudget.spec` prints these), Plot_1 with every room, no
+creatures, no nurses, no decor. **Not measured in Studio yet.**
+
+| Hospital level | Whole plot (Candy) | Building | Rooms | The plot's own share |
+|---|---|---|---|---|
+| Lv 1 | 444 | 264 | 68 | 112 |
+| Lv 2 | 483 | 303 | 68 | 112 |
+| Lv 3 | 536 | 356 | 68 | 112 |
+| Lv 4 | 589 | 409 | 68 | 112 |
+| Lv 5 | **628** | 448 | 68 | 112 |
+
+- **The heaviest plot** (any level, any theme: Lv 5 with the Jungle or Royal theme prop) is **634 of 660**
+  (`Config.Look.PlotBudget`).
+- **The shares are hard limits** in `tests/PartBudget.spec` (`Config.Look`): Building ≤ 455 (`BuildingParts`; 454 at
+  most: one part to spare), rooms ≤ 70 (`RoomParts`; 68), the plot's own share ≤ 135 (`PlotParts`; 112).
+- **With decor:** the 10 heaviest placeholder pieces add 170, so a Lv 5 plot with every room and every decor slot
+  filled is **804**. The 660 budget is without decor, as before.
+- **The town (`ClinicTown`): 510 of 540** (`Config.Look.TownParts`). The far lawn's checker cell is
+  `Config.Look.CheckerFarStuds` 10 (with 8 the bigger town built 626 parts).
+- **The whole world:** 6 x 660 + 540 = **4,500** at most without creatures, nurses and decor (counted: 6 x 634 + 510
+  = 4,314). It was 4,440 (6 x 640 + 600).
+- **Why it grew:** every Lv 1 plot now carries the whole ground floor (264 parts in the Building at Lv 1; 24 in the look overhaul's table below).
+  Six Lv 1 plots and the town are 6 x 444 + 510 = 3,174 parts before anyone levels up. Re-check the phone frame rate
+  with that in mind.
+
 ## Look overhaul (2026-11-17): the counts that replace v2's
+**Superseded by the simple start's counts above** for the plot, the Building, the rooms and the town (kept for
+history; the props, creatures, lighting and client-loop notes still hold).
+
 Build plan `docs/plan/2026-11-17-look-overhaul-build-plan.md` §C3 and §G 18. The v2 table below (372 / 378) is kept
 for history only: the building, the rooms, the plot and the town were all rebuilt. Counted by running the shipped
 builders under `tests/worldmock` in Lune (`tests/PartBudget.spec`, `Hospital.spec`, `PlotWorld.spec`,
@@ -177,7 +209,7 @@ These trade looks for speed, so the brothers decide:
    - Shadow lights: the same loop with `d:IsA("Light") and d.Shadows` should print 0.
    - Parts per plot at Lv 5, without creatures: `local n=0 for _,d in workspace.Clinics.Plot_1:GetDescendants() do
      if d:IsA("BasePart") and not d:FindFirstAncestor("Patients") and not d:FindFirstAncestor("Nurses") then n+=1
-     end end print(n)` should print 400 or less with no decor placed, and about 500 with every decor slot filled
+     end end print(n)` should print 660 or less with no decor placed, and about 800 with every decor slot filled
      (this count includes decor).
 4. **Sleep checks:** with nothing moving (an empty clinic by day, tutorial done, calm mode on), the MicroProfiler
    shows none of the labels above.
@@ -189,9 +221,9 @@ These trade looks for speed, so the brothers decide:
 | Network receive per client while patients hop (KB/s) | lower than `main` | | |
 | Highlights in the world | ≤ 1 | | |
 | Shadow-casting lights | 0 | | |
-| Parts in Plot_1 at Lv 5 (no creatures, no decor) | ≤ 400 (counted from the code: 331; 337 in Jungle/Royal; v2 was 372 / 378) | | |
-| Parts in Plot_1 at Lv 1 / 2 / 3 / 4 (look overhaul) | ≤ 400 (counted: 209 / 268 / 294 / 316) | | |
-| Parts in `ClinicTown` | ≤ 600 (counted: 512) | | |
+| Parts in Plot_1 at Lv 5 (no creatures, no decor) | ≤ 660 (counted from the code: 628; 634 in Jungle/Royal; the look overhaul was 331 / 337, v2 372 / 378) | | |
+| Parts in Plot_1 at Lv 1 / 2 / 3 / 4 (simple start) | ≤ 660 (counted: 444 / 483 / 536 / 589) | | |
+| Parts in `ClinicTown` | ≤ 540 (counted: 510) | | |
 | FPS at Quality 1 / 4 / 10 with the relight (Soft, SunRays), day and night | 60 | | |
 | Network receive per client during a lift ride and an ambulance (KB/s) | no spike | | |
-| Parts in Plot_1 at Lv 5 with every decor slot filled (no creatures) | about 500 (counted from the code: 507 with the 10 heaviest placeholder pieces) | | |
+| Parts in Plot_1 at Lv 5 with every decor slot filled (no creatures) | about 800 (counted from the code: 804 with the 10 heaviest placeholder pieces) | | |

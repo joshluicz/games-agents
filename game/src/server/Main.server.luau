@@ -5,6 +5,7 @@
 
 local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
+local StarterPlayer = game:GetService("StarterPlayer")
 
 require(game:GetService("ReplicatedStorage").Shared.Remotes) -- creates the remotes first
 
@@ -29,7 +30,23 @@ local function onCharacter(character: Model)
 		end
 	end)
 end
+-- The camera (memory-20261117-006: "walls go see-through between you and the camera"; simple-start design §4):
+-- a wall between you and the camera goes see-through (Invisicam) instead of the camera zooming in past it. Set here
+-- on StarterPlayer and on every Player as they join, so it holds without a change to the place file. Feel/Cutaway
+-- still hides the storeys above you upstairs, and never writes the property Invisicam fades with.
+local OCCLUSION = Enum.DevCameraOcclusionMode.Invisicam
+local function seeThrough(target: Instance)
+	local ok, err = pcall(function()
+		(target :: any).DevCameraOcclusionMode = OCCLUSION
+	end)
+	if not ok then
+		warn("[Main] DevCameraOcclusionMode: " .. tostring(err))
+	end
+end
+seeThrough(StarterPlayer)
+
 local function onPlayer(player: Player)
+	seeThrough(player)
 	player.CharacterAdded:Connect(onCharacter)
 	if player.Character then
 		onCharacter(player.Character)

@@ -366,6 +366,15 @@ T.describe("Treatment sessions (mocked)", function()
 		expect(saves[a].Simple).toBe(true)
 	end)
 
+	test("SetSimple answers in the Settings switch's own words, no emoji (UI direction §5)", function()
+		local a = newPlayer("A5c")
+		saves[a] = { Simple = false }
+		local _, off = SetSimple(a, true)
+		expect(off).toBe("Mini-games off")
+		local _, on = SetSimple(a, false)
+		expect(on).toBe("Mini-games on")
+	end)
+
 	test("Simple mode: all Good whatever is reported, no tip", function()
 		local a = newPlayer("A5")
 		saves[a] = { Simple = false }

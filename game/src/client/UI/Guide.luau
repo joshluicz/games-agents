@@ -15,7 +15,7 @@
 --      longest for the doctor, Logic/Visit.front) isn't
 --      examined yet
 --      else its first missing plan step                        -> that step's Station_<id> (the supply shelf, the
---                                                                dispensary's Station_Remedy, the Bath Room...; its
+--                                                                dispensary's Station_Remedy, the pantry...; its
 --                                                                icon, its colour, the hold hand)
 --    Only on your own plot. Everything is client-only, survives respawn (Wayfinder.attach on CharacterAdded), and goes
 --    for good once you reach the goal (Wayfinder.destroy: nothing loops after that). It looks again every
@@ -50,7 +50,7 @@
 -- comma-joined) and PlanDone ("10": a "1" per step given), and QueueIndex (the server's front order among the bay
 -- patients who need the doctor: 1 = the front, 0 = not now; a Since attribute, when a server sends one, wins; with
 -- neither, the bays' order). Bays are `ExamBay_<id>` Models (with a DoctorSpot) in the plot's Building or Rooms;
--- stations are `Station_<id>` parts there.
+-- stations are `Station_<id>` parts in the Building (hot chocolate and bath foam at its pantry: no room has one).
 
 local CollectionService = game:GetService("CollectionService")
 local GuiService = game:GetService("GuiService")

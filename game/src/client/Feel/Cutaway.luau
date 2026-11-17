@@ -3,17 +3,25 @@
 -- OWNER: T3.
 -- The upper storeys' outer walls are SOLID now (kids can't walk out of F3), so the camera needs help to look in:
 -- while the local character stands inside a plot's building footprint on floor n >= 1, every part with the attribute
--- Storey > n gets LocalTransparencyModifier = 1 (its SurfaceGuis and BillboardGuis switch off with it), and floor n's
--- Outer parts (walls, glass bands, ribbon windows) get 0.6. The camera's Popper ignores a part at 0.25 total
--- transparency or more, so it looks in from above like a dollhouse. The ground floor hides nothing. Nothing
--- replicates: other players see the building whole.
+-- Storey > n is hidden (its SurfaceGuis and BillboardGuis switch off with it), and floor n's Outer parts (walls, glass
+-- bands, ribbon windows) fade 0.6 of the way, so it looks in from above like a dollhouse. The ground floor hides
+-- nothing. Nothing replicates: other players see the building whole.
+-- Invisicam (Server/Main sets DevCameraOcclusionMode for everyone: memory-20261117-006, the see-through camera) fades
+-- whatever stands between the camera and you by writing LocalTransparencyModifier, and puts back the
+-- value it found when the part stops being in the way. So the cutaway never touches LocalTransparencyModifier: it
+-- writes the part's own Transparency (a client-side write: it never replicates) and puts back the value it found.
+-- The two never write the same property, so neither re-shows what the other hid: a hidden part (Transparency 1)
+-- stays hidden while Invisicam fades it, and Invisicam never restores a stale value over the cutaway's. A part
+-- already at Transparency 1 (a builder's hidden part, e.g. the stairwell's steps where nobody may see them) is never
+-- touched, so the cutaway can't show it.
 -- It watches only the local character: once a second while it is off every building, 4 times a second while it is
--- on one, and it changes parts only when the building or the floor changes. No tweens, so there is nothing for
--- reduced motion to calm.
+-- on one; it puts parts back only when the building or the floor changes, and while you stay upstairs it looks for
+-- new pieces once a second. No tweens, so there is nothing for reduced motion to calm.
 --
 --   Cutaway.init(ctx)     starts the watcher
 --   Cutaway.Pure          floorOf(y, slabTops) · hide(n, storey, outer) · tops(slabTops, floors) · inside(x, z,
---                         rect, margin) · feet(rootY, rootHalf, hipHeight): tests/Hospital.spec loads the PURE block
+--                         rect, margin) · feet(rootY, rootHalf, hipHeight) · fade(transparency, amount):
+--                         tests/Hospital.spec and tests/Camera.spec load the PURE block
 -- Reads: Workspace.Clinics.Plot_<n>.Building (its Level, Floors and Origin attributes; Server/HospitalBuilder) and
 -- Shared/Logic/Building (the footprints and slab tops).
 
@@ -33,6 +41,7 @@ local Pure = {}
 
 Pure.CHECKS_PER_SECOND = 4 -- while the character is inside a building's footprint
 Pure.IDLE_SECONDS = 1 -- while it is not (to notice it walking in)
+Pure.REAPPLY_SECONDS = 1 -- while you stay upstairs, new pieces (streamed in, rebuilt) are looked for this often
 Pure.FADE = 0.6 -- your own floor's outer walls
 Pure.STEP = 0.5 -- standing this far under a slab's top already counts as on it (a hop, a stair's last step)
 Pure.MARGIN = 0.5 -- the footprint counts this far out (standing in a doorway)
@@ -49,8 +58,8 @@ function Pure.floorOf(y: number, slabTops: { number }): number
 	return floor
 end
 
--- A part's LocalTransparencyModifier while you stand on floor `n`: everything above you hides, your own floor's
--- outer walls fade, the rest stays. On the ground (n = 0) nothing changes.
+-- How far a part fades while you stand on floor `n` (0 = as built, 1 = gone): everything above you hides, your own
+-- floor's outer walls fade, the rest stays. On the ground (n = 0) nothing changes.
 function Pure.hide(n: number, storey: number, outer: boolean): number
 	if n < 1 then
 		return 0
@@ -76,6 +85,13 @@ end
 -- Whether (x, z) is inside a { X0, X1, Z0, Z1 } rectangle grown by `margin`.
 function Pure.inside(x: number, z: number, rect: { X0: number, X1: number, Z0: number, Z1: number }, margin: number)
 	return x >= rect.X0 - margin and x <= rect.X1 + margin and z >= rect.Z0 - margin and z <= rect.Z1 + margin
+end
+
+-- A part's Transparency once it fades by `amount` (Pure.hide) from its own `transparency`: the same look as a
+-- LocalTransparencyModifier of `amount` would give (1 - (1 - t) x (1 - amount)), clamped to 0..1.
+function Pure.fade(transparency: number, amount: number): number
+	local t = math.clamp(transparency, 0, 1)
+	return math.clamp(t + (1 - t) * math.clamp(amount, 0, 1), 0, 1)
 end
 
 -- A character's feet from its root: R15 stands HipHeight under the root's bottom; R6 (HipHeight 0) on 2-stud legs.
@@ -130,13 +146,34 @@ local function storeyOf(part: BasePart, building: Model): number?
 	return nil
 end
 
-local hidden: { BasePart } = {}
+-- Every part the cutaway fades now: how far (Pure.hide), and the Transparency it has as built (put back by
+-- restore()). Feel/HospitalFX's grow-in writes through Cutaway.write, so a level-up while you stand upstairs never
+-- leaves a part stuck half-faded or shows a storey the cutaway hides.
+local fades: { [BasePart]: number } = {}
+local bases: { [BasePart]: number } = {}
 local switchedOff: { LayerCollector } = {}
 
+-- A part's Transparency as built (what the cutaway puts back), whether or not the cutaway fades it now.
+function Cutaway.baseOf(part: BasePart): number
+	return bases[part] or part.Transparency
+end
+
+-- Sets a part's as-built Transparency (HospitalFX's grow-in): the cutaway's fade stays on top while it hides it.
+function Cutaway.write(part: BasePart, transparency: number)
+	local amount = fades[part]
+	if amount then
+		bases[part] = transparency
+		part.Transparency = Pure.fade(transparency, amount)
+	else
+		part.Transparency = transparency
+	end
+end
+
 local function restore()
-	for _, part in hidden do
-		if part.Parent then
-			part.LocalTransparencyModifier = 0
+	for part in fades do
+		local base = bases[part]
+		if part.Parent and base then
+			part.Transparency = base
 		end
 	end
 	for _, gui in switchedOff do
@@ -144,7 +181,8 @@ local function restore()
 			gui.Enabled = true
 		end
 	end
-	table.clear(hidden)
+	table.clear(fades)
+	table.clear(bases)
 	table.clear(switchedOff)
 end
 
@@ -153,9 +191,11 @@ local function apply(building: Model, floor: number)
 		if descendant:IsA("BasePart") then
 			local storey = storeyOf(descendant, building)
 			local amount = if storey then Pure.hide(floor, storey, descendant:GetAttribute("Outer") == true) else 0
-			if amount > 0 then
-				descendant.LocalTransparencyModifier = amount
-				table.insert(hidden, descendant)
+			-- Pure.fade never lowers a Transparency: a part a builder hid (1) stays hidden.
+			if amount > 0 and fades[descendant] == nil then
+				bases[descendant] = descendant.Transparency
+				fades[descendant] = amount
+				descendant.Transparency = Pure.fade(descendant.Transparency, amount)
 				if amount >= 1 then
 					-- A hidden part's labels go too (a SurfaceGui draws even on an invisible part).
 					for _, child in descendant:GetChildren() do
@@ -174,6 +214,7 @@ function Cutaway.init(_ctx: Types.Ctx)
 	local player = Players.LocalPlayer
 	local current: Model? = nil
 	local currentFloor = 0
+	local appliedAt = 0
 	task.spawn(function()
 		while true do
 			debug.profilebegin("Cutaway")
@@ -181,14 +222,18 @@ function Cutaway.init(_ctx: Types.Ctx)
 			if not ok then
 				building, floor = nil, 0
 			end
-			if building ~= current or floor ~= currentFloor then
+			local changed = building ~= current or floor ~= currentFloor
+			if changed then
 				restore()
 				current, currentFloor = building, floor
-				if building and floor >= 1 then
-					local applied, err = pcall(apply, building, floor)
-					if not applied then
-						warn("[Cutaway] " .. tostring(err))
-					end
+			end
+			-- Again every REAPPLY_SECONDS while you stay upstairs: pieces that streamed in or were rebuilt since get
+			-- hidden too (apply skips the parts it fades already).
+			if building and floor >= 1 and (changed or os.clock() - appliedAt >= Pure.REAPPLY_SECONDS) then
+				appliedAt = os.clock()
+				local applied, err = pcall(apply, building, floor)
+				if not applied then
+					warn("[Cutaway] " .. tostring(err))
 				end
 			end
 			debug.profileend()
