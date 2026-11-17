@@ -2,8 +2,9 @@
 -- The visit's server rules (Real Clinic build plan, Task 4; Progression v2 build plan §C T7): the PURE-BEGIN..PURE-END
 -- block of Server/Patients, loaded on its own (the rest of the module needs Roblox) against the real Logic/Recipe,
 -- Logic/Hospital, Logic/Visit, Logic/Building, Shared/Config (tests/config.luau) and the Lune-safe Data (Cases, Items,
--- Tools, Levels, Wings). Which case comes (Review Focus 1), who takes which bay and when (a walk-in sits first:
--- Pure.mayCall), the front patient, re-seating after a rebuild (Review Focus 2), the owner leaving (Review Focus 4),
+-- Tools, Levels, Wings). Which case comes (Review Focus 1), who takes which bay and when (a walk-in sits until it is
+-- SENT, simple-start design §2: Logic/Routing with Pure.mayCall and Pure.assign for the few the tick calls itself),
+-- the front patient, re-seating after a rebuild (Review Focus 2), the owner leaving (Review Focus 4),
 -- the ward stay and its pick, escort and pay, the urgent plan and its 🧊 pad, patience and timers, variants and wing
 -- gates. The session side is TreatmentSessions.spec. Run from game/ with the rest:  lune run tests/run
 
@@ -17,6 +18,7 @@ local Config = require("./config")
 local Recipe = require("../src/shared/Logic/Recipe")
 local Hospital = require("../src/shared/Logic/Hospital")
 local Visit = require("../src/shared/Logic/Visit")
+local Routing = require("../src/shared/Logic/Routing")
 local Building = require("../src/shared/Logic/Building")
 local Cases = require("../src/shared/Data/Cases")
 local Items = require("../src/shared/Data/Items")
@@ -153,13 +155,8 @@ T.describe("Patients.Pure: which case comes (Review Focus 1)", function()
 				expect(Cases[picked].Level).toBe(1)
 			end
 		end
-		expect(picks("Starter", clinic(1))).toEqual({
-			Cough = true,
-			Fever = true,
-			CutKnee = true,
-			BumpedHead = true,
-			Earache = true,
-		})
+		-- simple start (memory-20261117-006): three cases at Lv 1
+		expect(picks("Starter", clinic(1))).toEqual({ Cough = true, Fever = true, CutKnee = true })
 		expect(P.pickCase("Sky", clinic(4), 0.5)).toBeNil() -- the broken leg: Lv 5 only
 		expect(P.pickCase("Sky", clinic(5), 0.5)).toBe("BrokenLeg")
 	end)
@@ -245,7 +242,7 @@ T.describe("Patients.Pure: bays and the front patient", function()
 	end)
 
 	-- Joshua, 2026-11-17: "when the patient first arrives, he should sit down at the chair".
-	test("mayCall: a walk-in sits Config.Visit.SeatSeconds first, even with a bay free", function()
+	test("mayCall (the rule itself): settled `seconds` ago; the tick passes 0, a Receptionist waits longer", function()
 		local seconds = Config.Visit.SeatSeconds
 		expect(seconds).toBe(3)
 		expect(P.mayCall(100, nil, false, seconds)).toBe(false) -- still walking in to its seat: never
@@ -276,44 +273,53 @@ T.describe("Patients.Pure: bays and the front patient", function()
 		expect(P.mayCall(100, 100, false, 0)).toBe(true) -- SeatSeconds = 0: called the moment it sits
 	end)
 
-	test("a tick (assignBays): only those a bay may call are handed out, the longest wait first", function()
-		local SEAT = Config.Visit.SeatSeconds
+	-- CHANGED ON PURPOSE (simple-start design §2; memory-20261117-006: the player sends each patient). This test used
+	-- to say every free bay calls whoever has sat SeatSeconds. Now the tick calls only those Logic/Routing.auto
+	-- allows (U.autoCall): a 🚑/🚁 patient, and one that was sent before whose bay closed. A walk-in sits until sent.
+	test("a tick (assignBays): walk-ins are NOT called, however long they sit; only urgent or re-sent ones", function()
 		-- Since = checked in; SeatedAt = sat down (nil: still walking to its seat). Lv 1: bays 1 and 2.
 		local patients = {
-			{ Id = 1, Since = 10, SeatedAt = 12, Urgent = false, Tool = "Stethoscope" },
-			{ Id = 2, Since = 13, SeatedAt = 15, Urgent = false, Tool = "Light" },
-			{ Id = 3, Since = 16, SeatedAt = nil, Urgent = false, Tool = "Magnifier" },
+			{ Id = 1, Since = 10, SeatedAt = 12, Urgent = "", Sent = false, Tool = "Stethoscope" },
+			{ Id = 2, Since = 13, SeatedAt = 15, Urgent = "", Sent = false, Tool = "Light" },
+			{ Id = 3, Since = 16, SeatedAt = nil, Urgent = "", Sent = false, Tool = "Magnifier" },
 		}
 		local function tick(now: number, free: any): any
 			local waiting = {}
 			for _, row in patients do
-				if P.mayCall(now, row.SeatedAt, row.Urgent, SEAT) then
+				if Routing.auto(row.Urgent, row.Sent) and P.mayCall(now, row.SeatedAt, row.Urgent ~= "", 0) then
 					table.insert(waiting, { Id = row.Id, Since = row.Since, Tool = row.Tool })
 				end
 			end
 			return P.assign(free or bays(1), waiting)
 		end
-		-- Both bays free, nobody has sat long enough: nobody is called, so each one sits down first.
+		-- Both bays free and everyone seated for ages: still nobody is called. They wait for the player's Send.
 		expect(tick(14)).toEqual({})
-		-- Patient 1 has sat 3 s: bay 1. Patient 2 sat 2 s ago, so bay 2 stays empty for now.
-		expect(tick(15)).toEqual({ { Bay = "1", Patient = 1 } })
-		-- Later both may go; the longest wait (Since) takes the first bay; 3 is still walking in.
-		expect(tick(18)).toEqual({ { Bay = "1", Patient = 1 }, { Bay = "2", Patient = 2 } })
+		expect(tick(18)).toEqual({})
+		expect(tick(600)).toEqual({})
+		-- Patient 1 was sent before and its bay closed in a rebuild: the tick sends it on to a free bay by itself.
+		patients[1].Sent = true
+		expect(tick(601)).toEqual({ { Bay = "1", Patient = 1 } })
 		-- A 🚑 patient that just came in by the A&E door (URGENT_HEAD: counts as waiting much longer) goes first,
 		-- without sitting.
-		table.insert(patients, { Id = 9, Since = 19 - 1e6, SeatedAt = nil, Urgent = true, Tool = "Light" })
-		expect(tick(19, { { Id = "2", Kind = "Exam" } })).toEqual({ { Bay = "2", Patient = 9 } })
+		table.insert(
+			patients,
+			{ Id = 9, Since = 19 - 1e6, SeatedAt = nil, Urgent = "AE", Sent = false, Tool = "Light" }
+		)
+		expect(tick(602, { { Id = "2", Kind = "Exam" } })).toEqual({ { Bay = "2", Patient = 9 } })
 	end)
 
-	test("the tutorial's first patient sits SeatSeconds, then takes bay 1 ('PATIENT IN BAY 1')", function()
-		local row = { Id = 1, Since = 5, Tool = "Stethoscope" }
-		local function call(now: number, seatedAt: number?): any
-			local waiting = if P.mayCall(now, seatedAt, false, Config.Visit.SeatSeconds) then { row } else {}
-			return P.assign(bays(1), waiting)
+	-- CHANGED ON PURPOSE (simple-start design §2): the tutorial's first patient no longer walks to bay 1 by itself
+	-- after SeatSeconds. It sits until the player presses Send, and then takes bay 1 (Logic/Routing.pickBay with no
+	-- `from`: the first free bay in order, as Server/Patients asks through the tutorial's one-at-a-time steps).
+	test("the tutorial's first patient sits until it is sent, then takes bay 1 ('PATIENT IN BAY 1')", function()
+		expect(Routing.auto("", false)).toBe(false) -- never by itself
+		local places = {}
+		for _, bay in Building.openBays(1) do
+			table.insert(places, { Id = bay.Id, Kind = bay.Kind, X = bay.X, Z = bay.Z, Free = true })
 		end
-		expect(call(5, nil)).toEqual({}) -- checked in, on its way to a seat
-		expect(call(7, 6)).toEqual({}) -- on its seat
-		expect(call(9, 6)).toEqual({ { Bay = "1", Patient = 1 } })
+		expect(Routing.waiting("Arriving", nil, "")).toBe(false) -- on its way to a seat: no Send yet
+		expect(Routing.waiting("Seated", nil, "")).toBe(true) -- on its seat: Send
+		expect(Routing.pickBay(places, Routing.kindFor("Stethoscope"), nil)).toBe("1")
 	end)
 
 	test("the Cozy Ward's two bays work from Lv 1 once the room is owned", function()
@@ -562,12 +568,13 @@ T.describe("Patients.Pure: the exam, the treat and the dispensary", function()
 end)
 
 T.describe("Patients.Pure: urgent (🚑 A&E, 🚁 air ambulance)", function()
-	local lv1 = P.makes(clinic(1).Stations)
+	-- urgent patients come from Lv 2 (A&E), where the Ice chest is open (simple start: it is shut at Lv 1)
+	local lv2 = P.makes(clinic(2).Stations)
 	local lv5 = P.makes(clinic(5).Stations)
 
 	test("the urgent plan: at least MinItems steps, a one-step plan padded with an ice pack", function()
-		expect(P.urgentFor({ "CoughSyrup" }, lv1, 1, Config.AE.MinItems)).toEqual({ "CoughSyrup", "Ice" })
-		expect(P.urgentFor({ "Ice" }, lv1, 2, Config.AE.MinItems)).toEqual({ "Ice", "Plaster" })
+		expect(P.urgentFor({ "CoughSyrup" }, lv2, 1, Config.AE.MinItems)).toEqual({ "CoughSyrup", "Ice" })
+		expect(P.urgentFor({ "Ice" }, lv2, 2, Config.AE.MinItems)).toEqual({ "Ice", "Plaster" })
 		expect(P.urgentFor({ "Ice", "Bandage" }, lv5, 2, Config.AE.MinItems)).toEqual({ "Ice", "Bandage" })
 		expect(P.urgentFor(Cases.BrokenLeg.Plan, lv5, 3, Config.AE.MinItems)).toEqual({
 			"Cast",
@@ -577,8 +584,8 @@ T.describe("Patients.Pure: urgent (🚑 A&E, 🚁 air ambulance)", function()
 	end)
 
 	test("a step no station here makes is left out; its first step must stay", function()
-		expect(P.urgentFor({ "Bubbles", "PainRelief" }, lv1, 2, Config.AE.MinItems)).toBe(nil)
-		expect(P.urgentFor({ "CoughSyrup", "Cocoa" }, lv1, 2, Config.AE.MinItems)).toEqual({ "CoughSyrup", "Ice" })
+		expect(P.urgentFor({ "Bubbles", "PainRelief" }, lv2, 2, Config.AE.MinItems)).toBe(nil)
+		expect(P.urgentFor({ "CoughSyrup", "Cocoa" }, lv2, 2, Config.AE.MinItems)).toEqual({ "CoughSyrup", "Ice" })
 		expect(P.urgentFor({ "Cast" }, {}, 2, Config.AE.MinItems)).toBe(nil)
 	end)
 

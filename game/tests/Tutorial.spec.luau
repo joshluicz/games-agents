@@ -144,6 +144,17 @@ T.describe("Tutorial.advance", function()
 		end
 	end)
 
+	-- Simple start (design §2): the player SENDS the waiting patient to bay 1. That is a part of step PATIENT (the
+	-- card's words change while it waits), never a step or an event of its own, so every saved number stays valid.
+	test("sending the patient is no step of its own: step 2 holds until it sits in its bay", function()
+		expect(Tutorial.advance(PATIENT, "Sent" :: any)).toBe(PATIENT)
+		expect(Tutorial.advance(PATIENT, "Arrived")).toBe(EXAMINE)
+		expect(Tutorial.card(PATIENT)).toBe(1) -- the same card before and after the Send
+		expect(Tutorial.resume(PATIENT)).toBe(PATIENT) -- a save from before this update, mid-tutorial
+		expect(Tutorial.queueCap(PATIENT)).toBe(1) -- one patient, every bay empty: it is sent to bay 1
+		expect(Tutorial.calm(PATIENT)).toBe(true) -- and it never runs out of patience while it waits
+	end)
+
 	test("an exam skips ahead from steps 2 and 3 (a friend or a nurse examined it, say); nowhere else", function()
 		expect(Tutorial.advance(PATIENT, "Examined")).toBe(TREAT)
 		expect(Tutorial.advance(EXAMINE, "Examined")).toBe(TREAT)

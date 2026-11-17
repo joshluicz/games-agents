@@ -23,8 +23,12 @@
 --   of the slot.
 -- The 7 cards (the Real Clinic design §13; Logic/Tutorial.card; words: Pure.words). "The patient" is the one the
 -- Guide follows (UI/Guide.visit: the bay patient who has waited longest for the doctor):
---   1 PATIENT (and WELCOME after the sweep)  WELCOME, DOCTOR!   "🤧 A patient is coming!", then "🤧 A patient in bay
---                                            1!"; the pin 👀 and the glow on the patient, no beam
+--   1 PATIENT (and WELCOME after the sweep)  WELCOME, DOCTOR!   "🤧 A patient is coming!"; the pin 👀 and the glow on
+--                                            the patient, no beam. Once it sits in the waiting room (simple-start
+--                                            design §2: the player sends each patient) the SAME card and step say
+--                                            YOUR PATIENT IS WAITING "Walk over · Send [E]" / "Walk over · tap Send",
+--                                            with the beam to the patient and the touch hand by its Send prompt.
+--                                            Sent: "🤧 A patient in bay 1!" until the step moves on
 --   2 EXAMINE     PATIENT IN BAY 1           "Go to bay 1 · Examine [E]" / "Go to bay 1 · tap Examine"; the beam to
 --                                            the bay (UI/Guide), the touch hand by its prompt
 --   3 EXAMINE while the exam card is up      PICK THE GLOWING TOOL "Tap the glowing tool, then play!" (the slim strip;
@@ -38,7 +42,8 @@
 --   6 REST        WELL DONE, DOCTOR!         "You treated your first patient!": rays and confetti behind the
 --                                            thumbnail (Kit.celebrate), held Config.Tutorial.FirstCureHold (also
 --                                            when the payout comes at once and the step goes straight on to 7)
---   7 MORE        TREAT 3 MORE ○○○           follows the patient: "🤕 New patient! Check its bubble" / "Go to bay
+--   7 MORE        TREAT 3 MORE ○○○           follows the patient: "🤕 New patient! Check its bubble" / "Walk over ·
+--                                            Send [E]" (it waits to be sent and no bay needs you) / "Go to bay
 --                                            2 · Examine [E]" / "It needs a 🧴!" / "Back to bay 2 · Treat [E]"; the
 --                                            Guide's usual targets
 --     SHOP, BOOK  UPGRADE YOUR CLINIC        card 7's last part. "Tap 🛒 · buy a ⚡" / "Click 🛒 · buy a ⚡" / "[A] on
@@ -170,6 +175,7 @@ export type Situation = {
 	Device: Device?,
 	Bay: string?, -- the patient's bay ("1")
 	AtBay: boolean?, -- it sits in its bay waiting for the doctor
+	Waiting: boolean?, -- nobody in a bay needs you, and a patient sits in the waiting room to be sent (Send)
 	Examined: boolean?, -- its exam is done (its plan shows)
 	Item: string?, -- the plan step to fetch or give: its NAME ("Plaster"), cards 4, 5 and 7
 	Need: string?, -- that step's icon ("🩹")
@@ -273,6 +279,14 @@ local function toBay(s: Situation, lead: string, action: string): (string, ("Pro
 	return lead .. " bay " .. bay .. " · " .. action, "Prompt"
 end
 
+-- Walk to the waiting patient and use its "Send" prompt: per device, the narrow phone line the shortest.
+local function toSend(s: Situation): (string, ("Prompt" | "Confirm")?)
+	if s.Device == "Touch" then
+		return if s.Narrow then "Tap Send on it" else "Walk over · tap Send", nil
+	end
+	return "Walk over · Send", "Prompt"
+end
+
 -- The game the slim strip names while a card is up: the `index`-th of the session's games (a Pure.GAMES key; it
 -- follows the card's steps, so the dispensary's "FIND THE BOTTLE!" becomes "MEASURE THE DOSE!"), "Tap" in Simple
 -- mode, nil for one it has no words for or past the last.
@@ -293,6 +307,11 @@ end
 function Pure.words(card: number, s: Situation): Words
 	local device = s.Device or "Keyboard"
 	if card == 1 then
+		if s.Waiting and not s.AtBay then
+			-- The same card and the same saved step: the first patient sits in the waiting room until you send it.
+			local sub, key = toSend(s)
+			return { Title = "YOUR PATIENT IS WAITING", Sub = sub, Key = key }
+		end
 		local sub = if s.AtBay then "🤧 A patient in bay " .. bayName(s) .. "!" else "🤧 A patient is coming!"
 		return { Title = "WELCOME, DOCTOR!", Sub = sub }
 	elseif card == 2 then
@@ -369,6 +388,9 @@ function Pure.words(card: number, s: Situation): Words
 			return { Title = title, Sub = sub, Key = key }
 		elseif s.AtBay and s.Need then
 			return { Title = title, Sub = "It needs a " .. s.Need .. "!" }
+		elseif s.Waiting and not s.AtBay then
+			local sub, key = toSend(s)
+			return { Title = title, Sub = sub, Key = key }
 		end
 		return {
 			Title = title,
@@ -1150,6 +1172,21 @@ function Tutorial.init(ctx: Types.Ctx)
 		return found
 	end
 
+	-- A patient sitting in the waiting room to be sent (Server/Patients: State "Waiting", no bay, not a 🚑/🚁 one).
+	local function waitingPatient(plot: Instance?): Model?
+		local folder = plot and plot:FindFirstChild("Patients")
+		for _, child in (if folder then folder:GetChildren() else {}) do
+			if child:IsA("Model") and child.PrimaryPart and child:GetAttribute("State") == "Waiting" then
+				local bay = child:GetAttribute("Bay")
+				local urgent = child:GetAttribute("Urgent")
+				if (bay == nil or bay == "") and (urgent == nil or urgent == "") then
+					return child
+				end
+			end
+		end
+		return nil
+	end
+
 	-- A patient's face on the thumbnail: its case's icon once examined, else its symptom's emoji ("😷 cough cough").
 	local function faceOf(patient: Model?): string?
 		if not patient then
@@ -1208,6 +1245,7 @@ function Tutorial.init(ctx: Types.Ctx)
 			Device = device(),
 			Bay = visit.Bay,
 			AtBay = patient ~= nil,
+			Waiting = patient == nil and waitingPatient(plot) ~= nil,
 			Examined = visit.Do == "Treat" or visit.Do == "Fetch",
 			Item = if type(item) == "table" then item.Name else nil,
 			Need = if type(item) == "table" then item.Icon else nil,
@@ -1256,6 +1294,8 @@ function Tutorial.init(ctx: Types.Ctx)
 				return "🩺", Theme.Colors.Collect
 			elseif s.AtBay and entry.StationIcon then
 				return entry.StationIcon, entry.StationColor or Theme.Colors.Purple
+			elseif s.Waiting then
+				return entry.Face, Theme.Colors.Collect
 			end
 			return "🤕", Theme.Colors.Pink
 		end
@@ -1986,11 +2026,30 @@ function Tutorial.init(ctx: Types.Ctx)
 		}
 	end
 
+	-- The strip to a patient waiting to be sent, the touch hand by its Send prompt (the prompt is inside the model).
+	local function sendSteer(patient: Model): any
+		local steer = pinOver(patient, "👋", Theme.Colors.Collect, true)
+		steer.Beam = true
+		steer.Hand = "Tap"
+		return steer
+	end
+
+	-- Nothing in a bay needs the doctor (UI/Guide.visit) and a patient waits to be sent: point at it. The lowest
+	-- priority: any bay work (examine, fetch, treat) comes first. nil = the Guide's usual targets.
+	local function waitingSteer(plot: Instance): any
+		if visitNow(plot).Do ~= nil then
+			return nil
+		end
+		local patient = waitingPatient(plot)
+		return if patient then sendSteer(patient) else nil
+	end
+
 	if Guide then
 		Guide.setSteer(function(plot: Instance): any
 			local step = ctx.State.Tutorial
 			if not Logic.active(step) then
-				return nil -- done (or skipped): the Guide as it always was, until 3 cures
+				-- Done (or skipped): the Guide as it always was, until 3 cures; a waiting patient when no bay needs you.
+				return waitingSteer(plot)
 			end
 			if step >= Logic.SHOP or gameOpen() then
 				return false -- a UI step, or the mini-game covers the middle
@@ -1999,6 +2058,10 @@ function Tutorial.init(ctx: Types.Ctx)
 				return false -- the sweep
 			end
 			if step <= Logic.PATIENT then
+				local waiting = waitingPatient(plot)
+				if waiting then
+					return sendSteer(waiting) -- it sits in the waiting room: walk over and press Send
+				end
 				local patient = anyPatient(plot) -- the first patient walking in (one at a time in the tutorial)
 				return if patient then pinOver(patient, "👀", Theme.Colors.Pink, true) else false
 			elseif step == Logic.REST then
@@ -2010,7 +2073,7 @@ function Tutorial.init(ctx: Types.Ctx)
 				end
 				return false
 			end
-			return nil -- EXAMINE, TREAT and MORE: the Guide's usual targets
+			return waitingSteer(plot) -- EXAMINE, TREAT and MORE: the Guide's usual targets, then a waiting patient
 		end)
 	end
 

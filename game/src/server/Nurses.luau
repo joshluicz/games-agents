@@ -99,7 +99,10 @@
 --                Healers and Medics leave everything to the owner until their first-session tutorial is done
 --   Cheerer      stands in the waiting room and cheers while patients wait (CheerPatience, CheerTip: the best one)
 --   Receptionist stands behind the reception desk and greets arrivals ("Greeting"): patients come sooner and, from
---                Lv 3, a Stay patient's ward is picked at once (Reception, Triage)
+--                Lv 3, a Stay patient's ward is picked at once (Reception, Triage). Simple start (design §2): with one
+--                on duty, Server/Patients sends each seated walk-in to the right kind of bay by itself after a short
+--                wait, one at a time (it reads Nurses.reception(plot).Triage: U.receptionSend); with none on duty
+--                only the player sends
 --   Medic        waits at the nurses' station; while a 🚑/🚁 patient waits for the doctor in a bay it goes to that bay
 --                ("Treating") and fires Heal (target "Urgent") when it needs its exam or a supply the tray holds
 --                (MedicPatience: they wait longer)

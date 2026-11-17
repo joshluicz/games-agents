@@ -104,6 +104,7 @@ local UI_MODULES = {
 	"MarketPanel",
 	"BranchPanel",
 	"LiftPanel",
+	"SendCard",
 	"Tutorial",
 }
 -- Feel.CreatureProps is CreatureActing's library. CreatureMotion moves each creature's Root (hops, scale) and

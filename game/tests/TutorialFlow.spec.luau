@@ -821,6 +821,8 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 										Cures = if carrying then 2 else 0,
 										Total = Logic.MORE_CURES,
 										Shop = examined and atBay,
+										-- Nobody in a bay and one waiting to be sent (simple-start design §2).
+										Waiting = not atBay and bay == "1",
 									})
 								end
 							end
@@ -872,6 +874,16 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 			expect(w(1, "Keyboard").Title).toBe("WELCOME, DOCTOR!")
 			expect(w(1, "Keyboard").Sub).toBe("🤧 A patient is coming!")
 			expect(w(1, "Keyboard", { AtBay = true }).Sub).toBe("🤧 A patient in bay 1!")
+			-- (1, still) simple start §2: the first patient sits in the waiting room until you send it. The same card
+			-- and the same saved step (no new step number): only the words change
+			expect(w(1, "Keyboard", { Waiting = true })).toEqual({
+				Title = "YOUR PATIENT IS WAITING",
+				Sub = "Walk over · Send",
+				Key = "Prompt",
+			})
+			expect(w(1, "Touch", { Waiting = true }).Sub).toBe("Walk over · tap Send")
+			expect(w(1, "Pad", { Waiting = true }).Key).toBe("Prompt")
+			expect(w(1, "Keyboard", { Waiting = true, AtBay = true }).Sub).toBe("🤧 A patient in bay 1!") -- sent
 			-- (2) a patient is in bay 1, tap Examine
 			expect(w(2, "Keyboard")).toEqual({
 				Title = "PATIENT IN BAY 1",
@@ -924,6 +936,13 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 				Key = "Prompt",
 			})
 			expect(w(7, "Keyboard", { AtBay = true, Examined = true, Need = "🧴" }).Sub).toBe("It needs a 🧴!")
+			-- a patient waits to be sent and no bay needs you: send it (bay work always comes first)
+			expect(w(7, "Keyboard", { Waiting = true })).toEqual({
+				Title = "TREAT 3 MORE ○○○",
+				Sub = "Walk over · Send",
+				Key = "Prompt",
+			})
+			expect(w(7, "Keyboard", { Waiting = true, AtBay = true, Bay = "2" }).Sub).toBe("Go to bay 2 · Examine")
 			expect(w(7, "Keyboard", { AtBay = true, Examined = true, Carrying = true }).Sub).toBe(
 				"Back to bay 1 · Treat"
 			)
@@ -1020,6 +1039,8 @@ T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, 
 		expect(w(5).Sub).toBe("Tap Treat at bay 1")
 		expect(w(6).Sub).toBe("First patient treated!")
 		expect(w(7).Sub).toBe("🤕 Check its bubble")
+		expect(w(1, { Waiting = true }).Sub).toBe("Tap Send on it")
+		expect(w(7, { Waiting = true }).Sub).toBe("Tap Send on it")
 		expect(w(7, { AtBay = true, Examined = true, Carrying = true }).Sub).toBe("Tap Treat at bay 1")
 		for cardNumber = 1, Logic.CARDS do
 			for _, extra in
@@ -1029,6 +1050,7 @@ T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, 
 					{ AtBay = true, Examined = true, Need = "🧴", Where = "Dispensary" },
 					{ AtBay = true, Examined = true, Carrying = true, Bay = "W1", Where = "Shelf" },
 					{ Glow = false, Where = "Room" },
+					{ Waiting = true },
 					{ Shop = true },
 				}
 			do

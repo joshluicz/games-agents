@@ -192,9 +192,12 @@ Config.MiniGame = {
 -- BayRefill: the share of its patience a patient gets back when it sits down on a bay bed. A visit is three beats
 -- now (about 25 s for one doctor), so the wait in the waiting room (x0.5) must not eat the wait for the doctor too:
 -- a patient who reaches a bay starts that wait full.
--- SeatSeconds: every walk-in sits down in the waiting room first (Joshua, 2026-11-17) and is called to a bay no
--- sooner than this after it sat, even with a bay free. 🚑/🚁 patients go straight to their bay (Server/Patients).
-Config.Visit = { ExamsGlow = 3, BayRefill = 1, SeatSeconds = 3 }
+-- SeatSeconds: every walk-in sits down in the waiting room first (Joshua, 2026-11-17) and stays there until it is
+-- sent (simple-start design §2: the player's Send, as soon as it has settled). Nobody but the player sends it sooner
+-- than this after it sat. 🚑/🚁 patients go straight to their bay (Server/Patients).
+-- ReceptionSeconds / ReceptionGap: a Receptionist on duty sends a walk-in that has sat this long, and the next one no
+-- sooner than the gap after (Logic/Routing.receptionistReady). No Receptionist: only the player sends.
+Config.Visit = { ExamsGlow = 3, BayRefill = 1, SeatSeconds = 3, ReceptionSeconds = 6, ReceptionGap = 2 }
 
 -- The dispensary (Station_Remedy; design §9): the dispensing card offers up to Options medicines that bay patients
 -- still need (the oldest first), then shows Bottles bottles to pick from (the right one and Bottles - 1 others).

@@ -9,7 +9,12 @@
 --   1 WELCOME   the camera sweep                               the TutorialAck remote (the client acks when the
 --                                                             sweep ends; the server moves on by itself if no
 --                                                             ack comes). The first patient walks in meanwhile
---   2 PATIENT   card 1 "WELCOME, DOCTOR!"                      1 s after the first patient sits down in a bay
+--   2 PATIENT   card 1 "WELCOME, DOCTOR!", then (simple-start   1 s after the first patient sits down in a bay
+--               design §2: the player sends each patient) the
+--               same card says "YOUR PATIENT IS WAITING" while
+--               it sits in the waiting room: you press Send and
+--               it walks to bay 1. A part of THIS step, not a
+--               new one: no number changes, old saves just work
 --   3 EXAMINE   card 2 "PATIENT IN BAY 1" (tap Examine), and   the exam reveals its case (anyone's exam)
 --               card 3 "PICK THE GLOWING TOOL" while the exam card is up
 --   4 TREAT     card 4 "GET THE PLASTER" (the supply shelf or  the patient's plan is done (anyone's treatment)
