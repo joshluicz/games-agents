@@ -426,10 +426,10 @@ T.describe("Pantry: the built world", function()
 					end
 				end
 			end
-			-- the parts the pantry adds are what the Building's budget grew by (Config.Look: 420 -> 440)
+			-- the parts the pantry adds stay small (the Building's budget: Config.Look.BuildingParts, 455 for the bigger
+			-- clinic; tests/Hospital.spec measures the whole Building)
 			local added = #world.parts(cocoa) + #world.parts(bath) + 2
 			expect(added <= 20).toBe(true)
-			expect(Config.Look.BuildingParts).toBe(440)
 		end
 	)
 
@@ -438,7 +438,17 @@ T.describe("Pantry: the built world", function()
 		function()
 			lose("BathRoom")
 			lose("WinterWing")
+			-- simple at the start (REVIEW-P2 item 4): a Lv 1 clinic's closed units show only their 🔒, no hint
 			PlotBuilder.buildBuilding(plot, 1)
+			for id in PANTRY do
+				expect(icon(station(id))).toBe("🔒")
+				expect(station(id).RoomHint.Enabled).toBe(false)
+			end
+			expect(H.hintShown(1, false)).toBe(false)
+			expect(H.hintShown(2, false)).toBe(true)
+			expect(H.hintShown(2, true)).toBe(false)
+			-- from Lv 2 the hint shows, and only close by (no row of signs floating down the street)
+			PlotBuilder.buildBuilding(plot, 2)
 			expect(H.roomHint(Rooms.WinterWing)).toBe("Needs ❄️ Winter Wing")
 			expect(H.roomHint(Rooms.BathRoom)).toBe("Needs 🛁 Bath Room")
 			expect(H.roomHint(nil)).toBe("Needs a room")
@@ -448,7 +458,7 @@ T.describe("Pantry: the built world", function()
 				local hint = p.RoomHint
 				expect(hint:IsA("BillboardGui")).toBe(true)
 				expect(hint.Enabled).toBe(true)
-				expect(hint.MaxDistance > 0 and hint.MaxDistance <= 60).toBe(true)
+				expect(hint.MaxDistance > 0 and hint.MaxDistance <= 15).toBe(true)
 				expect(hint.Text.Text).toBe(H.roomHint(Rooms[roomId]))
 				-- in-game only: no price, no Robux, nothing that pushes
 				for _, bad in { "💰", "R$", "Robux", "Buy", "!", tostring(Rooms[roomId].Price) } do

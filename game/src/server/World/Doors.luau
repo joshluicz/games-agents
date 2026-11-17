@@ -1,7 +1,8 @@
 --!strict
 -- The clinic's doors (Real Clinic build plan, Task 1; design §8.1-§8.2). Server only. OWNER: Task 1 (the building).
 -- Server/HospitalBuilder builds every door as a Model tagged Doors.TAG ("ClinicDoor"): the FrontDoor (a glass pair,
--- DoorL and DoorR) and Door_<name> for the A&E door, the X-ray room and the bought rooms (one Panel each). Each has:
+-- DoorL and DoorR) and Door_<name> for the A&E door, the X-ray room, the stairwell and the bought rooms (one Panel
+-- each). Each has:
 --   panels      BaseParts with the attribute Slide (a Vector3 in the panel's own space: where it slides to when open,
 --               into the wall beside the doorway). Built shut
 --   Sensor      an invisible marker at the doorway's middle, on the floor
@@ -13,11 +14,11 @@
 -- PivotTo, and nobody is ever shut in if this module stops) and slide open while a player's character or a creature
 -- (tag "CreatureMotion") is within Pure.RADIUS studs of its Sensor on the same floor.
 -- Nobody is ever sealed in. A room can lock with a player inside it: the owner leaves or rebirths and the Building is
--- rebuilt at Lv 1 (the X-ray room's and the bought rooms' doors are solid again, the storeys upstairs stand closed
--- behind the stair gate and the lift's locked door). Every Pure.RESCUE_SECONDS each player standing inside a room
--- whose door is Locked, or on a floor the Building's level hasn't opened, is set down in the lobby in front of
--- reception (Logic/Building.RECEPTION.Stop), which is open at every level. (At Lv 1 the stair flights behind the shut
--- stair gate count as such a room.)
+-- rebuilt at Lv 1 (the X-ray room's, the stairwell's and the bought rooms' doors are solid again, the storeys
+-- upstairs stand closed behind the stairwell's door and the lift's locked door). Every Pure.RESCUE_SECONDS each player
+-- standing inside a room whose door is Locked (the stairwell's whole enclosure, Logic/Building.ROOMS.Stairwell,
+-- counts as Door_Stairs's room), or on a floor the Building's level hasn't opened, is set down in the lobby in front of
+-- reception (Logic/Building.RECEPTION.Stop), which is open at every level.
 -- One loop for every door in the town, Pure.CHECK_SECONDS apart; a door changes only when its state does, with ONE
 -- server tween per panel (never per frame). A level-up rebuilds the Building, and the old doors drop out by
 -- themselves. Buying a room needs no rebuild: the next check unlocks its door.
@@ -123,8 +124,13 @@ Doors.Pure = Pure
 
 local MOTION_TAG = "CreatureMotion" -- every creature (CreatureBuilder.MOTION_TAG): patients and nurses
 -- A door (its Door attribute, a Logic/Building.DOORS name) and the walled room behind it (Logic/Building.ROOMS)
-local ROOM_BEHIND: { [string]: string } =
-	{ XRay = "XRay", BathRoom = "BathRoom", WinterWing = "WinterWing", CozyWard = "CozyWard" }
+local ROOM_BEHIND: { [string]: string } = {
+	XRay = "XRay",
+	BathRoom = "BathRoom",
+	WinterWing = "WinterWing",
+	CozyWard = "CozyWard",
+	Stairs = "Stairwell",
+}
 local RESCUE_HEIGHT = 3.5 -- a rescued character's root over the lobby floor
 
 type Panel = { Part: BasePart, Closed: CFrame, Open: CFrame }
@@ -269,13 +275,8 @@ local function rescue()
 			end
 			local level = building:GetAttribute("Level")
 			local floorsOpen = Building.floors(if type(level) == "number" then level else Building.MIN_LEVEL)
-			local shut = rooms
-			if floorsOpen < 1 then
-				-- Upstairs is closed: the flights behind the shut stair gate are no place to stand either.
-				shut = table.clone(rooms)
-				table.insert(shut, Building.STAIRWELL)
-			end
-			if Pure.trapped(at.X, at.Y, at.Z, shut, floorsOpen, Building.SLAB_TOPS) then
+			-- (upstairs closed: Door_Stairs is Locked, so the whole stairwell is in `rooms`)
+			if Pure.trapped(at.X, at.Y, at.Z, rooms, floorsOpen, Building.SLAB_TOPS) then
 				character:PivotTo(origin * CFrame.new(stop.X, RESCUE_HEIGHT, stop.Z))
 			end
 			break -- a player stands in one building at most
