@@ -753,6 +753,7 @@ Pure.CARD = {
 	Topbar = 58, -- the Roblox top bar (the safe area starts under it)
 	PickGap = 8, -- between the Pick's targets
 	PickMax = 132, -- the Pick's targets never grow past this (a computer's big card)
+	PickInset = 5, -- kept clear round the targets: their 3 px outline is drawn outside them, and the stage clips
 }
 
 local function xy(value: any): (number, number)
@@ -789,7 +790,10 @@ end
 -- in the rows that make them biggest, centred, CARD.PickGap apart. Top-left rects in the stage's px. On a phone's
 -- card every target is at least TAP_MIN (MiniGamesPure.spec), none overlap and none leave the stage.
 function Pure.pickRects(stage: any, n: number): { Rect }
-	local w, h = xy(stage)
+	local fullW, fullH = xy(stage)
+	-- Inside the inset (the 2 x 2 bottles were clipped top and bottom: Studio test 2026-11-17).
+	local inset = Pure.CARD.PickInset
+	local w, h = fullW - 2 * inset, fullH - 2 * inset
 	local count = math.clamp(math.floor(finite(n) or 0), 0, Pure.CHOICES_MAX)
 	local gap = Pure.CARD.PickGap
 	local out: { Rect } = {}
@@ -814,8 +818,8 @@ function Pure.pickRects(stage: any, n: number): { Rect }
 		local inRow = math.min(cols, count - row * cols)
 		local left = (w - (inRow * side + (inRow - 1) * gap)) / 2
 		table.insert(out, {
-			X = math.floor(left + col * (side + gap)),
-			Y = math.floor(top + row * (side + gap)),
+			X = math.floor(inset + left + col * (side + gap)),
+			Y = math.floor(inset + top + row * (side + gap)),
 			W = side,
 			H = side,
 		})

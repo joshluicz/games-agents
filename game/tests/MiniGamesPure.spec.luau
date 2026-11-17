@@ -876,6 +876,22 @@ T.describe("The Real Clinic: the cards fit a phone (Review Focus 5)", function()
 			end
 		end
 	end)
+	test(
+		"pickRects: every target keeps PickInset clear of the stage's edge (its outline is drawn outside it)",
+		function()
+			-- the dispensary's 2 x 2 bottles on a short stage were clipped top and bottom (Studio test 2026-11-17)
+			for _, stage in { { X = 314, Y = 160 }, { X = 640, Y = 260 }, { X = 300, Y = 80 }, { X = 120, Y = 300 } } do
+				for n = 1, Pure.CHOICES_MAX do
+					for _, r in Pure.pickRects(stage, n) do
+						expect(r.X >= Pure.CARD.PickInset and r.Y >= Pure.CARD.PickInset).toBe(true)
+						expect(r.X + r.W <= stage.X - Pure.CARD.PickInset + 1).toBe(true)
+						expect(r.Y + r.H <= stage.Y - Pure.CARD.PickInset + 1).toBe(true)
+					end
+				end
+			end
+		end
+	)
+
 	test("pickRects: junk and empty stages give nothing; more than CHOICES_MAX is capped", function()
 		expect(Pure.pickRects(roblox.Vector2.new(300, 100), 0)).toEqual({})
 		expect(Pure.pickRects(roblox.Vector2.new(0, 0), 3)).toEqual({})
