@@ -54,19 +54,31 @@
 --                hidden until their system fills them
 -- THE ROOMS. A room is an INTERIOR FIT-OUT now: no walls and no roof (the Building has them, with each room's door).
 -- Its Floor is the slot (CeramicTiles, ROOM_FLOOR thick, laid on the Building's ground floor); everything stays
--- inside its Building.ROOMS rect, inside the partitions, and off its door's span:
+-- inside its Building.ROOMS rect and inside the partitions. Joshua (2026-11-17: "what the hell is this room",
+-- "very cramped", "keep it simple"): the three back rooms are simple and open. Furniture stands against the walls,
+-- nothing tall in the middle, the doorway and the 3 studs inside it clear; every sign upright and flat on a wall; no
+-- part buried in another and no two faces in one plane (nothing z-fights). Each has its name over its door on the
+-- corridor side (NameSign: navy, the Data/Rooms icon and name, on the lintel between the door's Height and the
+-- ceiling). Plot-local, the Building's numbers (Logic/Building ROOMS, DOORS, BAYS):
 --   Stand       the forecourt in front of the doors (tiles, the plot's colour nowhere loud) with its 2 decor slots
 --               either side of the canopy. Data/Rooms still lists Remedy, Plaster and a bed for it: those are the
 --               Building's now (Station_Remedy in the dispensary, Station_Plaster on the supply shelf), so the
 --               Stand's fit-out builds neither
---   BathRoom    (Cyan) Station_Bath (the tub) at the back wall, a bath mat, 1 decor slot
---   WinterWing  (Blue) Station_Cocoa, Bed_1 (a 3-part recovery bed, as before) on the -x wall, a rug, 2 decor slots
+--   BathRoom    (Cyan) Station_Bath, the tub, on the back wall opposite the door, against a tiled panel (light cyan
+--               CeramicTiles), its water and two bubbles ON it; a bath mat in front; a towel on its rail on the -x
+--               wall; a shelf with two bottles of bath foam on the +x wall; 1 decor slot in the front +x corner
+--   WinterWing  (Blue) Bed_1 (a 3-part recovery bed: Frame, Bed_1, studded Headboard) in the back -x corner, its
+--               head on the back wall; the fireplace on the back wall (studded bricks, a firebox, a Neon flame with a
+--               shadowless PointLight, a mantel shelf, snowflakes drawn on its face) with a rug in front; a small
+--               Station_Cocoa table (a pot, a mug) in the back +x corner, its front toward -x (Joshua: the hot
+--               chocolate moves to a pantry in the Building next, so it is no feature here); 2 decor slots along the
+--               +x wall
 --   Ward        (Purple) the Cozy Ward: ExamBay_W1 and ExamBay_W2 to contract C2 at Building.bay("W1"/"W2") (Bed,
 --               DoctorSpot, Curtain, Tray, Sign; attributes Bay, Kind, Opens, Face, Room and Open = true: a bay of a
---               room exists only while the room is owned). Its Bed is the mattress the patient sits on (its top
---               ROOM_FLOOR + 1.8 over the pad, its LookVector toward the foot and the DoctorSpot, as the Building's
---               couches), with a Frame and a studded Headboard; 2 small decor slots in the aisle's corners (its
---               3.5-stud aisle is all the floor its two bays leave)
+--               room exists only while the room is owned), made like bays 1-6: the Bed is the couch the patient sits
+--               on (one block, its top Pure.COUCH over the floor, its LookVector toward the foot and the DoctorSpot),
+--               a Pillow, the Curtain drawn back by the side wall, the Tray and the navy Sign on the back wall over
+--               the head; a rug down the aisle and 2 small decor slots in the aisle's corners
 --   Garden      the Sunny Garden behind the Garden door: a studded lawn, studded hedges (back and the back half of the
 --               sides) and an arbor with its name. Outdoors
 -- Stations in a room carry Open = true (Server/Patients' stationsOnPlot reads Open ~= false) and StationId, as the
@@ -123,6 +135,9 @@ PlotBuilder.Pure = HospitalBuilder.Pure
 type Rect = Building.Rect
 
 local ROOM_FLOOR = 0.2 -- every room's Floor: laid on the Building's ground floor (slab top 0) or the pad
+local FLOOR_TOP = ROOM_FLOOR / 2 -- that Floor's top in its room's own space (the Floor's centre is the origin)
+-- The ground storey's walls stand up to here (the ceiling's underside): a room's name sign stays under it.
+local WALL_TOP = HospitalBuilder.Pure.wallTop(Building, 0)
 
 -- A ground-floor room's floor inside its walls: its Building.ROOMS rect pulled in past every wall Building.obstacles
 -- puts across one of its edges (the outer walls, the 0.4 partitions). Bought rooms' doors are modelled open, so a
@@ -204,7 +219,8 @@ local MAX_PLOTS = 6
 local WORLD = Palette.World
 local ACCENT = Palette.Accent
 
--- The look's colours, by job (Palette.World / Palette.Accent; art-direction §4.1). No lerp toward white anywhere.
+-- The look's colours, by job (Palette.World / Palette.Accent; art-direction §4.1). No lerp toward white anywhere but
+-- the soft room colours below (rugs, the exam couches and curtains, the bath tiles), each kept under V 0.95.
 local COLORS = {
 	Pad = WORLD.Pad, -- the plot's floor: a dark anchor, studded
 	Edge = WORLD.Edge, -- the stone edging round it (Slate)
@@ -212,7 +228,7 @@ local COLORS = {
 	Fence = WORLD.Fence, -- the gate posts (the fence itself is Props')
 	Trim = WORLD.Trim, -- warm white: the CounterTop, station tops, mattresses, trays, decor spots
 	Floor = WORLD.FloorTile, -- room floors: CeramicTiles (Joshua 2026-11-17: "floor texture shouldnt be wood")
-	Wood = WORLD.Beam, -- the arbor's posts
+	Wood = WORLD.Beam, -- the arbor's posts, the Winter Wing's mantel shelf
 	Lawn = WORLD.GrassA, -- the Garden's floor, studded
 	Hedge = WORLD.LeavesB, -- the Garden's hedges, studded
 	Vine = WORLD.LeavesA, -- the arbor's beam, studded
@@ -221,6 +237,14 @@ local COLORS = {
 	Flag = ACCENT.Red, -- the mailbox flag (Red: props only)
 	ForSale = ACCENT.Yellow,
 	Mug = WORLD.Trim,
+	-- The Cozy Ward's exam bays wear what bays 1-6 wear (Server/HospitalBuilder's couch and curtain colours).
+	Couch = Parts.lighten(ACCENT.Cyan, 0.45),
+	Curtain = Parts.lighten(ACCENT.Blue, 0.5),
+	Tiles = Parts.lighten(ACCENT.Cyan, 0.55), -- the Bath Room's tiled panel behind the tub
+	Towel = ACCENT.Pink,
+	Bricks = ACCENT.Red, -- the Winter Wing's fireplace (a prop: Red is props only)
+	Soot = WORLD.Roof, -- the firebox
+	Fire = ACCENT.Orange, -- the flame (Neon) and its glow
 }
 
 -- Plot_n's own accent (Palette.PlotColors).
@@ -243,13 +267,14 @@ local function worldColor(color: Color3): Color3
 end
 
 -- Each room's colour (art-direction §4.1: Bath = Cyan, Ward = Purple, Winter Wing = Blue, Garden = leaves; the Stand
--- = its plot's colour): bed frames, headboards, curtains, mats and rugs.
+-- = its plot's colour): the recovery bed's frame and headboard; rugs and mats wear it softened (RUG_SOFTEN).
 local ROOM_COLOUR: { [string]: Color3 } = {
 	BathRoom = ACCENT.Cyan,
 	Ward = ACCENT.Purple,
 	WinterWing = ACCENT.Blue,
 	Garden = WORLD.LeavesA,
 }
+local RUG_SOFTEN = 0.3
 
 local function colourFor(roomId: string, accent: Color3?): Color3
 	if roomId == "Stand" then
@@ -263,12 +288,15 @@ end
 ------------------------------------------------------------------------------------------------------------------
 
 type Spot = { At: Vector3, Size: number } -- a decor slot: its centre and its square marker's side
+type StationSpot = { At: Vector3, Face: number } -- a station body's centre and its front (Logic/Building's Face)
+type Mat = { Name: string, At: Vector3, Size: Vector2 }
 type Layout = {
-	Stations: { [string]: Vector3 },
-	Beds: { Vector3 },
+	Stations: { [string]: StationSpot },
+	Beds: { Vector3 }, -- each recovery bed's centre (its Frame and mattress); the pillow end is +z (Server/Patients)
 	Bays: { Building.Bay },
 	Decor: { Spot },
-	Mats: { { Name: string, At: Vector3, Size: Vector2 } },
+	Mats: { Mat },
+	Dress: ((model: Model) -> ())?, -- the room's own furniture: the fireplace, the tiles, the towel ...
 }
 
 -- The Building builds these rooms' stations and beds itself (Data/Rooms still lists them for the Stand: the free
@@ -321,57 +349,189 @@ local function roomLocal(roomId: string, x: number, z: number): Vector3
 	return Vector3.new(x - centre.X, 0, z - centre.Z)
 end
 
-local FULL_DECOR = 4 -- a decor model fits a 4 x 4 footprint (Server/DecorBuilder's contract)
-local BED_DEPTH = 8 -- a recovery bed's frame (7) and its headboard (1), head to foot
-local COCOA_DEPTH = 3 -- the Cocoa table's studded top, out from the wall
+-- A box in a room's fit-out: plot-local x and z, heights from the floor's top. The fit-outs' furniture is built from
+-- these, each piece meeting the next face to face: no part buried in another and no two faces in one plane, so
+-- nothing z-fights (Joshua 2026-11-17: "the purple bits are glitching"; tests/PlotWorld.spec).
+local function roomBox(
+	model: Model,
+	roomId: string,
+	name: string,
+	x0: number,
+	x1: number,
+	h0: number,
+	h1: number,
+	z0: number,
+	z1: number,
+	color: Color3,
+	material: Enum.Material?
+): Part
+	local c = roomLocal(roomId, (x0 + x1) / 2, (z0 + z1) / 2)
+	return part(
+		model,
+		name,
+		Vector3.new(x1 - x0, h1 - h0, z1 - z0),
+		CFrame.new(c.X, FLOOR_TOP + (h0 + h1) / 2, c.Z),
+		color,
+		material
+	)
+end
 
+local FULL_DECOR = 4 -- a decor model fits a 4 x 4 footprint (Server/DecorBuilder's contract)
+-- A recovery bed, as the ward beds upstairs: a Frame in the room's colour as long as the mattress, a studded Headboard
+-- (whole studs) at the pillow end, against the back wall, and Bed_<n>, the warm-white mattress. Bed_<n>'s size is
+-- unchanged, so a patient lies exactly as before (Server/Patients: the pillow end +z, the foot spot 1.6 past -z).
+local MATTRESS = Vector3.new(4, 1, 6.6)
+local BED_FRAME = Vector3.new(4.4, 0.8, MATTRESS.Z)
+local HEADBOARD = Vector3.new(4, 2.6, 1)
+-- A small supply table (Station_Cocoa): its width along its wall, its height, its depth out from the wall. Joshua
+-- (2026-11-17): the hot chocolate moves to a pantry in the Building next; until then it stays, small, by a wall.
+local STATION_BODY = Vector3.new(3, 3, 2)
+-- The tub (Station_Bath) and the tiled panel on the wall behind it.
+local TUB = Vector3.new(5.6, 2.2, 3.6)
+local TILES = Vector3.new(7, 5, 0.2)
+local BUBBLES = { { X = -1.1, Z = -0.4, D = 1.2 }, { X = 0.2, Z = 0.5, D = 0.9 } } -- on the water, tub-local
+-- The Winter Wing's fireplace: studded bricks (whole studs) on the back wall, its firebox, the fire and a mantel shelf.
+local FIREPLACE = Vector3.new(3, 4.4, 1)
+local FIRE_SHIFT = 1.5 -- its middle is this far to +x of the door's: clear of the bed in the -x corner
+local FIRE_LIGHT = { Brightness = 1.6, Range = 14 } -- shadowless (the perf budget), always on
+
+-- The Winter Wing's fireplace, its back against the wall at plot-local z `back`, centred on x. Snowflakes on its
+-- face over the fire (a SurfaceGui: no parts), and a warm, shadowless PointLight in the flame.
+local function buildFireplace(model: Model, roomId: string, x: number, back: number)
+	local f = FIREPLACE
+	local bricks =
+		roomBox(model, roomId, "Fireplace", x - f.X / 2, x + f.X / 2, 0, f.Y, back - f.Z, back, COLORS.Bricks)
+	Studs.apply(bricks)
+	local flakes = detailGui(bricks, "FlakeGui", Enum.NormalId.Front, 30, 60)
+	floatText(flakes, "❄️ ❄️", { Size = UDim2.fromScale(0.9, 0.3), Position = UDim2.fromScale(0.05, 0.06) })
+	local front = back - f.Z
+	paint(roomBox(model, roomId, "Firebox", x - 1, x + 1, 0, 2.4, front - 0.2, front, COLORS.Soot))
+	local flame = paint(
+		roomBox(
+			model,
+			roomId,
+			"Flame",
+			x - 0.5,
+			x + 0.5,
+			0,
+			1.2,
+			front - 0.6,
+			front - 0.2,
+			COLORS.Fire,
+			Enum.Material.Neon
+		)
+	)
+	local glow = Instance.new("Attachment")
+	glow.Name = "FireGlow"
+	glow.Position = Vector3.new(0, 0.6, -0.6)
+	glow.Parent = flame
+	local light = Instance.new("PointLight")
+	light.Color = COLORS.Fire
+	light.Brightness = FIRE_LIGHT.Brightness
+	light.Range = FIRE_LIGHT.Range
+	light.Shadows = false
+	light.Parent = glow
+	roomBox(model, roomId, "Mantel", x - 2, x + 2, f.Y, f.Y + 0.4, back - 1.4, back, COLORS.Wood, Enum.Material.Wood)
+end
+
+-- The Bath Room's own pieces: the tiled panel behind the tub, a towel on its rail (the -x wall) and a shelf with two
+-- bottles of bath foam (the +x wall). All against the walls, all soft: nobody bumps into them.
+local function dressBath(model: Model, r: Rect, tubX: number)
+	local id = "BathRoom"
+	paint(
+		roomBox(
+			model,
+			id,
+			"Tiles",
+			tubX - TILES.X / 2,
+			tubX + TILES.X / 2,
+			0,
+			TILES.Y,
+			r.Z1 - TILES.Z,
+			r.Z1,
+			COLORS.Tiles,
+			Enum.Material.CeramicTiles
+		)
+	)
+	local towelZ = r.Z0 + 4.3
+	local towel = roomBox(
+		model,
+		id,
+		"Towel",
+		r.X0,
+		r.X0 + 0.4,
+		2,
+		4.8,
+		towelZ - 1.2,
+		towelZ + 1.2,
+		COLORS.Towel,
+		Enum.Material.Fabric
+	)
+	soft(towel).CastShadow = false
+	paint(roomBox(model, id, "TowelRail", r.X0, r.X0 + 0.4, 4.8, 5, towelZ - 1.6, towelZ + 1.6, COLORS.Trim))
+	local shelfZ = r.Z0 + 5.2
+	soft(roomBox(model, id, "Shelf", r.X1 - 1, r.X1, 3.4, 3.7, shelfZ - 1.5, shelfZ + 1.5, COLORS.Trim))
+	soft(roomBox(model, id, "Foam", r.X1 - 0.85, r.X1 - 0.15, 3.7, 4.9, shelfZ - 1.05, shelfZ - 0.35, ACCENT.Pink))
+	soft(roomBox(model, id, "Foam", r.X1 - 0.8, r.X1 - 0.2, 3.7, 4.7, shelfZ + 0.3, shelfZ + 0.9, ACCENT.Cyan))
+end
+
+-- The Bath Room: the tub against the tiles on the back wall, opposite the door; its mat in front.
 local function bathLayout(): Layout
 	local r = INNER.BathRoom
-	local midX = (r.X0 + r.X1) / 2
-	local tubX = midX + 2
+	local tubX = (r.X0 + r.X1) / 2
+	local tubZ = r.Z1 - TILES.Z - TUB.Z / 2
 	return {
-		Stations = { Bath = roomLocal("BathRoom", tubX, r.Z1 - 2) },
+		Stations = { Bath = { At = roomLocal("BathRoom", tubX, tubZ), Face = 0 } },
 		Beds = {},
 		Bays = {},
-		Decor = { { At = roomLocal("BathRoom", r.X0 + 2.2, r.Z1 - 2.2), Size = FULL_DECOR } },
-		Mats = { { Name = "BathMat", At = roomLocal("BathRoom", tubX, r.Z1 - 5.2), Size = Vector2.new(4, 2) } },
+		-- the front corner on the +x side (the foam shelf hangs further back)
+		Decor = { { At = roomLocal("BathRoom", r.X1 - 2, r.Z0 + 1.7), Size = 3.2 } },
+		Mats = {
+			{ Name = "BathMat", At = roomLocal("BathRoom", tubX, tubZ - TUB.Z / 2 - 1.1), Size = Vector2.new(3, 1.8) },
+		},
+		Dress = function(model: Model)
+			dressBath(model, r, tubX)
+		end,
 	}
 end
 
+-- The Winter Wing: Bed_1 in the back corner on the -x side (its head on the back wall), the fireplace on the back wall
+-- with the rug in front of it, the small cocoa table in the back corner on the +x side (its front toward -x), the
+-- decor slots along the +x wall. The doorway and the floor in front of it stay clear (the bed's foot spot is just
+-- inside, on the -x side). The cocoa stays in its back corner: a room station's prompt reaches 10 studs through
+-- walls (Server/Stations), and from there it never reaches the Cozy Ward's doorway.
 local function winterLayout(): Layout
 	local r = INNER.WinterWing
-	local bedX = r.X0 + 0.2 + Building.BED_HALF
-	local cocoaX = r.X1 - 2.2
-	-- decor slot 2 sits between the bed's frame and the Cocoa table, at the back
-	local between0, between1 = bedX + Building.BED_HALF, cocoaX - 2
+	local door = Building.DOORS.WinterWing
+	local fireX = ((door.X0 :: number) + (door.X1 :: number)) / 2 + FIRE_SHIFT
 	return {
-		Stations = { Cocoa = roomLocal("WinterWing", cocoaX, r.Z1 - COCOA_DEPTH / 2 - 0.2) },
-		Beds = { roomLocal("WinterWing", bedX, r.Z1 - BED_DEPTH / 2 - 0.5) },
+		Stations = {
+			Cocoa = {
+				At = roomLocal("WinterWing", r.X1 - STATION_BODY.Z / 2, r.Z1 - STATION_BODY.X / 2),
+				Face = 90,
+			},
+		},
+		Beds = { roomLocal("WinterWing", r.X0 + BED_FRAME.X / 2, r.Z1 - HEADBOARD.Z - BED_FRAME.Z / 2) },
 		Bays = {},
 		Decor = {
-			{ At = roomLocal("WinterWing", r.X1 - 2, r.Z0 + 2.1), Size = FULL_DECOR },
-			{
-				At = roomLocal("WinterWing", (between0 + between1) / 2, r.Z1 - 2.1),
-				Size = math.min(FULL_DECOR, between1 - between0 - 0.2),
-			},
+			{ At = roomLocal("WinterWing", r.X1 - 1.8, r.Z0 + 1.7), Size = 3.2 },
+			{ At = roomLocal("WinterWing", r.X1 - 1.5, r.Z0 + 5.4), Size = 2.8 },
 		},
-		Mats = {
-			{
-				Name = "Rug",
-				At = roomLocal("WinterWing", (between0 + r.X1 - 4) / 2, r.Z0 + 4.9),
-				Size = Vector2.new(3.6, 2.6),
-			},
-		},
+		Mats = { { Name = "Rug", At = roomLocal("WinterWing", fireX, r.Z1 - 3.8), Size = Vector2.new(4, 4) } },
+		Dress = function(model: Model)
+			buildFireplace(model, "WinterWing", fireX, r.Z1)
+		end,
 	}
 end
 
--- The Cozy Ward: its two bays fill the back; the aisle in front (to the bays' DoctorSpots) leaves a small decor spot in
--- each corner, between the side wall and the DoctorSpot nearest it.
+-- The Cozy Ward: its two bays fill the back (Building's numbers); the aisle in front (to the bays' DoctorSpots) has a
+-- rug down its middle and a small decor spot in each corner, between the side wall and the DoctorSpot nearest it.
 local DOCTOR_ROOM = 1.2 -- clear either side of a DoctorSpot (where the doctor stands)
 local function wardLayout(): Layout
 	local r = INNER.Ward
 	local bays = baysOf("Ward")
 	local spots: { Spot } = {}
+	local mats: { Mat } = {}
 	if #bays > 0 then
 		local left, right = math.huge, -math.huge
 		for _, bay in bays do
@@ -388,8 +548,14 @@ local function wardLayout(): Layout
 		local rightSize = math.min(FULL_DECOR, r.X1 - right - 0.2)
 		table.insert(spots, { At = roomLocal("Ward", (r.X0 + left) / 2, z), Size = leftSize })
 		table.insert(spots, { At = roomLocal("Ward", (right + r.X1) / 2, z), Size = rightSize })
+		local z0, z1 = r.Z0 + 0.5, aisle - 0.4
+		table.insert(mats, {
+			Name = "Rug",
+			At = roomLocal("Ward", (left + right) / 2, (z0 + z1) / 2),
+			Size = Vector2.new(right - left - 0.4, z1 - z0),
+		})
 	end
-	return { Stations = {}, Beds = {}, Bays = bays, Decor = spots, Mats = {} }
+	return { Stations = {}, Beds = {}, Bays = bays, Decor = spots, Mats = mats }
 end
 
 local function standLayout(): Layout
@@ -443,7 +609,7 @@ local function genericLayout(roomId: string, w: number, d: number): Layout
 	local layout: Layout = { Stations = {}, Beds = {}, Bays = baysOf(roomId), Decor = {}, Mats = {} }
 	local stations = ownStations(roomId)
 	for i, stationId in stations do
-		layout.Stations[stationId] = Vector3.new((i - (#stations + 1) / 2) * 5, 0, d / 2 - 2)
+		layout.Stations[stationId] = { At = Vector3.new((i - (#stations + 1) / 2) * 5, 0, d / 2 - 2), Face = 0 }
 	end
 	for i = 1, ownBeds(roomId) do
 		local side = if i % 2 == 1 then 1 else -1
@@ -481,36 +647,33 @@ end
 -- Room pieces
 ------------------------------------------------------------------------------------------------------------------
 
--- A table station: its body in the station's colour, a studded warm-white Top in whole studs, and a few blocky props
--- on it. The Bath is a tub. Its front (where the player stands) is the room's front, -z.
-local STATION_BODY = Vector3.new(3.8, 3, 2.6)
-local STATION_TOP = Vector3.new(4, 0.3, COCOA_DEPTH)
-
-local function buildStation(model: Model, stationId: string, at: Vector3, floorTop: number)
+-- A room's station: Station_<id> is its body, with Open = true and StationId (as the Building's) and the floating
+-- icon badge (IconGui). Its front (where the player stands, local -Z) is the spot's Face (Logic/Building's: 0 = -z,
+-- 90 = -x); Server/Nurses stands a Maker in front of it, by that front. The Bath is a tub with its water and bubbles
+-- ON it; the Cocoa a small table in the station's colour with a pot and a mug on it.
+local function buildStation(model: Model, stationId: string, spot: StationSpot, floorTop: number)
 	local station = Stations[stationId]
 	local uiColor = if station then station.Color else Palette.Candy.Orange
 	local color = worldColor(uiColor)
 	local icon = if station then station.Icon else "❔"
-	local base = CFrame.new(at.X, floorTop, at.Z)
+	local base = CFrame.new(spot.At.X, floorTop, spot.At.Z) * CFrame.Angles(0, math.rad(spot.Face), 0)
 	local stationPart: BasePart
 
 	if stationId == "Bath" then
-		-- A warm-white tub with a band in the station's colour round it and the water on top.
-		stationPart = part(model, "Station_Bath", Vector3.new(5.6, 2.2, 3.6), base * CFrame.new(0, 1.1, 0), COLORS.Trim)
-		soft(part(model, "TubStripe", Vector3.new(5.68, 0.5, 3.68), base * CFrame.new(0, 1.4, 0), color))
-		paint(part(model, "Water", Vector3.new(5, 0.15, 3), base * CFrame.new(0, 2.15, 0), COLORS.Water))
+		stationPart = part(model, "Station_Bath", TUB, base * CFrame.new(0, TUB.Y / 2, 0), COLORS.Trim)
+		local water = Vector3.new(TUB.X - 0.8, 0.1, TUB.Z - 0.8)
+		paint(part(model, "Water", water, base * CFrame.new(0, TUB.Y + water.Y / 2, 0), COLORS.Water))
+		local top = TUB.Y + water.Y
+		for _, b in BUBBLES do
+			local bubble = ball(model, "Bubble", b.D, base * CFrame.new(b.X, top + b.D / 2, b.Z), COLORS.Trim)
+			paint(bubble)
+		end
 	else
 		local body = STATION_BODY
-		local back = (STATION_TOP.Z - body.Z) / 2 -- the body stands against the wall, under the Top's back edge
-		stationPart =
-			part(model, "Station_" .. stationId, body, base * CFrame.new(0, body.Y / 2, back), color) :: BasePart
-		local top =
-			soft(part(model, "Top", STATION_TOP, base * CFrame.new(0, body.Y + STATION_TOP.Y / 2, 0), COLORS.Trim))
-		Studs.apply(top)
-		local on = base * CFrame.new(0, body.Y + STATION_TOP.Y, 0) -- the Top's upper face
+		stationPart = part(model, "Station_" .. stationId, body, base * CFrame.new(0, body.Y / 2, 0), color)
 		if stationId == "Cocoa" then
-			soft(part(model, "Mug", Vector3.new(0.8, 0.9, 0.8), on * CFrame.new(-0.9, 0.45, 0.1), COLORS.Mug))
-			soft(part(model, "Pot", Vector3.new(1.3, 1.1, 1.3), on * CFrame.new(0.9, 0.55, 0.2), ACCENT.Red))
+			soft(part(model, "Pot", Vector3.new(1.2, 1, 1.2), base * CFrame.new(-0.5, body.Y + 0.5, 0), ACCENT.Red))
+			soft(part(model, "Mug", Vector3.new(0.8, 0.9, 0.8), base * CFrame.new(0.9, body.Y + 0.45, 0), COLORS.Mug))
 		end
 	end
 	stationPart:SetAttribute("Open", true) -- a room's station works while the room stands (it's owned)
@@ -520,29 +683,31 @@ local function buildStation(model: Model, stationId: string, at: Vector3, floorT
 	iconBadge(stationPart, "IconGui", icon, uiColor, 2.6, stationPart.Size.Y / 2 + 2.1)
 end
 
--- A recovery bed: 3 parts (the look build plan's bed contract). Frame in the room's colour, a studded Headboard in it
--- (whole studs), and Bed_<n>, the warm-white mattress patients lie on (its top face; the pillow end is +Z, the room's
--- back). Bed_<n>'s size is unchanged, so a patient lies exactly as before.
+-- A recovery bed (3 parts, the look build plan's bed contract): the Frame and the studded Headboard in the room's
+-- colour, and Bed_<n>, the warm-white mattress patients lie on (its top face; the pillow end is +Z, the back wall).
 local function buildBed(model: Model, index: number, at: Vector3, color: Color3, floorTop: number)
 	local base = CFrame.new(at.X, floorTop, at.Z)
-	part(model, "Frame", Vector3.new(4.4, 0.8, 7), base * CFrame.new(0, 0.4, 0), color)
-	part(model, "Bed_" .. index, Vector3.new(4, 1, 6.6), base * CFrame.new(0, 1.3, 0), COLORS.Trim)
-	Studs.apply(part(model, "Headboard", Vector3.new(4, 2.6, 1), base * CFrame.new(0, 1.3, 4), color))
+	part(model, "Frame", BED_FRAME, base * CFrame.new(0, BED_FRAME.Y / 2, 0), color)
+	part(model, "Bed_" .. index, MATTRESS, base * CFrame.new(0, BED_FRAME.Y + MATTRESS.Y / 2, 0), COLORS.Trim)
+	local head = base * CFrame.new(0, HEADBOARD.Y / 2, BED_FRAME.Z / 2 + HEADBOARD.Z / 2)
+	Studs.apply(part(model, "Headboard", HEADBOARD, head, color))
 end
 
--- An exam bay of a room (contract C2: ExamBay_<id>, built here for the Cozy Ward's W1 and W2). The bed fills
--- Building.bayBed (a Frame in the room's colour, the warm-white `Bed` the patient sits on, a studded Headboard at the
--- head end), a soft Curtain on the side toward the room's middle, a Tray cart at the head on the other side, a Sign
--- on the wall over the head (the room's icon and the bay's number in it: "🛏️ 1", so a kid reads "bed 1"), and the
--- DoctorSpot marker at Building.doctorSpot, facing the bed. `toRoom` turns Building's plot-local (x, z) into the room's
--- own space.
-local BAY_MATTRESS = 6 -- the Bed: from the foot end, leaving the head end to the Headboard
-local CURTAIN_HEIGHT = 5.6
+-- An exam bay of a room (contract C2: ExamBay_<id>, built here for the Cozy Ward's W1 and W2), made like bays 1-6
+-- (Server/HospitalBuilder): the Bed is the couch the patient sits on (one block filling Building.bayBed, its top at
+-- Pure.COUCH, its LookVector toward the foot and the DoctorSpot), a Pillow at the head, the Curtain drawn back (a bunch
+-- at the foot, on the side toward the nearer wall, so the middle of the room stays open), the Tray (a shelf on the
+-- wall over the head) and the Sign, navy with the room's icon and the bay's number ("🛏️ 1": bed 1), flat on that wall
+-- facing the doorway. The DoctorSpot marker is at Building.doctorSpot, facing the bed. `toRoom` turns Building's
+-- plot-local (x, z) into the room's own space. The head end must be at a wall (W1 and W2's is the back wall).
+local COUCH = HospitalBuilder.Pure.COUCH
+local BAY_CURTAIN = Vector3.new(0.4, 5.6, 1.2) -- across, tall, along the bed
+local BAY_SIGN = Vector3.new(2.6, 1.8, 0.1)
+local BAY_SIGN_Y = 4.6 -- its bottom over the floor, above the tray (3.6)
 
 local function buildBay(
 	model: Model,
 	bay: Building.Bay,
-	color: Color3,
 	floorTop: number,
 	toRoom: (number, number) -> Vector3,
 	label: string
@@ -560,49 +725,33 @@ local function buildBay(
 	local base = CFrame.new(centre.X, floorTop, centre.Z) * turn
 	local width, length = Building.BAY_BED.Width, Building.BAY_BED.Length
 
-	part(m, "Frame", Vector3.new(width, 0.8, length), base * CFrame.new(0, 0.4, 0), color)
-	local headDepth = length - BAY_MATTRESS
-	local bed = part(
-		m,
-		"Bed",
-		Vector3.new(width - 0.4, 1, BAY_MATTRESS),
-		base * CFrame.new(0, 1.3, -headDepth / 2),
-		COLORS.Trim
-	)
-	Studs.apply(
-		part(
-			m,
-			"Headboard",
-			Vector3.new(math.floor(width - 0.4), 2.6, math.floor(headDepth)),
-			base * CFrame.new(0, 1.3, length / 2 - headDepth / 2),
-			color
-		)
-	)
+	local bed = part(m, "Bed", Vector3.new(width, COUCH, length), base * CFrame.new(0, COUCH / 2, 0), COLORS.Couch)
 	m.PrimaryPart = bed
+	local pillow = Vector3.new(width - 1.2, 0.5, 1.3)
+	soft(part(m, "Pillow", pillow, base * CFrame.new(0, COUCH + pillow.Y / 2, length / 2 - 0.85), COLORS.Trim)).CastShadow =
+		false
 
-	-- The curtain hangs along the side toward the room's middle; the tray stands at the head on the other side.
-	local inward = if centre.X < 0 then 1 else -1
+	local outward = if centre.X < 0 then -1 else 1
+	local c = BAY_CURTAIN
 	local curtain = soft(
 		part(
 			m,
 			"Curtain",
-			Vector3.new(0.2, CURTAIN_HEIGHT, length - 1),
-			base * CFrame.new(inward * (width / 2 + 0.4), 1 + CURTAIN_HEIGHT / 2, 0.5),
-			color,
+			c,
+			base * CFrame.new(outward * (width / 2 + 0.6), 0.5 + c.Y / 2, -length / 2 + c.Z / 2),
+			COLORS.Curtain,
 			Enum.Material.Fabric
 		)
 	)
 	curtain.CastShadow = false
-	part(
-		m,
-		"Tray",
-		Vector3.new(1, 2.8, 1.4),
-		base * CFrame.new(-inward * (width / 2 + 0.6), 1.4, length / 2 - 1),
-		COLORS.Trim
-	)
-	local sign = soft(part(m, "Sign", Vector3.new(2, 1.2, 0.2), base * CFrame.new(0, 5.4, length / 2 - 0.2), color))
-	local gui = detailGui(sign, "SignGui", Enum.NormalId.Front, 40, 60)
-	floatText(gui, label, { Size = UDim2.fromScale(0.9, 0.9), Position = UDim2.fromScale(0.05, 0.05) })
+	local tray = Vector3.new(2.4, 0.25, 0.5)
+	soft(part(m, "Tray", tray, base * CFrame.new(0, 3.6 + tray.Y / 2, length / 2 - tray.Z / 2), COLORS.Trim)).CastShadow =
+		false
+	local s = BAY_SIGN
+	local sign =
+		paint(part(m, "Sign", s, base * CFrame.new(0, BAY_SIGN_Y + s.Y / 2, length / 2 - s.Z / 2), Palette.Navy))
+	local gui = detailGui(sign, "SignGui", Enum.NormalId.Front, 30, 60, 0)
+	floatText(gui, label, { Size = UDim2.fromScale(0.86, 0.72), Position = UDim2.fromScale(0.07, 0.14) })
 
 	local spot = Building.doctorSpot(bay)
 	local at = toRoom(spot.X, spot.Z)
@@ -620,7 +769,7 @@ local function buildDecorSlot(model: Model, index: number, spot: Spot, floorTop:
 	)
 end
 
--- A flat mat or rug on the floor, in the room's colour.
+-- A flat mat or rug ON the floor (never in it).
 local function buildMat(model: Model, name: string, at: Vector3, size: Vector2, color: Color3, floorTop: number)
 	paint(part(model, name, Vector3.new(size.X, 0.06, size.Y), CFrame.new(at.X, floorTop + 0.03, at.Z), color))
 end
@@ -634,6 +783,38 @@ local function nameOn(p: BasePart, room: RoomInfo)
 		Shadow = true,
 		Size = UDim2.fromScale(0.9, 0.84),
 		Position = UDim2.fromScale(0.05, 0.08),
+	})
+end
+
+-- A bought room's name over its door, on the corridor side (as the dispensary's): a navy sign flat on the lintel
+-- (Building.DOORS' Height up to the ceiling, WALL_TOP), upright and facing the corridor, wider than the door. Built
+-- with the fit-out, so it shows once the room is owned (before that, the door's own lock plate names it).
+local NAME_SIGN = { Width = 6, Out = 0.1, Gap = 0.1 }
+
+local function buildNameSign(model: Model, roomId: string, room: RoomInfo)
+	local door = Building.DOORS[INTERIOR_ROOM[roomId] or ""]
+	if not (door and door.X0 and door.X1 and door.Z) then
+		return
+	end
+	local y0, y1 = door.Height + NAME_SIGN.Gap, WALL_TOP - NAME_SIGN.Gap
+	if y1 - y0 < 0.5 then
+		return
+	end
+	local face = (door.Z :: number) - Building.PARTITION / 2 -- the wall's corridor face
+	local c = roomLocal(roomId, ((door.X0 :: number) + (door.X1 :: number)) / 2, face - NAME_SIGN.Out / 2)
+	local sign = paint(
+		part(
+			model,
+			"NameSign",
+			Vector3.new(NAME_SIGN.Width, y1 - y0, NAME_SIGN.Out),
+			CFrame.new(c.X, (y0 + y1) / 2 - ROOM_FLOOR / 2, c.Z),
+			Palette.Navy
+		)
+	)
+	local gui = detailGui(sign, "NameGui", Enum.NormalId.Front, 40, 80, 0)
+	floatText(gui, room.Icon .. " " .. room.Name, {
+		Size = UDim2.fromScale(0.94, 0.8),
+		Position = UDim2.fromScale(0.03, 0.1),
 	})
 end
 
@@ -698,13 +879,20 @@ local function placeholderRoom(roomId: string, accent: Color3?): Model
 		return roomLocal(roomId, x, z)
 	end
 	for index, bay in layout.Bays do
-		buildBay(model, bay, color, floorTop, toRoom, room.Icon .. " " .. index)
+		buildBay(model, bay, floorTop, toRoom, room.Icon .. " " .. index)
 	end
+	local rug = Parts.lighten(color, RUG_SOFTEN)
 	for _, mat in layout.Mats do
-		buildMat(model, mat.Name, mat.At, mat.Size, color, floorTop)
+		buildMat(model, mat.Name, mat.At, mat.Size, rug, floorTop)
 	end
 	for index, spot in layout.Decor do
 		buildDecorSlot(model, index, spot, floorTop)
+	end
+	if layout.Dress then
+		layout.Dress(model)
+	end
+	if INTERIOR_ROOM[roomId] then
+		buildNameSign(model, roomId, room)
 	end
 	return model
 end

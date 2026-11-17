@@ -9,9 +9,11 @@
 --     no queue (no QueueStart, no QueueLane, no queueSpot), the floating sign
 --   · the plank path from the gate to the Stand's forecourt and on to the front doors; nothing of the plot's own in
 --     the building's footprint but the Counter; the patients' walks, the ambulance yard and the Garden door clear
---   · the rooms are interior fit-outs: each inside its Building.ROOMS rect and its walls, off its door's span, no
---     roof and no walls, CeramicTiles floors; the Cozy Ward's ExamBay_W1 / W2 to contract C2; Station_Bath and
---     Station_Cocoa; the Winter Wing's 3-part bed; the Garden
+--   · the rooms are interior fit-outs: each inside its Building.ROOMS rect and its walls, its doorway and the 3 studs
+--     inside it clear, nothing tall in its middle, no roof and no walls, CeramicTiles floors; each room's name sign
+--     upright over its door on the corridor side; nothing z-fights (no two faces in one plane, no thin part inside
+--     another); the Cozy Ward's ExamBay_W1 / W2 to contract C2, made like bays 1-6; Station_Bath and Station_Cocoa;
+--     the Winter Wing's 3-part bed and its fireplace; the Garden
 --   · studs on whole studs, in both studs modes; the palette: no Texture or Decal, no big face at V >= 0.95 (the
 --     plot's own colour aside), no channel above 245
 --   · placeRoom, setPreview and clearPlot as before
@@ -644,7 +646,9 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 				local r = info.Rect
 				for _, d in world.parts(room) do
 					local lo, hi = localBox(d)
-					if lo.X < r.X0 - EPS or hi.X > r.X1 + EPS or lo.Z < r.Z0 - EPS or hi.Z > r.Z1 + EPS then
+					-- (its name sign hangs on the corridor side of its door: checked on its own below)
+					local outside = lo.X < r.X0 - EPS or hi.X > r.X1 + EPS or lo.Z < r.Z0 - EPS or hi.Z > r.Z1 + EPS
+					if outside and d.Name ~= "NameSign" then
 						error(string.format("%s.%s reaches outside its room", room.Name, d.Name))
 					end
 					for _, wall in walls do
@@ -675,23 +679,48 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 		end
 	end)
 
-	test("each fit-out stays off its door's span (2 studs into the room from the wall), its floor aside", function()
-		for roomId, info in INTERIOR do
+	-- Joshua (2026-11-17): the Cozy Ward's doorway was crowded, and "very cramped especially for someone claustrophobic".
+	test(
+		"each fit-out keeps its doorway and the 3 studs inside it clear (a flat rug aside), up to the door's top",
+		function()
+			for roomId, info in INTERIOR do
+				local room = plot.Rooms["Room_" .. roomId]
+				local door = Building.DOORS[info.Door]
+				expect(door.Room).toBe(roomId) -- the door that opens when the room is owned
+				local top = floorTop(room)
+				local zone =
+					{ X0 = door.X0, X1 = door.X1, Z0 = door.Z, Z1 = door.Z + 3, Y0 = top + 0.2, Y1 = door.Height }
+				for _, d in world.parts(room) do
+					local lo, hi = localBox(d)
+					if d.Name ~= "Floor" and overlaps(lo, hi, zone) then
+						error(string.format("%s.%s stands in its doorway", room.Name, d.Name))
+					end
+				end
+			end
+		end
+	)
+
+	test("furniture stands by the walls: nothing over a stud tall in a room's middle (its exam bays aside)", function()
+		local MIDDLE = 4.6 -- the middle: farther than this from every wall (a bed against a wall reaches 4.4 in)
+		for roomId in INTERIOR do
 			local room = plot.Rooms["Room_" .. roomId]
-			local door = Building.DOORS[info.Door]
-			expect(door.Room).toBe(roomId) -- the door that opens when the room is owned
 			local top = floorTop(room)
-			local zone = { X0 = door.X0, X1 = door.X1, Z0 = door.Z, Z1 = door.Z + 2.4, Y0 = top + 0.2 }
+			local fLo, fHi = localBox(room.Floor)
+			local zone =
+				{ X0 = fLo.X + MIDDLE, X1 = fHi.X - MIDDLE, Z0 = fLo.Z + MIDDLE, Z1 = fHi.Z - MIDDLE, Y0 = top + 1 }
 			for _, d in world.parts(room) do
-				local lo, hi = localBox(d)
-				if d.Name ~= "Floor" and overlaps(lo, hi, zone) then
-					error(string.format("%s.%s stands in its doorway", room.Name, d.Name))
+				if d.Transparency < 1 and not string.match(d.Parent.Name, "^ExamBay_") then
+					local lo, hi = localBox(d)
+					if overlaps(lo, hi, zone) then
+						error(string.format("%s.%s stands in the middle of the room", room.Name, d.Name))
+					end
 				end
 			end
 		end
 	end)
 
 	test("no room has a roof or walls: nothing tall, nothing named like a shell", function()
+		local ceiling = PlotBuilder.Pure.wallTop(Building, 0)
 		for _, room in plot.Rooms:GetChildren() do
 			local top = floorTop(room)
 			for _, d in world.parts(room) do
@@ -701,11 +730,144 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 					end
 				end
 				local _, hi = localBox(d)
-				if room.Name ~= "Room_Garden" and hi.Y > top + 7 then
+				-- a name sign hangs over its door, under the ceiling (checked on its own below)
+				local limit = if d.Name == "NameSign" then ceiling else top + 7
+				if room.Name ~= "Room_Garden" and hi.Y > limit + EPS then
 					error(string.format("%s.%s reaches y %.2f", room.Name, d.Name, hi.Y))
 				end
 			end
 		end
+	end)
+
+	test(
+		"each room's name sign: over its door on the corridor side, upright, soft, the Data/Rooms icon and name",
+		function()
+			local ceiling = PlotBuilder.Pure.wallTop(Building, 0)
+			for roomId, info in INTERIOR do
+				local room = plot.Rooms["Room_" .. roomId]
+				local signs = {}
+				for _, d in room:GetDescendants() do
+					if d.Name == "NameSign" then
+						table.insert(signs, d)
+					end
+				end
+				expect(#signs).toBe(1)
+				local sign = signs[1]
+				local door = Building.DOORS[info.Door]
+				local face = door.Z - Building.PARTITION / 2 -- the wall's corridor face
+				local lo, hi = localBox(sign)
+				-- flat on the wall's corridor face, over the whole doorway, between the door's top and the ceiling
+				expect(near(hi.Z, face)).toBe(true)
+				expect(hi.Z - lo.Z <= 0.2).toBe(true)
+				expect(lo.X <= door.X0 + EPS and hi.X >= door.X1 - EPS).toBe(true)
+				expect(lo.Y >= door.Height - EPS and hi.Y <= ceiling + EPS).toBe(true)
+				-- upright, facing the corridor (-z), its letters on that face
+				local look = pivot:VectorToObjectSpace(sign.CFrame.LookVector)
+				local up = pivot:VectorToObjectSpace(sign.CFrame.UpVector)
+				expect(near(look.Z, -1) and near(up.Y, 1)).toBe(true)
+				expect(sign.CanCollide == false and sign.CanQuery == false).toBe(true)
+				local gui = sign.NameGui
+				expect(gui.Face).toBe(Enum.NormalId.Front)
+				expect(gui.MaxDistance > 0 and gui.MaxDistance <= 160).toBe(true)
+				expect(gui.Text.Text).toBe(RoomsData[roomId].Icon .. " " .. RoomsData[roomId].Name)
+			end
+		end
+	)
+
+	-- Joshua (2026-11-17): "the purple bits are glitching". Two faces in one plane facing the same way, or a thin part
+	-- inside another, flicker (z-fighting). Every visible part of a fit-out against every other one, and against the
+	-- Building's parts round the room (its walls, lintel, doors and ceiling; the floor paint under the room aside).
+	test("nothing z-fights: no two faces in one plane facing the same way, no thin part inside another", function()
+		local PLANE = 0.05 -- faces closer than this count as one plane (Joshua: a strip stands >= 0.08 proud)
+		local THIN = 0.3
+		local function aligned(d): boolean
+			for _, v in { d.CFrame.RightVector, d.CFrame.UpVector, d.CFrame.LookVector } do
+				local local_ = pivot:VectorToObjectSpace(v)
+				for _, c in { local_.X, local_.Y, local_.Z } do
+					if math.abs(c) > 1e-4 and math.abs(math.abs(c) - 1) > 1e-4 then
+						return false
+					end
+				end
+			end
+			return true
+		end
+		local function block(d): boolean
+			return d.Shape == nil or d.Shape == Enum.PartType.Block
+		end
+		local function boxOf(d)
+			local lo, hi = localBox(d)
+			return { Part = d, Lo = { lo.X, lo.Y, lo.Z }, Hi = { hi.X, hi.Y, hi.Z }, Block = block(d) and aligned(d) }
+		end
+		local function overlap(a, b, k): number
+			return math.min(a.Hi[k], b.Hi[k]) - math.max(a.Lo[k], b.Lo[k])
+		end
+		local function check(a, b)
+			-- one plane, the same way: the two faces' areas overlap
+			if a.Block and b.Block then
+				for k = 1, 3 do
+					local o1, o2 = if k == 1 then 2 else 1, if k == 3 then 2 else 3
+					if overlap(a, b, o1) > EPS and overlap(a, b, o2) > EPS then
+						for _, side in { "Lo", "Hi" } do
+							if math.abs(a[side][k] - b[side][k]) < PLANE then
+								error(
+									string.format(
+										"%s and %s share a face (axis %d, %s)",
+										fullName(a.Part),
+										fullName(b.Part),
+										k,
+										side
+									)
+								)
+							end
+						end
+					end
+				end
+			end
+			-- a thin part never reaches into another
+			local thin = false
+			for _, box in { a, b } do
+				for k = 1, 3 do
+					thin = thin or box.Hi[k] - box.Lo[k] < THIN
+				end
+			end
+			if thin and overlap(a, b, 1) > EPS and overlap(a, b, 2) > EPS and overlap(a, b, 3) > EPS then
+				error(string.format("%s and %s overlap", fullName(a.Part), fullName(b.Part)))
+			end
+		end
+		local checked = 0
+		for roomId, info in INTERIOR do
+			local room = plot.Rooms["Room_" .. roomId]
+			local top = floorTop(room)
+			local mine = {}
+			for _, d in world.parts(room) do
+				if d.Transparency < 1 then
+					table.insert(mine, boxOf(d))
+				end
+			end
+			local r = info.Rect
+			local near_ = { X0 = r.X0 - 0.5, X1 = r.X1 + 0.5, Z0 = r.Z0 - 0.5, Z1 = r.Z1 + 0.5, Y0 = top + 0.05 }
+			local theirs = {}
+			for _, d in world.parts(plot.Building) do
+				if d.Transparency < 1 then
+					local lo, hi = localBox(d)
+					if overlaps(lo, hi, near_) then
+						table.insert(theirs, boxOf(d))
+					end
+				end
+			end
+			expect(#theirs > 0).toBe(true)
+			for i, a in mine do
+				for j = i + 1, #mine do
+					check(a, mine[j])
+					checked += 1
+				end
+				for _, b in theirs do
+					check(a, b)
+					checked += 1
+				end
+			end
+		end
+		expect(checked > 100).toBe(true)
 	end)
 
 	test("room floors are CeramicTiles on the slot (the Garden's is a studded lawn), ROOM_FLOOR thin", function()
@@ -780,6 +942,22 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 				-- the curtain is soft (patients and the doctor pass it), the sign shows the bay's id
 				expect(m.Curtain.CanCollide).toBe(false)
 				expect(m.Sign.SignGui.Text.Text).toBe(RoomsData.Ward.Icon .. " " .. found) -- "🛏️ 1": bed 1
+				-- made like bays 1-6: the Bed is the couch (one block on the floor, the whole of Building.bayBed, its
+				-- top at the Building's COUCH), with a Pillow; no Frame or Headboard
+				local bLo, bHi = localBox(m.Bed)
+				expect(near(bLo.Y, top) and near(bHi.Y - top, PlotBuilder.Pure.COUCH)).toBe(true)
+				expect(near(bLo.X, rect.X0) and near(bHi.X, rect.X1)).toBe(true)
+				expect(near(bLo.Z, rect.Z0) and near(bHi.Z, rect.Z1)).toBe(true)
+				expect(m:FindFirstChild("Pillow") ~= nil).toBe(true)
+				expect(m:FindFirstChild("Frame")).toBeNil()
+				expect(m:FindFirstChild("Headboard")).toBeNil()
+				-- the sign is upright, flat on the wall at the bed's head, its letters toward the room (and its door)
+				local sLo, sHi = localBox(m.Sign)
+				expect(near(sHi.Z, rect.Z1) and sHi.Z - sLo.Z <= 0.2).toBe(true)
+				local look = pivot:VectorToObjectSpace(m.Sign.CFrame.LookVector)
+				local up = pivot:VectorToObjectSpace(m.Sign.CFrame.UpVector)
+				expect(near(look.Z, -1) and near(up.Y, 1)).toBe(true)
+				expect(m.Sign.SignGui.Face).toBe(Enum.NormalId.Front)
 			end
 		end
 		expect(found).toBe(2)
@@ -832,6 +1010,57 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 				end
 			end
 		end
+	end)
+
+	test(
+		"the Winter Wing: Bed_1's head on the back wall in a corner, the fireplace glowing, the cocoa by a wall",
+		function()
+			local winter = plot.Rooms.Room_WinterWing
+			local fLo, fHi = localBox(winter.Floor)
+			-- the bed: its pillow end (+z, Server/Patients) against the back wall, its side against a side wall
+			local _, headHi = localBox(winter.Headboard)
+			local frameLo, frameHi = localBox(winter.Frame)
+			expect(near(headHi.Z, fHi.Z)).toBe(true)
+			expect(near(frameLo.X, fLo.X) or near(frameHi.X, fHi.X)).toBe(true)
+			expect(winter.Headboard.Size.Y <= 3).toBe(true) -- a normal headboard
+			-- the fireplace: against the back wall, a Neon flame with one warm, shadowless PointLight, and a rug
+			local _, fireHi = localBox(winter.Fireplace)
+			expect(near(fireHi.Z, fHi.Z)).toBe(true)
+			expect(winter.Fireplace:GetAttribute("Studded")).toBe(true)
+			expect(winter.Flame.Material).toBe(Enum.Material.Neon)
+			local light = winter.Flame.FireGlow:FindFirstChildWhichIsA("PointLight")
+			expect(light ~= nil and light.Shadows == false and light.Range <= 16).toBe(true)
+			expect(winter.Rug ~= nil).toBe(true)
+			-- the cocoa: a small table flush to a side wall, its front (LookVector) into the room
+			local cocoa = winter.Station_Cocoa
+			local cLo, cHi = localBox(cocoa)
+			expect(near(cLo.X, fLo.X) or near(cHi.X, fHi.X)).toBe(true)
+			expect(cocoa.Size.X * cocoa.Size.Z <= 6 + EPS).toBe(true)
+			local look = pivot:VectorToObjectSpace(cocoa.CFrame.LookVector)
+			local mid = (fLo + fHi) / 2
+			local at = pivot:PointToObjectSpace(cocoa.Position)
+			expect(look.X * (mid.X - at.X) + look.Z * (mid.Z - at.Z) > 0).toBe(true)
+		end
+	)
+
+	test("the Bath Room: the tub on its tiles against the back wall, its water and bubbles ON it", function()
+		local bath = plot.Rooms.Room_BathRoom
+		local _, fHi = localBox(bath.Floor)
+		local tLo, tHi = localBox(bath.Station_Bath)
+		local _, tilesHi = localBox(bath.Tiles)
+		expect(near(tilesHi.Z, fHi.Z) and bath.Tiles.Material == Enum.Material.CeramicTiles).toBe(true)
+		expect(near(tHi.Z, tilesHi.Z - bath.Tiles.Size.Z)).toBe(true)
+		local wLo = localBox(bath.Water)
+		expect(near(wLo.Y, tHi.Y)).toBe(true) -- on the tub's top, never inside it
+		local bubbles = 0
+		for _, d in bath:GetChildren() do
+			if d.Name == "Bubble" then
+				bubbles += 1
+			end
+		end
+		expect(bubbles >= 1).toBe(true)
+		expect(bath:FindFirstChild("Towel") ~= nil and bath:FindFirstChild("Shelf") ~= nil).toBe(true)
+		expect(tLo.Y >= floorTop(bath) - EPS).toBe(true)
 	end)
 
 	test("recovery beds are 3 parts (Frame, studded Headboard, the mattress Bed_<n>): the Winter Wing's one", function()
@@ -947,17 +1176,21 @@ T.describe("Plot and rooms: the look's rules", function()
 		end
 	)
 
-	test("Variant mode: the Pad, the CounterTop and the headboards are CureStuds on every face", function()
-		local V = build(true)
-		local p = V.plots[1]
-		V.PlotBuilder.placeRoom(p, "Ward")
-		local name = Config.Look.StudsVariant
-		for _, part in { p.Ground.Pad, p.Scenery.CounterTop, p.Rooms.Room_Ward.ExamBay_W1.Headboard } do
-			expect(part.MaterialVariant).toBe(name)
-			expect(part.Material).toBe(Enum.Material.Plastic)
-			expect(part.TopSurface).toBe(Enum.SurfaceType.Smooth)
+	test(
+		"Variant mode: the Pad, the CounterTop, the headboard and the fireplace are CureStuds on every face",
+		function()
+			local V = build(true)
+			local p = V.plots[1]
+			V.PlotBuilder.placeRoom(p, "WinterWing")
+			local name = Config.Look.StudsVariant
+			local winter = p.Rooms.Room_WinterWing
+			for _, part in { p.Ground.Pad, p.Scenery.CounterTop, winter.Headboard, winter.Fireplace } do
+				expect(part.MaterialVariant).toBe(name)
+				expect(part.Material).toBe(Enum.Material.Plastic)
+				expect(part.TopSurface).toBe(Enum.SurfaceType.Smooth)
+			end
 		end
-	end)
+	)
 end)
 
 ------------------------------------------------------------------------------------------------------------------
