@@ -668,6 +668,30 @@ T.describe("BlockyCreatures build", function()
 		end
 	end)
 
+	-- Logic/Building.DOOR_WIDTH is 6 and the widest creature does not fit it (CloudSheep: 6.9 across in the Phase 3
+	-- review's measure): its sides pass through the door frame. That traps nobody only because nothing of a creature
+	-- collides, the Root and the glow pad included, in every variant.
+	test("no part of any creature or nurse collides (a doorway narrower than a creature can't trap it)", function()
+		local built = 0
+		local function none(model, who: string)
+			built += 1
+			for _, part in partsOf(model) do
+				check(part.CanCollide == false, who .. ": " .. part.Name .. " is CanCollide")
+			end
+			check(model.PrimaryPart.CanCollide == false, who .. ": the Root is CanCollide")
+		end
+		for _, c in CAST do
+			if c.Kind == "Nurse" then
+				none(NB.build(c.Id), "Nurse " .. c.Id)
+			else
+				for _, variant in { "", "Sparkly", "Frosty", "Golden" } do
+					none(CB.build(c.Id, if variant ~= "" then variant else nil), c.Id .. " " .. variant)
+				end
+			end
+		end
+		expect(built > #CAST).toBe(true)
+	end)
+
 	test("the stud plate is whole studs at the built size", function()
 		for _ = 1, 6 do
 			local model = CB.build("MossMole")

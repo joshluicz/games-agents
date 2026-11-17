@@ -315,7 +315,7 @@ T.describe("Building: rooms and doors", function()
 				expect(door.Height).toBe(if name == "Front" then 8 else Building.DOOR_HEIGHT)
 				expect(door.Height < Building.GROUND - Building.SLAB_MAX).toBe(true)
 				local width = if door.X0 then door.X1 - door.X0 else door.Z1 - door.Z0
-				if width < Building.DOOR_WIDTH - 1e-9 then -- the big creatures fit
+				if width < Building.DOOR_WIDTH - 1e-9 then -- (the widest creature still clips the frame: BlockyCreatures.spec)
 					error(string.format("%s is %.1f wide", name, width))
 				end
 				if door.Room then

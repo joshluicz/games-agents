@@ -466,6 +466,50 @@ T.describe("Hospital (doors)", function()
 		expect(D.trapped(0 / 0, 3, 0, { xray }, 0, tops)).toBe(false)
 		expect(D.RESCUE_SECONDS <= 2).toBe(true)
 	end)
+
+	test(
+		"shut: a building without a Door_Stairs (a kit) still counts its stair flights while upstairs is closed",
+		function()
+			local xray, flights = B.ROOMS.XRay, B.STAIRWELL
+			local tops = B.SLAB_TOPS
+			local on = { X = (flights.X0 + flights.X1) / 2, Z = (flights.Z0 + flights.Z1) / 2 }
+			-- HospitalBuilder's own building: Door_Stairs is Locked at Lv 1 and its room is already in the list
+			local rooms = { xray, B.ROOMS.Stairwell }
+			expect(D.shut(rooms, 0, true, flights)).toBe(rooms)
+			expect(D.trapped(on.X, 3, on.Z, D.shut(rooms, 0, true, flights), 0, tops)).toBe(true)
+			-- a kit building with no such door: the flights are added, on a copy
+			local kit = { xray }
+			local shut = D.shut(kit, 0, false, flights)
+			expect(#kit).toBe(1)
+			expect(shut).toEqual({ xray, flights })
+			expect(D.trapped(on.X, 3, on.Z, kit, 0, tops)).toBe(false) -- without the fallback nobody would be moved
+			expect(D.trapped(on.X, 3, on.Z, shut, 0, tops)).toBe(true)
+			-- upstairs open: the flights are a way up, not a trap
+			expect(D.shut(kit, 1, false, flights)).toBe(kit)
+			expect(D.trapped(on.X, 3, on.Z, D.shut(kit, 1, false, flights), 1, tops)).toBe(false)
+			-- the server asks it, and knows which buildings have the door
+			local text = fs.readFile("src/server/World/Doors.luau")
+			expect(
+				string.find(
+					text,
+					"Pure.shut(rooms, floorsOpen, stairsDoor[building] == true, Building.STAIRWELL)",
+					1,
+					true
+				) ~= nil
+			).toBe(true)
+			expect(string.find(text, 'if door == "Stairs" then', 1, true) ~= nil).toBe(true)
+		end
+	)
+
+	test("HospitalBuilder hooks a plot's Rooms folder once: a strong table, cleared when the folder goes", function()
+		local text = fs.readFile("src/server/HospitalBuilder.luau")
+		expect(string.find(text, "local watching: { [Instance]: boolean } = {}", 1, true) ~= nil).toBe(true)
+		expect(string.find(text, "__mode", 1, true)).toBeNil() -- a weak key may go while the folder lives
+		local i = string.find(text, "local function watchRooms(", 1, true)
+		local fn = string.sub(text, i, i + 500)
+		expect(string.find(fn, "rooms.Destroying:Connect(function()", 1, true) ~= nil).toBe(true)
+		expect(string.find(fn, "watching[rooms] = nil", 1, true) ~= nil).toBe(true)
+	end)
 end)
 
 ------------------------------------------------------------------------------------------------------------------

@@ -318,6 +318,13 @@ T.describe("the shipped code", function()
 		check(string.find(acting, 'FindFirstChild("GlowRing")', 1, true), "CreatureActing doesn't find the pad")
 		check(string.find(acting, "LocalTransparencyModifier", 1, true), "CreatureActing doesn't hide the pad")
 		check(string.find(acting, "showRing(c, smooth(sit))", 1, true), "the pad doesn't follow the sit")
+		-- at rest the pad's value is re-asserted (Invisicam writes the same property and puts back stale values)
+		local show = body(acting, "local function showRing(")
+		check(string.find(show, "elseif hidden >= 0.999 then", 1, true), "a hidden pad is not kept hidden")
+		check(
+			string.find(show, "hidden <= 1e-3 and ring.LocalTransparencyModifier >= 0.999", 1, true),
+			"a shown pad left hidden is not put back"
+		)
 	end)
 
 	test("U.sitFit measures the curled tail for the chair back", function()

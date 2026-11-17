@@ -172,9 +172,10 @@ Building.MAX_LEVEL = 5
 -- The open building's rules (design §4; tests/Building.spec holds the layout to them).
 Building.CORRIDOR_MIN = 10 -- every corridor and hall is at least this wide, wall to wall
 -- Every inside doorway is at least DOOR_WIDTH wide and DOOR_HEIGHT tall (the front pair stays 8, under the canopy
--- and the name sign). Not every creature fits: the widest (CloudSheep, 6.9 across) is wider than a 6-wide doorway
--- and its sides pass through the frame. Nothing can get stuck, because no creature part collides (CreatureBuilder
--- builds every one CanCollide = false; tests/BlockyCreatures.spec holds that).
+-- and the name sign). Not every creature fits: the widest (CloudSheep, 6.9 across in the Phase 3 review's measure) is
+-- wider than a 6-wide doorway and its sides pass through the frame. Nothing can get stuck, because no creature part
+-- collides (CreatureBuilder builds every one CanCollide = false; tests/BlockyCreatures.spec holds that). Widening
+-- the doors would cost parts the Building has none of to spare.
 Building.DOOR_WIDTH = 6
 Building.DOOR_HEIGHT = 10
 -- The bays' dividers and their curtains are this high (was the doorways' 10): you see over them, so the row of bays
