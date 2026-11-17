@@ -9,7 +9,7 @@
 --                   texts and the nurse's lines (tests/TutorialFlow loads the PURE block on its own)
 --
 -- THE CARD (the top-centre Now card: Hud.setNow("Tutorial", card, 20)). Navy (Theme.Colors.NowPlate), with:
---   · the "TUTORIAL n/7" tab in gold outlined display text, and a "⏭️ Skip" chip (a 56 x 44 hit area; never
+--   · the "TUTORIAL n/7" tab in gold outlined display text, and a "Skip" chip (a 56 x 44 hit area; never
 --     selectable by a gamepad: pads use the ⚙️ row);
 --   · a thumbnail of the target's icon on its colour (it flips to ✅ on success), a white caps title and a gold
 --     subtitle with the device's own key ([E] from GetStringForKeyCode, the pad's real glyph from
@@ -23,26 +23,28 @@
 --   of the slot.
 -- The 7 cards (the Real Clinic design §13; Logic/Tutorial.card; words: Pure.words). "The patient" is the one the
 -- Guide follows (UI/Guide.visit: the bay patient who has waited longest for the doctor):
---   1 PATIENT (and WELCOME after the sweep)  WELCOME, DOCTOR!   "🤧 A patient is coming!"; the pin 👀 and the glow on
+--   1 PATIENT (and WELCOME after the sweep)  WELCOME, DOCTOR!   "A patient is coming!"; the pin 👀 and the glow on
 --                                            the patient, no beam. Once it sits in the waiting room (simple-start
 --                                            design §2: the player sends each patient) the SAME card and step say
 --                                            YOUR PATIENT IS WAITING "Walk over · Send [E]" / "Walk over · tap Send",
 --                                            with the beam to the patient and the touch hand by its Send prompt.
---                                            Sent: "🤧 A patient in bay 1!" until the step moves on
+--                                            Sent: "A patient in bay 1!" until the step moves on
 --   2 EXAMINE     PATIENT IN BAY 1           "Go to bay 1 · Examine [E]" / "Go to bay 1 · tap Examine"; the beam to
 --                                            the bay (UI/Guide), the touch hand by its prompt
 --   3 EXAMINE while the exam card is up      PICK THE GLOWING TOOL "Tap the glowing tool, then play!" (the slim strip;
 --                                            "Pick the right tool, then play!" when it doesn't glow; the touch hand
 --                                            on MiniGames.stage())
---   4 TREAT       GET THE PLASTER            "From the supply shelf · hold [E]" / "At the dispensary · hold [E]":
---                                            the plan's first step; the beam to its station. A dispensing card up
+--   4 TREAT       GET THE PLASTER            "From the supply wall · hold [E]" (any station on the supply wall:
+--                                            the shelves, the hot chocolate and the bath foam) / "At the dispensary
+--                                            · hold [E]"; touch names the prompt ("Supply wall · hold Take"): the
+--                                            plan's first step; the beam to its station. A dispensing card up
 --                                            keeps card 4 (the slim strip shows its game's words)
 --   5 TREAT once you carry it                TREAT YOUR PATIENT  "Back to bay 1 · Treat [E]" / "… · tap Treat"; the
 --                                            beam back to the bay; the supply's game (the slim strip) plays on it
 --   6 REST        WELL DONE, DOCTOR!         "You treated your first patient!": rays and confetti behind the
 --                                            thumbnail (Kit.celebrate), held Config.Tutorial.FirstCureHold (also
 --                                            when the payout comes at once and the step goes straight on to 7)
---   7 MORE        TREAT 3 MORE ○○○           follows the patient: "🤕 New patient! Check its bubble" / "Walk over ·
+--   7 MORE        TREAT 3 MORE ○○○           follows the patient: "New patient! Check its bubble" / "Walk over ·
 --                                            Send [E]" (it waits to be sent and no bay needs you) / "Go to bay
 --                                            2 · Examine [E]" / "It needs a 🧴!" / "Back to bay 2 · Treat [E]"; the
 --                                            Guide's usual targets
@@ -60,11 +62,11 @@
 --   (bus "CelebrateClosed"), a ring sits on 📖 for BOOK_RING_SECONDS. The HUD's staggered reveal is Hud's (T5).
 -- THE WELCOME: on the first-ever arrival the 3 s camera sweep plays under the title card (reduced motion: only the
 --   title card); the client acks AS THE SWEEP ENDS (no welcome card), and the first patient is already hopping in.
--- SKIP (the card's chip, or the ⚙️ row: bus "SkipTutorial") opens Hud.confirm: "⏭️ Skip the tutorial?" · "You can
---   replay it any time from ⚙️" (binding text, memory-20261117-002) · "⏭️ Skip" · "Keep going" (the default). Then
---   the TutorialSkip remote. The Guide keeps its arrows until Config.Tutorial.ArrowsUntilCures cures.
--- REPLAY (the ⚙️ row: bus "ReplayTutorial") opens Hud.confirm: "🔁 Replay the tutorial?" · "Your waiting patients go
---   home" · "🔁 Replay" · "Not now" (the default). Then the TutorialReplay remote. A replay has no sweep, no gift and
+-- SKIP (the card's chip, or the ⚙️ row: bus "SkipTutorial") opens Hud.confirm: "Skip the tutorial?" · "You can
+--   replay it any time from ⚙️" (binding text, memory-20261117-002; the ⚙️ is Icons.Door.Settings) · "Skip" · "Keep
+--   going" (the default). Titles and buttons are words only (UI direction §2). Then the TutorialSkip remote. The Guide keeps its arrows until Config.Tutorial.ArrowsUntilCures cures.
+-- REPLAY (the ⚙️ row: bus "ReplayTutorial") opens Hud.confirm: "Replay the tutorial?" · "Your waiting patients go
+--   home" · "Replay" · "Not now" (the default). Then the TutorialReplay remote. A replay has no sweep, no gift and
 --   the full HUD (Snapshot.TutorialReplay), and can be skipped again.
 -- THE IDLE NUDGE: after Config.Tutorial.NudgeSeconds without progress on a walking step (Logic.nudge), the nurse says
 --   "Psst! Follow the arrows →" and the beam brightens once (Wayfinder.flash). Once per step, never a number, and no
@@ -94,6 +96,7 @@ local PlaytimeLogic = require(LogicFolder:WaitForChild("Playtime"))
 local HudZones = require(LogicFolder:WaitForChild("HudZones"))
 local BuildingLogic = require(LogicFolder:WaitForChild("Building")) -- the welcome sweep's points
 local Hud = require(script.Parent.Hud)
+local Icons = require(script.Parent.Icons)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 local Wayfinder = require(script.Parent.Wayfinder)
@@ -115,18 +118,38 @@ local Tutorial = {}
 -- Words and small rules, no Roblox types: tests/TutorialFlow.spec loads this block on its own.
 local Pure = {}
 
+-- A chrome icon from UI/Icons (UI direction §2, emoji rule 5: one idea, one emoji, never typed here). Icons is the
+-- module's own upvalue; a spec that loads this block on its own passes it in its environment, or gets "" (then
+-- only the words show).
+local function chromeIcon(group: string, name: string): string
+	local set = if Icons then (Icons :: any)[group] else nil
+	local glyph = if type(set) == "table" then set[name] else nil
+	return if type(glyph) == "string" then glyph else ""
+end
+-- `text` with the icon after it ("Tap 🛒"), or the words alone when there is no icon.
+local function withIcon(text: string, group: string, name: string): string
+	local glyph = chromeIcon(group, name)
+	return if glyph ~= "" then text .. " " .. glyph else text
+end
+-- The icon, then `text` ("📖 Collect them all"), or the words alone.
+local function iconFirst(group: string, name: string, text: string): string
+	local glyph = chromeIcon(group, name)
+	return if glyph ~= "" then glyph .. " " .. text else text
+end
+
 Pure.CARDS = 7
--- The confirms (look build plan §B9; the Skip line is binding text, memory-20261117-002, the one line over 6 words).
+-- The confirms (look build plan §B9; the Skip line is binding text, memory-20261117-002, the one line over 6 words:
+-- its ⚙️ is the Settings door, Icons.Door.Settings). Titles and buttons are words only (UI direction §2).
 Pure.SKIP = {
-	Title = "⏭️ Skip the tutorial?",
-	Line = "You can replay it any time from ⚙️",
-	Yes = "⏭️ Skip",
+	Title = "Skip the tutorial?",
+	Line = withIcon("You can replay it any time from", "Door", "Settings"),
+	Yes = "Skip",
 	No = "Keep going",
 }
 Pure.REPLAY = {
-	Title = "🔁 Replay the tutorial?",
+	Title = "Replay the tutorial?",
 	Line = "Your waiting patients go home",
-	Yes = "🔁 Replay",
+	Yes = "Replay",
 	No = "Not now",
 }
 -- The guide nurse's lines (2-4 words; tutorial-ux §4).
@@ -134,7 +157,7 @@ Pure.SAY = {
 	Hello = "Hi, Doctor!",
 	Examined = "Great check-up!",
 	Got = "Got it!",
-	Rated = "Any ⭐ is great!",
+	Rated = "Every try is great!", -- the rating pops in words now (no ⭐: UI/Icons keeps ⭐ for Stars only)
 	Treated = "You did it, Doctor!",
 	OneMore = "One more!",
 	Super = "Super job!",
@@ -144,12 +167,18 @@ Pure.SAY = {
 -- Card 7's pips live on this card's bar segment (Logic.MORE_CURES of them).
 Pure.PIPS_CARD = 7
 -- The finale (Celebrate Kind "Tutorial").
+-- (Celebrate is the loud reward screen, so its chips keep a picture: each one's DOOR icon, the place on the HUD
+-- where that feature lives, from UI/Icons, glued to its words.)
 Pure.FINALE = {
 	Title = "YOU DID IT!",
 	Icon = "🎉",
-	Chips = { "📖 Collect them all", "🎯 Daily goals", "👩‍⚕️ Hire nurses" },
+	Chips = {
+		iconFirst("Door", "Book", "Collect them all"),
+		iconFirst("Door", "Goals", "Daily goals"),
+		iconFirst("Door", "Nurses", "Hire nurses"),
+	},
 }
-Pure.SKIP_CHIP = "⏭️ Skip"
+Pure.SKIP_CHIP = "Skip"
 Pure.BUY_LABEL = "Buy this! ⚡"
 -- The slim strip's words while a mini-game is up, per GameId (Logic/MiniGame; they mirror UI/MiniGames' own hints).
 -- "Tap" = Simple mode's one tap. Card 3 (the exam) has words of its own: the tool pick comes first.
@@ -160,7 +189,7 @@ Pure.GAMES = {
 	Look = { Title = "LOOK CLOSELY!", Sub = "Tap the sore spots!", Icon = "🔍" },
 	XRay = { Title = "X-RAY TIME!", Sub = "Tap as it passes the bone!", Icon = "📸" },
 	Plaster = { Title = "PUT ON THE PLASTER!", Sub = "Tap the sore spots!", Icon = "🩹" },
-	Ice = { Title = "COOL IT DOWN!", Sub = "Hold… let go on ⭐", Icon = "🧊" },
+	Ice = { Title = "COOL IT DOWN!", Sub = "Hold… stop on green!", Icon = "🧊" },
 	Bandage = { Title = "WRAP IT UP!", Sub = "Tap on each beat!", Icon = "🧻" },
 	Cast = { Title = "PUT ON THE CAST!", Sub = "Tap on each beat!", Icon = "🦴" },
 	Bath = { Title = "BATH TIME!", Sub = "Pop the bubbles!", Icon = "🛁" },
@@ -313,7 +342,7 @@ function Pure.words(card: number, s: Situation): Words
 			local sub, key = toSend(s)
 			return { Title = "YOUR PATIENT IS WAITING", Sub = sub, Key = key }
 		end
-		local sub = if s.AtBay then "🤧 A patient in bay " .. bayName(s) .. "!" else "🤧 A patient is coming!"
+		local sub = if s.AtBay then "A patient in bay " .. bayName(s) .. "!" else "A patient is coming!"
 		return { Title = "WELCOME, DOCTOR!", Sub = sub }
 	elseif card == 2 then
 		local sub, key = toBay(s, "Go to", "Examine")
@@ -335,25 +364,29 @@ function Pure.words(card: number, s: Situation): Words
 		end
 		local word = itemWords(s.Item)
 		local title = if word then "GET THE " .. word else "GET THE TREATMENT"
+		-- Touch names the prompt's own button ("hold Take", like "tap Examine"), never a 👆 (UI direction, emoji
+		-- rule 4: no gesture emoji in chrome).
 		if s.Where == "Dispensary" then
 			if device == "Touch" then
 				return {
 					Title = title,
-					Sub = if s.Narrow then "Hold 👆 Dispense" else "Dispensary · hold 👆 Dispense",
+					Sub = if s.Narrow then "Hold Dispense" else "Dispensary · hold Dispense",
 				}
 			end
 			return { Title = title, Sub = "At the dispensary · hold", Key = "Prompt" }
 		elseif s.Where == "Shelf" then
+			-- "Shelf" is every station on the supply wall (Logic/Building.SUPPLY_ORDER): the shelves and the hot
+			-- chocolate and bath foam units beside them.
 			if device == "Touch" then
 				return {
 					Title = title,
-					Sub = if s.Narrow then "Hold 👆 at the shelf" else "From the shelf · hold 👆",
+					Sub = if s.Narrow then "Hold Take at the wall" else "Supply wall · hold Take",
 				}
 			end
-			return { Title = title, Sub = "From the supply shelf · hold", Key = "Prompt" }
+			return { Title = title, Sub = "From the supply wall · hold", Key = "Prompt" }
 		end
 		if device == "Touch" then
-			return { Title = title, Sub = if s.Narrow then "Follow the arrows" else "Follow the arrows · hold 👆" }
+			return { Title = title, Sub = if s.Narrow then "Follow the arrows" else "Follow the arrows · hold Take" }
 		end
 		return { Title = title, Sub = "Follow the arrows · hold", Key = "Prompt" }
 	elseif card == 5 then
@@ -372,12 +405,19 @@ function Pure.words(card: number, s: Situation): Words
 		}
 	elseif card == 7 then
 		if s.Shop then
+			-- The tutorial pointer names the Shop door (Icons.Door.Shop) and the upgrade's ⚡ (the listed exception:
+			-- a pointer may hold two emoji).
 			if device == "Touch" then
-				return { Title = "UPGRADE YOUR CLINIC", Sub = "Tap 🛒 · buy a ⚡" }
+				return { Title = "UPGRADE YOUR CLINIC", Sub = withIcon("Tap", "Door", "Shop") .. " · buy a ⚡" }
 			elseif device == "Pad" then
-				return { Title = "UPGRADE YOUR CLINIC", Sub = "on 🛒", Key = "Confirm", KeyFirst = true }
+				return {
+					Title = "UPGRADE YOUR CLINIC",
+					Sub = withIcon("on", "Door", "Shop"),
+					Key = "Confirm",
+					KeyFirst = true,
+				}
 			end
-			return { Title = "UPGRADE YOUR CLINIC", Sub = "Click 🛒 · buy a ⚡" }
+			return { Title = "UPGRADE YOUR CLINIC", Sub = withIcon("Click", "Door", "Shop") .. " · buy a ⚡" }
 		end
 		local total = math.max(math.floor(s.Total or 3), 1)
 		local title = "TREAT " .. total .. " MORE " .. Pure.pips(s.Cures or 0, total)
@@ -395,7 +435,7 @@ function Pure.words(card: number, s: Situation): Words
 		end
 		return {
 			Title = title,
-			Sub = if s.Narrow then "🤕 Check its bubble" else "🤕 New patient! Check its bubble",
+			Sub = if s.Narrow then "Check its bubble" else "New patient! Check its bubble",
 		}
 	end
 	return { Title = "", Sub = "" }
@@ -413,13 +453,16 @@ function Pure.candidates(
 ): { { Id: string, Icon: string, Name: string, At: number } }
 	local out = {}
 	if type(goldenAt) == "number" then
-		table.insert(out, { Id = "Golden", Icon = "🌟", Name = "Golden Hour", At = goldenAt })
+		table.insert(out, { Id = "Golden", Icon = chromeIcon("Status", "Golden"), Name = "Golden Hour", At = goldenAt })
 	end
 	if not isNight and type(phaseEndsAt) == "number" then
-		table.insert(out, { Id = "Night", Icon = "🌙", Name = "Night", At = phaseEndsAt })
+		table.insert(out, { Id = "Night", Icon = chromeIcon("Status", "Night"), Name = "Night", At = phaseEndsAt })
 	end
 	if type(giftSeconds) == "number" and giftSeconds > 0 then
-		table.insert(out, { Id = "Gift", Icon = "🎁", Name = "Next gift", At = now + giftSeconds })
+		table.insert(
+			out,
+			{ Id = "Gift", Icon = chromeIcon("Door", "Gifts"), Name = "Next gift", At = now + giftSeconds }
+		)
 	end
 	return out
 end
@@ -461,9 +504,14 @@ local NARROW_PX = 240 -- a text column under this is a phone's: the shortest wor
 local SUB_MIN_PX = 60 -- the subtitle never wraps narrower than this
 local SKIP_HIT = Vector2.new(96, 44) -- the Skip chip's hit area (at least 56 x 44)
 local TREAT_SETTLE = 0.6 -- after TreatDone, look again once the game card has closed
--- The supply shelf's stations (design §8.2): card 4 says "From the supply shelf" for these, "At the dispensary" for
--- a Dispense station, and "Follow the arrows" for the rest (the X-ray room's casts, the pantry).
-local SHELF: { [string]: boolean } = { Plaster = true, Ice = true, Bandage = true }
+-- The supply wall's stations (Logic/Building.SUPPLY_ORDER: the Plaster, Ice and Bandage shelves and, since the
+-- simple-start build, the hot chocolate and bath foam units beside them): card 4 says "From the supply wall" for
+-- these, "At the dispensary" for a Dispense station (the Remedy counter, checked first), and "Follow the arrows" for
+-- the rest (the X-ray room's casts).
+local SHELF: { [string]: boolean } = {}
+for _, id in BuildingLogic.SUPPLY_ORDER do
+	SHELF[id] = true
+end
 -- The patient attributes the card's words follow (set by Server/Patients): a change re-renders it.
 local PATIENT_ATTRIBUTES = { "Bay", "State", "Case", "Plan", "PlanDone", "Symptom", "QueueIndex" }
 
@@ -589,7 +637,7 @@ local function showTitle(seconds: number)
 	ribbon.BackgroundColor3 = Theme.Colors.Header
 	ribbon.BorderSizePixel = 0
 	Kit.corner(ribbon, Theme.Radius.Large)
-	Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Panel)
+	Kit.stroke(ribbon, Theme.Colors.Stroke, Theme.Stroke.Panel) -- uirules: allow StrokeBudget (a plate over the world)
 	ribbon.ZIndex = 2 -- over the sunburst behind the icon
 	ribbon.Parent = holder
 	local text = Kit.label({
@@ -707,7 +755,7 @@ function Tutorial.init(ctx: Types.Ctx)
 	tab.BackgroundColor3 = NAVY
 	tab.BorderSizePixel = 0
 	Kit.corner(tab, Theme.Radius.Small)
-	Kit.stroke(tab, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(tab, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (the HUD plate's tab)
 	local tabPad = Instance.new("UIPadding")
 	tabPad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
 	tabPad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
@@ -753,7 +801,6 @@ function Tutorial.init(ctx: Types.Ctx)
 		Parent = skip,
 	})
 	Kit.corner(skipChip, Theme.Radius.Small)
-	Kit.stroke(skipChip, Theme.Colors.Stroke, Theme.Stroke.Fine)
 	local skipPad = Instance.new("UIPadding")
 	skipPad.PaddingLeft = UDim.new(0, Theme.Space.Step[2])
 	skipPad.PaddingRight = UDim.new(0, Theme.Space.Step[2])
@@ -768,7 +815,7 @@ function Tutorial.init(ctx: Types.Ctx)
 	body.BorderSizePixel = 0
 	body.ZIndex = 2
 	Kit.corner(body, Theme.Radius.Large)
-	Kit.stroke(body, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(body, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (a HUD plate over the world)
 	Kit.pad(body, PAD)
 	body.Parent = inner
 	-- The one shadow (Theme.Shadow), under the card only.
@@ -789,7 +836,6 @@ function Tutorial.init(ctx: Types.Ctx)
 	thumb.BorderSizePixel = 0
 	thumb.ZIndex = 3
 	Kit.corner(thumb, Theme.Radius.Medium)
-	Kit.stroke(thumb, Theme.Colors.Stroke, Theme.Stroke.Fine)
 	thumb.Parent = body
 	local thumbIcon = Kit.label({
 		Name = "Icon",
@@ -872,7 +918,6 @@ function Tutorial.init(ctx: Types.Ctx)
 		Parent = subRow,
 	})
 	Kit.corner(keyCap, Theme.Radius.Small)
-	Kit.stroke(keyCap, Theme.Colors.Stroke, Theme.Stroke.Fine)
 	local keyPad = Instance.new("UIPadding")
 	keyPad.PaddingLeft = UDim.new(0, Theme.Space.Step[2])
 	keyPad.PaddingRight = UDim.new(0, Theme.Space.Step[2])
@@ -961,7 +1006,7 @@ function Tutorial.init(ctx: Types.Ctx)
 	nurse.Visible = false
 	nurse.ZIndex = 6
 	round(nurse, Theme.Radius.Round)
-	Kit.stroke(nurse, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(nurse, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (the face, over the world)
 	nurse.Parent = body
 	if guideLook then
 		local face = Hud.portrait(guideLook)
@@ -985,7 +1030,7 @@ function Tutorial.init(ctx: Types.Ctx)
 		Parent = inner,
 	})
 	Kit.corner(bubble, Theme.Radius.Medium)
-	Kit.stroke(bubble, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	Kit.stroke(bubble, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a bubble over the world)
 	Kit.pad(bubble, Theme.Space.Step[2])
 
 	--------------------------------------------------------------------------------------------------------------
@@ -1009,7 +1054,7 @@ function Tutorial.init(ctx: Types.Ctx)
 	ring.BackgroundTransparency = 1
 	ring.Visible = false
 	Kit.corner(ring, Theme.Radius.Large)
-	Kit.stroke(ring, Theme.Colors.Cash, Theme.Stroke.Panel)
+	Kit.stroke(ring, Theme.Colors.Cash, Theme.Stroke.Panel) -- uirules: allow StrokeBudget (the pointer's ring)
 	ring.Parent = pointerGui
 	local ripple = Instance.new("Frame")
 	ripple.Name = "Ripple"
@@ -1017,7 +1062,7 @@ function Tutorial.init(ctx: Types.Ctx)
 	ripple.BackgroundTransparency = 1
 	ripple.Visible = false
 	Kit.corner(ripple, Theme.Radius.Large)
-	local rippleStroke = Kit.stroke(ripple, Theme.Colors.Plate, Theme.Stroke.Bold)
+	local rippleStroke = Kit.stroke(ripple, Theme.Colors.Plate, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (the tap's ripple)
 	ripple.Parent = pointerGui
 	local hand = Kit.label({
 		Name = "Hand",
@@ -1300,7 +1345,7 @@ function Tutorial.init(ctx: Types.Ctx)
 			return "🎉", Theme.Colors.Cyan
 		elseif cardNumber == 7 then
 			if s.Shop then
-				return "🛒", Theme.Colors.Cash
+				return Icons.Door.Shop, Theme.Colors.Cash
 			elseif s.Carrying then
 				return entry.ItemIcon or entry.Face, Theme.Colors.Collect
 			elseif s.AtBay and not s.Examined then
@@ -1592,7 +1637,7 @@ function Tutorial.init(ctx: Types.Ctx)
 		beatToken += 1
 		local mine = beatToken
 		holding = true
-		thumbIcon.Text = "✅"
+		thumbIcon.Text = Icons.State.Done
 		thumb.BackgroundColor3 = Theme.Colors.Collect
 		if not Kit.reducedMotion() then
 			Kit.bump(thumb)

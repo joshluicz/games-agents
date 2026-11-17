@@ -11,8 +11,11 @@
 --     A phone whose safe height is under 360 (a bottom inset, or a very small phone) can't fit 3 x 56 + 2 x 8 above
 --     the corners: the gap shrinks first (down to RAIL_GAP_MIN), and under that only the plates that fit stay on
 --     each rail; the rest (📖, 📬, then 👩‍⚕️, 🎯) go into ⚙️ More too. The corners always win.
---   · Desktop and tablet put the wallet top-left, above the left rail. The left rail shows as many of its 5 as fit
+--   · Desktop and tablet put the wallet top-left, above the left rail: 💰, ⭐ and the hospital level with its bar
+--     (WALLET_ROW twice, LEVEL_ROW, two 4 px gaps = WALLET_HEIGHT). The left rail shows as many of its 5 as fit
 --     at >= 56 px (<= 72) with captions, at least 3; the rest go into ⚙️ More. The right rail always shows 3.
+--   · A door that isn't revealed yet (UI/Hud's reveal: one door at a time, each when it first has content) keeps its
+--     slot: `layout` never looks at what is revealed, so a hidden door moves nothing.
 --   · The rail band runs from the top bar + 8 (plus the wallet and a gap on desktop) down to CORNER_CLEAR above the
 --     bottom. Nothing is ever in the bottom corners (the thumbstick and jump on touch).
 --
@@ -59,7 +62,10 @@ HudZones.RAIL_GAP_PHONE = 8
 HudZones.RAIL_GAP_MIN = 4 -- a short phone squeezes the gap to this before a plate leaves the rail
 HudZones.CORNER_CLEAR = 110 -- kept free above the bottom edge (measure it in the Device Simulator)
 HudZones.TOPBAR = 58 -- the fallback; read GuiService.TopbarInset
-HudZones.WALLET_HEIGHT = 112 -- desktop: 💰 and ⭐ stacked
+HudZones.WALLET_ROW = 44 -- desktop: the 💰 row, and the ⭐ row
+HudZones.LEVEL_ROW = 64 -- desktop: "🏥 Lv 1 Clinic", its bar, and what the next level needs (one tap target)
+HudZones.WALLET_GAP = 4 -- between the wallet's rows
+HudZones.WALLET_HEIGHT = 2 * HudZones.WALLET_ROW + HudZones.LEVEL_ROW + 2 * HudZones.WALLET_GAP -- 160, stacked
 HudZones.WALLET_WIDTH = 240 -- desktop: never wider than the Status column, so the Now card clears both
 HudZones.NOW_HEIGHT = 88
 HudZones.NOW_HEIGHT_SHORT = 76 -- on a screen under NOW_SHORT_BREAK px tall
@@ -77,6 +83,7 @@ HudZones.ZONE = table.freeze({
 	Settings = "System",
 	Cash = "Wallet",
 	Stars = "Wallet",
+	Level = "Wallet",
 	Now = "Now",
 	Clock = "Status",
 	Event = "Status",

@@ -29,7 +29,7 @@ local Theme = require(script.Parent.Theme)
 
 local Boards = {}
 
-local TITLE = "🏆 Leaderboards"
+local TITLE = "Leaderboards" -- words only: the 🏆 is on the door (UI/Icons.Door.Top)
 local ROW_HEIGHT = 52
 local YOU_HEIGHT = 56
 local RANK_WIDTH = 48
@@ -145,7 +145,7 @@ function Boards.init(ctx: Types.Ctx)
 	scroll.ScrollBarImageColor3 = Theme.Colors.Stroke
 	scroll.Selectable = false
 	scroll.Parent = page
-	local rowList = Kit.list(scroll, Enum.FillDirection.Vertical, 6)
+	local rowList = Kit.list(scroll, Enum.FillDirection.Vertical, Theme.Space.Line)
 	rowList.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
 	pad.PaddingTop = UDim.new(0, 3)
@@ -164,7 +164,9 @@ function Boards.init(ctx: Types.Ctx)
 		frame.BorderSizePixel = 0
 		frame.Visible = false
 		Kit.corner(frame, Theme.Radius.Medium)
-		local stroke = Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
+		-- A row is a card: a fill and no line. Only YOUR row is outlined (a state, not decoration).
+		local stroke = Kit.stroke(frame, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (your own row)
+		stroke.Enabled = false
 		frame.Parent = scroll
 
 		local rankLabel = Kit.label({
@@ -244,7 +246,6 @@ function Boards.init(ctx: Types.Ctx)
 	you.BackgroundColor3 = Theme.Colors.Header
 	you.BorderSizePixel = 0
 	Kit.corner(you, Theme.Radius.Medium)
-	Kit.stroke(you, Theme.Colors.Stroke, Theme.Stroke.Bold)
 	you.Parent = page
 	local youText = Kit.label({
 		Name = "Place",
@@ -308,8 +309,7 @@ function Boards.init(ctx: Types.Ctx)
 				row.Value.Text = Hud.format(entry.Value)
 				local isMe = mine ~= nil and mine.Rank == rank
 				row.Frame.BackgroundColor3 = ROW_TINTS[rank] or Theme.Colors.Card
-				row.Stroke.Color = if isMe then Theme.Colors.Stroke else Theme.Colors.CardLine
-				row.Stroke.Thickness = if isMe then Theme.Stroke.Bold else Theme.Stroke.Fine
+				row.Stroke.Enabled = isMe
 			end
 		end
 		local text = if status == "Offline"

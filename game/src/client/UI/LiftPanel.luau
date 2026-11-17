@@ -1,12 +1,13 @@
 --!strict
--- The ↕️ lift's floor picker and the ride on this client (Progression v2 build plan §B3/§B4/§B9, §C T6). OWNER: T6;
+-- The lift's floor picker and the ride on this client (Progression v2 build plan §B3/§B4/§B9, §C T6). OWNER: T6;
 -- the look overhaul's T7 put the picker on the one modal template (look build plan §D T7; its PURE block is unchanged:
 -- tests/Hospital.spec loads it).
 --   init(ctx)
 --     · A LiftPrompt this player triggers (ProximityPromptService on this client) fires ctx.fire("Open", "Lift",
 --       { Building, From }) and the picker opens: a Popup on the shared shell (the navy header, no look of its own) of
 --       big Secondary buttons, one per floor of THAT building only ("🛎️ G", "🛏️ 1", "🛁 2", "💊 3", "🚁 R", from
---       Data/Departments by floor), the top floor first; the floor you're on shows 📍 and can't be picked. A tap asks
+--       Data/Departments by floor), the top floor first; the floor you're on says "· here" (greyed, never a second
+--       emoji beside the floor's own: UI direction, emoji rule 7) and can't be picked. The title is the word "Lift". A tap asks
 --       RideLift(floor) (Hud.ask); a refusal toasts the server's words with a shake. Walking away from the landing
 --       closes it.
 --     · Your ride: when the server sets YOUR player attribute LiftRide ("<plot>,<from>,<to>,<seconds>,<serverTime>",
@@ -45,6 +46,7 @@ local Pure = {}
 Pure.IN = 0.2 -- of a ride: stepping into the car ...
 Pure.OUT = 0.15 -- ... and out at the far landing; the car moves in between
 Pure.SLIDE_STUDS = 250 -- a car further than this from the camera just moves (no slide)
+Pure.HERE = " · here" -- after the floor you're on (its button is greyed)
 
 type Ride = { Plot: number?, From: number, To: number, Seconds: number, At: number }
 
@@ -82,7 +84,9 @@ end
 -- A floor's button: the icon of the department on that floor (Data/Departments, the first in Order), then "G" for the
 -- ground, "R" for the roof (the Roof department's floor), else its number.
 function Pure.label(floor: number, departments: any): string
-	local icon, roof = "↕️", false
+	-- No department on that floor: the lift's own door icon (= Icons.Door.Lift; typed here because this block loads
+	-- with no requires, tests/Hospital.spec; tests/MiniGamesPure.spec checks the two agree).
+	local icon, roof = "↕️", false -- uirules: allow TypedEmoji (the PURE block has no requires; = Icons.Door.Lift)
 	if type(departments) == "table" and type(departments.Order) == "table" then
 		for _, id in departments.Order do
 			local dept = rawget(departments, id)
@@ -418,7 +422,7 @@ end
 function LiftPanel.init(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = "Lift",
-		Title = "↕️ Lift",
+		Title = "Lift",
 		Layer = "Popup",
 		MaxSize = Vector2.new(420, 500),
 	})
@@ -476,11 +480,11 @@ function LiftPanel.init(ctx: Types.Ctx)
 			local button = Kit.button({
 				Name = "Floor_" .. entry.Floor,
 				Kind = "Secondary",
-				Text = if entry.Here then "📍 " .. entry.Text else entry.Text,
-				TextSize = Theme.TextSize.Title,
+				Text = if entry.Here then entry.Text .. Pure.HERE else entry.Text,
 				LayoutOrder = index,
 				Parent = grid,
 			})
+			Kit.voice(button, "Normal") -- a Secondary button speaks in the Normal voice (UI direction R5)
 			if entry.Here then
 				Kit.setEnabled(button, false)
 			else

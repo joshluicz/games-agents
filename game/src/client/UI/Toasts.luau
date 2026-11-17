@@ -100,7 +100,7 @@ local function plate(group: CanvasGroup): Frame
 	card.BorderSizePixel = 0
 	card.ZIndex = 2
 	Kit.corner(card, Theme.Radius.Large)
-	Kit.stroke(card, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(card, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (a plate over the world)
 	card.Parent = holder
 	local function follow()
 		local scale = group:FindFirstChildOfClass("UIScale")
@@ -146,7 +146,6 @@ local function bannerCard(group: CanvasGroup): (Frame, Frame, TextLabel, TextLab
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 3
 	Kit.corner(tile, Theme.Radius.Medium)
-	Kit.stroke(tile, Theme.Colors.Stroke, Theme.Stroke.Fine)
 	tile.Parent = card
 	local icon = Kit.label({
 		Name = "Icon",
@@ -186,7 +185,6 @@ local function bannerCard(group: CanvasGroup): (Frame, Frame, TextLabel, TextLab
 		Parent = card,
 	})
 	Kit.corner(clock, Theme.Radius.Small)
-	Kit.stroke(clock, Theme.Colors.CardLine, Theme.Stroke.Fine)
 	-- At least a tap target tall, so a one-line banner still reads as a banner.
 	local minimum = Instance.new("UISizeConstraint")
 	minimum.MinSize = Vector2.new(0, Theme.Size.ButtonHeight)

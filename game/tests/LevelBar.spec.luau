@@ -105,8 +105,12 @@ T.describe("LevelBar words", function()
 	test("a tap on the bar says what the next level is and what it needs", function()
 		local row = LevelsData[2]
 		local view = LevelBar.view(state(1, 12, 300), LevelsData)
-		expect(LevelBar.nextText(view)).toBe("Lv 2 " .. row.Name .. ": ⭐ 12/" .. row.Stars .. " · 💰 300/" .. row.Cash)
-		expect(LevelBar.nextText(LevelBar.view(state(1, row.Stars, row.Cash), LevelsData))).toBe("Level up in the Shop!")
+		expect(LevelBar.nextText(view)).toBe(
+			"Lv 2 " .. row.Name .. ": ⭐ 12/" .. row.Stars .. " · 💰 300/" .. row.Cash
+		)
+		expect(LevelBar.nextText(LevelBar.view(state(1, row.Stars, row.Cash), LevelsData))).toBe(
+			"Level up in the Shop!"
+		)
 		expect(LevelBar.nextText(LevelBar.view(state(5, 0, 0), LevelsData))).toBe("Max level")
 	end)
 

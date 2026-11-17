@@ -1,25 +1,32 @@
 --!strict
--- The 🏢 Nurse Agency panel (Progression v2 build plan §B3.1/§B9, §C T3; design §8, memory-20261116-018). OWNER: T3.
+-- The Nurse Agency panel (Progression v2 build plan §B3.1/§B9, §C T3; design §8, memory-20261116-018). OWNER: T3.
 --   init(ctx)   opens on ctx.fire("Open", "Agency", "Hire" | "Sell"?) (the kiosk's prompt: Workspace.NurseAgency's
---               ProximityPrompt "Prompt", client Triggered; NursePanel's 🏢 button) and on the bus "Sell" (nurseId)
---               (NursePanel's Sell button: the Sell tab and that nurse's confirm); listens to the bus "AgencyNews"
---               (view), "MarketNews" (which of yours are listed) and "NurseNews". Asks GetAgency, AgencyBuy(slot,
---               nurseId, expect) and SellNurse(nurseId, expect); `expect` is always the price the server showed.
--- Inside (a Hud.modal Panel on the one template: the navy header, Modal.tabs down the left, neutral cards, buttons by
--- role; look build plan §B8, §D T7):
---   · 🛒 Hire: the stock, one card per nurse (4, or 6 with 🍀 Lucky Stock: those wear a 🍀): portrait in its rarity
---     frame, name, its job, specialty and ability icons, and one button: "Hire 💰150" (Primary) · "✅ Bought" ·
---     "🏥 Lv 3" / "🏢 R1" (a gate: no lock, no price) · "Roster full" (opens the 👩‍⚕️ Team page) · "⭐ MAX". Over it:
---     "🔄 New nurses every 5 min", never a clock (§E9), and the Quiet "🎲 Odds" link.
---   · 💰 Sell: every nurse you own with what the Agency pays (30% of the belt's base price per copy): "Sell 💰30"
---     (Destructive) · "🏷️ Listed" (unlist it on the Market first) · "🏢 Stays" (rebirth-only).
---   · 🎲: THE odds popup (Hud.oddsPopup, Pure.oddsSpec), from the server's own table (AgencyView.Odds): every rarity
---     with its word and number (70 / 26 / 4), "🚫 Never Legendary+", Lucky Stock uses the same odds, the Epic gate.
---   · Every buy and sell asks first through THE confirm (Hud.confirm, Pure.confirmSpec: "Hire 🐶 Puff Pup for
---     💰150?" · "Sell 🐶 Lv 7 for 💰30?"); "Not now" is the default button, and selling an Epic or rarer (or any
---     nurse at Lv 2+) is a 1 s hold (Hud.confirm's Hold: Kit.holdButton).
+--               ProximityPrompt "Prompt", client Triggered; NursePanel's Agency link) and on the bus "Sell" (nurseId)
+--               (NursePanel's Sell: the Sell tab and that nurse's confirm); listens to the bus "AgencyNews" (view),
+--               "MarketNews" (which of yours are listed) and "NurseNews". Asks GetAgency, AgencyBuy(slot, nurseId,
+--               expect) and SellNurse(nurseId, expect); `expect` is always the price the server showed.
+-- Inside (a Hud.modal Panel on the one template: the navy header "Agency", Modal.tabs down the left):
+--   · Hire (the Agency's own door icon, Icons.Door.Agency): the stock, one Kit.card per nurse (4, or 6 with Lucky
+--     Stock: its fact line says so): the portrait in its rarity frame (a Kit.artTile well), the name (Kit.name), one
+--     Soft fact in words ("Healer · Bath Room"), and ONE button (Pure.calmButton): the price "💰 150" (Primary;
+--     grey when short) · ✅ (bought this restock, Quiet) · 🔒 with "Needs 🏥 Lv 3" in the fact (a gate) · "Roster
+--     full" (opens the Team page) · "MAX". Over the list, in words: "New nurses every 5 min" (never a clock, §E9)
+--     and the Quiet "Odds" link.
+--   · Sell (Icons.Unit.Cash: what you get): every nurse you own, the fact "Lv 7 · You get 💰 30" (30% of the belt's
+--     base price per copy) and "Sell" (Destructive) · "Listed" (unlist it on the Market first) · "Stays"
+--     (rebirth-only).
+--   · Odds: THE odds popup (Hud.oddsPopup, Pure.oddsSpec), from the server's own table (AgencyView.Odds): every
+--     rarity with its word and number (70 / 26 / 4), "Never Legendary+", Lucky Stock uses the same odds, the Epic
+--     gate. Odds are never hidden or collapsed (red line 3).
+--   · Every buy and sell asks first through THE confirm (Hud.confirm, Pure.confirmSpec): the title is the verb
+--     ("Hire?", "Sell?"), the line the question with its price ("Hire 🐶 Puff Pup for 💰150?"), Yes the verb alone
+--     ("Hire", "Sell"); "Not now" is the default button, and selling an Epic or rarer (or any nurse at Lv 2+) is a
+--     1 s hold ("Hold to sell": Kit.holdButton).
 -- Cash only, no Robux, no "hurry" words, no countdowns (red line 3). Every motion goes through Hud.pop / Kit (they
--- honour Kit.reducedMotion()). Buttons are 56 px tall and every label is 6 words or fewer.
+-- honour Kit.reducedMotion()). Buttons are 56 px tall and every label is 6 words or fewer. The calm UI
+-- (docs/plan/2026-11-17-ui-direction.md; memory-20261117-007): cards without lines, one button per card, titles in
+-- words, chrome emoji from UI/Icons. The pure block's older texts (buttonText, confirmText, everyText, the odds
+-- notes) keep the emoji the server-side specs pin; the panel draws the calm ones.
 
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -32,6 +39,7 @@ local BeltLogic = require(Logic:WaitForChild("Belt"))
 local NurseLogic = require(Logic:WaitForChild("Nurse"))
 local RebirthLogic = require(Logic:WaitForChild("Rebirth"))
 local Hud = require(script.Parent.Hud)
+local Icons = require(script.Parent.Icons)
 local Kit = require(script.Parent.Kit)
 local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
@@ -44,6 +52,12 @@ local AgencyPanel = {}
 ------------------------------------------------------------------------------------------------------------------
 -- PURE-BEGIN
 local Pure = {}
+
+local I: any = nil -- UI/Icons, handed in by Pure.use (the calm texts read it; the older ones don't)
+
+function Pure.use(icons: any)
+	I = icons
+end
 
 Pure.RARITIES = { "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret" }
 Pure.ANY_ICON = "🌈" -- a specialty of "Any" (it counts for every department)
@@ -82,9 +96,9 @@ end
 function Pure.everyText(seconds: any): string
 	local s = if finite(seconds) then math.max(1, math.floor(seconds + 0.5)) else 300
 	if s % 60 == 0 then
-		return "🔄 New nurses every " .. tostring(s // 60) .. " min"
+		return "🔄 New nurses every " .. tostring(s // 60) .. " min" -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (the kiosk's words, pinned by tests/AgencyServer.spec; the panel draws Icons.words of it)
 	end
-	return "🔄 New nurses every " .. tostring(s) .. " s"
+	return "🔄 New nurses every " .. tostring(s) .. " s" -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (as above)
 end
 
 export type OddsRow = { Rarity: string, Odds: number }
@@ -147,15 +161,65 @@ end
 -- A stock card's button (6 words or fewer).
 function Pure.buttonText(cardState: string, slot: any): string
 	if cardState == "Bought" then
-		return "✅ Bought"
+		return "✅ Bought" -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (pinned by tests/AgencyServer.spec; drawn as Pure.calmButton)
 	elseif cardState == "Gate" then
 		return tostring(slot.Gate)
 	elseif cardState == "Full" then
 		return "Roster full"
 	elseif cardState == "Max" then
-		return "⭐ MAX"
+		return "⭐ MAX" -- uirules: allow TypedEmoji (pinned by tests/AgencyServer.spec; drawn as Pure.calmButton)
 	end
-	return "Hire 💰" .. Pure.commas(slot.Price)
+	return "Hire 💰" .. Pure.commas(slot.Price) -- uirules: allow TypedEmoji (pinned by tests/AgencyServer.spec)
+end
+
+-- The calm card's one button (UI direction rule 2: no emoji in a button but a Unit with its price or a State alone):
+-- "💰 150" · ✅ · 🔒 (the gate goes in the fact line: Pure.gateNote) · "Roster full" · "MAX".
+function Pure.calmButton(cardState: string, slot: any): string
+	if cardState == "Bought" then
+		return I.State.Done
+	elseif cardState == "Gate" then
+		return I.State.Locked
+	elseif cardState == "Full" then
+		return "Roster full"
+	elseif cardState == "Max" then
+		return "MAX"
+	end
+	return I.unit("Cash", Pure.commas(if type(slot) == "table" then slot.Price else 0))
+end
+
+-- A gate in words for the fact line: "Needs 🏥 Lv 3" · "Needs 🏢 R1" (the server's gate text, Logic/Belt.gate).
+function Pure.gateNote(gate: any): string
+	return if type(gate) == "string" and gate ~= "" then "Needs " .. gate else ""
+end
+
+-- A Sell row's fact and button: "Lv 7 · 2 copies · You get 💰 30" and "Sell" | "Listed" | "Stays" | ⏳.
+function Pure.sellFact(level: any, copies: any, resting: boolean, sellState: string, price: any): string
+	local parts = { "Lv " .. tostring(if finite(level) then math.floor(level) else 1) }
+	if finite(copies) and copies > 1 then
+		table.insert(parts, tostring(math.floor(copies)) .. " copies")
+	end
+	if resting then
+		table.insert(parts, "resting")
+	end
+	if sellState == "Sell" and finite(price) then
+		table.insert(parts, "You get " .. I.unit("Cash", Pure.commas(price)))
+	elseif sellState == "Listed" then
+		table.insert(parts, "on the Market")
+	elseif sellState == "Stays" then
+		table.insert(parts, "stays with you")
+	end
+	return table.concat(parts, " · ")
+end
+
+function Pure.sellButton(sellState: string): string
+	if sellState == "Sell" then
+		return "Sell"
+	elseif sellState == "Listed" then
+		return "Listed"
+	elseif sellState == "Stays" then
+		return "Stays"
+	end
+	return I.State.Waiting
 end
 
 -- A Sell row's state: "Sell" · "Listed" (on the Market: unlist it first) · "Stays" (rebirth-only) · "None" (the
@@ -178,9 +242,9 @@ end
 -- The confirm's question (6 words or fewer): "Hire 🐶 Puff Pup for 💰150?" · "Sell 🐶 Lv 7 for 💰30?".
 function Pure.confirmText(kind: string, icon: string, name: string, level: number, price: number): string
 	if kind == "Sell" then
-		return string.format("Sell %s Lv %d for 💰%s?", icon, math.floor(level), Pure.commas(price))
+		return string.format("Sell %s Lv %d for 💰%s?", icon, math.floor(level), Pure.commas(price)) -- uirules: allow TypedEmoji (pinned by tests/AgencyServer.spec)
 	end
-	return string.format("Hire %s %s for 💰%s?", icon, name, Pure.commas(price))
+	return string.format("Hire %s %s for 💰%s?", icon, name, Pure.commas(price)) -- uirules: allow TypedEmoji (pinned by tests/AgencyServer.spec)
 end
 
 -- Selling an Epic or rarer is a hold (Kit.holdButton), not a tap; so is selling any nurse you've levelled (Lv 2+):
@@ -220,8 +284,9 @@ Pure.HOLD_SECONDS = 1
 
 export type ConfirmSpec = { Title: string, Line: string, Yes: string, Kind: string, Hold: number }
 
--- THE confirm (Hud.confirm) for a hire or a sell: a two-word title, the question (Pure.confirmText, 6 words or
--- fewer), the yes button, its role (Hire is Primary; Sell is Destructive) and the hold (a sell that needsHold).
+-- THE confirm (Hud.confirm) for a hire or a sell (the UI direction's calm wording): the title is the verb in words
+-- ("Sell?"), the line the question with its price (Pure.confirmText, 6 words or fewer), Yes the verb alone ("Sell",
+-- or "Hold to sell" for a sell that needsHold), its role (Hire is Primary; Sell is Destructive) and the hold.
 function Pure.confirmSpec(
 	kind: string,
 	icon: string,
@@ -233,17 +298,17 @@ function Pure.confirmSpec(
 	if kind == "Sell" then
 		local hold = Pure.needsHold(rarity, level)
 		return {
-			Title = "💰 Sell?",
+			Title = "Sell?",
 			Line = Pure.confirmText("Sell", icon, name, level, price),
-			Yes = if hold then "✋ Hold to sell" else "✅ Yes!",
+			Yes = if hold then "Hold to sell" else "Sell",
 			Kind = "Destructive",
 			Hold = if hold then Pure.HOLD_SECONDS else 0,
 		}
 	end
 	return {
-		Title = "🏢 Hire?",
+		Title = "Hire?",
 		Line = Pure.confirmText("Hire", icon, name, 1, price),
-		Yes = "✅ Yes!",
+		Yes = "Hire",
 		Kind = "Primary",
 		Hold = 0,
 	}
@@ -257,10 +322,10 @@ function Pure.oddsNotes(odds: any, epicLevel: any, restockSeconds: any): { strin
 	if never then
 		table.insert(notes, never)
 	end
-	table.insert(notes, "🍀 Lucky Stock: same odds")
+	table.insert(notes, "🍀 Lucky Stock: same odds") -- uirules: allow LeadEmoji (an odds note, pinned by tests/ProgressionPanels.spec)
 	local epic = if type(odds) == "table" then odds.Epic else nil
 	if finite(epicLevel) and epicLevel > 1 and finite(epic) and epic > 0 then
-		table.insert(notes, "🏥 Epic: hospital Lv " .. tostring(math.floor(epicLevel)) .. "+")
+		table.insert(notes, "🏥 Epic: hospital Lv " .. tostring(math.floor(epicLevel)) .. "+") -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (an odds note, pinned by tests/ProgressionPanels.spec)
 	end
 	table.insert(notes, Pure.everyText(restockSeconds))
 	return notes
@@ -276,12 +341,12 @@ function Pure.oddsSpec(odds: any, rarities: any, notes: { string }?): OddsSpec
 		local info = if type(rarities) == "table" then rawget(rarities, row.Rarity) else nil
 		local known = type(info) == "table"
 		table.insert(rows, {
-			Icon = if known and type(info.Icon) == "string" then info.Icon else "🎲",
+			Icon = if known and type(info.Icon) == "string" then info.Icon else "❔",
 			Name = if known and type(info.Name) == "string" then info.Name else row.Rarity,
 			Percent = row.Odds,
 		})
 	end
-	return { Title = "🎲 Odds", Rows = rows, Notes = notes or {} }
+	return { Title = "🎲 Odds", Rows = rows, Notes = notes or {} } -- uirules: allow TitleEmoji, uirules: allow TypedEmoji (pinned by tests/ProgressionPanels.spec; Modal draws the title as words)
 end
 
 -- The Sell tab's nurses: the ones you own that this game knows, in the Journal's order (Data/Nurses.Order).
@@ -299,68 +364,24 @@ function Pure.sellList(nurses: any, roster: any): { string }
 end
 -- PURE-END
 
+Pure.use(Icons)
 AgencyPanel.Pure = Pure -- for a scratch harness and the spec
 
 ------------------------------------------------------------------------------------------------------------------
--- Look helpers: the one template (look build plan §B8). Neutral cards on white paper, the rarity frame on the face
--- tile only, buttons by role, radii, strokes and text sizes from Theme.
+-- Look helpers: the one template (look build plan §B8) made calm (UI direction R2, R3): cards without lines on white
+-- paper, the rarity frame on the face tile only, buttons by role (Kit.setRole), sizes from Theme.
 ------------------------------------------------------------------------------------------------------------------
 
 local ROW_HEIGHT = 80
-local FACE = 64
+local FACE = Theme.Calm.ArtTile
+local PAD = Theme.Space.PadCard
 local BAR_HEIGHT = Theme.Size.ButtonHeight
-local ODDS_WIDTH = 132
+local ODDS_WIDTH = 104
 local GAP = Theme.Space.Gap
 local TABS: { Modal.TabSpec } = {
-	{ Id = "Hire", Icon = "🛒", Caption = "Hire" },
-	{ Id = "Sell", Icon = "💰", Caption = "Sell" },
+	{ Id = "Hire", Icon = Icons.Door.Agency, Caption = "Hire" },
+	{ Id = "Sell", Icon = Icons.Unit.Cash, Caption = "Sell" },
 }
-
--- A button's role after it was made (Kit.button reads its Kind once): the role's fill, and white outlined text on a
--- strong fill or ink on a light one. "Disabled" is the gated grey; it stays tappable, so a tap can still say why.
-local ROLE_FILL: { [string]: Color3 } = {
-	Primary = Theme.Colors.Primary,
-	Collect = Theme.Colors.Collect,
-	Destructive = Theme.Colors.Destructive,
-	Secondary = Theme.Colors.Secondary,
-	Disabled = Theme.Colors.Disabled,
-}
-local function setRole(button: TextButton, role: string)
-	local fill = ROLE_FILL[role] or Theme.Colors.Secondary
-	local light = role == "Secondary" or role == "Disabled"
-	button.BackgroundColor3 = fill
-	button:SetAttribute("KitColor", fill)
-	button.TextColor3 = if role == "Disabled"
-		then Theme.Colors.DisabledText
-		elseif light then Theme.Colors.Ink
-		else Theme.Colors.OnColor
-	local outline = button:FindFirstChild("TextOutline")
-	if light then
-		if outline and outline:IsA("UIStroke") then
-			outline.Enabled = false
-		end
-	else
-		Kit.outline(button).Enabled = true
-	end
-end
-
-local function frame(props: { [string]: any }): Frame
-	local f = Instance.new("Frame")
-	f.BorderSizePixel = 0
-	for key, value in props do
-		if key ~= "Parent" then
-			(f :: any)[key] = value
-		end
-	end
-	f.Parent = props.Parent
-	return f
-end
-
-local function rounded(gui: GuiObject): UICorner
-	local corner = Kit.corner(gui)
-	corner.CornerRadius = Theme.Radius.Round
-	return corner
-end
 
 local function scrollPage(name: string, parent: Instance): ScrollingFrame
 	local scroll = Instance.new("ScrollingFrame")
@@ -376,13 +397,12 @@ local function scrollPage(name: string, parent: Instance): ScrollingFrame
 	scroll.ScrollBarImageColor3 = Theme.Colors.Stroke
 	scroll.Selectable = false
 	scroll.Parent = parent
-	local list = Kit.list(scroll, Enum.FillDirection.Vertical, GAP)
+	local list = Kit.list(scroll, Enum.FillDirection.Vertical, Theme.Space.PadCard)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 4)
-	pad.PaddingBottom = UDim.new(0, 8)
-	pad.PaddingLeft = UDim.new(0, 4)
-	pad.PaddingRight = UDim.new(0, 12)
+	pad.PaddingTop = UDim.new(0, Theme.Space.Tight)
+	pad.PaddingBottom = UDim.new(0, Theme.Space.Line)
+	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard) -- clear of the scroll bar
 	pad.Parent = scroll
 	return scroll
 end
@@ -436,17 +456,12 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		return if ok then result else nil
 	end
 
-	local function icons(nurse: any): string
+	-- A stock nurse's fact in words: "Healer · Bath Room" (its job, then its specialty; "Any" counts everywhere).
+	local function about(nurse: any): string
 		local job = rawget(data.Jobs, nurse.Role)
 		local dept = if nurse.Specialty == "Any" then nil else rawget(data.Departments, nurse.Specialty)
-		local ability = rawget(data.Abilities, nurse.Ability)
-		return string.format(
-			"%s %s  %s  %s",
-			if job then job.Icon else "",
-			tostring(nurse.Role),
-			if dept then dept.Icon else Pure.ANY_ICON,
-			if ability then ability.Icon else ""
-		)
+		local jobName = if job and type(job.Name) == "string" then job.Name else tostring(nurse.Role)
+		return jobName .. " · " .. (if dept and type(dept.Name) == "string" then dept.Name else "Any department")
 	end
 
 	--------------------------------------------------------------------------------------------------------------
@@ -454,12 +469,12 @@ function AgencyPanel.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	local modal = Hud.modal(ctx, {
 		Name = "Agency",
-		Title = "🏢 Agency",
+		Title = "Agency",
 	})
 	local render: () -> ()
 	local fetchListed: () -> ()
 
-	-- THE tab pattern: 🛒 Hire and 💰 Sell down the left (Modal.tabs paints them with Kit.tab).
+	-- THE tab pattern: Hire and Sell down the left (Modal.tabs paints them with Kit.tab).
 	local tabs = Modal.tabs(modal, TABS, function(id: string)
 		tab = if id == "Sell" then "Sell" else "Hire"
 		render()
@@ -474,21 +489,20 @@ function AgencyPanel.init(ctx: Types.Ctx)
 	end
 	modal.Focus = tabButton("Hire")
 
-	-- The bar: how often new nurses come (never a clock) and the 🎲 Odds link (a Quiet button: THE odds popup).
-	local note = Kit.label({
+	-- The bar: how often new nurses come, in words (never a clock), and the Odds link (a Quiet button: THE odds
+	-- popup, one tap away on every visit: red line 3).
+	local note = Kit.fact({
 		Name = "Note",
-		Text = Pure.everyText(cfg.Agency.RestockSeconds),
-		TextScaled = true,
-		TextColor3 = Theme.Colors.InkSoft,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Size = UDim2.new(1, -(ODDS_WIDTH + GAP), 0, BAR_HEIGHT),
+		Text = Icons.words(Pure.everyText(cfg.Agency.RestockSeconds)),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromOffset(0, BAR_HEIGHT / 2),
+		Size = UDim2.new(1, -(ODDS_WIDTH + GAP), 0, Theme.TextSize.Caption + Theme.Space.Tight),
 		Parent = content,
 	})
-	Kit.textLimit(note, Theme.TextSize.Body)
 	local oddsButton = Kit.button({
 		Name = "Odds",
 		Kind = "Quiet",
-		Text = "🎲 Odds",
+		Text = "Odds",
 		TextScaled = true,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.fromScale(1, 0),
@@ -499,16 +513,12 @@ function AgencyPanel.init(ctx: Types.Ctx)
 
 	local hirePage = scrollPage("HirePage", content)
 	local sellPage = scrollPage("SellPage", content)
-	local emptyLabel = Kit.label({
+	local emptyLabel = Kit.fact({
 		Name = "Empty",
 		Text = "",
-		TextScaled = true,
-		TextColor3 = Theme.Colors.InkSoft,
-		Size = UDim2.new(1, -12, 0, 44),
 		LayoutOrder = 999,
 		Visible = false,
 	})
-	Kit.textLimit(emptyLabel, Theme.TextSize.Button)
 
 	--------------------------------------------------------------------------------------------------------------
 	-- THE odds popup: the server's own table (the one its rolls use); before the first view, the same Logic on the
@@ -523,67 +533,59 @@ function AgencyPanel.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	-- Rows
 	--------------------------------------------------------------------------------------------------------------
+	-- THE row (R2, R3): a Kit.card with no line, the face in its rarity frame (a Kit.artTile well), the name, one Soft
+	-- fact, and the one button on the right.
 	local function newRow(parent: Instance, key: string, nurse: any, nurseId: string, order: number): Row
-		local row = frame({
+		local row = Kit.card({
 			Name = "Row_" .. key,
-			BackgroundColor3 = Theme.Colors.Card,
+			Pad = false,
+			AutomaticSize = Enum.AutomaticSize.None,
 			Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
 			LayoutOrder = order,
 			Parent = parent,
 		})
-		Kit.corner(row, Theme.Radius.Medium)
-		Kit.stroke(row, Theme.Colors.CardLine, Theme.Stroke.Fine)
-		-- The face tile: the image well, with the rarity frame (the template's one place for it).
-		local face = frame({
+		local face = Kit.artTile({
 			Name = "Face",
-			Position = UDim2.fromOffset(8, (ROW_HEIGHT - FACE) / 2),
+			Rarity = nurse.Rarity,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, PAD, 0.5, 0),
 			Size = UDim2.fromOffset(FACE, FACE),
-			BackgroundColor3 = Theme.Colors.Well,
 			Parent = row,
 		})
-		Kit.corner(face, Theme.Radius.Medium)
-		Kit.rarityFrame(face, nurse.Rarity)
 		local portrait = Hud.portrait(nurse.Look, false)
 		portrait.AnchorPoint = Vector2.new(0.5, 0.5)
 		portrait.Position = UDim2.fromScale(0.5, 0.5)
 		portrait.Size = UDim2.fromScale(0.92, 0.92)
 		portrait.Parent = face
-		local textLeft = 8 + FACE + 10
-		local name = Kit.label({
+		local textLeft = PAD + FACE + PAD
+		local nameHeight = Theme.TextSize.Body + Theme.Space.Tight
+		local name = Kit.name({
 			Name = "NurseName",
-			Text = nurse.Icon .. " " .. nurse.Name,
-			TextScaled = true,
-			Font = Theme.DisplayFont,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(textLeft, 8),
-			Size = UDim2.new(0.6, -textLeft - 6, 0, 30),
+			Text = nurse.Name,
+			Position = UDim2.fromOffset(textLeft, PAD),
+			Size = UDim2.new(0.6, -textLeft - Theme.Space.Line, 0, nameHeight),
 			Parent = row,
 		})
-		Kit.textLimit(name, Theme.TextSize.Body)
-		local sub = Kit.label({
+		local sub = Kit.fact({
 			Name = "Sub",
 			Text = "",
-			TextScaled = true,
-			TextColor3 = Theme.Colors.InkSoft,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(textLeft, 42),
-			Size = UDim2.new(0.6, -textLeft - 6, 0, 28),
+			Position = UDim2.fromOffset(textLeft, PAD + nameHeight + Theme.Space.Tight),
+			Size = UDim2.new(0.6, -textLeft - Theme.Space.Line, 0, Theme.TextSize.Caption + Theme.Space.Tight),
 			Parent = row,
 		})
-		Kit.textLimit(sub, Theme.TextSize.Caption)
 		local button = Kit.button({
 			Name = "Act",
 			Kind = "Primary",
 			Text = "",
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -10, 0.5, 0),
-			Size = UDim2.new(0.4, -14, 0, Theme.Size.ButtonHeight),
+			Position = UDim2.new(1, -PAD, 0.5, 0),
+			Size = UDim2.new(0.4, -PAD, 0, Theme.Size.ButtonHeight),
 			Parent = row,
 		})
 		Kit.textLimit(button, Theme.TextSize.Button)
 		local limits = Instance.new("UISizeConstraint")
-		limits.MinSize = Vector2.new(120, Theme.Size.ButtonHeight)
+		limits.MinSize = Vector2.new(112, Theme.Size.ButtonHeight)
 		limits.MaxSize = Vector2.new(200, Theme.Size.ButtonHeight)
 		limits.Parent = button
 		return { Key = key, NurseId = nurseId, Frame = row, Name = name, Sub = sub, Button = button }
@@ -593,7 +595,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		if button.Text ~= text then
 			button.Text = text
 		end
-		setRole(button, role)
+		Kit.setRole(button, role)
 	end
 
 	local function clearRows(rows: { Row })
@@ -626,22 +628,8 @@ function AgencyPanel.init(ctx: Types.Ctx)
 				local nurse = nurseOf(slot.NurseId)
 				if nurse then
 					local row = newRow(hirePage, tostring(slot.Slot), nurse, slot.NurseId, order)
-					row.Sub.Text = icons(nurse)
-					if slot.Personal == true then
-						local clover = Kit.label({
-							Name = "Lucky",
-							Text = "🍀",
-							TextScaled = true,
-							BackgroundColor3 = Theme.Colors.Plate,
-							BackgroundTransparency = 0,
-							Position = UDim2.fromOffset(2, 2),
-							Size = UDim2.fromOffset(28, 28),
-							ZIndex = 3,
-							Parent = row.Frame,
-						})
-						rounded(clover)
-						Kit.stroke(clover, Theme.Colors.Stroke, Theme.Stroke.Fine)
-					end
+					-- A Lucky Stock slot says so in words (no sticker of its own).
+					row.Sub.Text = (if slot.Personal == true then "Lucky Stock · " else "") .. about(nurse)
 					local slotNumber = slot.Slot
 					row.Button.Activated:Connect(function()
 						askBuy(slotNumber)
@@ -659,18 +647,24 @@ function AgencyPanel.init(ctx: Types.Ctx)
 			end
 			if slot then
 				local state = Pure.cardState(slot, ctx.State, cfg, isKnown)
-				local text = if busy then "⏳" else Pure.buttonText(state, slot)
-				-- Hire is the Primary; "✅ Bought" and "Roster full" (it opens the Team page) are Secondary; a gate,
-				-- MAX or short of cash is the gated grey (a tap still says why).
+				local text = if busy then Icons.State.Waiting else Pure.calmButton(state, slot)
+				-- The price is the Primary; ✅ (bought) is Quiet; "Roster full" (it opens the Team page) is Secondary;
+				-- a gate (🔒, its words in the fact line), MAX or short of cash is the gated grey (a tap says why).
 				local role = if state == "Ready"
 					then "Primary"
-					elseif state == "Bought" or state == "Full" then "Secondary"
+					elseif state == "Bought" then "Quiet"
+					elseif state == "Full" then "Secondary"
 					else "Disabled"
 				paint(row.Button, text, role)
+				local nurse = nurseOf(slot.NurseId)
+				if nurse then
+					local lucky = if slot.Personal == true then "Lucky Stock · " else ""
+					row.Sub.Text = if state == "Gate" then Pure.gateNote(slot.Gate) else lucky .. about(nurse)
+				end
 			end
 		end
 		if #hireRows == 0 then
-			showEmpty(hirePage, if view then "🏢 Back soon!" elseif status ~= "" then status else "⏳")
+			showEmpty(hirePage, if view then "Back soon" elseif status ~= "" then status else Icons.State.Waiting)
 		elseif emptyLabel.Parent == hirePage then
 			showEmpty(hirePage, "")
 		end
@@ -698,28 +692,14 @@ function AgencyPanel.init(ctx: Types.Ctx)
 			local copies = if type(entry) == "table" and type(entry.Copies) == "number" then entry.Copies else 1
 			local resting = type(entry) == "table" and entry.Job == NurseLogic.REST
 			local state = Pure.sellState(row.NurseId, data.Nurses, sellBack, listed)
-			local sub = "⭐ Lv " .. math.floor(level)
-			if copies > 1 then
-				sub ..= "  ×" .. math.floor(copies)
-			end
-			if resting then
-				sub ..= "  💤"
-			end
-			if state == "Listed" then
-				sub ..= "  🏷️"
-			end
-			row.Sub.Text = sub
-			local text = if busy
-				then "⏳"
-				elseif state == "Sell" then "Sell 💰" .. Pure.commas(sellBack[row.NurseId])
-				elseif state == "Listed" then "🏷️ Listed"
-				elseif state == "Stays" then "🏢 Stays"
-				else "⏳"
+			local price = if type(sellBack) == "table" then sellBack[row.NurseId] else nil
+			row.Sub.Text = Pure.sellFact(level, copies, resting, state, price)
+			local text = if busy then Icons.State.Waiting else Pure.sellButton(state)
 			-- Sell is Destructive (always behind THE confirm, a hold for Epic and up); the rest is the gated grey.
 			paint(row.Button, text, if state == "Sell" then "Destructive" else "Disabled")
 		end
 		if #sellRows == 0 then
-			showEmpty(sellPage, "👩‍⚕️ No nurses yet!")
+			showEmpty(sellPage, "No nurses yet")
 		elseif emptyLabel.Parent == sellPage then
 			showEmpty(sellPage, "")
 		end
@@ -731,7 +711,9 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		end
 		hirePage.Visible = tab == "Hire"
 		sellPage.Visible = tab == "Sell"
-		note.Text = if tab == "Hire" then Pure.everyText(cfg.Agency.RestockSeconds) else "💰 The Agency buys nurses"
+		note.Text = if tab == "Hire"
+			then Icons.words(Pure.everyText(cfg.Agency.RestockSeconds))
+			else "The Agency buys nurses"
 		if tab == "Hire" then
 			renderHire()
 		else
@@ -854,9 +836,9 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		local button = rowButton(hireRows, tostring(slotNumber))
 		local state = Pure.cardState(slot, ctx.State, cfg, isKnown)
 		if state == "Bought" then
-			ctx.toast("✅ You bought this one!")
+			ctx.toast("You bought this one")
 		elseif state == "Gate" then
-			ctx.toast(slot.Gate .. " first!")
+			ctx.toast(Pure.gateNote(slot.Gate))
 			Hud.shake(button)
 		elseif state == "Full" then
 			-- Making room is your call: the Team page, where you can sell or list one.
@@ -867,7 +849,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 			Hud.shake(button)
 		elseif state == "Poor" then
 			local cash = if type(ctx.State.Cash) == "number" then ctx.State.Cash else 0
-			ctx.toast("Need 💰" .. Pure.commas(math.max(1, slot.Price - cash)) .. " more!")
+			ctx.toast("Need " .. Icons.unit("Cash", Pure.commas(math.max(1, slot.Price - cash))) .. " more!")
 			Hud.shake(button)
 		else
 			Hud.confirm(ctx, Pure.confirmSpec("Hire", nurse.Icon, nurse.Name, 1, slot.Price, nurse.Rarity), function()
@@ -889,8 +871,8 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		end
 		if ok then
 			-- The Sold cue comes with the server's NurseNews (Sold: Feel/Sounds); the coins fly to 💰 here.
-			Hud.fly(modal.Panel, "💰", "Cash", 6)
-			ctx.toast(if message ~= "" then message else "💰 Sold!")
+			Hud.fly(modal.Panel, Icons.Unit.Cash, "Cash", 6)
+			ctx.toast(if message ~= "" then message else "Sold!")
 		else
 			ctx.toast(if message ~= "" then message else "Oops! Try again.")
 		end
@@ -907,7 +889,7 @@ function AgencyPanel.init(ctx: Types.Ctx)
 		local state = Pure.sellState(nurseId, data.Nurses, sellBack, listed)
 		local button = rowButton(sellRows, nurseId)
 		if state == "Listed" then
-			ctx.toast("🏷️ Unlist it first!")
+			ctx.toast("Unlist it on the Market first")
 			Hud.shake(button)
 			return
 		elseif state == "Stays" then

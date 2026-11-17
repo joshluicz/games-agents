@@ -1217,4 +1217,121 @@ T.describe("The Real Clinic: every game draws and rates with its own row", funct
 	end)
 end)
 
+------------------------------------------------------------------------------------------------------------------
+-- T4 (the calm UI, play flow; UI direction §1 "Mini-game", §2 and §4 row 9; memory-20261117-007): the card's
+-- header in words, no 🔥 in the streak, plain step dots, hints in words. The tool and item cards stay as they are.
+------------------------------------------------------------------------------------------------------------------
+
+T.describe("T4: the mini-game card is calm", function()
+	local Icons = data("src/client/UI/Icons.luau")
+	local code = codeOf(MINI)
+	local function has(text: string, needle: string): boolean
+		return string.find(text, needle, 1, true) ~= nil
+	end
+	local function body(name: string): string
+		local first = string.find(code, name, 1, true)
+		assert(first, name .. " is missing")
+		local after = string.find(code, "\nend\n", first, true) or #code
+		return string.sub(code, first, after)
+	end
+
+	test("every title and hint is words: no emoji in front, never two, no ⭐ (Stars only)", function()
+		for key, text in Pure.WORDS do
+			if key ~= "ExamIcon" and key ~= "MedicineIcon" and key ~= "SlipMark" then
+				expect(Icons.count(text)).toBe(0)
+			end
+		end
+		for id, look in Pure.LOOKS do
+			assert(Icons.count(look.Title) == 0, id .. ": " .. look.Title)
+			assert(Icons.count(look.Hint) == 0, id .. ": " .. look.Hint)
+			assert(utf8.len(look.Hint) <= Pure.HINT_MAX, id .. "'s hint is too long for a phone: " .. look.Hint)
+		end
+		for _, answer in Pure.TRIAGE_TEXT do
+			expect(answer.Icon).toBeNil()
+			expect(Icons.count(answer.Text) + Icons.count(answer.Hint)).toBe(0)
+		end
+		expect(Pure.LOOKS.Temp.Hint).toBe("Hold… stop on green!")
+		expect(Pure.LOOKS.Dose.Hint).toBe("Fill to the green!")
+	end)
+
+	test("the header is words only: setHeader takes no icon, and the dispensary's title has no 💊", function()
+		expect(has(code, "local function setHeader(v: View, title: string)")).toBe(true)
+		expect(has(body("local function setHeader("), "v.Modal.setTitle(title)")).toBe(true)
+		local pick = body("local function pickWords(")
+		expect(has(pick, "MedicineIcon")).toBe(false)
+		expect(has(pick, "ExamIcon")).toBe(false)
+		expect(has(pick, "return words.SlipTitle, words.SlipHint")).toBe(true)
+		expect(Icons.count(Pure.WORDS.SlipTitle)).toBe(0)
+	end)
+
+	test("the streak shows from 2, in words, never a 🔥 or a bare 0", function()
+		expect(Pure.STREAK_SHOWN).toBe(2)
+		expect(Pure.streakText(0, true)).toBe("")
+		expect(Pure.streakText(1, true)).toBe("")
+		expect(Pure.streakText(2, true)).toBe("Streak 2")
+		expect(Pure.streakText(7.6, true)).toBe("Streak 7")
+		expect(Pure.streakText(9, false)).toBe("") -- Simple mode: no chip
+		expect(Pure.streakText(0 / 0, true)).toBe("")
+		expect(Pure.streakText("3", true)).toBe("")
+		local show = body("local function showCombo(")
+		expect(has(show, "v.Modal.setMeta(Pure.streakText(value, v.ComboOn))")).toBe(true)
+		expect(has(show, "Go!")).toBe(false)
+	end)
+
+	test("the status strip's step dots are plain: no emoji, no outline", function()
+		local steps = body("local function setSteps(")
+		expect(has(steps, "emoji(")).toBe(false)
+		expect(has(steps, "blob(")).toBe(false)
+		expect(has(steps, "Kit.stroke")).toBe(false)
+		expect(has(code, "refreshSteps")).toBe(false)
+	end)
+
+	test("the hint line has no 👆 / 🖱️ in front (the pad's own picture stays for gamepads)", function()
+		local hint = body("local function setHint(")
+		expect(has(hint, "pointer()")).toBe(false)
+		expect(has(hint, "padImage()")).toBe(true)
+	end)
+
+	test("the tip is a Kit.unit (the Cash Unit and its number apart), the rating pop is words", function()
+		expect(has(code, '"💰')).toBe(false)
+		expect(has(body("local function showTip("), "Icon = Icons.Unit.Cash")).toBe(true)
+		local rating = body("local function showRating(")
+		expect(has(rating, "text.Text = look.Text")).toBe(true)
+		-- the Pour target is a drawn mark, not a ⭐
+		expect(has(code, '"⭐"')).toBe(false)
+	end)
+
+	test("the tool and item cards are untouched: each game keeps its own art", function()
+		for _, id in Tools.ORDER do
+			expect(Pure.LOOKS[Tools[id].Game].Icon).toBe(Tools[id].Icon)
+		end
+	end)
+
+	test(
+		"the lift's empty floor wears the Lift door; the floor you're on says 'here' (never 📍 beside an icon)",
+		function()
+			local lift = source("src/client/UI/LiftPanel.luau")
+			local from = string.find(lift, "-- PURE-BEGIN", 1, true) :: number
+			local to = string.find(lift, "-- PURE-END", 1, true) :: number
+			local Lift =
+				luau.load(string.sub(lift, from, to - 1) .. "\nreturn Pure\n", { debugName = "LiftPanel (pure)" })()
+			expect(Lift.label(3, {})).toBe(Icons.Door.Lift .. " 3")
+			expect(Lift.HERE).toBe(" · here")
+			expect(has(codeOf(lift), "📍")).toBe(false)
+			expect(has(codeOf(lift), 'Title = "Lift"')).toBe(true)
+		end
+	)
+
+	test("the Send card: two Art-noun buttons in the Normal voice, one emoji each", function()
+		local Routing = data("src/shared/Logic/Routing.luau")
+		expect(Icons.count(Routing.TEXT.Title)).toBe(0)
+		for _, kind in Routing.KINDS do
+			expect(Icons.count(Routing.TEXT[kind])).toBe(1)
+		end
+		local card = codeOf(source("src/client/UI/SendCard.luau"))
+		expect(has(card, 'Kit.voice(button, "Normal")')).toBe(true)
+		expect(has(card, "Theme.TextSize.Title")).toBe(false)
+	end)
+end)
+
 return nil

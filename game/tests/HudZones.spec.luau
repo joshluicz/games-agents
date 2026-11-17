@@ -30,6 +30,7 @@ T.describe("HudZones: every piece has one zone and one slot", function()
 			"Settings",
 			"Cash",
 			"Stars",
+			"Level",
 			"Now",
 			"Clock",
 			"Event",
@@ -54,7 +55,7 @@ T.describe("HudZones: every piece has one zone and one slot", function()
 			expect(table.find(pieces, piece) ~= nil).toBe(true)
 		end
 		expect(count).toBe(#pieces)
-		expect(zones).toEqual({ System = 1, Wallet = 2, Now = 1, Status = 4, LeftRail = 5, RightRail = 3, Bottom = 1 })
+		expect(zones).toEqual({ System = 1, Wallet = 3, Now = 1, Status = 4, LeftRail = 5, RightRail = 3, Bottom = 1 })
 	end)
 
 	test("the rails' order, and every rail piece's zone matches its rail", function()
@@ -75,7 +76,12 @@ T.describe("HudZones: every piece has one zone and one slot", function()
 		expect(HudZones.RAIL_GAP_PHONE).toBe(8)
 		expect(HudZones.CORNER_CLEAR).toBe(110)
 		expect(HudZones.TOPBAR).toBe(58)
-		expect(HudZones.WALLET_HEIGHT).toBe(112)
+		-- 💰, ⭐ and the hospital level with its bar (the level bar: Joshua, 2026-11-17 "where to see my level?")
+		expect(HudZones.WALLET_ROW).toBe(44)
+		expect(HudZones.LEVEL_ROW).toBe(64)
+		expect(HudZones.LEVEL_ROW >= HudZones.RAIL_BUTTON_MIN).toBe(true) -- the level row is a tap target
+		expect(HudZones.WALLET_HEIGHT).toBe(2 * 44 + 64 + 2 * 4)
+		expect(HudZones.WALLET_HEIGHT).toBe(160)
 		expect(HudZones.NOW_HEIGHT).toBe(88)
 		expect(HudZones.NOW_HEIGHT_SHORT).toBe(76)
 		expect(HudZones.NOW_TAB).toBe(24)
@@ -146,13 +152,14 @@ T.describe("HudZones.layout", function()
 		expect(HudZones.layout(932, 430).Band.Bottom - HudZones.layout(932, 430).Band.Top).toBe(254)
 	end)
 
-	test("1280 x 720: all 5 on the left at 72 with captions, the wallet above them", function()
+	test("1280 x 720: all 5 on the left at 66 with captions, the wallet (with the level row) above them", function()
 		local layout = HudZones.layout(1280, 720)
 		expect(layout.Phone).toBe(false)
 		expect(layout.Left).toEqual({ "Shop", "Nurses", "Book", "Badges", "Boards" })
 		expect(layout.More).toEqual({})
 		expect(layout.Right).toEqual({ "Gifts", "Goals", "Mailbox" })
-		expect(layout.Button).toBe(72)
+		expect(layout.Button).toBe(66) -- the level row made the wallet 48 px taller: the plates give 6 px each
+		expect(HudZones.layout(1920, 1080).Button).toBe(72) -- a big screen still gets the full plate
 		expect(layout.Gap).toBe(10)
 		expect(layout.Captions).toBe(true)
 		expect(layout.WalletInTopbar).toBe(false)

@@ -505,6 +505,83 @@ T.describe("BranchPanel (pure): themes and opening", function()
 	end)
 end)
 
+T.describe("BranchPanel (pure): the calm UI (UI direction §4 #6; memory-20261117-007, -006)", function()
+	test(
+		"R0: a save with no branch sees the Open page alone; the first branch brings Perks, Tree and Themes",
+		function()
+			eq(Pure.visible(snap()), { Open = true, Perks = false, Tree = false, Themes = false })
+			eq(
+				Pure.visible(snap({ Level = 5, Cash = 1e9 })),
+				{ Open = true, Perks = false, Tree = false, Themes = false }
+			)
+			eq(
+				Pure.visible(snap({ Rebirth = { Count = 1 } })),
+				{ Open = true, Perks = true, Tree = true, Themes = true }
+			)
+			-- a save that already has a card, points, a gift or a node keeps that tab (nothing vanishes)
+			eq(Pure.visible(snap({ Rebirth = { Offer = { "BigHands" } } })).Perks, true)
+			eq(Pure.visible(snap({ Rebirth = { Pending = { "FounderFennec" } } })).Perks, true)
+			eq(Pure.visible(snap({ Rebirth = { Points = 2 } })).Tree, true)
+			eq(Pure.visible(snap({ Rebirth = { Tree = { QuickFeet = 1 } } })).Tree, true)
+			-- under two tabs showing there is no tab column (Modal.Pure.tabColumn)
+			local shown = 0
+			for _, id in Pure.TABS do
+				if Pure.visible(snap())[id] then
+					shown += 1
+				end
+			end
+			eq(shown, 1)
+		end
+	)
+	test("every fixed text is words only (Busy is the ⏳ State alone, in place of a button's label)", function()
+		for key, text in Pure.TEXT do
+			if key == "Busy" then
+				eq(text, Icons.State.Waiting)
+			else
+				eq(Icons.count(text), 0)
+			end
+		end
+		eq(Pure.TEXT.Title, "Branches")
+		eq(Pure.TEXT.OpenButton, "Open branch")
+		eq({ Pure.TEXT.Keep, Pure.TEXT.Reset, Pure.TEXT.Get }, { "You keep", "Starts fresh", "You get" })
+	end)
+	test("one emoji per row: the row's own Art (rowWords has none, unless a perk's name is a row's words)", function()
+		local allPerks = table.clone(Perks.Order)
+		for count = 0, 25 do
+			for _, perks in { {}, allPerks } do
+				local state = snap({ Level = 5, Cash = 1e7, Rebirth = { Count = count, Perks = perks } })
+				local rows = {}
+				for _, list in
+					{ Pure.keepRows(), Pure.resetRows(state, Perks, Config), Pure.getRows(state, Config, Themes) }
+				do
+					for _, row in list do
+						table.insert(rows, row)
+					end
+				end
+				for _, row in rows do
+					eq(Icons.count(Pure.rowWords(row)), 0)
+					eq(Icons.count(Pure.rowText(row)), 1)
+				end
+				assert(Icons.count(Pure.oddsText(state, Perks)) == 0, "odds in words")
+			end
+		end
+		for _, nodeId in Tree.Nodes.Order do
+			for _, points in { 0, 9 } do
+				local view = Pure.nodeView(snap({ Rebirth = { Points = points } }), nodeId, Tree)
+				assert(Icons.count(view.Button) <= 1, view.Button)
+			end
+		end
+		for _, branchId in Tree.BranchOrder do
+			eq(Icons.count(Pure.branchView(snap(), branchId, Tree).Head), 1)
+		end
+	end)
+	test("the calm rules: BranchPanel is at 0 on every one (the ratchet, locked here)", function()
+		local over = UiRules.ratchet({ "src/client/UI/BranchPanel.luau" }, {})
+		assert(#over == 0, "\n" .. table.concat(over, "\n"))
+		eq(UiRules.check({ "src/client/UI/BranchPanel.luau" }), {})
+	end)
+end)
+
 T.describe("Shop (pure): the 🏥 tab's branch card, gates and levels", function()
 	test("the branch card: hidden below Lv 5 with no branches; at Lv 5 the cost and Look 👀", function()
 		eq(ShopPure.branchCard(snap({ Level = 4 }), Config, Tree).Show, false)

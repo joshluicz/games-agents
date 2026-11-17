@@ -609,6 +609,9 @@ function Pure.firstTab(tab: any, state: any, treeData: any): string
 	end
 	return "Open"
 end
+-- PURE-END
+
+BranchPanel.Pure = Pure
 
 ------------------------------------------------------------------------------------------------------------------
 -- Look helpers: the calm UI (docs/plan/2026-11-17-ui-direction.md; Joshua, memory-20261117-007): Kit.card (a fill,

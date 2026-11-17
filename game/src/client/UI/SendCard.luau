@@ -8,7 +8,9 @@
 -- there is one kind of place, so the press itself sends it on the server and nothing shows here. From Lv 3, with the
 -- X-ray bay open, the prompt's Choice is true: this client opens a small card on the shared modal shell (a Popup:
 -- the navy header, no look of its own) with two big Secondary buttons, "🩺 Exam bay" and "📸 X-ray" (Logic/Routing.TEXT;
--- the title is words only). A tap fires the SendPatient RemoteEvent (visitId, "Exam" | "XRay") and closes the card.
+-- the title is words only). The calm UI (UI direction §2, memory-20261117-007): each button carries ONE emoji, the
+-- Art noun of the place it picks (rule 2's "🩺 Healer" case), in the Normal voice (R5); neither is filled, because
+-- neither is "the" answer; no outline, no chip, nothing that loops. A tap fires the SendPatient RemoteEvent (visitId, "Exam" | "XRay") and closes the card.
 -- The server checks everything and answers with a toast when it helps: a wrong pick is gently corrected ("That one
 -- needs the X-ray!") and the patient stays seated, with no penalty; no free place says "All bays are busy!".
 -- Walking away from the patient, or the patient going (sent by someone else, or home), closes the card.
@@ -101,11 +103,11 @@ function SendCard.init(ctx: Types.Ctx)
 			Name = "Place_" .. entry.Choice,
 			Kind = "Secondary",
 			Text = entry.Text,
-			TextSize = Theme.TextSize.Title,
 			Size = UDim2.new(1, 0, 0, Pure.BUTTON_HEIGHT),
 			LayoutOrder = index,
 			Parent = body,
 		})
+		Kit.voice(button, "Normal") -- a Secondary button speaks in the Normal voice (UI direction R5)
 		first = first or button
 		button.Activated:Connect(function()
 			pick(entry.Choice)

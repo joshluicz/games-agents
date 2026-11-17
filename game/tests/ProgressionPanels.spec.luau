@@ -28,6 +28,7 @@ local Nurses = require("../src/shared/Data/Nurses")
 local Rarities = require("../src/shared/Data/Rarities")
 local Themes = require("../src/shared/Data/Themes")
 local Config = require("./config")
+local Icons = require("../src/client/UI/Icons")
 
 local FILES = {
 	"src/client/UI/NursePanel.luau",
@@ -107,13 +108,15 @@ local function words(text: string): number
 	return n
 end
 
-local ModalPure = pureBlock("src/client/UI/Modal.luau", {})
-local AP = pureBlock("src/client/UI/AgencyPanel.luau", { NurseLogic = NurseLogic })
-local MP = pureBlock("src/client/UI/MarketPanel.luau", { MarketLogic = MarketLogic })
+-- Every pure block gets UI/Icons (the chrome emoji dictionary, a pure library) whether it reads it yet or not.
+local ModalPure = pureBlock("src/client/UI/Modal.luau", { Icons = Icons })
+local AP = pureBlock("src/client/UI/AgencyPanel.luau", { NurseLogic = NurseLogic, Icons = Icons })
+local MP = pureBlock("src/client/UI/MarketPanel.luau", { MarketLogic = MarketLogic, Icons = Icons })
 local BP = pureBlock("src/client/UI/BranchPanel.luau", {
 	RebirthLogic = RebirthLogic,
 	TreeLogic = TreeLogic,
 	NurseLogic = NurseLogic,
+	Icons = Icons,
 })
 
 -- What every confirm a panel passes must be: two words of title at most, six words of question at most, a role, the
@@ -336,7 +339,7 @@ T.describe("T7 panels: the template in the source", function()
 				expect(type(Themes[themeId][key])).toBe("string")
 			end
 		end
-		expect(BP.TEXT.WallsStay).toBe("🎨 Walls stay your colour")
+		expect(BP.TEXT.WallsStay).toBe("Walls stay your colour")
 		assert(words(BP.TEXT.WallsStay) <= 6, BP.TEXT.WallsStay)
 		local body = bodies["src/client/UI/BranchPanel.luau"]
 		assert(not string.find(body, '"Wall"', 1, true), "no Wall swatch")

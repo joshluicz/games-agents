@@ -36,10 +36,13 @@
 --     (Logic/Belt.price at your hospital level) and beside it a Quiet "🎲 Odds" button (the odds popup, one tap
 --     from the card: red line 3). Every other rider shows a small chip (its icon and your price),
 --     sized in studs (it shrinks with distance, never above CHIP_SIZE px) and not on top, so the world hides it;
---     tap one to open its card. Hired riders show ✅; yours at max level show ⭐ MAX. An Epic+ rider when your
---     hospital is under Config.Belt.MinLevel (Lv 3) shows "🏥 Lv 3" instead of a price and Hire (it rides for
---     everyone on the one shared belt; it's never a locked tease: no lock, no price, no "hurry"), and the server
---     refuses that hire too (NurseBelt).
+--     tap one to open its card. Hired riders show ✅; yours at max level show MAX. An Epic+ rider when your
+--     hospital is under Config.Belt.MinLevel (Lv 3) (or a Mythic/Secret before R1) wears ONE 🔒 State badge
+--     (Kit.setState) and says its gate in words ("Needs 🏥 Lv 3"), with no price and a grey Hire (it rides for
+--     everyone on the one shared belt; no banner, no "hurry"), and the server refuses that hire too (NurseBelt).
+--   · The calm UI (docs/plan/2026-11-17-ui-direction.md; memory-20261117-007): chrome emoji come from UI/Icons; the
+--     popup title is words ("Nurse odds"); the odds rows and notes keep their emoji (red line 3: odds always on
+--     show); the Golden Hour banner waits until your hospital may hire Secret nurses (Lv 3), as the HUD's line does.
 --   · Hire: the button asks HireNurse (Hud.ask). Too far or short of cash, it explains instead of asking (the
 --     server still checks everything). Its HirePrompt (keyboard E, gamepad) gets the Custom style, so the card is
 --     the prompt's look: the key shows on the card's button while the prompt is up. Its ObjectText is your price.
@@ -74,6 +77,7 @@ local NurseLogic = require(Logic:WaitForChild("Nurse"))
 local RebirthLogic = require(Logic:WaitForChild("Rebirth"))
 local TutorialLogic = require(Logic:WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
+local Icons = require(script.Parent.Icons)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -90,7 +94,7 @@ local HALO = 6 -- px of rarity halo round the full card
 local FULL_SIZE = Vector2.new(240, 164) -- wide enough for Hire and "🎲 Odds" side by side (both 56 px tall)
 local ODDS_SHARE = 0.38 -- the "🎲 Odds" button's share of the card's button row
 local ODDS_PROMPT = "OddsPrompt" -- the sign's "🎲 See odds" prompt (Server/NurseBelt)
-local ODDS_TITLE = "🎲 Nurse odds"
+local ODDS_TITLE = "Nurse odds" -- a title is words only (memory-20261117-007)
 local CHIP_SIZE = Vector2.new(120, 64) -- px: the most a chip ever shows (up close)
 local CHIP_MIN = Vector2.new(100, 53) -- px: the least, so its price fits at 18 px (chips show within ~50 studs)
 local CHIP_STUDS = Vector2.new(6, 3.2) -- the chip's canvas in studs (the same shape), so it shrinks with distance
@@ -169,7 +173,7 @@ end
 function Pure.statText(role: string, rarity: string, level: number, cfg: any): string
 	local stats = NurseLogic.stats(role, rarity, level, cfg)
 	if role == "Cheerer" then
-		return "⏳+" .. share(stats.Patience) .. " 💰+" .. share(stats.Tip)
+		return "⏳+" .. share(stats.Patience) .. " 💰+" .. share(stats.Tip) -- uirules: allow TypedEmoji (pinned by tests/NurseUI.spec)
 	end
 	local every = stats.Every
 	if every then
@@ -307,9 +311,9 @@ end
 -- The price cell (and a chip): your price, or "🏥 Lv n" while your hospital can't hire that rarity yet.
 function Pure.priceText(price: number, minLevel: number, level: number): string
 	if level < minLevel then
-		return "🏥 Lv " .. minLevel
+		return "🏥 Lv " .. minLevel -- uirules: allow TypedEmoji (pinned by tests/NurseUI.spec; the server's gate words)
 	end
-	return "💰" .. Pure.short(price)
+	return "💰" .. Pure.short(price) -- uirules: allow TypedEmoji (pinned by tests/NurseUI.spec)
 end
 
 -- Progression v2. 🏷️ Bargain (Logic/Rebirth.effects .Bargain) off a belt price, rounded once more: Server/NurseBelt's
@@ -325,15 +329,24 @@ function Pure.gatedPrice(price: number, gate: string?): string
 	if type(gate) == "string" and gate ~= "" then
 		return gate
 	end
-	return "💰" .. Pure.short(price)
+	return "💰" .. Pure.short(price) -- uirules: allow TypedEmoji (pinned by tests/AgencyServer.spec)
 end
 
 -- The reply for a gate, the server's own words (Server/NurseBelt): "🏥 Lv 3 hospital first!" · "🏢 R1 first!".
 function Pure.gateMessage(gate: string): string
-	if string.sub(gate, 1, #"🏥") == "🏥" then
+	if string.sub(gate, 1, #"🏥") == "🏥" then -- uirules: allow TypedEmoji (Server/NurseBelt's gate words, pinned by tests/AgencyServer.spec)
 		return gate .. " hospital first!"
 	end
 	return gate .. " first!"
+end
+
+-- A gated card's words: "Needs 🏥 Lv 3" · "Needs 🏢 R1" (the gate from Logic/Belt.gate, else the level a rarity
+-- needs). The card wears the 🔒 State badge beside it.
+function Pure.gateWords(gate: string?, minLevel: number): string
+	if type(gate) == "string" and gate ~= "" then
+		return "Needs " .. gate
+	end
+	return "Needs " .. Pure.priceText(0, minLevel, 0)
 end
 
 -- A new nurse wouldn't fit: you don't own it and the roster is full (Logic/Nurse.canAdd on the Snapshot).
@@ -360,7 +373,7 @@ function Pure.rebirthNote(cfg: any, rarities: { string }): string?
 	if #names == 0 then
 		return nil
 	end
-	return "🏢 " .. table.concat(names, "/") .. " from R" .. needed
+	return "🏢 " .. table.concat(names, "/") .. " from R" .. needed -- uirules: allow TypedEmoji (an odds note, pinned by tests/AgencyServer.spec and TownWorld.spec)
 end
 
 -- The 🔭 Belt Scout chip: "🔭 Next: 💎 Rare" (the next arrival's rarity), or nil for junk. `info` is that rarity's
@@ -387,7 +400,7 @@ end
 -- the sign shows). `infos` are Data/Rarities rows ({ Icon, Name }) by rarity.
 export type PopupRow = { Icon: string, Name: string, Percent: number }
 function Pure.popupRows(cfg: any, rarities: { string }, infos: any, night: boolean, golden: boolean): { PopupRow }
-	local blocks = { { Icon = "☀️", Night = false }, { Icon = "🌙", Night = true } }
+	local blocks = { { Icon = "☀️", Night = false }, { Icon = "🌙", Night = true } } -- uirules: allow TypedEmoji (odds rows, pinned by tests/TownWorld.spec)
 	if night then
 		blocks = { blocks[2], blocks[1] }
 	end
@@ -413,14 +426,14 @@ function Pure.popupNotes(cfg: any, rarities: { string }, night: boolean, golden:
 	local notes: { string } = {}
 	table.insert(
 		notes,
-		if golden then "👑 Golden Hour now!" elseif night then "🌙 Night Rush now!" else "☀️ Day odds now"
+		if golden then "👑 Golden Hour now!" elseif night then "🌙 Night Rush now!" else "☀️ Day odds now" -- uirules: allow LeadEmoji, uirules: allow TypedEmoji (odds notes, pinned by tests/TownWorld.spec)
 	)
 	if not golden then
-		table.insert(notes, "👑 Golden Hour: Secret " .. Pure.percent(BeltLogic.odds(cfg, night, true).Secret))
+		table.insert(notes, "👑 Golden Hour: Secret " .. Pure.percent(BeltLogic.odds(cfg, night, true).Secret)) -- uirules: allow LeadEmoji (an odds note, pinned by tests/TownWorld.spec)
 	end
 	local level = BeltLogic.minLevel(cfg, "Epic")
 	if level > 1 then
-		table.insert(notes, "🏥 Epic+ from Lv " .. level)
+		table.insert(notes, "🏥 Epic+ from Lv " .. level) -- uirules: allow LeadEmoji, uirules: allow TypedEmoji (an odds note, pinned by tests/TownWorld.spec)
 	end
 	local rebirth = Pure.rebirthNote(cfg, rarities)
 	if rebirth then
@@ -428,7 +441,7 @@ function Pure.popupNotes(cfg: any, rarities: { string }, night: boolean, golden:
 	end
 	table.insert(
 		notes,
-		if finite(pityLeft) and pityLeft > 0 then "🎁 Rare+ in " .. math.floor(pityLeft) else "🎁 Rare+ next!"
+		if finite(pityLeft) and pityLeft > 0 then "🎁 Rare+ in " .. math.floor(pityLeft) else "🎁 Rare+ next!" -- uirules: allow TypedEmoji (an odds note, pinned by tests/TownWorld.spec)
 	)
 	return notes
 end
@@ -724,7 +737,7 @@ function BeltView.init(ctx: Types.Ctx)
 			Parent = card,
 		})
 		Kit.corner(sticker, Theme.Radius.Small)
-		Kit.stroke(sticker, Theme.Colors.Outline, 2.5)
+		Kit.stroke(sticker, Theme.Colors.Outline, 2.5) -- uirules: allow StrokeBudget (a candy sticker on a card over the 3D world)
 		local name = Kit.label({
 			Name = "NurseName",
 			Text = if nurse then nurse.Name else "?",
@@ -767,7 +780,7 @@ function BeltView.init(ctx: Types.Ctx)
 		local odds = Kit.button({
 			Name = "Odds",
 			Kind = "Quiet",
-			Text = "🎲 Odds",
+			Text = "🎲 Odds", -- uirules: allow TypedEmoji (pinned by tests/TownWorld.spec; the odds link on a card over the world)
 			TextScaled = true,
 			AnchorPoint = Vector2.new(1, 1),
 			Position = UDim2.new(1, -7, 1, -8),
@@ -815,7 +828,6 @@ function BeltView.init(ctx: Types.Ctx)
 		})
 		Kit.textLimit(pill, 24)
 		Kit.corner(pill, Theme.Size.Corner)
-		Kit.stroke(pill, Theme.Colors.Outline, Theme.Size.Stroke)
 		local pillPad = Instance.new("UIPadding")
 		pillPad.PaddingTop = UDim.new(0, 10)
 		pillPad.PaddingBottom = UDim.new(0, 10)
@@ -884,7 +896,7 @@ function BeltView.init(ctx: Types.Ctx)
 			Parent = chip,
 		})
 		Kit.corner(chipDot, Theme.Radius.Round)
-		Kit.stroke(chipDot, Theme.Colors.Outline, 2)
+		Kit.stroke(chipDot, Theme.Colors.Outline, 2) -- uirules: allow StrokeBudget (the news dot on a chip over the 3D world)
 		chip.Activated:Connect(function()
 			tappedId = rider.Id
 			Hud.sound("Pop")
@@ -1072,7 +1084,16 @@ function BeltView.init(ctx: Types.Ctx)
 			if owned > 0 and hireState ~= "Max" then
 				text ..= "  ⬆️Lv" .. (owned + 1)
 			end
-			stat.Text = if hireState == "Full" then "👥 Roster full" else text
+			-- A card you can't hire yet says its gate in words and wears one 🔒 State badge (no banner, no price).
+			local gated = hireState == "Level" or hireState == "Rebirth"
+			stat.Text = if hireState == "Full"
+				then "Roster full"
+				elseif gated then Pure.gateWords(gateFor(rider.Rarity), BeltLogic.minLevel(cfg, rider.Rarity))
+				else text
+		end
+		local card = rider.Card
+		if card then
+			Kit.setState(card, if hireState == "Level" or hireState == "Rebirth" then Icons.State.Locked else nil)
 		end
 
 		local button, pill, keyChip = rider.Button, rider.Pill, rider.Key
@@ -1083,16 +1104,16 @@ function BeltView.init(ctx: Types.Ctx)
 			keyChip.Visible = not done and keyText ~= nil
 			keyChip.Text = keyText or ""
 			if hireState == "Hired" then
-				pill.Text = "✅ Hired"
+				pill.Text = "Hired"
 				pill.BackgroundColor3 = Theme.Colors.Good
 			elseif hireState == "Max" then
-				pill.Text = "⭐ MAX"
+				pill.Text = "MAX"
 				pill.BackgroundColor3 = Theme.Colors.Purple
 			end
 			if not done then
 				button.Text = if rider.Busy
-					then "⏳"
-					elseif hireState == "Level" or hireState == "Rebirth" then priceText
+					then Icons.State.Waiting
+					elseif hireState == "Level" or hireState == "Rebirth" then "Hire"
 					elseif hireState == "Full" then "Sell or list one"
 					else "Hire " .. priceText
 				local ready = hireState == "Ready"
@@ -1112,9 +1133,9 @@ function BeltView.init(ctx: Types.Ctx)
 		local chipPrice = rider.ChipPrice
 		if chipPrice then
 			chipPrice.Text = if hireState == "Hired"
-				then "✅"
-				elseif hireState == "Max" then "⭐MAX"
-				elseif hireState == "Full" then "👥 Full"
+				then Icons.State.Done
+				elseif hireState == "Max" then "MAX"
+				elseif hireState == "Full" then "Full"
 				else priceText
 			chipPrice.TextColor3 = if hireState == "Ready" or hireState == "Hired"
 				then Theme.Colors.Ink
@@ -1135,7 +1156,7 @@ function BeltView.init(ctx: Types.Ctx)
 		elseif state == "Level" or state == "Rebirth" then
 			-- The server's own words (NurseBelt) for the same case: grow the hospital first (Shop's 🏥 tab), or open a
 			-- branch first (Progression v2).
-			ctx.toast(Pure.gateMessage(gateFor(rider.Rarity) or ("🏥 Lv " .. BeltLogic.minLevel(cfg, rider.Rarity))))
+			ctx.toast(Pure.gateMessage(gateFor(rider.Rarity) or Icons.level(BeltLogic.minLevel(cfg, rider.Rarity))))
 			Hud.shake(button)
 			return
 		elseif state == "Full" then
@@ -1145,7 +1166,7 @@ function BeltView.init(ctx: Types.Ctx)
 			return
 		elseif state == "Poor" then
 			local short = rider.Price - (if type(ctx.State.Cash) == "number" then ctx.State.Cash else 0)
-			ctx.toast("Need 💰" .. Hud.format(math.max(short, 1)) .. " more!")
+			ctx.toast("Need " .. Icons.unit("Cash", Hud.format(math.max(short, 1))) .. " more!")
 			Hud.shake(button)
 			return
 		elseif state ~= "Ready" then
@@ -1572,15 +1593,17 @@ function BeltView.init(ctx: Types.Ctx)
 	end
 
 	-- Once per window, for a few seconds, with the real chance (no countdown, no "limited time": red line 3).
+	-- R0 (UI direction "What a Lv 1 player sees"): the Golden Hour means nothing before your hospital may hire its
+	-- Secret nurses (Config.Belt.MinLevel, Lv 3), so its banner waits until then, as the HUD's Golden Hour line does.
 	local function syncGolden(on: boolean)
-		if on and allowed() then
+		if on and allowed() and myLevel() >= BeltLogic.minLevel(cfg, "Secret") then
 			if not goldenShown then
 				goldenShown = true
 				Hud.sound("Golden")
 				local secret = BeltLogic.odds(cfg, nightRush(), true).Secret
 				ctx.fire("Banner", {
 					Id = "GoldenHour",
-					Icon = "👑",
+					Icon = Icons.Status.Golden,
 					Text = "Golden Hour: Secret " .. Pure.percent(secret),
 					Color = goldColor,
 					Seconds = GOLDEN_BANNER_SECONDS,
@@ -1588,7 +1611,7 @@ function BeltView.init(ctx: Types.Ctx)
 			end
 		elseif not on and goldenShown then
 			goldenShown = false
-			ctx.fire("Banner", { Id = "GoldenHour", Icon = "👑", Text = "", Seconds = 0 })
+			ctx.fire("Banner", { Id = "GoldenHour", Icon = Icons.Status.Golden, Text = "", Seconds = 0 })
 		end
 	end
 
@@ -1596,14 +1619,14 @@ function BeltView.init(ctx: Types.Ctx)
 		local on = nightRush()
 		if not on then
 			if nightShown then
-				ctx.fire("Banner", { Id = "NightRush", Icon = "🌙", Text = "", Seconds = 0 })
+				ctx.fire("Banner", { Id = "NightRush", Icon = Icons.Status.Night, Text = "", Seconds = 0 })
 			end
 			nightShown = false
 		elseif not nightShown and allowed() then
 			nightShown = true
 			ctx.fire("Banner", {
 				Id = "NightRush",
-				Icon = "🌙",
+				Icon = Icons.Status.Night,
 				Text = "Night Rush: more rare nurses!",
 				Color = Theme.Colors.Night,
 				Seconds = NIGHT_BANNER_SECONDS,

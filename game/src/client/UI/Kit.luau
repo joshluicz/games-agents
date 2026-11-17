@@ -1613,7 +1613,14 @@ function Kit.unit(props: Props?): (Frame, TextLabel)
 	})
 	Kit.voice(amount, voice)
 	amount.TextSize = px
-	apply(row, props)
+	-- Text belongs to the Amount label, not the row Frame (a Frame has no Text).
+	local rowProps: Props = {}
+	for key, value in props or {} do
+		if key ~= "Text" then
+			rowProps[key] = value
+		end
+	end
+	apply(row, rowProps)
 	return finish(row, props), amount
 end
 

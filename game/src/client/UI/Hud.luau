@@ -6,41 +6,53 @@
 -- slot empty, so nothing ever jumps. Laid out from HudZones.layout(safe width, safe height, top bar) on every resize:
 --   System   the Roblox top-bar row (a ScreenInsets = TopbarSafeInsets ScreenGui, beside Roblox's own buttons): ⚙️ on
 --            a dark-glass plate. On phones (a safe height under 440) the wallet joins this row
---   Wallet   top left, above the left rail: 💰 and ⭐, each an icon plus a big outlined number (TextSize.Number) with
---            NO pill. ⭐ keeps its thin bar and the next-unlock icon and stays tappable (what's next). The roll-ups
---            (Kit.countUp), the floating "+n" and the mini-game's 🔥 combo sticker (never during the tutorial) stay
---   Now      top centre: ONE card (Hud.setNow), the highest priority first: 30 Hud's warnings (⚠️ Not saving, 🏠
---            Clinics full) · 20 the tutorial card (UI/Tutorial) · 10 the tracked goal (the first unfinished daily
---            goal, "🎯 Treat 5 · 3/5"; a tap opens Goals). Hidden when empty. Toasts and banners stack under it
---            (UI/Toasts, Hud.nowBottom)
---   Status   top right, right-aligned, read-only: (1) day or night with words ("☀️ Night in 3:27" / "🌙 ×2 · 2:08 left":
---            the day/night line keeps m:ss); (2) ONE free-event chip ("🌟 Golden Hour in 12m": Logic/NextEvent over
---            Golden Hour only, in minutes, hidden while it runs, when it's over 6 h away and for anything paid:
---            memory-20261116-022, CLAUDE.md red line 3); (3) "Visitor ⭐" / "Visitor ✅" with its face, only when it
---            can come to your clinic; (4) at most 3 small boost chips (the play time left: a boost only ticks while
+--   Wallet   top left, above the left rail: 💰, ⭐ and the hospital level, each a Unit glued to its number (Kit.unit:
+--            the emoji and the big outlined number are two labels) with NO pill. The level row is "🏥 Lv 1 Clinic"
+--            over ONE navy bar toward the next level, which counts both the ⭐ and the 💰 it needs (Logic/LevelBar),
+--            with "⭐ 12/15" "💰 300/400" under it, or "Level up!" once both are met. A tap: ready = the Shop opens
+--            on its Hospital tab and its Level up button bounces; else a toast says what the next level needs. The
+--            roll-ups (Kit.countUp), the floating "+n" and the mini-game's 🔥 combo sticker stay
+--   Now      top centre: ONE card (Hud.setNow), the highest priority first: 30 Hud's warnings (Not saving, Clinics
+--            full) · 20 the tutorial card (UI/Tutorial) · 15 Hud's one hint ("Patients wait for you: press Send"
+--            once a session · a new door's line · the first level-up) · 10 the tracked goal (the first unfinished
+--            daily goal, "🎯 Treat 5 · 3/5"; a tap opens Goals). Hidden when empty. Toasts and banners stack under
+--            it (UI/Toasts, Hud.nowBottom)
+--   Status   top right, right-aligned, read-only, ONE icon a line: (1) day or night with words ("☀️ Night in 3:27" /
+--            "🌙 ×2 · 2:08 left": the day/night line keeps m:ss); (2) ONE free-event chip ("🌟 Golden Hour in 12m":
+--            Logic/NextEvent over Golden Hour only, in minutes, hidden while it runs, when it's over 6 h away and for
+--            anything paid: memory-20261116-022, CLAUDE.md red line 3); (3) "Visitor today" / "Visitor treated" with
+--            its face, only when it can come to your clinic; (4) at most 3 small boost chips (the play time left: a boost only ticks while
 --            you play). Desktop: at the screen edge, as many rows as fit above the right rail (the clock first).
 --            Phones: in the strip between the Now card and the right rail, in fewer words
 --   Rails    left, menus you browse: 🛒 Shop · 👩‍⚕️ Nurses · 📖 Book · 🏅 Badges · 🏆 Top; right, rewards waiting: 🎁
 --            Gifts · 🎯 Goals · 📬 Mail. One white Icon plate each (Kit.iconButton) with ONE shared fill: identity comes
 --            from the icon and caption, never the fill, so the Shop looks like its neighbours. A still red dot
---            top-right when something waits there (a room you can buy or decor to place · new pages · mail · a goal
+--            top-right when something waits there (a room you can buy or decor to place · new pages · mail (the
+--            icon is always 📬: the dot is "a letter waits") · a goal
 --            done · Nurse Journal news · a gift to open). 🎁's bar fills inside its plate. Phones: 56 px plates, no
 --            captions, 3 a side, and 🏅 / 🏆 move into ⚙️ More (desktop too, when the left rail can't fit all five)
 --   Bottom   only your hands (the `Carry` attribute: what you hold, nothing when they're empty), each ringed in its
 --            station's colour with a red ✖ you HOLD to throw it away (Destructive: behind a hold, look build plan
 --            §B8). Nothing is ever in the bottom corners (the thumbstick and jump on touch)
--- ⚙️ Settings: 🎵 music · ✨/💤 calm effects (the client-only attributes MusicMuted and ReduceEffects) · 👆 Simple mode
--- (SetSimple) · 👥 who may help at your clinic (SetHelpers; owners only) · ⏭️ Skip tutorial while it runs, or 🔁
--- Replay tutorial once it's done and you own a clinic (each fires a bus event: UI/Tutorial owns the confirm and the
--- remote) · ⚙️ More (🏅 Badges, 🏆 Top, when they're off the rail) · 🛠️ Admin (only while the server set IsAdmin).
+-- ⚙️ Settings, one list (Pure.SETTINGS): switches with a fixed label (Kit.toggle: Music · Effects, off = calm (the
+-- client-only attributes MusicMuted and ReduceEffects) · Mini-games, off = simple taps (SetSimple) · Anyone can help,
+-- off = friends only (SetHelpers; owners only)), then Quiet links: Skip tutorial while it runs, or Replay tutorial
+-- once it's done and you own a clinic (each fires a bus event: UI/Tutorial owns the confirm and the remote) · the
+-- doors that are off the rail (Badges, Top) · Admin (only while the server set IsAdmin). No label changes its words.
 -- When things open (UI/Modal's ModalOpened / ModalClosed carry a HudMode): a Panel hides the rails, Now and Status
 -- (the wallet stays, so you watch your cash while you shop) · the mini-game ("Game") hides the rails and Status (the
 -- wallet and the Now card stay) · a Popup ("None") changes nothing · a celebration (UI/Celebrate's screen) hides
 -- everything.
--- First session (docs/plan/2026-11-16-first-session-design.md §A3), in the fixed slots: 💰 at first; ⭐ after the first
--- cure; 🛒 at the shop step; 📖 at the Book step (its pointer needs it); at DONE the rest pops in, one piece every
--- 0.15 s (after the finale's celebration closes). A replay keeps the HUD full; a player who's done sees it all at
--- once. Until the first snapshot arrives (Tutorial 0, "not known yet") only 💰 shows. ⚙️ always shows.
+-- THE REVEAL (UI direction R0 and change 4b; Joshua, memory-20261117-007 #3: one door at a time, each when it first
+-- has content; players who already have a door keep it). In the fixed slots: 💰 at first; ⭐ after the first
+-- treatment; 🛒 at the shop step; 📖 at the Book step (its pointer needs it). After the tutorial each piece has its
+-- own trigger (Pure.TRIGGERS, data): the level row at once · 👩‍⚕️ when the first nurse can be hired · 📬 with the
+-- first letter · 🎁 when the first gift is ready · 🎯 and the day/night line after the first night · 🏅 🏆 with the
+-- first badge · the Golden Hour chip at hospital Lv 3 · the visitor line at Lv 2. "Already have" is read from the
+-- save itself (no new field): a nurse, a Book page, a badge, a gift opened, a night treated; and a save at Lv 2+ or
+-- with a branch keeps every door. A save's doors are simply there when it loads; a NEW door pops once into its slot
+-- with one line on the Now card, and the next waits its turn. Until the first snapshot arrives (Tutorial 0, "not
+-- known yet") only 💰 shows. ⚙️ always shows.
 -- Everything is drawn from the Snapshot, player attributes and Workspace attributes. The client never decides
 -- anything: buttons only open panels, and panels only ask the server. Every motion honours Hud.calm(); nothing here
 -- loops (the dots pop once; the Status clock only rewrites its text, and slows down while it's hidden).
@@ -109,6 +121,7 @@
 --   fires    "SkipTutorial" () · "ReplayTutorial" ()   the ⚙️ rows (UI/Tutorial shows the confirm, asks the remote)
 --   fires    "Sound" (name, volume?)                   Nope on a shake, Pop when icons land
 
+local CollectionService = game:GetService("CollectionService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -128,10 +141,13 @@ local TutorialLogic = require(Logic:WaitForChild("Tutorial"))
 local PlaytimeLogic = require(Logic:WaitForChild("Playtime"))
 local BoostsLogic = require(Logic:WaitForChild("Boosts"))
 local LevelsLogic = require(Logic:WaitForChild("Levels"))
+local LevelBar = require(Logic:WaitForChild("LevelBar"))
+local BeltLogic = require(Logic:WaitForChild("Belt"))
 local ProgressLogic = require(Logic:WaitForChild("Progress"))
 local TreeLogic = require(Logic:WaitForChild("Tree"))
 local HudZones = require(Logic:WaitForChild("HudZones"))
 local NextEvent = require(Logic:WaitForChild("NextEvent"))
+local Icons = require(script.Parent.Icons)
 local Kit = require(script.Parent.Kit)
 local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
@@ -148,50 +164,142 @@ export type Modal = Modal.Modal
 ------------------------------------------------------------------------------------------------------------------
 
 -- PURE-BEGIN
--- No Roblox APIs: tests/HudScreen.spec loads this block on its own, with TutorialLogic, NextEvent and HudZones.
+-- No Roblox APIs: tests/HudScreen.spec loads this block on its own, with TutorialLogic, NextEvent, HudZones and Icons.
 local Pure = {}
 
--- The Now slot's priorities (look build plan §B7): Hud's warnings · the tutorial card (UI/Tutorial) · the goal.
-Pure.PRIORITY = table.freeze({ Warning = 30, Tutorial = 20, Goal = 10 })
-Pure.STAGGER = 0.15 -- seconds between pieces as the rest of the HUD pops in at DONE
+-- The Now slot's priorities (look build plan §B7): Hud's warnings · the tutorial card (UI/Tutorial) · Hud's one hint
+-- (a new door's line, the first level-up, "press Send") · the goal.
+Pure.PRIORITY = table.freeze({ Warning = 30, Tutorial = 20, Hint = 15, Goal = 10 })
+Pure.STAGGER = 0.15 -- seconds between two pieces that arrive with no line (the tutorial's own steps)
+Pure.REVEAL_HOLD = 4 -- seconds a new door's line stays on the Now card; the next door waits for it
 Pure.MAX_BOOSTS = 3 -- boost chips in Status, at most
 Pure.ROW = 28 -- a Status row's height (px)
 Pure.ROW_GAP = 4
 Pure.STATUS_ORDER = table.freeze({ "Clock", "Event", "Visitor", "Boosts" }) -- top to bottom; the first rows win
 -- The free events Status may count down to (memory-20261116-022). Golden Hour only for now (look build plan §F 7);
 -- admin events join when they exist. Nothing paid is ever on this list.
-Pure.GOLDEN = table.freeze({ Id = "GoldenHour", Icon = "🌟", Name = "Golden Hour" })
+Pure.GOLDEN = table.freeze({ Id = "GoldenHour", Icon = Icons.Status.Golden, Name = "Golden Hour" })
+Pure.GOLDEN_LEVEL = 3 -- the Golden Hour chip shows from this hospital level (memory-20261117-007 #3)
 -- The hands at the bottom centre: each between Min and Max px, the row keeping Clear px free at each side (the
 -- thumbstick and the jump button sit about 100 px in from the edges).
 Pure.HAND = table.freeze({ Max = 84, Min = 56, Gap = 6, Clear = 120 })
 -- Every rail plate is the same Icon role: identity comes from the icon and caption, never the fill.
 Pure.RAIL_KIND = "Icon"
 Pure.RAIL = table.freeze({
-	Shop = table.freeze({ Icon = "🛒", Caption = "Shop" }),
-	Nurses = table.freeze({ Icon = "👩‍⚕️", Caption = "Nurses" }),
-	Book = table.freeze({ Icon = "📖", Caption = "Book" }),
-	Badges = table.freeze({ Icon = "🏅", Caption = "Badges" }),
-	Boards = table.freeze({ Icon = "🏆", Caption = "Top" }),
-	Gifts = table.freeze({ Icon = "🎁", Caption = "Gifts" }),
-	Goals = table.freeze({ Icon = "🎯", Caption = "Goals" }),
-	Mailbox = table.freeze({ Icon = "📭", Caption = "Mail" }),
+	Shop = table.freeze({ Icon = Icons.Door.Shop, Caption = "Shop" }),
+	Nurses = table.freeze({ Icon = Icons.Door.Nurses, Caption = "Nurses" }),
+	Book = table.freeze({ Icon = Icons.Door.Book, Caption = "Book" }),
+	Badges = table.freeze({ Icon = Icons.Door.Badges, Caption = "Badges" }),
+	Boards = table.freeze({ Icon = Icons.Door.Top, Caption = "Top" }),
+	Gifts = table.freeze({ Icon = Icons.Door.Gifts, Caption = "Gifts" }),
+	Goals = table.freeze({ Icon = Icons.Door.Goals, Caption = "Goals" }),
+	Mailbox = table.freeze({ Icon = Icons.Door.Mail, Caption = "Mail" }), -- one icon; "ready" is the red dot
 })
--- The rows ⚙️ More shows for a rail piece that's off the rail.
+-- The Quiet links ⚙️ shows for a rail piece that's off the rail, in words (the door's icon lives on its plate).
 -- (Nurses, Book, Goals and Mail only leave the rail on a phone under 348 px of safe height: HudZones.layout.)
 Pure.MORE = table.freeze({
-	Badges = "🏅 Badges",
-	Boards = "🏆 Top",
-	Nurses = "👩‍⚕️ Nurses",
-	Book = "📖 Book",
-	Goals = "🎯 Goals",
-	Mailbox = "📬 Mail",
+	Badges = "Badges",
+	Boards = "Top",
+	Nurses = "Nurses",
+	Book = "Book",
+	Goals = "Goals",
+	Mailbox = "Mail",
 })
--- The order the rest of the HUD pops in at DONE (the left rail, the right rail, then Status).
-Pure.REVEAL_ORDER =
-	table.freeze({ "Shop", "Nurses", "Book", "Badges", "Boards", "Gifts", "Goals", "Mailbox", "Status" })
+-- ⚙️ Settings (UI direction §4 #5): every row is a Toggle (a fixed label and a switch: Kit.toggle) or a Link (a
+-- Quiet text button). No label changes its words with state: the switch shows the state. The More rows above are
+-- Links too.
+Pure.SETTINGS = table.freeze({
+	Music = table.freeze({ Kind = "Toggle", Label = "Music" }),
+	Effects = table.freeze({ Kind = "Toggle", Label = "Effects" }), -- off = calm effects
+	Simple = table.freeze({ Kind = "Toggle", Label = "Mini-games" }), -- off = simple taps
+	Helpers = table.freeze({ Kind = "Toggle", Label = "Anyone can help" }), -- off = friends only
+	Skip = table.freeze({ Kind = "Link", Label = "Skip tutorial" }),
+	Replay = table.freeze({ Kind = "Link", Label = "Replay tutorial" }),
+	Admin = table.freeze({ Kind = "Link", Label = "Admin" }),
+})
+
+-- THE REVEAL (UI direction R0 and change 4b; Joshua, memory-20261117-007 #3: "The HUD reveals one door at a time,
+-- each when it first has content ... Players who already have a door keep it").
+-- REVEAL_ORDER is every piece that can arrive, in the order the queue shows them (the wallet, the left rail, the
+-- right rail, then the Status lines). TRIGGERS is DATA, so a trigger can move without touching code: a piece shows
+-- when ANY of its facts is true (Pure.facts works each fact out from the Snapshot and what this session has seen).
+-- "Already have" needs no new save field: it is read from what the save already holds (a nurse, a Book page, a
+-- badge, a gift opened, a night treated) and from Veteran (hospital Lv 2+ or a branch opened: a save that old had
+-- every door before this rule, so it keeps them all).
+Pure.REVEAL_ORDER = table.freeze({
+	"Stars",
+	"Level",
+	"Shop",
+	"Nurses",
+	"Book",
+	"Badges",
+	"Boards",
+	"Gifts",
+	"Goals",
+	"Mailbox",
+	"Clock",
+	"Event",
+	"Visitor",
+	"Boosts",
+})
+Pure.TRIGGERS = table.freeze({
+	Stars = table.freeze({ "Treated" }), -- after the first treatment
+	Level = table.freeze({ "Done" }), -- the level and its bar: once the tutorial is done
+	Shop = table.freeze({ "ShopStep" }), -- the tutorial's shop step
+	Nurses = table.freeze({ "NurseOwned", "CanHire", "Veteran" }), -- the first nurse can be hired
+	Book = table.freeze({ "BookStep", "BookPage", "Veteran" }), -- the first page is filled
+	Badges = table.freeze({ "Badge", "Veteran" }), -- the first badge
+	Boards = table.freeze({ "Badge", "Veteran" }),
+	Gifts = table.freeze({ "GiftReady", "GiftOpened", "Veteran" }), -- the first play gift is ready
+	Goals = table.freeze({ "NightSeen", "GoalReady", "Veteran" }), -- the first day has ended (or a goal is done)
+	Mailbox = table.freeze({ "MailReady", "Story", "Veteran" }), -- the first letter
+	Clock = table.freeze({ "NightSeen", "Veteran" }), -- the first night
+	Event = table.freeze({ "Golden" }), -- hospital Lv 3 (GOLDEN_LEVEL)
+	Visitor = table.freeze({ "Veteran" }),
+	Boosts = table.freeze({ "Boost" }), -- a timed boost is running
+})
+-- What the Now card says as a door arrives (one line, six words or fewer, no emoji: the door's icon is on its tile).
+-- A piece with no line arrives quietly.
+Pure.DOOR_LINE = table.freeze({
+	Level = "Your clinic level is here",
+	Nurses = "New: hire your first nurse",
+	Badges = "New: your badges",
+	Boards = "New: the top clinics",
+	Gifts = "New: a gift to open",
+	Goals = "New: daily goals",
+	Mailbox = "New: you have mail",
+	Clock = "New: the day and night clock",
+	Event = "New: Golden Hour times",
+})
+-- The icon on the Now card's tile for a piece that isn't a rail door (a rail door shows its own).
+Pure.DOOR_ICON = table.freeze({
+	Level = Icons.Unit.Level,
+	Clock = Icons.Status.Night,
+	Event = Icons.Status.Golden,
+})
+-- Hud's other words (plain: no emoji in front of a sentence).
+Pure.TEXT = table.freeze({
+	LevelUp = "You can level up: tap here",
+	Send = "Patients wait for you: press Send",
+	Throw = "Hold the red button to throw away",
+	NotSaving = "Not saving",
+	ClinicsFull = "Clinics full",
+	VisitorComing = "Visitor today",
+	VisitorDone = "Visitor treated",
+	NoBoosts = "No boosts yet: earn badges!",
+})
+-- "Patients wait for you: press Send" (patients no longer walk to a bay by themselves: Logic/Routing): once a
+-- session, past the tutorial, when a patient has sat waiting to be sent for After seconds. It stays at most Hold
+-- seconds, and goes as soon as nobody waits.
+Pure.SEND_HINT = table.freeze({ After = 12, Hold = 10 })
+-- A waiting patient's prompt (Server/Patients: U.sendPrompt; UI/SendCard.Pure.PROMPT_NAME): on only while it waits.
+Pure.SEND_PROMPT = table.freeze({ Name = "SendPrompt", Tag = "TreatPrompt" })
+-- Which hint the one Hint card shows when more than one is due: the patient first (it is waiting now), then a new
+-- door's line (it is short-lived), then the level-up (it can wait).
+Pure.HINT_ORDER = table.freeze({ "Send", "Door", "LevelUp" })
 
 type NowEntry = { Source: string, Priority: number, Seq: number }
-type Reveal = { Stars: boolean, Shop: boolean, Book: boolean, Rest: boolean }
+type Reveal = { [string]: boolean }
 type Hidden = { Rails: boolean, Now: boolean, Status: boolean, Wallet: boolean, System: boolean, Hands: boolean }
 type Goal = { Id: string, Icon: string, Text: string, Ratio: number }
 type StatusBox = { X1: number, Top: number, Width: number, Rows: number, Compact: boolean }
@@ -225,7 +333,7 @@ function Pure.clock(seconds: any): string
 end
 
 -- Status row 1: day or night with words. `left` is the seconds to the next phase (nil: not known yet, so ""), `pay`
--- the night pay multiplier. Compact (a phone's narrow column) drops words.
+-- the night pay multiplier. Compact (a phone's narrow column) drops words: "☀️ 3:27" is the day's time left.
 function Pure.dayLine(night: boolean, left: any, pay: any, compact: boolean?): string
 	if not finite(left) then
 		return ""
@@ -233,9 +341,10 @@ function Pure.dayLine(night: boolean, left: any, pay: any, compact: boolean?): s
 	local time = Pure.clock(left)
 	if night then
 		local times = if finite(pay) and pay > 1 then "×" .. tostring(pay) .. " · " else ""
-		return "🌙 " .. times .. time .. (if compact then "" else " left")
+		return Icons.Status.Night .. " " .. times .. time .. (if compact then "" else " left")
 	end
-	return if compact then "☀️ 🌙 in " .. time else "☀️ Night in " .. time
+	-- One Status icon a line: by day the sun and the time left in the day (compact), or "Night in" with words.
+	return Icons.Status.Day .. " " .. (if compact then time else "Night in " .. time)
 end
 
 -- The candidates for the free-event chip: Golden Hour (Workspace GoldenStartsAt / GoldenHour, NurseBelt) while it's
@@ -259,12 +368,13 @@ function Pure.eventChip(now: number, candidates: { any }, compact: boolean?): st
 	return if compact then view.Icon .. " " .. when else view.Icon .. " " .. view.Name .. " " .. when
 end
 
--- Status row 3: Today's Visitor with a word, only while it can come to your clinic ("Coming") or once it's cured.
+-- Status row 3: Today's Visitor in words (its face is beside it), only while it can come to your clinic ("Coming")
+-- or once it's treated.
 function Pure.visitorLine(status: any): string?
 	if status == "Coming" then
-		return "Visitor ⭐"
+		return Pure.TEXT.VisitorComing
 	elseif status == "Done" then
-		return "Visitor ✅"
+		return Pure.TEXT.VisitorDone
 	end
 	return nil
 end
@@ -276,7 +386,7 @@ function Pure.goalName(def: any, wings: any): string
 	if def.Kind == "Make" then
 		return "Make " .. target
 	elseif def.Kind == "CureNight" then
-		return "Treat " .. target .. " 🌙"
+		return "Treat " .. target .. " " .. Icons.Status.Night
 	elseif def.Kind == "CureWing" then
 		local wing = if type(wings) == "table" and type(def.Wing) == "string" then rawget(wings, def.Wing) else nil
 		local icon = if type(wing) == "table" and type(wing.Icon) == "string" then " " .. wing.Icon else ""
@@ -299,7 +409,7 @@ function Pure.trackedGoal(goals: any, defs: any, wings: any): Goal?
 					if progress < def.Target then
 						return {
 							Id = def.Id,
-							Icon = "🎯",
+							Icon = Icons.Door.Goals,
 							Text = Pure.goalName(def, wings) .. " · " .. progress .. "/" .. def.Target,
 							Ratio = progress / def.Target,
 						}
@@ -311,21 +421,115 @@ function Pure.trackedGoal(goals: any, defs: any, wings: any): Goal?
 	return nil
 end
 
--- The first-session reveal: what shows at each tutorial step (a snapshot without the field counts as done). A replay
--- keeps everything.
-function Pure.reveal(step: any, curedSeen: boolean?, replay: boolean?): Reveal
-	local s = if type(step) == "number" then step else TutorialLogic.DONE
-	if replay == true or TutorialLogic.isDone(s) then
-		return { Stars = true, Shop = true, Book = true, Rest = true }
-	elseif not TutorialLogic.active(s) then
-		return { Stars = false, Shop = false, Book = false, Rest = false } -- 0: not known yet
+local function filled(value: any): boolean
+	return type(value) == "table" and next(value) ~= nil
+end
+
+local function numberOr0(value: any): number
+	return if finite(value) then value else 0
+end
+
+-- The facts the triggers read. `state` is the Snapshot (a missing Tutorial field counts as done); `session` is what
+-- only this session knows: Cured (a treatment landed), Night (a night was seen), CanHire (the cheapest nurse on
+-- the belt is affordable now), GiftReady, GoalReady and GoldenLevel (Config.Belt's gate for Secret nurses). Until
+-- the tutorial is over only its own three facts can be true (Treated, ShopStep, BookStep); a replay counts as over,
+-- so a replaying player keeps every door their save has content for.
+function Pure.facts(state: any, session: any): { [string]: boolean }
+	local data = if type(state) == "table" then state else {}
+	local seen = if type(session) == "table" then session else {}
+	local step = if type(data.Tutorial) == "number" then data.Tutorial else TutorialLogic.DONE
+	local replay = data.TutorialReplay == true
+	local running = TutorialLogic.active(step) and not replay
+	local open = replay or TutorialLogic.isDone(step)
+	local level = numberOr0(data.Level)
+	local rebirth = data.Rebirth
+	local playtime = if type(data.Playtime) == "table" then data.Playtime else {}
+	local stats = if type(data.Stats) == "table" then data.Stats else {}
+	local boosts = data.Boosts
+	local badge = false
+	if type(data.Badges) == "table" then
+		for _, tier in data.Badges do
+			badge = badge or numberOr0(tier) > 0
+		end
 	end
 	return {
-		Stars = s >= TutorialLogic.MORE or (s >= TutorialLogic.REST and curedSeen == true),
-		Shop = s >= TutorialLogic.SHOP,
-		Book = s >= TutorialLogic.BOOK,
-		Rest = false,
+		Treated = open
+			or (running and (step >= TutorialLogic.MORE or (step >= TutorialLogic.REST and seen.Cured == true))),
+		ShopStep = open or (running and step >= TutorialLogic.SHOP),
+		BookStep = TutorialLogic.active(step) and step >= TutorialLogic.BOOK,
+		Done = open,
+		Veteran = open and (level > 1 or (type(rebirth) == "table" and numberOr0(rebirth.Count) > 0)),
+		BookPage = open and filled(data.Book),
+		NurseOwned = open and (filled(data.Nurses) or filled(data.NurseIndex)),
+		CanHire = open and seen.CanHire == true,
+		Badge = open and badge,
+		GiftReady = open and seen.GiftReady == true,
+		GiftOpened = open and (filled(playtime.Claimed) or numberOr0(playtime.Rank) > 0),
+		GoalReady = open and seen.GoalReady == true,
+		NightSeen = open and (seen.Night == true or numberOr0(stats.NightCures) > 0),
+		MailReady = open and data.MailboxReady == true,
+		Story = open and filled(data.Story),
+		Golden = open and level >= (if finite(seen.GoldenLevel) then seen.GoldenLevel else Pure.GOLDEN_LEVEL),
+		Boost = open and type(boosts) == "table" and filled(boosts.Timed),
 	}
+end
+
+-- THE reveal: one flag per piece in REVEAL_ORDER. A piece shows when any of its TRIGGERS' facts is true, or when it
+-- was already shown this session past the tutorial (`kept`: a door never leaves because the cash was spent or the
+-- letter was opened).
+function Pure.reveal(state: any, session: any, kept: { [string]: any }?): Reveal
+	local facts = Pure.facts(state, session)
+	local out: Reveal = {}
+	for _, name in Pure.REVEAL_ORDER do
+		local on = facts.Done and kept ~= nil and kept[name] == true
+		for _, fact in Pure.TRIGGERS[name] do
+			on = on or facts[fact] == true
+		end
+		out[name] = on
+	end
+	return out
+end
+
+-- How many rail doors and Status lines a reveal shows (the budget a fresh Lv 1 save must keep: 3 doors, 1 line).
+function Pure.revealCount(reveal: Reveal): (number, number)
+	local doors, lines = 0, 0
+	for name, on in reveal do
+		if on and Pure.RAIL[name] then
+			doors += 1
+		elseif on and table.find(Pure.STATUS_ORDER, name) then
+			lines += 1
+		end
+	end
+	return doors, lines
+end
+
+-- "Patients wait for you: press Send": past the tutorial, not shown yet this session, and a patient has waited to
+-- be sent for SEND_HINT.After seconds (`waited`: the longest wait, nil when nobody waits).
+function Pure.sendHint(step: any, waited: any, used: boolean?): boolean
+	return used ~= true and TutorialLogic.isDone(step) and finite(waited) and waited >= Pure.SEND_HINT.After
+end
+
+-- The Now card points a new player at their FIRST level-up: at hospital Lv 1, the moment the Shop's button would
+-- work, until they tap it (`used`: once a session). Later levels have the bar's own "Level up!".
+function Pure.levelHint(step: any, level: any, ready: boolean?, used: boolean?): boolean
+	return used ~= true and ready == true and level == 1 and TutorialLogic.isDone(step)
+end
+
+-- A new door's line and the icon on its tile (nil: the piece arrives quietly).
+function Pure.doorLine(name: any): (string?, string)
+	local line = Pure.DOOR_LINE[name]
+	local face = Pure.RAIL[name]
+	return line, if face then face.Icon else (Pure.DOOR_ICON[name] or "")
+end
+
+-- The one hint to show, or nil: the first of HINT_ORDER that is due.
+function Pure.hintPick(due: { [string]: any }): string?
+	for _, kind in Pure.HINT_ORDER do
+		if due[kind] then
+			return kind
+		end
+	end
+	return nil
 end
 
 -- The HudMode in force: the strongest of the open modals' modes (Game > Panel > None).
@@ -358,7 +562,8 @@ function Pure.hidden(mode: string, celebrating: boolean?): Hidden
 	}
 end
 
--- The ⚙️ panel's rows, in order. `more` lists the rail pieces off the rail (revealed ones only).
+-- The ⚙️ panel's rows, in order: the switches, Skip or Replay, then the Links. `more` lists the rail pieces off the
+-- rail (revealed ones only, so Badges and Top show there from the first badge).
 function Pure.settingsRows(step: any, hasPlot: boolean?, isAdmin: boolean?, more: { string }?): { string }
 	local rows = { "Music", "Effects", "Simple" }
 	if hasPlot == true then
@@ -716,7 +921,7 @@ local function blob(
 end
 
 local function outline(frame: Frame)
-	local stroke = Instance.new("UIStroke")
+	local stroke = Instance.new("UIStroke") -- uirules: allow StrokeBudget (the creature's drawn outline: art)
 	stroke.Color = Palette.Outline
 	stroke.Thickness = 2
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
@@ -742,7 +947,7 @@ local TOP_EMOJI: { [string]: { Text: string, Size: number, Dy: number, Dx: numbe
 	Leaf = { Text = "🌱", Size = 0.3, Dy = -0.05, Dx = 0 },
 	Bow = { Text = "🎀", Size = 0.26, Dy = 0.01, Dx = 0.18 },
 	Cloud = { Text = "☁️", Size = 0.36, Dy = -0.03, Dx = 0 },
-	Star = { Text = "⭐", Size = 0.28, Dy = -0.06, Dx = 0 },
+	Star = { Text = "⭐", Size = 0.28, Dy = -0.06, Dx = 0 }, -- uirules: allow TypedEmoji (a creature's top: art)
 }
 
 function Hud.lookOf(id: any): any
@@ -1136,9 +1341,12 @@ end
 -- Pieces of the screen
 ------------------------------------------------------------------------------------------------------------------
 
-local WALLET_ICON = 40 -- 💰 / ⭐ icons (px)
-local WALLET_ROW = 52 -- the 💰 row; ⭐ is a full 56 px tap target
-local STAR_BAR = Vector2.new(90, 10) -- ⭐'s thin bar to the next unlock
+local WALLET_ICON = 40 -- a Now card's icon tile (px)
+local LEVEL_LINE = 24 -- the level row's two text lines (the 8 px bar sits between them)
+local LEVEL_BAR = 160 -- the level bar's width (px); LEVEL_BAR_PHONE in the top-bar row
+local LEVEL_BAR_PHONE = 96
+local LEVEL_POINT = 0.35 -- seconds after the Shop opens before its Level up button bounces
+local HINT_EVERY = 2 -- seconds between looks at the waiting room (the "press Send" hint)
 local NOW_CARD = 56 -- Hud's own Now cards (a warning, the tracked goal): one tappable row
 local THROW_HOLD = 0.5 -- seconds to hold a hand's ✖ (throwing away can't be undone: Destructive, behind a hold)
 local THROW_HINT_EVERY = 3 -- seconds between "hold it" hints
@@ -1257,7 +1465,7 @@ local function nowCard(name: string, tappable: boolean): (Frame, GuiObject, Text
 	plate.BorderSizePixel = 0
 	plate.ZIndex = 2
 	Kit.corner(plate, Theme.Radius.Large)
-	Kit.stroke(plate, Theme.Colors.Stroke, Theme.Stroke.Bold)
+	Kit.stroke(plate, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (a plate over the world)
 	plate.Parent = holder
 	local tile = Instance.new("Frame")
 	tile.Name = "Tile"
@@ -1303,46 +1511,6 @@ local function splitCarry(raw: any): { string }
 		end
 	end
 	return items
-end
-
--- The ⭐ bar runs from the last star unlock you passed to the next one (a room you don't own and your hospital level
--- allows, the next hospital level's ⭐ gate, or a regular).
-local function starTrack(data: any, state: Types.Snapshot): (number, number?, string, string)
-	local stars = state.Stars or 0
-	local rooms = state.Rooms or {}
-	local passed, nextAt, nextIcon, nextName = 0, nil :: number?, "👑", ""
-	local function consider(at: number, icon: string, name: string, eligible: boolean)
-		if at <= 0 then
-			return
-		end
-		if at <= stars then
-			passed = math.max(passed, at)
-		elseif eligible and (nextAt == nil or at < nextAt) then
-			nextAt, nextIcon, nextName = at, icon, name
-		end
-	end
-	for _, roomId in data.Rooms.Order do
-		local room = data.Rooms[roomId]
-		local inSeason = room.Season == nil or state.IsWinter == true
-		consider(
-			room.StarsNeeded,
-			room.Icon,
-			room.Name,
-			rooms[roomId] ~= true and inSeason and ProgressLogic.levelAllows(state, room)
-		)
-	end
-	local levels = data.Levels
-	if type(levels) == "table" then
-		local nextLevel = LevelsLogic.nextRow(levels, state.Level)
-		if nextLevel then
-			consider(nextLevel.Stars, nextLevel.Icon, nextLevel.Name, true)
-		end
-	end
-	for _, regularId in data.Regulars.Order do
-		local regular = data.Regulars[regularId]
-		consider(regular.UnlockStars, "💌", regular.Name, true)
-	end
-	return passed, nextAt, nextIcon, nextName
 end
 
 export type DecorSlot = { Key: string, RoomId: string, N: number, Placed: string? }
@@ -1523,7 +1691,7 @@ function Hud.boostLine(data: any, state: Types.Snapshot): string
 			end
 		end
 	end
-	return if #parts > 0 then "✨ " .. table.concat(parts, "  ") else "✨ No boosts yet: earn badges!"
+	return if #parts > 0 then table.concat(parts, "  ") else Pure.TEXT.NoBoosts
 end
 
 local function goalReady(data: any, state: Types.Snapshot): boolean
@@ -1657,7 +1825,7 @@ function Hud.init(ctx: Types.Ctx)
 
 	local settingsButton = Kit.iconButton({
 		Name = "Settings",
-		Icon = "⚙️",
+		Icon = Icons.Door.Settings,
 		Glass = true,
 		LayoutOrder = 1,
 		Size = UDim2.fromOffset(Theme.Size.ButtonHeight, Theme.Size.ButtonHeight),
@@ -1670,7 +1838,8 @@ function Hud.init(ctx: Types.Ctx)
 	targets.Settings = settingsButton
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Wallet: 💰 and ⭐, an icon and a big outlined number each, no pills
+	-- Wallet: 💰, ⭐ and the hospital level. Each is a Unit glued to its number (Kit.unit: the emoji and the number
+	-- are two labels, because an emoji can't take the number's outline). No pills
 	--------------------------------------------------------------------------------------------------------------
 	local wallet = Instance.new("Frame")
 	wallet.Name = "Wallet"
@@ -1679,50 +1848,24 @@ function Hud.init(ctx: Types.Ctx)
 	wallet.AutomaticSize = Enum.AutomaticSize.XY
 	wallet.LayoutOrder = 2
 	wallet.Parent = gui
-	local walletList = Kit.list(wallet, Enum.FillDirection.Vertical, Theme.Space.Step[1])
+	local walletList = Kit.list(wallet, Enum.FillDirection.Vertical, HudZones.WALLET_GAP)
 	walletList.HorizontalAlignment = Enum.HorizontalAlignment.Left
 
-	local function walletIcon(parent: Instance, text: string, order: number): TextLabel
-		return Kit.label({
-			Name = "Icon",
-			Text = text,
-			TextScaled = true,
+	local function walletUnit(name: string, icon: string, order: number): (Frame, TextLabel)
+		local row, amount = Kit.unit({
+			Name = name,
+			Icon = icon,
+			Voice = "Loud",
+			Px = Theme.TextSize.Number,
 			LayoutOrder = order,
-			Size = UDim2.fromOffset(WALLET_ICON, WALLET_ICON),
-			Parent = parent,
+			Parent = wallet,
 		})
-	end
-	local function walletNumber(parent: Instance, order: number, height: number): TextLabel
-		local label = Kit.label({
-			Name = "Amount",
-			Text = "0",
-			Outlined = true,
-			TextSize = Theme.TextSize.Number,
-			TextWrapped = false,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			AutomaticSize = Enum.AutomaticSize.X,
-			Size = UDim2.fromOffset(0, height),
-			LayoutOrder = order,
-			Parent = parent,
-		})
-		Kit.outline(label, Theme.Stroke.Title)
-		return label
-	end
-	local function walletRow(row: GuiObject, name: string, order: number, height: number)
-		row.Name = name
-		row.LayoutOrder = order
-		row.BackgroundTransparency = 1
-		row.Size = UDim2.fromOffset(0, height)
-		row.AutomaticSize = Enum.AutomaticSize.X
-		local list = Kit.list(row, Enum.FillDirection.Horizontal, Theme.Space.Step[2])
-		list.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		row.Parent = wallet
+		amount.Text = "0"
+		row.Size = UDim2.fromOffset(0, HudZones.WALLET_ROW)
+		return row, amount
 	end
 
-	local cashRow = Instance.new("Frame")
-	walletRow(cashRow, "Cash", 1, WALLET_ROW)
-	walletIcon(cashRow, "💰", 1)
-	local cashText = walletNumber(cashRow, 2, WALLET_ROW - 8)
+	local cashRow, cashText = walletUnit("Cash", Icons.Unit.Cash, 1)
 	targets.Cash = cashRow
 	local cash = counter(cashRow, cashText, "Cash")
 
@@ -1744,41 +1887,84 @@ function Hud.init(ctx: Types.Ctx)
 		Parent = cashRow,
 	})
 	Kit.corner(comboSticker, Theme.Radius.Small)
-	Kit.stroke(comboSticker, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	Kit.stroke(comboSticker, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a sticker over the world)
 	Kit.textLimit(comboSticker, Theme.TextSize.Body)
 
-	-- ⭐: tappable (what's next), so it's a full 56 px tap target. The number over its thin bar, then the next unlock.
-	local starsButton = Instance.new("TextButton")
-	starsButton.Text = ""
-	starsButton.AutoButtonColor = false
-	starsButton.Visible = false
-	walletRow(starsButton, "Stars", 2, Theme.Size.ButtonHeight)
-	walletIcon(starsButton, "⭐", 1)
-	local starsInfo = Instance.new("Frame")
-	starsInfo.Name = "Info"
-	starsInfo.LayoutOrder = 2
-	starsInfo.BackgroundTransparency = 1
-	starsInfo.Size = UDim2.new()
-	starsInfo.AutomaticSize = Enum.AutomaticSize.XY
-	starsInfo.Parent = starsButton
-	local infoList = Kit.list(starsInfo, Enum.FillDirection.Vertical, 0)
-	infoList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	local starsText = walletNumber(starsInfo, 1, Theme.TextSize.Number + 2)
-	local track, fill = bar(starsInfo, "Track", Theme.Colors.Star, Theme.Colors.Stroke, 0.35)
-	track.LayoutOrder = 2
-	track.Size = UDim2.fromOffset(STAR_BAR.X, STAR_BAR.Y)
-	Kit.stroke(track, Theme.Colors.Stroke, Theme.Stroke.Fine)
-	local nextIcon = Kit.label({
-		Name = "Next",
-		Text = "👑",
-		TextScaled = true,
-		LayoutOrder = 3,
-		Size = UDim2.fromOffset(30, 30),
-		Parent = starsButton,
+	-- ⭐: the count. (Its old thin bar followed star milestones and said "Everything unlocked!" while the next level
+	-- still had to be bought: the level row below is the ONE bar now.)
+	local starsRow, starsText = walletUnit("Stars", Icons.Unit.Stars, 2)
+	starsRow.Visible = false
+	targets.Stars = starsRow
+	local stars = counter(starsRow, starsText, "Stars")
+
+	-- 🏥 The hospital level and the ONE bar toward the next one (Joshua, 2026-11-17: "is there a level up bar. where
+	-- to see my level?"; Logic/LevelBar). "Lv 1 Clinic", the navy bar that counts both the ⭐ and the 💰 the next
+	-- level needs, and under it what is still needed ("⭐ 12/15" "💰 300/400": two Units) or "Level up!". The whole
+	-- row is ONE tap target: ready = the Shop opens on its Hospital tab and the Level up button bounces; not ready
+	-- = a toast says what the next level is and needs. In-game cash only: nothing here is Robux.
+	local levelButton = Instance.new("TextButton")
+	levelButton.Name = "Level"
+	levelButton.Text = ""
+	levelButton.AutoButtonColor = false
+	levelButton.BackgroundTransparency = 1
+	levelButton.LayoutOrder = 3
+	levelButton.Size = UDim2.fromOffset(0, HudZones.LEVEL_ROW)
+	levelButton.AutomaticSize = Enum.AutomaticSize.X
+	levelButton.Visible = false
+	levelButton.Parent = wallet
+	local levelList = Kit.list(levelButton, Enum.FillDirection.Vertical, Theme.Space.Tight)
+	levelList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	local function levelUnit(name: string, icon: string, order: number, parent: Instance): (Frame, TextLabel)
+		local row, amount = Kit.unit({
+			Name = name,
+			Icon = icon,
+			Voice = "Loud",
+			Px = Theme.TextSize.Caption,
+			LayoutOrder = order,
+			Parent = parent,
+		})
+		row.Size = UDim2.fromOffset(0, LEVEL_LINE)
+		return row, amount
+	end
+	local levelBadge, levelText = levelUnit("Badge", Icons.Unit.Level, 1, levelButton)
+	levelText.TextTruncate = Enum.TextTruncate.AtEnd
+	local levelLimit = Instance.new("UISizeConstraint") -- "Lv 4 General Hospital" never passes the wallet's column
+	levelLimit.MaxSize = Vector2.new(HudZones.WALLET_WIDTH - LEVEL_LINE - Theme.Space.Tight, LEVEL_LINE)
+	levelLimit.Parent = levelText
+	local levelBar, setLevelBar = Kit.bar({
+		Name = "Bar",
+		Size = UDim2.fromOffset(LEVEL_BAR, Theme.Calm.Bar),
+		LayoutOrder = 2,
+		Parent = levelButton,
 	})
-	targets.Stars = starsButton
-	local stars = counter(starsButton, starsText, "Stars")
-	local nextTip = ""
+	Kit.stroke(levelBar, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a bar over the world)
+	local levelNeeds = Instance.new("Frame")
+	levelNeeds.Name = "Needs"
+	levelNeeds.BackgroundTransparency = 1
+	levelNeeds.LayoutOrder = 3
+	levelNeeds.Size = UDim2.fromOffset(0, LEVEL_LINE)
+	levelNeeds.AutomaticSize = Enum.AutomaticSize.X
+	levelNeeds.Parent = levelButton
+	local needsList = Kit.list(levelNeeds, Enum.FillDirection.Horizontal, Theme.Space.Line)
+	needsList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	local _, needStars = levelUnit("Stars", Icons.Unit.Stars, 1, levelNeeds)
+	local _, needCash = levelUnit("Cash", Icons.Unit.Cash, 2, levelNeeds)
+	local levelReady = Kit.label({
+		Name = "Ready",
+		Text = "",
+		TextWrapped = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, LEVEL_LINE),
+		LayoutOrder = 4,
+		Visible = false,
+		Parent = levelButton,
+	})
+	Kit.voice(levelReady, "Loud")
+	levelReady.TextSize = Theme.TextSize.Caption
+	targets.Level = levelButton
+	local levelView: LevelBar.View? = nil
+	local levelHintUsed = false -- the Now card's first level-up pointer: once a session
 
 	--------------------------------------------------------------------------------------------------------------
 	-- Status: top right, read-only
@@ -1789,12 +1975,11 @@ function Hud.init(ctx: Types.Ctx)
 	statusZone.BackgroundTransparency = 1
 	statusZone.AutomaticSize = Enum.AutomaticSize.Y
 	statusZone.Parent = gui
-	local statusColumn = Instance.new("Frame") -- the reveal shows this; the hide rules pop the zone
+	local statusColumn = Instance.new("Frame") -- the reveal shows its rows one by one; the hide rules pop the zone
 	statusColumn.Name = "Column"
 	statusColumn.BackgroundTransparency = 1
 	statusColumn.Size = UDim2.fromScale(1, 0)
 	statusColumn.AutomaticSize = Enum.AutomaticSize.Y
-	statusColumn.Visible = false
 	statusColumn.Parent = statusZone
 	local statusList = Kit.list(statusColumn, Enum.FillDirection.Vertical, Pure.ROW_GAP)
 	statusList.HorizontalAlignment = Enum.HorizontalAlignment.Right
@@ -1826,7 +2011,7 @@ function Hud.init(ctx: Types.Ctx)
 		chip.Size = UDim2.fromOffset(0, Pure.ROW)
 		chip.AutomaticSize = Enum.AutomaticSize.X
 		Kit.corner(chip, Theme.Radius.Small)
-		local stroke = Kit.stroke(chip, Theme.Colors.Stroke, Theme.Stroke.Fine)
+		local stroke = Kit.stroke(chip, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a chip over the world)
 		stroke.Enabled = false
 		local pad = Instance.new("UIPadding")
 		pad.PaddingLeft = UDim.new(0, Theme.Space.Step[2])
@@ -1892,8 +2077,11 @@ function Hud.init(ctx: Types.Ctx)
 	faceDisc.Size = UDim2.fromOffset(Pure.ROW, Pure.ROW)
 	faceDisc.BackgroundColor3 = Theme.Colors.Plate
 	faceDisc.BorderSizePixel = 0
-	roundCorner(faceDisc)
-	Kit.stroke(faceDisc, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	local function faceRing()
+		roundCorner(faceDisc)
+		Kit.stroke(faceDisc, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a disc over the world)
+	end
+	faceRing()
 	faceDisc.Parent = visitorRow
 	local visitorLine = line(visitorRow, 2, true)
 	local boostRow = statusRow("Boosts", 4)
@@ -1947,10 +2135,11 @@ function Hud.init(ctx: Types.Ctx)
 	addRail(leftZone, HudZones.ORDER.LeftRail)
 	addRail(rightZone, HudZones.ORDER.RightRail)
 
-	-- 🎁's bar fills inside its plate toward the next play gift (UI/PlayGifts opens on "Open" "Gifts"). It isn't a
-	-- countdown to anything you could miss: the gifts wait.
+	-- 🎁's bar fills inside its plate toward the next play gift (UI/PlayGifts opens on "Open" "Gifts"): navy like
+	-- every progress bar, green once a gift is ready to collect. It isn't a countdown to anything you could miss:
+	-- the gifts wait.
 	local giftButton = buttons.Gifts
-	local giftBar, giftFill = bar(giftButton, "GiftBar", Theme.Colors.Cash, Theme.Colors.CardLine, 0)
+	local giftBar, giftFill = bar(giftButton, "GiftBar", Theme.Colors.Progress, Theme.Colors.Track, 0)
 	giftBar.AnchorPoint = Vector2.new(0.5, 1)
 	giftBar.Position = UDim2.new(0.5, 0, 1, -5)
 	giftBar.Size = UDim2.new(1, -18, 0, 6)
@@ -1990,7 +2179,7 @@ function Hud.init(ctx: Types.Ctx)
 		frame.Size = UDim2.fromOffset(Pure.HAND.Max, Pure.HAND.Max)
 		frame.BorderSizePixel = 0
 		roundCorner(frame)
-		Kit.stroke(frame, Theme.Colors.Stroke, Theme.Stroke.Bold).Name = "Outline"
+		Kit.stroke(frame, Theme.Colors.Stroke, Theme.Stroke.Bold).Name = "Outline" -- uirules: allow StrokeBudget (a plate over the world)
 		local plate = Instance.new("Frame") -- the white middle
 		plate.Name = "Plate"
 		plate.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1999,7 +2188,6 @@ function Hud.init(ctx: Types.Ctx)
 		plate.BackgroundColor3 = Theme.Colors.Plate
 		plate.BorderSizePixel = 0
 		roundCorner(plate)
-		Kit.stroke(plate, Theme.Colors.Stroke, Theme.Stroke.Fine)
 		plate.Parent = frame
 		Kit.label({
 			Name = "Icon",
@@ -2032,11 +2220,11 @@ function Hud.init(ctx: Types.Ctx)
 		disc.ClipsDescendants = true
 		disc.ZIndex = 3
 		roundCorner(disc)
-		Kit.stroke(disc, Theme.Colors.Stroke, Theme.Stroke.Bold)
+		Kit.stroke(disc, Theme.Colors.Stroke, Theme.Stroke.Bold) -- uirules: allow StrokeBudget (a candy button over the world)
 		disc.Parent = throw
 		local cross = Kit.label({
 			Name = "Cross",
-			Text = "✖",
+			Text = Icons.Mark.Close,
 			Outlined = true,
 			TextSize = Theme.TextSize.Body,
 			Size = UDim2.fromScale(1, 1),
@@ -2075,7 +2263,7 @@ function Hud.init(ctx: Types.Ctx)
 			-- A tap (not a hold): say how, now and then.
 			if now - thrownAt > 0.4 and now - hintedAt > THROW_HINT_EVERY then
 				hintedAt = now
-				ctx.toast("Hold ✖ to throw away")
+				ctx.toast(Pure.TEXT.Throw)
 			end
 		end)
 		frame.Parent = hands
@@ -2119,12 +2307,13 @@ function Hud.init(ctx: Types.Ctx)
 	player:GetAttributeChangedSignal("Carry"):Connect(renderHands)
 
 	--------------------------------------------------------------------------------------------------------------
-	-- ⚙️ Settings: the comfort switches, Simple mode, the owner's helpers switch, Skip / Replay tutorial, ⚙️ More and
-	-- 🛠️ Admin. Music.client follows MusicMuted and Feel/Atmosphere follows ReduceEffects, as before.
+	-- ⚙️ Settings: the switches (Music, Effects, Mini-games, and the owner's "Anyone can help"), then the Quiet links
+	-- (Skip / Replay tutorial, the doors that are off the rail, Admin). Music.client follows MusicMuted and
+	-- Feel/Atmosphere follows ReduceEffects, as before.
 	--------------------------------------------------------------------------------------------------------------
 	local settings = Hud.modal(ctx, {
 		Name = "Settings",
-		Title = "⚙️ Settings",
+		Title = "Settings",
 		MaxSize = Vector2.new(460, 520),
 	})
 	local scroll = Instance.new("ScrollingFrame")
@@ -2150,33 +2339,44 @@ function Hud.init(ctx: Types.Ctx)
 	gridPad.PaddingLeft = UDim.new(0, Theme.Space.Step[1])
 	gridPad.Parent = scroll
 
+	-- One list (UI direction §4 #5): a Toggle row (Kit.toggle: a fixed label and a switch) or a Link (a Quiet text
+	-- button), as Pure.SETTINGS says. No label changes its words with state; no row has an outline.
 	local rows: { [string]: TextButton } = {}
-	local function settingsRow(name: string, text: string): TextButton
-		local button = Kit.button({
-			Name = name,
-			Kind = "Secondary",
-			Text = text,
-			TextScaled = true,
-			Visible = false,
-			Parent = scroll,
-		})
-		Kit.textLimit(button, Theme.TextSize.Body)
+	local switches: { [string]: (on: boolean, instant: boolean?) -> () } = {}
+	local function settingsRow(name: string, link: string?): TextButton
+		local spec = Pure.SETTINGS[name]
+		local button: TextButton
+		if spec and spec.Kind == "Toggle" then
+			local row, set = Kit.toggle({ Name = name, Label = spec.Label, Visible = false, Parent = scroll })
+			switches[name] = set
+			button = row
+		else
+			button = Kit.button({
+				Name = name,
+				Kind = "Quiet",
+				Text = link or (if spec then spec.Label else name),
+				TextScaled = true,
+				Visible = false,
+				Parent = scroll,
+			})
+			Kit.textLimit(button, Theme.TextSize.Body)
+		end
 		rows[name] = button
 		return button
 	end
-	local musicSwitch = settingsRow("Music", "")
-	local effectsSwitch = settingsRow("Effects", "")
-	local simpleSwitch = settingsRow("Simple", "") -- depth update: Simple mode (saved; the server rates it)
-	local helpersSwitch = settingsRow("Helpers", "")
-	local skipRow = settingsRow("Skip", "⏭️ Skip tutorial")
-	local replayRow = settingsRow("Replay", "🔁 Replay tutorial")
+	local musicSwitch = settingsRow("Music")
+	local effectsSwitch = settingsRow("Effects")
+	local simpleSwitch = settingsRow("Simple") -- depth update: Simple mode (saved; the server rates it)
+	local helpersSwitch = settingsRow("Helpers")
+	local skipRow = settingsRow("Skip")
+	local replayRow = settingsRow("Replay")
 	for piece, text in Pure.MORE do
 		local row = settingsRow(piece, text)
 		row.Activated:Connect(function()
 			ctx.fire("Open", piece) -- a Panel: opening it closes ⚙️
 		end)
 	end
-	local adminButton = settingsRow("Admin", "🛠️ Admin")
+	local adminButton = settingsRow("Admin")
 	settings.Focus = musicSwitch
 
 	-- Two columns when one column of rows would need scrolling and the card is wide enough.
@@ -2197,9 +2397,9 @@ function Hud.init(ctx: Types.Ctx)
 	end
 	settings.Body:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitSettings)
 
-	-- 👥 Who may work at your clinic: only while you own one. Off = "👥 Friends only" (only you and your Roblox friends
-	-- may work at your clinic), on = "🤝 Anyone can help". It shows your plot's OpenHelpers attribute; a tap asks the
-	-- server (SetHelpers, Server/Visits), which checks you own the plot, switches it and toasts.
+	-- Who may work at your clinic: only while you own one. "Anyone can help" off = only you and your Roblox friends
+	-- may work at your clinic. The switch shows your plot's OpenHelpers attribute; a tap asks the server
+	-- (SetHelpers, Server/Visits), which checks you own the plot, switches it and toasts.
 	local function myClinic(): Model?
 		local index = player:GetAttribute("PlotIndex")
 		local clinics = Workspace:FindFirstChild("Clinics")
@@ -2230,7 +2430,7 @@ function Hud.init(ctx: Types.Ctx)
 	local function renderHelpers()
 		local plot = myClinic()
 		local open = plot ~= nil and plot:GetAttribute("OpenHelpers") == true
-		helpersSwitch.Text = if open then "🤝 Anyone can help" else "👥 Friends only"
+		switches.Helpers(open)
 		renderRows()
 	end
 	local helpersWatch: RBXScriptConnection? = nil
@@ -2258,7 +2458,6 @@ function Hud.init(ctx: Types.Ctx)
 			return
 		end
 		helpersBusy = true
-		Hud.pop(helpersSwitch, 1.06)
 		local ok, message = Hud.ask(ctx.Remotes.SetHelpers, plot:GetAttribute("OpenHelpers") ~= true)
 		helpersBusy = false
 		if not ok then
@@ -2275,19 +2474,16 @@ function Hud.init(ctx: Types.Ctx)
 		return if value == nil then Kit.reducedMotion() else value == true
 	end
 	local function renderSettings()
-		local muted = player:GetAttribute("MusicMuted") == true
-		musicSwitch.Text = if muted then "🔇 Music off" else "🎵 Music on"
-		effectsSwitch.Text = if calmOn() then "💤 Calm effects" else "✨ Full effects"
-		simpleSwitch.Text = if ctx.State.Simple == true then "👆 Simple taps" else "🎮 Mini-games"
+		switches.Music(player:GetAttribute("MusicMuted") ~= true)
+		switches.Effects(not calmOn())
+		switches.Simple(ctx.State.Simple ~= true)
 		renderRows()
 	end
 	musicSwitch.Activated:Connect(function()
 		player:SetAttribute("MusicMuted", player:GetAttribute("MusicMuted") ~= true)
-		Hud.pop(musicSwitch, 1.06)
 	end)
 	effectsSwitch.Activated:Connect(function()
 		player:SetAttribute("ReduceEffects", not calmOn())
-		Hud.pop(effectsSwitch, 1.06)
 	end)
 	local askingSimple = false
 	simpleSwitch.Activated:Connect(function()
@@ -2295,7 +2491,6 @@ function Hud.init(ctx: Types.Ctx)
 			return
 		end
 		askingSimple = true
-		Hud.pop(simpleSwitch, 1.06)
 		local ok, message = Hud.ask(ctx.Remotes.SetSimple, ctx.State.Simple ~= true)
 		askingSimple = false
 		if not ok and message ~= "" then
@@ -2328,14 +2523,15 @@ function Hud.init(ctx: Types.Ctx)
 	end)
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The Now card's own entries: the warnings (30) and the tracked goal (10)
+	-- The Now card's own entries: the warnings (30), the one hint (15) and the tracked goal (10)
 	--------------------------------------------------------------------------------------------------------------
 	local warnCard, _, warnIcon, warnText = nowCard("Warning", false)
 	local goalCard, goalPlate, goalIcon, goalText = nowCard("Goal", true)
 	goalText.AnchorPoint = Vector2.new(0, 0)
 	goalText.Position = UDim2.fromOffset(WALLET_ICON + Theme.Space.Step[4], Theme.Space.Step[1])
 	goalText.Size = UDim2.new(1, -(WALLET_ICON + Theme.Space.Step[5]), 0, 30)
-	local goalTrack, goalFill = bar(goalPlate, "Bar", Theme.Colors.Collect, Theme.Colors.Shade, 0.4)
+	-- On the navy plate the fill is white: progress is never green (green = collect, ready, go).
+	local goalTrack, goalFill = bar(goalPlate, "Bar", Theme.Colors.Paper, Theme.Colors.Shade, 0.4)
 	goalTrack.AnchorPoint = Vector2.new(0, 1)
 	goalTrack.Position = UDim2.new(0, WALLET_ICON + Theme.Space.Step[4], 1, -Theme.Space.Step[2])
 	goalTrack.Size = UDim2.new(1, -(WALLET_ICON + Theme.Space.Step[5] + Theme.Space.Step[2]), 0, 8)
@@ -2353,9 +2549,9 @@ function Hud.init(ctx: Types.Ctx)
 	local function renderWarning()
 		local saving = player:GetAttribute("DataOk") == false and player:GetAttribute("FreshSave") ~= true
 		if saving then
-			warnIcon.Text, warnText.Text = "⚠️", "Not saving"
+			warnIcon.Text, warnText.Text = "⚠️", Pure.TEXT.NotSaving
 		elseif noPlot then
-			warnIcon.Text, warnText.Text = "🏠", "Clinics full"
+			warnIcon.Text, warnText.Text = "🏠", Pure.TEXT.ClinicsFull
 		end
 		Hud.setNow("Warning", if saving or noPlot then warnCard else nil, Pure.PRIORITY.Warning)
 	end
@@ -2380,7 +2576,9 @@ function Hud.init(ctx: Types.Ctx)
 
 	local function renderGoal(state: Types.Snapshot, animate: boolean)
 		local daily: any = state.Daily
-		local goal = if shown.Goals then Pure.trackedGoal(daily and daily.Goals, data.DailyGoals, data.Wings) else nil
+		-- From the end of the tutorial (the Level piece's trigger), whether or not the 🎯 door has arrived yet: until
+		-- it does, this card carries the one goal.
+		local goal = if shown.Level then Pure.trackedGoal(daily and daily.Goals, data.DailyGoals, data.Wings) else nil
 		if not goal then
 			goalShown = ""
 			Hud.setNow("Goal", nil, Pure.PRIORITY.Goal)
@@ -2393,34 +2591,124 @@ function Hud.init(ctx: Types.Ctx)
 		Hud.setNow("Goal", goalCard, Pure.PRIORITY.Goal)
 	end
 
+	-- Hud's ONE hint card (over the goal, under the tutorial): "Patients wait for you: press Send", a new door's line,
+	-- or the first level-up. Pure.hintPick chooses when more than one is due; a tap does what the card talks about.
+	local hintCard, hintPlate, hintIcon, hintText = nowCard("Hint", true)
+	local hintDue: { [string]: any } = {} -- Send = true · Door = the piece's name · LevelUp = true
+	local hintKind: string? = nil
+	local function renderHint()
+		local kind = Pure.hintPick(hintDue)
+		hintKind = kind
+		if kind == "Send" then
+			hintIcon.Text, hintText.Text = Icons.State.Waiting, Pure.TEXT.Send
+		elseif kind == "Door" then
+			local words, icon = Pure.doorLine(hintDue.Door)
+			hintIcon.Text, hintText.Text = icon, words or ""
+		elseif kind == "LevelUp" then
+			hintIcon.Text, hintText.Text = Icons.Unit.Level, Pure.TEXT.LevelUp
+		end
+		Hud.setNow("Hint", if kind then hintCard else nil, Pure.PRIORITY.Hint)
+	end
+	-- The Shop on its Hospital tab (the same "Open" the 🛒 plate fires with its `shopTab`), then its Level up button
+	-- bounces once (Shop.levelUpButton). Shop requires this module, so it is looked up when needed, never at load.
+	local function openLevelUp()
+		levelHintUsed = true
+		hintDue.LevelUp = nil
+		renderHint()
+		ctx.fire("Open", "Shop", "Hospital")
+		task.delay(LEVEL_POINT, function()
+			local ok, button = pcall(function()
+				local shop = require(script.Parent:FindFirstChild("Shop") :: ModuleScript) :: any
+				return shop.levelUpButton()
+			end)
+			if ok and typeof(button) == "Instance" and button:IsA("GuiObject") and Kit.isShown(button) then
+				Hud.pop(button, 1.2)
+			end
+		end)
+	end
+	local hintButton = hintPlate :: TextButton
+	hintButton.Activated:Connect(function()
+		Kit.Clicked:Fire(hintButton)
+		local kind = hintKind
+		if kind == "LevelUp" then
+			openLevelUp()
+			return
+		elseif kind == "Door" then
+			local name = hintDue.Door
+			hintDue.Door = nil
+			if Pure.RAIL[name] then
+				ctx.fire("Open", name)
+			end
+		elseif kind == "Send" then
+			hintDue.Send = nil
+		end
+		renderHint()
+	end)
+
+	-- The level row, from Logic/LevelBar. On a phone it sits in the top-bar row: "Lv 1" and the bar ("Level up!" in
+	-- place of the level once it's ready); the name and the needs line are desktop's.
+	local function renderLevel(state: Types.Snapshot)
+		if type(data.Levels) ~= "table" then
+			return
+		end
+		local view = LevelBar.view(state, data.Levels)
+		levelView = view
+		local phone = layout.WalletInTopbar
+		local label = LevelBar.label(view)
+		local parts = LevelBar.parts(view, Hud.format)
+		levelText.Text = Icons.words(Icons.level(view.Level, if phone then nil else view.Name))
+		setLevelBar(view.Fraction, view.Max)
+		if #parts == 2 then
+			needStars.Text, needCash.Text = parts[1].Text, parts[2].Text
+		end
+		levelNeeds.Visible = not phone and label == nil and #parts == 2
+		levelReady.Text = label or ""
+		levelReady.TextColor3 = if view.Ready then Theme.Colors.Collect else Theme.Colors.OnColor
+		levelReady.Visible = label ~= nil and (view.Ready or not phone)
+		levelBadge.Visible = not (phone and view.Ready)
+		hintDue.LevelUp = if Pure.levelHint(state.Tutorial, view.Level, view.Ready, levelHintUsed) then true else nil
+		renderHint()
+	end
+	levelButton.Activated:Connect(function()
+		Kit.Clicked:Fire(levelButton)
+		Hud.pop(levelButton, 1.06)
+		local view = levelView
+		if view and view.Ready then
+			openLevelUp()
+		elseif view then
+			ctx.toast(LevelBar.nextText(view, Hud.format))
+		end
+	end)
+
 	--------------------------------------------------------------------------------------------------------------
 	-- Layout: the zone map on every resize
 	--------------------------------------------------------------------------------------------------------------
 	local function onRail(name: string): boolean
 		return table.find(layout.Left, name) ~= nil or table.find(layout.Right, name) ~= nil
 	end
-	local function applyPiece(name: string)
+	local renderStatus: () -> ()
+	local function pieceGui(name: string): GuiObject?
 		if name == "Stars" then
-			starsButton.Visible = shown.Stars == true
-		elseif name == "Status" then
-			statusColumn.Visible = shown.Status == true
+			return starsRow
+		elseif name == "Level" then
+			return levelButton
+		end
+		return statusRows[name] or buttons[name]
+	end
+	local function applyPiece(name: string)
+		local button = buttons[name]
+		if button then
+			button.Visible = shown[name] == true and onRail(name)
+		elseif statusRows[name] then
+			renderStatus() -- a Status line shows when it's revealed, has words and fits
 		else
-			local button = buttons[name]
-			if button then
-				button.Visible = shown[name] == true and onRail(name)
+			local piece = pieceGui(name)
+			if piece then
+				piece.Visible = shown[name] == true
 			end
 		end
 	end
-	local function pieceGui(name: string): GuiObject?
-		if name == "Stars" then
-			return starsButton
-		elseif name == "Status" then
-			return statusColumn
-		end
-		return buttons[name]
-	end
 
-	local renderStatus: () -> ()
 	local function relayout()
 		local size = gui.AbsoluteSize
 		if size.X <= 0 or size.Y <= 0 then
@@ -2482,6 +2770,12 @@ function Hud.init(ctx: Types.Ctx)
 		boostList.HorizontalAlignment = Enum.HorizontalAlignment.Right
 		faceDisc.Visible = not box.Compact
 
+		-- The level row: under ⭐, or in the top-bar row on a phone (shorter, with a shorter bar).
+		local phone = layout.WalletInTopbar
+		levelButton.Size = UDim2.fromOffset(0, if phone then HudZones.WALLET_ROW else HudZones.LEVEL_ROW)
+		levelBar.Size = UDim2.fromOffset(if phone then LEVEL_BAR_PHONE else LEVEL_BAR, Theme.Calm.Bar)
+		renderLevel(ctx.State)
+
 		handsZone.Position = UDim2.new(0.5, 0, 1, -layout.Margin)
 		renderHands()
 		renderRows()
@@ -2541,8 +2835,7 @@ function Hud.init(ctx: Types.Ctx)
 		if visitor ~= shownVisitor then
 			shownVisitor = visitor
 			faceDisc:ClearAllChildren()
-			roundCorner(faceDisc)
-			Kit.stroke(faceDisc, Theme.Colors.Stroke, Theme.Stroke.Fine)
+			faceRing()
 			if look then
 				Hud.portrait(look).Parent = faceDisc
 			end
@@ -2570,7 +2863,7 @@ function Hud.init(ctx: Types.Ctx)
 			end
 		end
 
-		-- The rows that fit, the clock first.
+		-- The rows that are revealed and fit, the clock first.
 		local want = {
 			Clock = clock ~= "",
 			Event = event ~= nil,
@@ -2579,7 +2872,7 @@ function Hud.init(ctx: Types.Ctx)
 		}
 		local used = 0
 		for _, name in Pure.STATUS_ORDER do
-			local on = (want :: any)[name] == true and used < box.Rows
+			local on = (want :: any)[name] == true and shown[name] == true and used < box.Rows
 			if on then
 				used += 1
 			end
@@ -2648,95 +2941,156 @@ function Hud.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- The reveal: a new player's HUD grows with their tutorial step (see the header), in fixed slots
+	-- The reveal (UI direction R0; memory-20261117-007 #3): the HUD grows ONE piece at a time, each when it first
+	-- has content (Pure.TRIGGERS), in fixed slots. During the tutorial that is ⭐, 🛒 and 📖 at their steps; after
+	-- it, each door on its own trigger. A save that already has content shows its doors at once when it loads (no
+	-- pop, no line): nobody loses a door. A new door pops once (Kit.reveal) with one line on the Now card, and the
+	-- next one waits for it (Kit.Juice.nextReveal).
 	--------------------------------------------------------------------------------------------------------------
-	local BOUNCE: { [string]: number } = { Stars = 1.25, Shop = 1.45, Book = 1.45, Status = 1.12 }
-	local curedSeen = false -- a cure landed this session: ⭐ shows with it, not a moment later with the snapshot
-	local wasActive = false
-	local queue: { string } = {}
-	local staggering = false
-	local function runStagger()
-		if staggering then
+	local session = {
+		Cured = false, -- a treatment landed this session: ⭐ shows with it, not a moment later with the snapshot
+		Night = Workspace:GetAttribute("IsNight") == true,
+		CanHire = false,
+		GiftReady = false,
+		GoalReady = false,
+		GoldenLevel = BeltLogic.minLevel(ctx.Config, "Secret"), -- Golden Hour's own nurses can't be hired before it
+	}
+	local kept: { [string]: boolean } = {} -- shown this session: a door never leaves because the cash was spent
+	local wanted: { [string]: boolean } = {}
+	local loaded = false -- the save has arrived: from now on a new piece pops in
+	local pumping = false
+	local function showPiece(name: string, animate: boolean): boolean
+		shown[name] = true
+		kept[name] = true
+		local piece = pieceGui(name)
+		local appeared = false
+		if piece and animate and statusRows[name] == nil and (buttons[name] == nil or onRail(name)) then
+			appeared = Kit.reveal(piece, true)
+		end
+		applyPiece(name)
+		renderRows()
+		return (appeared or statusRows[name] ~= nil) and piece ~= nil and Kit.isShown(piece)
+	end
+	local function pump()
+		if pumping then
 			return
 		end
-		staggering = true
+		pumping = true
 		task.spawn(function()
-			while #queue > 0 do
-				if celebrating() then
-					task.wait(0.25) -- the finale's celebration first: the HUD pops in after it
+			while true do
+				local name = Kit.Juice.nextReveal(Pure.REVEAL_ORDER, wanted, shown)
+				if not name then
+					break
+				end
+				if celebrating() or Pure.mode(openModes) ~= "None" then
+					task.wait(0.25) -- a celebration, a panel or the mini-game first: a door arrives where it is seen
 				else
-					local name = table.remove(queue, 1) :: string
-					if not shown[name] then
-						shown[name] = true
-						applyPiece(name)
-						renderRows()
-						local piece = pieceGui(name)
-						if piece and Kit.isShown(piece) then
-							Hud.pop(piece, BOUNCE[name] or 1.3)
-							Hud.sound("Pop", 0.5)
-							task.wait(Pure.STAGGER)
+					local appeared = showPiece(name, true)
+					local words = Pure.doorLine(name)
+					if appeared and statusRows[name] then
+						Hud.pop(statusRows[name], 1.12)
+					end
+					if appeared then
+						Hud.sound("Pop", 0.5)
+					end
+					if appeared and words then
+						hintDue.Door = name
+						renderHint()
+						task.wait(Pure.REVEAL_HOLD)
+						if hintDue.Door == name then
+							hintDue.Door = nil
+							renderHint()
 						end
+					else
+						task.wait(Pure.STAGGER)
 					end
 				end
 			end
-			staggering = false
+			pumping = false
 			renderGoal(ctx.State, false)
 		end)
 	end
 	local function applyReveal(state: Types.Snapshot, animate: boolean)
-		local step = state.Tutorial
-		local reveal = Pure.reveal(step, curedSeen, (state :: any).TutorialReplay == true)
-		local want: { [string]: boolean } = {
-			Stars = reveal.Stars,
-			Shop = reveal.Shop,
-			Book = reveal.Book,
-			Status = reveal.Rest,
-		}
-		for name in Pure.RAIL do
-			if want[name] == nil then
-				want[name] = reveal.Rest
-			end
-		end
-		-- The tutorial just ended (finished or skipped): the rest pops in one piece at a time.
-		local stagger = animate and wasActive and TutorialLogic.isDone(step) and not Hud.calm()
-		wasActive = TutorialLogic.active(step)
-		local appeared = false
-		for _, name in { "Stars", table.unpack(Pure.REVEAL_ORDER) } do
-			local on = want[name] == true
-			local queued = table.find(queue, name)
-			if not on then
-				if queued then
-					table.remove(queue, queued)
-				end
+		local price = BeltLogic.price(ctx.Config, BeltLogic.RARITIES[1], state.Level or 1)
+		session.CanHire = price > 0 and (state.Cash or 0) >= price
+		session.GoalReady = goalReady(data, state)
+		wanted = Pure.reveal(state, session, kept)
+		for _, name in Pure.REVEAL_ORDER do
+			if not wanted[name] then
+				kept[name] = nil
 				if shown[name] then
 					shown[name] = false
 					applyPiece(name)
 				end
-			elseif not shown[name] and not queued then
-				if stagger and name ~= "Stars" then
-					table.insert(queue, name)
-				else
-					shown[name] = true
-					applyPiece(name)
-					local piece = pieceGui(name)
-					if animate and piece and piece.Visible then
-						Hud.pop(piece, BOUNCE[name] or 1.3)
-						appeared = true
-					end
+				if hintDue.Door == name then
+					hintDue.Door = nil
+					renderHint()
 				end
+			elseif not shown[name] and not animate then
+				showPiece(name, false) -- the save loading in: what it already has is simply there
 			end
 		end
-		if #queue > 0 then
-			runStagger()
-		end
-		if appeared then
-			Hud.sound("Pop")
+		if animate then
+			pump()
 		end
 		renderRows()
 	end
 	ctx.Remotes.Cured.OnClientEvent:Connect(function()
-		curedSeen = true
+		session.Cured = true
 		applyReveal(ctx.State, true)
+	end)
+	Workspace:GetAttributeChangedSignal("IsNight"):Connect(function()
+		if Workspace:GetAttribute("IsNight") == true and not session.Night then
+			session.Night = true -- the first night: the day and night line (and the daily goals) have a reason now
+			applyReveal(ctx.State, loaded)
+		end
+	end)
+
+	-- "Patients wait for you: press Send" (Pure.sendHint): a slow look at your own waiting room, only until the hint
+	-- has been shown once. A patient's Send prompt is on exactly while it waits to be sent (Server/Patients).
+	local sendUsed = false
+	local sendShownAt = 0
+	local waitingSince: { [Instance]: number } = setmetatable({}, { __mode = "k" }) :: any
+	local function longestWait(): number?
+		local plot = myClinic()
+		if not plot then
+			return nil
+		end
+		local now = os.clock()
+		local longest: number? = nil
+		for _, prompt in CollectionService:GetTagged(Pure.SEND_PROMPT.Tag) do
+			if
+				prompt.Name == Pure.SEND_PROMPT.Name
+				and prompt:IsA("ProximityPrompt")
+				and prompt:IsDescendantOf(plot)
+			then
+				if prompt.Enabled then
+					local since = waitingSince[prompt] or now
+					waitingSince[prompt] = since
+					longest = math.max(longest or 0, now - since)
+				else
+					waitingSince[prompt] = nil
+				end
+			end
+		end
+		return longest
+	end
+	task.spawn(function()
+		while gui.Parent and not (sendUsed and hintDue.Send == nil) do
+			local waited = longestWait()
+			if hintDue.Send then
+				if waited == nil or os.clock() - sendShownAt >= Pure.SEND_HINT.Hold then
+					hintDue.Send = nil
+					renderHint()
+				end
+			elseif Pure.sendHint(ctx.State.Tutorial, waited, sendUsed) then
+				sendUsed = true
+				sendShownAt = os.clock()
+				hintDue.Send = true
+				renderHint()
+			end
+			task.wait(HINT_EVERY)
+		end
 	end)
 
 	--------------------------------------------------------------------------------------------------------------
@@ -2756,16 +3110,8 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		local paid = if info.Kind == "Sold" then info.Cash elseif info.Kind == "Gone" then info.Price else nil
 		if type(paid) == "number" and paid == paid and paid > 0 then
-			Hud.fly(nil, "💰", "Cash", Kit.Juice.coins(paid))
+			Hud.fly(nil, Icons.Unit.Cash, "Cash", Kit.Juice.coins(paid))
 		end
-	end)
-
-	starsButton.Activated:Connect(function()
-		Kit.Clicked:Fire(starsButton)
-		if nextTip ~= "" then
-			ctx.toast(nextTip)
-		end
-		Hud.pop(starsButton, 1.08)
 	end)
 
 	-- The 🔥 combo sticker follows the player attribute Combo (T1, session-only). Hidden during the tutorial.
@@ -2798,7 +3144,7 @@ function Hud.init(ctx: Types.Ctx)
 			Hud.pop(comboSticker, 1.35)
 		end
 		if Kit.Juice.crossed(before, combo, comboSteps) then
-			floatText(comboSticker, "×" .. tostring(multiplier) .. " 💰", Theme.Colors.Cash)
+			floatText(comboSticker, Icons.unit("Cash", "×" .. tostring(multiplier)), Theme.Colors.Cash)
 		end
 	end
 	player:GetAttributeChangedSignal("Combo"):Connect(renderCombo)
@@ -2825,13 +3171,17 @@ function Hud.init(ctx: Types.Ctx)
 		end
 		local full = ready or not nextIndex
 		giftFill.Size = UDim2.fromScale(if full then 1 else math.max(ratio, 0.08), 1)
-		giftFill.BackgroundColor3 = if ready then Theme.Colors.Collect else Theme.Colors.Cash
+		giftFill.BackgroundColor3 = if ready then Theme.Colors.Collect else Theme.Colors.Progress
 		Kit.setDot(giftButton, ready)
 		if ready and not giftsWereReady and giftsShown and Kit.isShown(giftButton) then
 			Hud.pop(giftButton, 1.2)
 		end
 		giftsWereReady = ready
 		giftsShown = state ~= initial
+		if ready and not session.GiftReady then
+			session.GiftReady = true -- the first gift is ready: the 🎁 door has content
+			applyReveal(state, loaded)
+		end
 	end
 	local function renderPlay()
 		renderGifts()
@@ -2854,7 +3204,6 @@ function Hud.init(ctx: Types.Ctx)
 	applyHide()
 	renderWarning()
 
-	local loaded = false
 	local branchWasNews = false
 	local mailWasReady = false
 	local goalsWereReady = false
@@ -2869,19 +3218,11 @@ function Hud.init(ctx: Types.Ctx)
 		cash.set(state.Cash or 0, animate)
 		stars.set(state.Stars or 0, animate)
 
-		local passed, nextAt, icon, name = starTrack(data, state)
-		local ratio = if nextAt then math.clamp(((state.Stars or 0) - passed) / (nextAt - passed), 0, 1) else 1
-		nextIcon.Text = icon
-		nextTip = if nextAt then icon .. " " .. name .. " at ⭐" .. nextAt else "👑 Everything unlocked!"
-		fillTo(fill, ratio, animate)
+		renderLevel(state)
 
 		local mailReady = state.MailboxReady == true
 		local goalsReady = goalReady(data, state)
-		Kit.setDot(buttons.Mailbox, mailReady)
-		local mailIcon = buttons.Mailbox:FindFirstChild("Icon")
-		if mailIcon and mailIcon:IsA("TextLabel") then
-			mailIcon.Text = if mailReady then "📬" else "📭"
-		end
+		Kit.setDot(buttons.Mailbox, mailReady) -- one 📬 always; the red dot is "a letter is waiting"
 		Kit.setDot(buttons.Goals, goalsReady)
 		local news = Hud.shopNews(data, state)
 		shopTab = if news.Rooms
@@ -2894,7 +3235,11 @@ function Hud.init(ctx: Types.Ctx)
 		local branchOnly = news.Branch and not (news.Rooms or news.Decor or news.Hospital)
 		local rebirth = (state :: any).Rebirth
 		local offer = type(rebirth) == "table" and type(rebirth.Offer) == "table" and #rebirth.Offer > 0
-		Kit.setDot(buttons.Shop, shopTab ~= nil, if branchOnly then (if offer then "🃏" else "🌳") else nil)
+		Kit.setDot(
+			buttons.Shop,
+			shopTab ~= nil,
+			if branchOnly then (if offer then Icons.Unit.Cards else Icons.Unit.Tree) else nil
+		)
 		if animate and news.Branch and not branchWasNews then
 			Hud.pop(buttons.Shop, 1.15)
 		end
