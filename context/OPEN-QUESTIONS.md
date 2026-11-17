@@ -27,6 +27,9 @@ was filed. Don't re-ask an answered question.
     - **Golden Hour's icon.** The status shows 🌟 and the belt shows 👑; pick one.
     - **🏥 and 🚑.** Do they count as cross emblems? Some platforms draw them with a red cross.
     ⬜ **Both (optional; Claude keeps the placeholders until then).**
+12. 🏷️ **Keep the name "Cure a Creature"?** The game now says "treat", not "cure" (`memory-20261117-005`). The title
+    was both brothers' pick (`-009`) and is public, so changing it needs both yeses (red line 4). Claude keeps the title
+    until then. ⬜ **Both.**
 
 ## ✅ Answered
 - #8, the depth update review fixes (build plan §E5-E7): 2026-11-16, Joshua: "your call for all" → Claude's calls:
