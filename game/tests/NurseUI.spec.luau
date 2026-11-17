@@ -268,7 +268,8 @@ local function own(ids: { string }, job: string?): { [string]: any }
 	return out
 end
 
-local STATION_ICONS = { Remedy = "🧪", Plaster = "🩹", Bath = "🛁", Cocoa = "☕", Pharmacy = "💊" }
+local STATION_ICONS =
+	{ Remedy = "💊", Plaster = "🩹", Ice = "🧊", Bandage = "🧻", Bath = "🛁", Cocoa = "☕" }
 
 local function assertWords(text: string, where: string)
 	assert(PanelPure.words(text) <= 6, where .. ": more than 6 words: " .. text)
@@ -436,7 +437,7 @@ T.describe("NursePanel (pure): the Team page", function()
 		eq(chips({ "DewDuck", "PebblePenguin", "JamJelly" }), { "🛁 ×3  🛁 40% faster" })
 		eq(chips({ "MintMouse", "SunnySnail" }), { "🛏️ ×2  rest 25% faster" })
 		eq(chips({ "CuddleCub", "ToffeeFox" }), { "🚑 ×2  🚑 wait +25%" })
-		eq(chips({ "BeanBear", "BerryBat" }), { "💊 ×2  ☕💊 20% faster" })
+		eq(chips({ "BeanBear", "BerryBat" }), { "💊 ×2  📦 20% faster" })
 		-- FounderFennec ("Any") makes a pair with anyone, and alone with none
 		eq(chips({ "FounderFennec" }), {})
 		eq(chips({ "FounderFennec", "MintMouse" }), { "🛏️ ×2  rest 25% faster" })
@@ -523,7 +524,8 @@ T.describe("NursePanel (pure): the job picker's states", function()
 		for _, option in options do
 			table.insert(boosts, option.Boost)
 		end
-		eq(boosts, { true, true, true, true, false, false })
+		-- a Reception specialist: no station is Reception's since the Real Clinic, so Maker has no ⭐
+		eq(boosts, { false, true, true, true, false, false })
 	end)
 	test("a Porter after a rebirth works its role until Lv 2 (nothing is lost)", function()
 		local porter = { Level = 4, XP = 0, Copies = 1, Job = "Porter" }

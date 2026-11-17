@@ -3,18 +3,20 @@
 -- from PlotBuilder by the look overhaul's Foundation and rebuilt to the studs look:
 --   · the Lawn: one studded GrassA slab with GrassB checker tiles (LawnTile: thin studded parts, 0.2 tall, their tops
 --     0.05 above the lawn, on whole studs) wherever the lawn shows: Config.Look.CheckerStuds (4) cells within 20 studs
---     of the street and in the gaps between plots, CheckerFarStuds (8) elsewhere. When Config.Look.CheckerTexture is
---     set, ONE checker Texture on the lawn's top replaces the tiles (§B2);
+--     of the street, CheckerFarStuds (8) elsewhere, the plot gaps' far parts too (the Real Clinic's 110-stud plots made
+--     those gaps 90 studs deep: 4-stud cells there would cost ~70 more parts). When Config.Look.CheckerTexture is set,
+--     ONE checker Texture on the lawn's top replaces the tiles (§B2);
 --   · the Street: dark (World.Road) and smooth, with warm RoadLine edge lines and zebra crossings at the outer gate
 --     pairs; NO centre dashes (the road's centre line belongs to the Nurse Belt, memory-20261117-001 #3); Slate curbs;
 --   · the plaza on the street's row-2 half (Config.Town.Plaza): a plank pad with benches, planters and lamps inside
 --     its rectangle, clear of the spawn, the kiosks, the odds sign and the row-2 middle gate's mouth (no pink ring);
 --   · voxel trees (World/Props.tree) in the plot gaps, the ends and behind the plots, in three greens, at most one
---     blossom tree in six; dark street lamps between the plots (x +-44, +-132; z +-16.4);
---   · the welcome arches at both ends (x +-147): wooden posts, a dark beam, the motto in floating outlined letters.
--- With 80-stud plots (Config.Town.PlotSize) 8 apart, the plot columns stand at x -88 / 0 / 88, the rows at |z| 18..98
--- and the street runs x -152..152. Everything here is laid out from those numbers.
--- Nothing solid stands in the belt's lane (|z| <= Config.Town.BeltClear, x -136.5..136.5): only flat road paint
+--     blossom tree in six; dark street lamps between the plots (x +-59, +-177; z +-16.4);
+--   · the welcome arches at both ends (x +-192): wooden posts, a dark beam, the motto in floating outlined letters.
+-- With 110-stud plots (Config.Town.PlotSize; the Real Clinic, design §8.1) 8 apart, the plot columns stand at
+-- x -118 / 0 / 118, the rows at |z| 18..128 and the street runs x -197..197. Everything here is laid out from
+-- Config.Town.PlotSize, so those numbers follow it.
+-- Nothing solid stands in the belt's lane (|z| <= Config.Town.BeltClear, x -181.5..181.5): only flat road paint
 -- (tests/TownWorld.spec builds the real town and checks it, with the parts budget Config.Look.TownParts).
 --   TownBuilder.build(count): Model        Workspace.ClinicTown for `count` plots (NOT parented: PlotBuilder does)
 --   TownBuilder.spawn(): SpawnLocation     TownSpawn at Config.Town.Origin + Config.Town.SpawnOffset, studded, facing -z
@@ -84,8 +86,8 @@ function Pure.plotRects(count: number, size: number, half: number, gap: number):
 end
 
 -- Where the town lawn shows (not under the street or a plot), each region with its checker cell: `nearCell` within
--- `near` studs of the street and in the gaps between plots, `farCell` elsewhere (the town's ends past the plots, and
--- the strip behind them).
+-- `near` studs of the street, `farCell` elsewhere (the gaps between plots past that, the town's ends past the plots,
+-- and the strip behind them).
 function Pure.lawnRegions(
 	count: number,
 	size: number,
@@ -132,9 +134,8 @@ function Pure.lawnRegions(
 			end
 		end
 		for _, span in free do
-			local inner = span[1] > -xEdge + 1e-6 and span[2] < xEdge - 1e-6
 			add(span[1], span[2], half, nearEdge, nearCell, span[1], half)
-			add(span[1], span[2], nearEdge, plotFar, if inner then nearCell else farCell, span[1], half)
+			add(span[1], span[2], nearEdge, plotFar, farCell, span[1], half)
 		end
 		add(-xEdge, xEdge, plotFar, uEdge, farCell, -xEdge, plotFar)
 	end
@@ -373,7 +374,7 @@ function TownBuilder.build(count: number): Model
 
 	buildPlaza(town, ground, streetTop)
 
-	-- Street lamps between the plots (x +-44 and +-132 with 6 plots), on the road by each curb.
+	-- Street lamps between the plots (x +-59 and +-177 with 6 plots of 110), on the road by each curb.
 	for column = 0, perRow do
 		local x = (column - perRow / 2) * (size + PLOT_GAP)
 		if math.abs(x) > 1 then

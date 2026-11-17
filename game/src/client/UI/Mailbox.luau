@@ -2,10 +2,10 @@
 -- Mailbox (build plan Task 6): the 📬 letter and the 🎯 daily goals.
 --   init(ctx)   opens on ctx.fire("Open", "Mailbox") and ctx.fire("Open", "Goals")
 -- Letter: when you join and the server says MailboxReady, an envelope drops in and opens into a thank-you
--- letter from patients you've cured (or a welcome note) with a 🎁 gift. Claim calls ClaimMailbox; the same gift
+-- letter from patients you've treated (or a welcome note) with a 🎁 gift. Claim calls ClaimMailbox; the same gift
 -- whether you were away a day or ten, and no streaks. It pops by itself only once per session, never over an open
 -- panel. A player in the first-session tutorial gets it when the tutorial ends (the tutorial is quiet: design
--- §A6), and a brand-new player without the tutorial after their first cure, so it never covers the first patient.
+-- §A6), and a brand-new player without the tutorial after their first patient is treated, so it never covers them.
 -- Goals: up to Config.MaxBankedGoals banked goals with progress bars; a finished one gets a claim button that
 -- calls ClaimGoal(index). Goals never expire.
 -- All amounts shown are from Config and Data/DailyGoals, for display only; the server decides what you get.
@@ -67,17 +67,17 @@ local function goalDef(data: any, id: string): any
 	return nil
 end
 
--- Six words or fewer, icons doing most of the work.
+-- Six words or fewer, icons doing most of the work. The kinds keep their saved ids ("Cure"...); the words say treat.
 local function goalText(data: any, def: any): string
 	if def.Kind == "Cure" then
-		return "Cure " .. def.Target .. " patients"
+		return "Treat " .. def.Target .. " patients"
 	elseif def.Kind == "CureNight" then
-		return "Cure " .. def.Target .. " 🌙 patients"
+		return "Treat " .. def.Target .. " 🌙 patients"
 	elseif def.Kind == "Make" then
 		return "Make " .. def.Target .. " treatments"
 	elseif def.Kind == "CureWing" then
 		local wing = def.Wing and rawget(data.Wings, def.Wing)
-		return "Cure " .. def.Target .. " " .. (if wing then wing.Icon else "") .. " patients"
+		return "Treat " .. def.Target .. " " .. (if wing then wing.Icon else "") .. " patients"
 	end
 	return def.Icon
 end

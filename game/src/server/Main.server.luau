@@ -1,6 +1,6 @@
 -- Server entry point: collision groups, then every system's start() in the plan's order (build plan Task 0;
 -- the depth update's systems per docs/plan/2026-11-16-depth-update-build-plan.md §B10; Progression v2's per
--- docs/plan/2026-11-16-progression-v2-build-plan.md §B10).
+-- docs/plan/2026-11-16-progression-v2-build-plan.md §B10), then the clinic's doors (World/Doors; the Real Clinic).
 -- A system whose start() errors is reported and skipped, so one broken module never stops the clinic opening.
 
 local PhysicsService = game:GetService("PhysicsService")
@@ -85,6 +85,18 @@ for _, name in START_ORDER do
 	end, debug.traceback)
 	if not ok then
 		warn("[Main] " .. name .. ".start() failed:\n" .. tostring(err))
+	end
+end
+
+-- The Real Clinic's doors (Server/World/Doors): they slide open for anyone near and stay shut while their room or
+-- level isn't open. It finds the doors by tag, so the buildings Plots made above (and every rebuild) are covered.
+do
+	local ok, err = xpcall(function()
+		local Doors = require(Server.World.Doors) :: any
+		Doors.start()
+	end, debug.traceback)
+	if not ok then
+		warn("[Main] Doors.start() failed:\n" .. tostring(err))
 	end
 end
 

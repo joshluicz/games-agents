@@ -1,5 +1,6 @@
 --!strict
--- The first-session tutorial's rules (Logic/Tutorial; docs/plan/2026-11-16-first-session-design.md §B).
+-- The first-session tutorial's rules (Logic/Tutorial; docs/plan/2026-11-16-first-session-design.md §B; the Real Clinic
+-- design §13: examine, then treat, then 3 more).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
@@ -7,10 +8,10 @@ local expect, test = T.expect, T.test
 local Tutorial = require("../src/shared/Logic/Tutorial")
 local Schema = require("../src/shared/Logic/Schema")
 
-local WELCOME, PATIENT, MAKE, TREAT, REST, MORE, SHOP, BOOK, DONE =
+local WELCOME, PATIENT, EXAMINE, TREAT, REST, MORE, SHOP, BOOK, DONE =
 	Tutorial.WELCOME,
 	Tutorial.PATIENT,
-	Tutorial.MAKE,
+	Tutorial.EXAMINE,
 	Tutorial.TREAT,
 	Tutorial.REST,
 	Tutorial.MORE,
@@ -22,7 +23,7 @@ T.describe("Tutorial steps", function()
 	test("are 1 to 9 in the design's order", function()
 		expect(WELCOME).toBe(1)
 		expect(PATIENT).toBe(2)
-		expect(MAKE).toBe(3)
+		expect(EXAMINE).toBe(3)
 		expect(TREAT).toBe(4)
 		expect(REST).toBe(5)
 		expect(MORE).toBe(6)
@@ -89,7 +90,7 @@ end)
 
 T.describe("Tutorial.resume", function()
 	test("sends steps that needed the live patient back to the patient step", function()
-		expect(Tutorial.resume(MAKE)).toBe(PATIENT)
+		expect(Tutorial.resume(EXAMINE)).toBe(PATIENT)
 		expect(Tutorial.resume(TREAT)).toBe(PATIENT)
 		expect(Tutorial.resume(REST)).toBe(PATIENT)
 	end)
@@ -107,8 +108,8 @@ T.describe("Tutorial.advance", function()
 		step = Tutorial.advance(step, "Ack")
 		expect(step).toBe(PATIENT)
 		step = Tutorial.advance(step, "Arrived")
-		expect(step).toBe(MAKE)
-		step = Tutorial.advance(step, "Made", { Right = true })
+		expect(step).toBe(EXAMINE)
+		step = Tutorial.advance(step, "Examined")
 		expect(step).toBe(TREAT)
 		step = Tutorial.advance(step, "Treated")
 		expect(step).toBe(REST)
@@ -117,11 +118,17 @@ T.describe("Tutorial.advance", function()
 		step = Tutorial.advance(step, "Cured", { Cures = 1 })
 		expect(step).toBe(MORE)
 		step = Tutorial.advance(step, "Cured", { Cures = 2 })
+		expect(step).toBe(MORE)
+		step = Tutorial.advance(step, "Cured", { Cures = 3 })
 		expect(step).toBe(SHOP)
 		step = Tutorial.advance(step, "Purchased")
 		expect(step).toBe(BOOK)
 		step = Tutorial.advance(step, "BookShown")
 		expect(step).toBe(DONE)
+	end)
+
+	test("treat 3 more (design §13)", function()
+		expect(Tutorial.MORE_CURES).toBe(3)
 	end)
 
 	test("the ack only moves past the welcome card", function()
@@ -130,20 +137,36 @@ T.describe("Tutorial.advance", function()
 		end
 	end)
 
-	test("making the wrong item doesn't move on", function()
-		expect(Tutorial.advance(MAKE, "Made", { Right = false })).toBe(MAKE)
-		expect(Tutorial.advance(MAKE, "Made")).toBe(MAKE)
-		expect(Tutorial.advance(PATIENT, "Made", { Right = true })).toBe(PATIENT) -- step 2 waits for its 2 s
+	test("the arrival only moves the patient card on; the exam waits for it in step 2 too", function()
+		expect(Tutorial.advance(PATIENT, "Arrived")).toBe(EXAMINE)
+		for _, step in { WELCOME, EXAMINE, TREAT, REST, MORE, SHOP, BOOK } do
+			expect(Tutorial.advance(step, "Arrived")).toBe(step)
+		end
+	end)
+
+	test("an exam skips ahead from steps 2 and 3 (a friend or a nurse examined it, say); nowhere else", function()
+		expect(Tutorial.advance(PATIENT, "Examined")).toBe(TREAT)
+		expect(Tutorial.advance(EXAMINE, "Examined")).toBe(TREAT)
+		for _, step in { WELCOME, TREAT, REST, MORE, SHOP, BOOK, DONE } do
+			expect(Tutorial.advance(step, "Examined")).toBe(step)
+		end
+	end)
+
+	test("fetching the item is no step of its own: an old Made event moves nothing", function()
+		for step = WELCOME, DONE do
+			expect(Tutorial.advance(step, "Made" :: any)).toBe(step)
+		end
 	end)
 
 	test("a treat skips ahead from steps 2 to 4 (a friend treated it, say)", function()
 		expect(Tutorial.advance(PATIENT, "Treated")).toBe(REST)
-		expect(Tutorial.advance(MAKE, "Treated")).toBe(REST)
+		expect(Tutorial.advance(EXAMINE, "Treated")).toBe(REST)
+		expect(Tutorial.advance(TREAT, "Treated")).toBe(REST)
 		expect(Tutorial.advance(MORE, "Treated")).toBe(MORE)
 		expect(Tutorial.advance(WELCOME, "Treated")).toBe(WELCOME)
 	end)
 
-	test("a cure skips ahead from steps 2 to 5", function()
+	test("a payout skips ahead from steps 2 to 5", function()
 		expect(Tutorial.advance(TREAT, "Cured")).toBe(MORE)
 		expect(Tutorial.advance(WELCOME, "Cured")).toBe(WELCOME)
 		expect(Tutorial.advance(SHOP, "Cured", { Cures = 5 })).toBe(SHOP)
@@ -195,8 +218,8 @@ T.describe("Tutorial.advance", function()
 	end)
 
 	test("never moves once done", function()
-		for _, event in { "Ack", "Arrived", "Made", "Treated", "Cured", "Purchased", "BookShown" } :: { any } do
-			expect(Tutorial.advance(DONE, event, { Right = true, Cures = 9 })).toBe(DONE)
+		for _, event in { "Ack", "Arrived", "Examined", "Treated", "Cured", "Purchased", "BookShown" } :: { any } do
+			expect(Tutorial.advance(DONE, event, { Cures = 9 })).toBe(DONE)
 		end
 	end)
 end)
@@ -213,7 +236,7 @@ T.describe("Tutorial.spawnPlan", function()
 		expect(Tutorial.spawnPlan(TREAT, false, false)).toBe("Wait")
 	end)
 
-	test("the second (🩹) patient once, then anyone", function()
+	test("the second patient once, then anyone", function()
 		expect(Tutorial.spawnPlan(REST, false, false)).toBe("Second")
 		expect(Tutorial.spawnPlan(REST, false, true)).toBe("Wait")
 		expect(Tutorial.spawnPlan(MORE, true, false)).toBe("Second") -- a rejoin in step 6
@@ -253,31 +276,57 @@ T.describe("Tutorial gift", function()
 	end)
 end)
 
-T.describe("Tutorial cards (look overhaul)", function()
+T.describe("Tutorial cards (the Real Clinic design §13)", function()
 	test("the 9 server steps show as 7 cards", function()
 		expect(Tutorial.CARDS).toBe(7)
 		expect(#Tutorial.CARD_NAMES).toBe(7)
-		expect(Tutorial.CARD_NAMES).toEqual({ "Meet", "Make", "Give", "Pour", "Rest", "More", "Upgrade" })
+		expect(Tutorial.CARD_NAMES).toEqual({ "Welcome", "Examine", "Tool", "Fetch", "Treat", "Treated", "More" })
 		expect(Tutorial.card(WELCOME)).toBe(1)
 		expect(Tutorial.card(PATIENT)).toBe(1)
-		expect(Tutorial.card(MAKE)).toBe(2)
-		expect(Tutorial.card(TREAT)).toBe(3)
-		expect(Tutorial.card(TREAT, false)).toBe(3)
-		expect(Tutorial.card(TREAT, true)).toBe(4) -- the mini-game is up
-		expect(Tutorial.card(REST)).toBe(5)
-		expect(Tutorial.card(MORE)).toBe(6)
+		expect(Tutorial.card(EXAMINE)).toBe(2)
+		expect(Tutorial.card(EXAMINE, "Exam")).toBe(3) -- the exam card is up: pick the glowing tool
+		expect(Tutorial.card(EXAMINE, true)).toBe(3)
+		expect(Tutorial.card(TREAT)).toBe(4) -- get it from the shelf or the dispensary
+		expect(Tutorial.card(TREAT, "Dispense")).toBe(4) -- still fetching
+		expect(Tutorial.card(TREAT, nil, true)).toBe(5) -- carrying it: tap Treat
+		expect(Tutorial.card(TREAT, "Treat")).toBe(5) -- its game is up on the patient
+		expect(Tutorial.card(REST)).toBe(6)
+		expect(Tutorial.card(MORE)).toBe(7)
 		expect(Tutorial.card(SHOP)).toBe(7)
 		expect(Tutorial.card(BOOK)).toBe(7)
 	end)
 
-	test("no card once done, or before the step is known; `treating` only matters in TREAT", function()
-		expect(Tutorial.card(DONE)).toBeNil()
-		expect(Tutorial.card(DONE, true)).toBeNil()
-		expect(Tutorial.card(0)).toBeNil()
-		expect(Tutorial.card(nil)).toBeNil()
-		expect(Tutorial.card("3")).toBeNil()
-		expect(Tutorial.card(MAKE, true)).toBe(2)
-		expect(Tutorial.card(REST, true)).toBe(5)
+	test(
+		"no card once done, or before the step is known; the session and the carrying only matter in 3 and 4",
+		function()
+			expect(Tutorial.card(DONE)).toBeNil()
+			expect(Tutorial.card(DONE, true)).toBeNil()
+			expect(Tutorial.card(0)).toBeNil()
+			expect(Tutorial.card(nil)).toBeNil()
+			expect(Tutorial.card("3")).toBeNil()
+			expect(Tutorial.card(EXAMINE, "Treat", true)).toBe(2)
+			expect(Tutorial.card(PATIENT, "Exam", true)).toBe(1)
+			expect(Tutorial.card(REST, true, true)).toBe(6)
+			expect(Tutorial.card(MORE, "Exam", true)).toBe(7)
+		end
+	)
+
+	test("the funnel: the card a step shows, then the Shop as its own 8th stage", function()
+		expect(Tutorial.FUNNEL_SHOP).toBe(8)
+		expect(#Tutorial.FUNNEL_NAMES).toBe(8)
+		expect(Tutorial.FUNNEL_NAMES[8]).toBe("Upgrade")
+		for card = 1, Tutorial.CARDS do
+			expect(Tutorial.FUNNEL_NAMES[card]).toBe(Tutorial.CARD_NAMES[card])
+		end
+		expect(Tutorial.funnelStep(PATIENT)).toBe(1)
+		expect(Tutorial.funnelStep(EXAMINE)).toBe(2)
+		expect(Tutorial.funnelStep(TREAT)).toBe(4)
+		expect(Tutorial.funnelStep(REST)).toBe(6)
+		expect(Tutorial.funnelStep(MORE)).toBe(7)
+		expect(Tutorial.funnelStep(SHOP)).toBe(8)
+		expect(Tutorial.funnelStep(BOOK)).toBe(8)
+		expect(Tutorial.funnelStep(DONE)).toBeNil()
+		expect(Tutorial.funnelStep(nil)).toBeNil()
 	end)
 
 	test("cards never go backwards as the steps go forward", function()
@@ -291,7 +340,7 @@ T.describe("Tutorial cards (look overhaul)", function()
 	end)
 
 	test("the idle nudge only on the walking steps", function()
-		for _, step in { MAKE, TREAT, MORE } do
+		for _, step in { EXAMINE, TREAT, MORE } do
 			expect(Tutorial.nudge(step)).toBe(true)
 		end
 		for _, step in { WELCOME, PATIENT, REST, SHOP, BOOK, DONE, 0 } do
@@ -300,7 +349,7 @@ T.describe("Tutorial cards (look overhaul)", function()
 		expect(Tutorial.nudge(nil)).toBe(false)
 	end)
 
-	test("the first patient stands one second before the Make card", function()
+	test("the first patient sits one second in its bay before the Examine card", function()
 		expect(Tutorial.ARRIVED_SECONDS).toBe(1)
 	end)
 end)
@@ -309,7 +358,7 @@ T.describe("Tutorial gift flag (look overhaul)", function()
 	test("the top-up is due only on entering SHOP, and only once", function()
 		expect(Tutorial.giftDue(SHOP, false)).toBe(true)
 		expect(Tutorial.giftDue(SHOP, true)).toBe(false)
-		for _, step in { WELCOME, PATIENT, MAKE, TREAT, REST, MORE, BOOK, DONE } do
+		for _, step in { WELCOME, PATIENT, EXAMINE, TREAT, REST, MORE, BOOK, DONE } do
 			expect(Tutorial.giftDue(step, false)).toBe(false)
 		end
 		expect(Tutorial.giftDue(SHOP, nil :: any)).toBe(true) -- an unknown flag counts as not given

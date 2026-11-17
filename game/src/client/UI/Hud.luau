@@ -11,7 +11,7 @@
 --            (Kit.countUp), the floating "+n" and the mini-game's 🔥 combo sticker (never during the tutorial) stay
 --   Now      top centre: ONE card (Hud.setNow), the highest priority first: 30 Hud's warnings (⚠️ Not saving, 🏠
 --            Clinics full) · 20 the tutorial card (UI/Tutorial) · 10 the tracked goal (the first unfinished daily
---            goal, "🎯 Cure 5 · 3/5"; a tap opens Goals). Hidden when empty. Toasts and banners stack under it
+--            goal, "🎯 Treat 5 · 3/5"; a tap opens Goals). Hidden when empty. Toasts and banners stack under it
 --            (UI/Toasts, Hud.nowBottom)
 --   Status   top right, right-aligned, read-only: (1) day or night with words ("☀️ Night in 3:27" / "🌙 ×2 · 2:08 left":
 --            the day/night line keeps m:ss); (2) ONE free-event chip ("🌟 Golden Hour in 12m": Logic/NextEvent over
@@ -269,22 +269,23 @@ function Pure.visitorLine(status: any): string?
 	return nil
 end
 
--- A daily goal in two or three words: "Cure 5", "Cure 3 🌙", "Make 10", "Cure 6 🌳" (the wing's icon).
+-- A daily goal in two or three words: "Treat 5", "Treat 3 🌙", "Make 10", "Treat 6 🌳" (the wing's icon). The
+-- kinds keep their saved ids ("Cure", "CureNight", "CureWing"); only the words say treat (Real Clinic design §12).
 function Pure.goalName(def: any, wings: any): string
 	local target = tostring(def.Target)
 	if def.Kind == "Make" then
 		return "Make " .. target
 	elseif def.Kind == "CureNight" then
-		return "Cure " .. target .. " 🌙"
+		return "Treat " .. target .. " 🌙"
 	elseif def.Kind == "CureWing" then
 		local wing = if type(wings) == "table" and type(def.Wing) == "string" then rawget(wings, def.Wing) else nil
 		local icon = if type(wing) == "table" and type(wing.Icon) == "string" then " " .. wing.Icon else ""
-		return "Cure " .. target .. icon
+		return "Treat " .. target .. icon
 	end
-	return "Cure " .. target
+	return "Treat " .. target
 end
 
--- The tracked goal (look build plan §F 7): the first daily goal still under its target, as "Cure 5 · 3/5" with the
+-- The tracked goal (look build plan §F 7): the first daily goal still under its target, as "Treat 5 · 3/5" with the
 -- share done. nil when every goal is done (or there are none).
 function Pure.trackedGoal(goals: any, defs: any, wings: any): Goal?
 	if type(goals) ~= "table" or type(defs) ~= "table" then

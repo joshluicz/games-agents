@@ -1,12 +1,20 @@
 --!strict
 -- Daily rules (Task 5): Today's Visitor, banked daily goals (no streaks, never a penalty), the mailbox and the
--- seasonal date window. Pure: Logic/Daily plus the Lune-safe DailyGoals data.
+-- seasonal date window. Pure: Logic/Daily plus the Lune-safe DailyGoals data. The Real Clinic: the visitor pool comes
+-- from patient -> wing, and a wing is treatable when its case pool has a case the clinic can treat.
 
 local T = require("./expect")
 local expect, test, describe = T.expect, T.test, T.describe
 
 local Daily = require("../src/shared/Logic/Daily")
 local DailyGoals = require("../src/shared/Data/DailyGoals")
+local Patients = require("../src/shared/Data/Patients")
+local Wings = require("../src/shared/Data/Wings")
+local Cases = require("../src/shared/Data/Cases")
+local Items = require("../src/shared/Data/Items")
+local Rooms = require("../src/shared/Data/Rooms")
+local Visit = require("../src/shared/Logic/Visit")
+local Building = require("../src/shared/Logic/Building")
 
 local POOL = { "A", "B", "C", "D", "E", "F" }
 
@@ -348,6 +356,87 @@ describe("goal helpers", function()
 	test("find looks a goal up by Id", function()
 		expect((Daily.find(GOALS, "Make2") :: any).Target).toBe(2)
 		expect(Daily.find(GOALS, "Nope")).toBeNil()
+	end)
+end)
+
+-- What Server/Daily asks: can this clinic (its level and rooms) treat this case? (Logic/Visit.canTreat, with the
+-- Building's stations by level and the bought rooms' stations once owned.)
+local function clinic(level: number, rooms: { [string]: boolean }): (string) -> boolean
+	local function open(stationId: string): boolean
+		if Building.stationOpen(stationId, level) then
+			return true
+		end
+		for roomId, owned in rooms do
+			if owned and table.find(Rooms[roomId].Stations, stationId) then
+				return true
+			end
+		end
+		return false
+	end
+	return function(caseId: string): boolean
+		return Visit.canTreat(rawget(Cases :: any, caseId), level, rooms, open, Items)
+	end
+end
+
+describe("the Real Clinic's visitor pool and wings", function()
+	test("the visitor pool comes from patient -> wing: day patients of the road wings, in Patients.Order", function()
+		local pool = Daily.visitorPool(Patients, Wings)
+		expect(pool).toEqual({
+			"DumplingFrog",
+			"CloudSheep",
+			"ToastPup",
+			"JellyBun",
+			"SlimeCat",
+			"MossMole",
+			"SnowconePenguin",
+			"IcicleOwl",
+		})
+		for _, id in pool do
+			local patient = Patients[id]
+			expect(patient.Night).toBeNil() -- never a night patient
+			expect(Wings[patient.Wing].Rebirths).toBeNil() -- never Sunny (R1) or Sky (R2, helicopter only)
+			expect(Wings[patient.Wing].Only).toBeNil()
+			expect(Cases.POOLS[patient.Wing] ~= nil).toBe(true) -- it rolls its case from its wing's pool
+		end
+		expect(Daily.visitorPool({}, Wings)).toEqual({})
+		expect(Daily.visitorPool(nil, nil)).toEqual({})
+	end)
+
+	test("treatableWings: a fresh Lv 1 clinic treats the Meadow, the night and the Sunny pools", function()
+		expect(Daily.treatableWings(Cases.POOLS, Cases, clinic(1, { Stand = true }))).toEqual({
+			Starter = true,
+			Night = true,
+			Sunny = true, -- a cut knee is Lv 1 (its patients still need R1: Data/Wings)
+		})
+	end)
+
+	test("treatableWings: a Bath or Winter wing waits for its room, as it always has; Sky for Lv 5", function()
+		local bath = Daily.treatableWings(Cases.POOLS, Cases, clinic(1, { Stand = true, BathRoom = true }))
+		expect(bath.Bath).toBe(true)
+		expect(bath.Winter).toBeNil()
+		local winter = Daily.treatableWings(Cases.POOLS, Cases, clinic(2, { Stand = true, WinterWing = true }))
+		expect(winter.Winter).toBe(true)
+		expect(winter.Bath).toBeNil()
+		expect(Daily.treatableWings(Cases.POOLS, Cases, clinic(4, { Stand = true })).Sky).toBeNil()
+		expect(Daily.treatableWings(Cases.POOLS, Cases, clinic(5, { Stand = true })).Sky).toBe(true)
+	end)
+
+	test("treatableWings and eligible together: a new clinic gets no Bath or Snow goal", function()
+		local wings = Daily.treatableWings(Cases.POOLS, Cases, clinic(1, { Stand = true }))
+		for _, def in Daily.eligible(DailyGoals, wings) do
+			expect(def.Wing == nil or def.Wing == "Starter").toBe(true)
+		end
+	end)
+
+	test("treatableWings: junk gives no wings, and a case nobody can treat counts for nothing", function()
+		expect(Daily.treatableWings(nil, Cases, clinic(1, {}))).toEqual({})
+		expect(Daily.treatableWings(Cases.POOLS, Cases, nil :: any)).toEqual({})
+		expect(Daily.treatableWings(Cases.POOLS, Cases, function()
+			return false
+		end)).toEqual({})
+		expect(Daily.treatableWings({ Starter = { "Nope", 7 } } :: any, Cases, function()
+			return true
+		end)).toEqual({})
 	end)
 end)
 

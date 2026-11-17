@@ -29,11 +29,13 @@ local BASE_TOP = 0.3 -- TownBuilder's lawn top above the origin (TownLayout.spec
 local STREET_TOP = BASE_TOP + 0.2
 -- World positions are float32 (Roblox Vector3): compare them to about a thousandth of a stud.
 local TOL = 1e-3
--- PlotBuilder's town: 80-stud plots 8 apart (PLOT_GAP), so the columns stand PITCH (88) apart and the street (and the
--- lawn) runs x -STREET_END..STREET_END (152). The belt runs x -135..135 (Config.Belt); its lane reaches its end rollers.
+-- PlotBuilder's town: 110-stud plots (the Real Clinic) 8 apart (PLOT_GAP), so the columns stand PITCH (118) apart and
+-- the street (and the lawn) runs x -STREET_END..STREET_END (197). The belt runs x -180..180 (Config.Belt); its lane
+-- reaches its end rollers, 1.5 past each end.
 local PITCH = Config.Town.PlotSize + 8
 local STREET_END = (math.ceil(Config.Town.Plots / 2) * PITCH + 40) / 2
-local LANE = { X0 = -136.5, X1 = 136.5, Z0 = -Config.Town.BeltClear, Z1 = Config.Town.BeltClear }
+local BELT_END = Config.Belt.Offset.X + 1.5
+local LANE = { X0 = -BELT_END, X1 = BELT_END, Z0 = -Config.Town.BeltClear, Z1 = Config.Town.BeltClear }
 
 local function pureBlock(path: string, env: { [string]: any }?): any
 	local text = fs.readFile(World.find(path))
@@ -111,7 +113,7 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 	local plots = Pure.plotRects(Config.Town.Plots, size, half, gap)
 	local tiles = Pure.checker(regions)
 
-	test("the plots are where PlotBuilder puts them: x -88 / 0 / 88, rows at z 18..98 either side", function()
+	test("the plots are where PlotBuilder puts them: x -118 / 0 / 118, rows at z 18..128 either side", function()
 		expect(#plots).toBe(6)
 		local xs = {}
 		for _, r in plots do
@@ -119,7 +121,8 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 			expect(r.X1 - r.X0).toBe(size)
 			expect(math.abs((r.Z0 + r.Z1) / 2)).toBe(half + size / 2)
 		end
-		expect(xs).toEqual({ -88, 0, 88, -88, 0, 88 })
+		expect(xs).toEqual({ -PITCH, 0, PITCH, -PITCH, 0, PITCH })
+		expect(PITCH).toBe(118)
 	end)
 
 	test("the regions never reach the street or a plot, and stay on the lawn", function()
@@ -141,19 +144,20 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 		end
 	end)
 
-	test("4-stud cells within 20 studs of the street and in the plot gaps, 8-stud cells elsewhere", function()
-		local sawGap, sawFar = false, false
+	test("4-stud cells within 20 studs of the street, 8-stud cells elsewhere (the plot gaps' far parts too)", function()
+		local sawGap, sawFarGap, sawFar = false, false, false
 		for _, r in regions do
 			local inner = r.X0 > -STREET_END + 1e-6 and r.X1 < STREET_END - 1e-6
-			if r.U1 <= half + 20 + 1e-6 or (inner and r.U1 <= half + size + 1e-6) then
+			if r.U1 <= half + 20 + 1e-6 then
 				expect(r.Cell).toBe(look.CheckerStuds)
 				sawGap = sawGap or inner
 			else
 				expect(r.Cell).toBe(look.CheckerFarStuds)
 				sawFar = true
+				sawFarGap = sawFarGap or inner
 			end
 		end
-		expect(sawGap and sawFar).toBe(true)
+		expect(sawGap and sawFarGap and sawFar).toBe(true)
 	end)
 
 	test(
@@ -251,6 +255,55 @@ T.describe("The built town (Surface mode)", function()
 		end
 	)
 
+	test(
+		"the plots never overlap, and the belt's lane and the kiosks (7 x 4.5, facing TownSpawn) clear every plot",
+		function()
+			local grounds = {}
+			for _, plot in plots do
+				local box
+				for _, p in world.parts(plot:FindFirstChild("Ground")) do
+					local e = extent(world, p)
+					box = if box
+						then {
+							X0 = math.min(box.X0, e.X0),
+							X1 = math.max(box.X1, e.X1),
+							Z0 = math.min(box.Z0, e.Z0),
+							Z1 = math.max(box.Z1, e.Z1),
+						}
+						else e
+				end
+				table.insert(grounds, box)
+			end
+			for i, a in grounds do
+				for j = i + 1, #grounds do
+					if overlaps(a, grounds[j], 8 - 1) then -- PlotBuilder's PLOT_GAP (8) between neighbours
+						error(string.format("Plot_%d and Plot_%d are closer than the plot gap", i, j))
+					end
+				end
+			end
+			local function facing(x, z)
+				local fx, fz = Config.Town.SpawnOffset.X - x, Config.Town.SpawnOffset.Z - z
+				local l = math.sqrt(fx * fx + fz * fz)
+				fx, fz = fx / l, fz / l
+				local hx = math.abs(fx) * 4.5 / 2 + math.abs(fz) * 7 / 2
+				local hz = math.abs(fz) * 4.5 / 2 + math.abs(fx) * 7 / 2
+				return { X0 = x - hx, X1 = x + hx, Z0 = z - hz, Z1 = z + hz }
+			end
+			local keep = {
+				Belt = LANE,
+				Agency = facing(Config.Agency.Offset.X, Config.Agency.Offset.Z),
+				Market = facing(Config.Market.Offset.X, Config.Market.Offset.Z),
+			}
+			for index, box in grounds do
+				for name, zone in keep do
+					if overlaps(box, zone, 1) then
+						error(string.format("the %s is within a stud of Plot_%d", name, index))
+					end
+				end
+			end
+		end
+	)
+
 	test("ClinicTown stays inside Config.Look.TownParts", function()
 		print(string.format("    [parts] ClinicTown: %d / %d", #parts, Config.Look.TownParts))
 		expect(#parts <= Config.Look.TownParts).toBe(true)
@@ -336,7 +389,7 @@ T.describe("The built town (Surface mode)", function()
 					expect(math.abs((e.Z0 + e.Z1) / 2) > 12).toBe(true)
 				else
 					crossings += 1
-					expect(math.abs(math.abs((e.X0 + e.X1) / 2) - PITCH) < TOL).toBe(true) -- the crossings at x +-88
+					expect(math.abs(math.abs((e.X0 + e.X1) / 2) - PITCH) < TOL).toBe(true) -- the crossings at x +-118
 				end
 			end
 		end
@@ -452,7 +505,7 @@ T.describe("The built town (Surface mode)", function()
 		end
 	end)
 
-	test("the street lamps (x +-44, z +-16.4) are dark posts with NightLights heads", function()
+	test("the street lamps (x +-59, z +-16.4) are dark posts with NightLights heads", function()
 		local found = 0
 		for _, d in town:GetDescendants() do
 			if d.ClassName == "Model" and d.Name == "Lamp" then
@@ -473,7 +526,7 @@ T.describe("The built town (Surface mode)", function()
 		for _, p in parts do
 			if p.Name == "ArchBeam" then
 				local e = extent(world, p)
-				expect(math.abs(math.abs((e.X0 + e.X1) / 2) - (STREET_END - 5)) < TOL).toBe(true) -- the arches at x +-147
+				expect(math.abs(math.abs((e.X0 + e.X1) / 2) - (STREET_END - 5)) < TOL).toBe(true) -- the arches at x +-192
 				for _, gui in p:GetChildren() do
 					if gui.ClassName == "SurfaceGui" then
 						guis += 1
@@ -651,11 +704,23 @@ T.describe("The Hall of Fame garden (BoardBuilder)", function()
 	local gantry = BoardBuilder.build(ids)
 	local model = gantry.Model
 
-	test("it stays past the street's west end (x < -152), off the street", function()
+	test("it stays past the street's west end (x < -197), off the street and clear of every plot", function()
+		local plotBoxes = {}
+		for _, plot in world.Workspace:FindFirstChild("Clinics"):GetChildren() do
+			for _, p in world.parts(plot:FindFirstChild("Ground")) do
+				table.insert(plotBoxes, extent(world, p))
+			end
+		end
+		expect(#plotBoxes > 0).toBe(true)
 		for _, p in world.parts(model) do
 			local e = extent(world, p)
 			if e.X1 > -STREET_END + TOL then
 				error(p.Name .. " reaches the street")
+			end
+			for _, box in plotBoxes do
+				if overlaps(e, box, 1) then
+					error(p.Name .. " is within a stud of a plot")
+				end
 			end
 		end
 	end)

@@ -5,9 +5,10 @@
 --
 -- `Patient` is the creature id: CreatureBuilder.build(Patient) uses this entry's `Look` (same recipe as
 -- Data/Patients, with the same candy-pop colours, sizes and Bits) or a model at ServerStorage.Creatures.<Patient>.
--- `Ailment` must be treatable at the First-Aid Stand (Remedy or Plaster), so every clinic can cure them.
--- `Recipe` is their own (depth update §1: "regulars their own"): First-Aid Stand items only, item 1 = the ailment's
--- station item. The hospital level cuts it like any recipe (Lv 1 -> 1 item), so these are the game's 3-item recipes.
+-- `Case` is their one fixed case (Data/Cases; design §11: they keep their stories and get one case each). It is a
+-- Lv 1 case with no Room, so every clinic can treat it (Logic/Visit.canTreat at Lv 1), and a regular goes through the
+-- same visit as anyone: the exam, then its plan (cut by the hospital level), and from Lv 2-3 a ward rest if it Stays.
+-- Their words fit their case: Shy Sprout coughs, Grumpy Teapot runs hot (a fever), Dizzy Comet bumped its head.
 
 export type RegularId = string
 export type Beat = { Emote: string, Bubble: string }
@@ -24,13 +25,12 @@ export type Look = {
 export type Regular = {
 	Name: string,
 	Patient: string, -- creature id (equals the RegularId)
-	Ailment: string, -- AilmentId
+	Case: string, -- CaseId: a Lv 1 case with no Room (Data/Cases)
 	Wing: string, -- WingId, for the Book
 	UnlockStars: number, -- Clinic Stars needed before they start visiting
 	Beats: { Beat }, -- exactly 5
 	Reward: string, -- DecorId or RoomId, granted when the story finishes
 	RewardKind: "Decor" | "Room",
-	Recipe: { string }, -- ItemIds, 1-3 (Stand items only)
 	Look: Look,
 }
 
@@ -39,19 +39,18 @@ local ENTRIES: { [RegularId]: Regular } = {
 	ShySprout = {
 		Name = "Shy Sprout",
 		Patient = "ShySprout",
-		Ailment = "Sneezes",
+		Case = "Cough",
 		Wing = "Starter",
 		UnlockStars = 0,
 		Beats = {
 			{ Emote = "🙈", Bubble = "Eek! Is it safe in there?" },
 			{ Emote = "👀", Bubble = "I peeked inside. So cozy!" },
-			{ Emote = "🤧", Bubble = "Achoo! You always help me." },
+			{ Emote = "😷", Bubble = "Cough! You always help me." },
 			{ Emote = "🌼", Bubble = "I told all my friends!" },
 			{ Emote = "🥰", Bubble = "Can I be your mascot?" },
 		},
 		Reward = "SproutMascot",
 		RewardKind = "Decor",
-		Recipe = { "Potion" },
 		Look = {
 			Shape = "Bean",
 			Body = "#A6EA38",
@@ -68,19 +67,18 @@ local ENTRIES: { [RegularId]: Regular } = {
 	GrumpyTeapot = {
 		Name = "Grumpy Teapot",
 		Patient = "GrumpyTeapot",
-		Ailment = "Hiccups",
+		Case = "Fever",
 		Wing = "Starter",
 		UnlockStars = 40,
 		Beats = {
-			{ Emote = "😤", Bubble = "Hmph. Fix my hiccups. Quickly." },
+			{ Emote = "😤", Bubble = "Hmph. I'm too hot. Quickly." },
 			{ Emote = "😒", Bubble = "Fine. That was... not awful." },
-			{ Emote = "♨️", Bubble = "Hic! Steam hiccups again. Hmph!" },
+			{ Emote = "♨️", Bubble = "Phew! All steamy again. Hmph!" },
 			{ Emote = "😊", Bubble = "Oops, I smiled. Don't tell!" },
 			{ Emote = "🍀", Bubble = "Take my lucky kettle. Thanks!" },
 		},
 		Reward = "LuckyKettle",
 		RewardKind = "Decor",
-		Recipe = { "Potion", "Plaster", "Potion" },
 		Look = {
 			Shape = "Ball",
 			Body = "#FF5A62",
@@ -97,7 +95,7 @@ local ENTRIES: { [RegularId]: Regular } = {
 	DizzyComet = {
 		Name = "Dizzy Comet",
 		Patient = "DizzyComet",
-		Ailment = "Bump",
+		Case = "BumpedHead",
 		Wing = "Night",
 		UnlockStars = 120,
 		Beats = {
@@ -109,7 +107,6 @@ local ENTRIES: { [RegularId]: Regular } = {
 		},
 		Reward = "CometLantern",
 		RewardKind = "Decor",
-		Recipe = { "Plaster", "Potion", "Plaster" },
 		Look = {
 			Shape = "Ball",
 			Body = "#FFD52E",

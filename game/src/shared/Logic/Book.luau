@@ -2,13 +2,14 @@
 -- Patient Book rules (build plan §B6, design §5.6). Pure: no Roblox services, no requires, so Lune tests it
 -- (tests/Book.spec.luau). Safe to require on the client too (the Book panel can use wingIds and progress).
 --
---   Book.stamp(book, patientId, variant?): (newPage, newVariant)   records one cure (mutates `book`)
---   Book.setComplete(book, patientIds): boolean                   every id cured at least once (empty = false)
+--   Book.stamp(book, patientId, variant?): (newPage, newVariant)   records one patient treated (mutates `book`)
+--   Book.setComplete(book, patientIds): boolean                   every id treated at least once (empty = false)
 --   Book.wingIds(patients, wingId): { PatientId }                  a wing's set, in Data order
 --   Book.progress(book, patientIds): (done, total)                 for set progress bars
 --   Book.rewardsDue(book, ownedDecor, patients, wings): { DecorId } completed sets whose reward isn't owned yet
 --
--- `book` is Data.Book: { [PatientId]: { Cured: number, Variants: { [VariantId]: boolean } } }.
+-- `book` is Data.Book: { [PatientId]: { Cured: number, Variants: { [VariantId]: boolean } } }. `Cured` (the times
+-- treated) keeps its saved name. A page is the species, whatever case it came with (each visit rolls one).
 -- A wing's set is the patients in Data/Patients with that Wing. Regulars can have pages too (they use their own
 -- id), but they never count toward a set, so a set can't wait on a regular's Stars unlock.
 
@@ -37,7 +38,7 @@ local function cured(book: BookData, patientId: string): boolean
 	return type(page) == "table" and type(page.Cured) == "number" and page.Cured >= 1
 end
 
--- Stamps one cure into `book` (mutates it). Returns (newPage, newVariant).
+-- Stamps one patient treated into `book` (mutates it). Returns (newPage, newVariant).
 -- A junk id changes nothing and returns (false, false); a junk variant counts as no variant.
 function Book.stamp(book: BookData, patientId: string, variant: string?): (boolean, boolean)
 	if type(book) ~= "table" or type(patientId) ~= "string" or patientId == "" then

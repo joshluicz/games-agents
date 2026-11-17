@@ -13,7 +13,8 @@
 --                 you're alone in it, or in Studio; otherwise its reply says why)
 --   🏢 Branch     Progression v2 (build plan §B8): 🏢 Rebirth now, 🌳 +3 points, ⬆️ Nurse levels, ✨ Charge
 --                 abilities, 🚑 Ambulance, 🚁 Helicopter, and the whole server's 🏢 Restock Agency
---   🤧 Patients   tap a creature and it's next in your own line
+--   🤧 Patients   tap a creature and it's next in your own line (its case is rolled from its wing's pool, as
+--                 every visit's is: Data/Cases.POOLS)
 --   🎁 Nurses     tap a nurse and it's yours, free (the roster rules still apply)
 -- Buttons by role: every tool is Secondary; the ones that reset something (🔄 Restart the tutorial, 🏢 Rebirth now,
 -- 🎯 Reset goals) are Destructive and ask Hud.confirm first ("Not now" focused).
@@ -89,7 +90,7 @@ local SECTIONS: { Section } = {
 				{ Text = "⏱️ +5 h total", Kind = "Secondary", Action = "AddPlayTotal" },
 			},
 			{
-				{ Text = "🏥 +100 cures", Kind = "Secondary", Action = "AddCureStat" },
+				{ Text = "🏥 +100 treated", Kind = "Secondary", Action = "AddCureStat" },
 				{ Text = "🏅 Max badges", Kind = "Secondary", Action = "MaxBadges" },
 			},
 			{
@@ -395,15 +396,9 @@ function AdminPanel.init(ctx: Types.Ctx)
 	--------------------------------------------------------------------------------------------------------------
 	for _, patientId in data.Patients.Order do
 		local patient = data.Patients[patientId]
-		local ailment = data.Ailments[patient.Ailment]
-		local station = if ailment then data.Stations[ailment.Station] else nil
-		local wing = data.Wings[patient.Wing]
-		-- What it has, what cures it, and its wing: "🤧→🧪 🌳"
-		local needs = (if ailment then ailment.Icon else "")
-			.. "→"
-			.. (if station then station.Icon else "")
-			.. " "
-			.. (if wing then wing.Icon else "")
+		local wing = rawget(data.Wings, patient.Wing)
+		-- Its wing (its case is rolled each visit from the wing's pool): "🌳 Meadow"
+		local needs = if type(wing) == "table" then tostring(wing.Icon) .. " " .. tostring(wing.Name) else ""
 		card(
 			"Patients",
 			patientId,

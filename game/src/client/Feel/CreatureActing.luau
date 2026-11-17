@@ -1,25 +1,29 @@
 --!strict
 -- CreatureActing: every patient acts out what's wrong with it, with props, and asks for attention when it has waited
--- long (Data/AilmentActing). Joshua, 2026-11-16: "they should have animations corresponding to their illness or need
--- for attention. it should be visible with perhaps props. but not gory". Client only and purely visual.
+-- long (Data/CaseActing, by case). Joshua, 2026-11-16: "they should have animations corresponding to their illness or
+-- need for attention. it should be visible with perhaps props. but not gory". Client only and purely visual.
 --
 -- How it works. CreatureBuilder tags every creature "ClinicCreature" and hangs its body on Root.PoseJoint, its arms
 -- (or wings, flippers) on Core.ArmRJoint / ArmLJoint and its tail on Core.TailJoint. This module sets those
 -- Motor6Ds' Transform each frame on this client only (Transform never replicates), so the body leans, hops, shivers
 -- and waves while the server keeps moving Root. It never writes Root.CFrame. The server only sets attributes on the
--- patient Model: Ailment, State ("Arriving" | "Waiting" | "Treating" | "Treated" | "Recovering" | "Cured" | "Sad")
--- and PatienceFraction (0..1, in 0.05 steps). "Treating" (the depth update's mini-games at the Counter): it holds
--- still and only breathes, its props stay on, and it acts again if it goes back to "Waiting" for the rest of its
--- recipe. Feel/CreatureMotion moves Root (hops, head-shakes, scale) at the same time; the two never touch each
--- other's parts.
---   Arriving / Waiting  its ailment's props (Feel/CreatureProps) and a beat every few seconds: a hiccup hop, a
---                       sneeze, a cough, a dizzy sway with circling stars, a sniffle... Waiting with patience at or
---                       under AilmentActing.Attention.Wave: a wave now and then; at or under Alert: both arms, a
---                       bounce and a "!" beside its head, and its beats come sooner.
---   Treated             the props pop off with a sparkle, the colours come back, arms up in relief
---   Recovering          slow sleepy breathing
---   Cured               a happy wave with both arms, a wagging tail and candy sparkles (the server does the hop)
---   Sad                 arms droop and it hangs its head (the server does the puff)
+-- patient Model (Server/Patients, the Real Clinic visit): Case (only once the exam reveals it), Acting (the CaseId the
+-- creature acts out from the start), Symptom (its bubble), State and PatienceFraction (0..1, in 0.05 steps). The
+-- acting is CaseActing[Case], else CaseActing[Acting], else the case whose Bubble is the Symptom (the bubble already
+-- says it, so acting it out gives nothing away), else CaseActing.Default. A State is played as a phase (PHASES):
+--   Arriving   (Arriving, ToBay)            its case's props (Feel/CreatureProps) and a beat every few seconds: a
+--   Waiting    (Waiting, AtBay, Planned)    cough, a sniffle, a shiver, a dizzy sway with circling stars...
+--                                           Waiting with patience at or under CaseActing.Attention.Wave: a wave now
+--                                           and then; at or under Alert: both arms, a bounce and a "!" beside its
+--                                           head, and its beats come sooner
+--   Treating   (Examining, Treating)        a mini-game is on it: it holds still and only breathes, its props stay
+--                                           on, and it acts again when it goes back to waiting for its next step
+--   Treated    (Done)                       the props pop off with a sparkle, the colours come back, arms up in relief
+--   Recovering (ToWard, Recovering)         slow sleepy breathing
+--   Cured      (Leaving after its           a happy wave with both arms, a wagging tail and candy sparkles (the
+--              treatment)                   server does the hop)
+--   Calm       (Leaving before it)          the props go quietly (it's going home with no sad penalty)
+--   Sad        (Sad)                        arms droop and it hangs its head (the server does the puff)
 -- Only creatures within NEAR_STUDS of the camera act; the rest stand still and cost nothing. Calm effects (the
 -- ReduceEffects attribute, or the device's Reduced Motion: Kit.reducedMotion()) make every motion small and slow, with
 -- no shivering, no circling stars and no bounce, and fewer particles.
@@ -32,14 +36,64 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
-local AilmentActing = require(Shared:WaitForChild("Data"):WaitForChild("AilmentActing"))
+local DataFolder = Shared:WaitForChild("Data")
+local CaseActing = require(DataFolder:WaitForChild("CaseActing"))
+local Cases = require(DataFolder:WaitForChild("Cases"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Kit = require(UI:WaitForChild("Kit"))
 local Props = require(script.Parent:WaitForChild("CreatureProps"))
 
 local CreatureActing = {}
 
-type Acting = AilmentActing.Acting
+type Acting = CaseActing.Acting
+
+-- The server's visit states (Server/Patients) as this module's acting phases (the header). "Leaving" is decided by
+-- the phase before it (phaseOf); anything unknown acts as Arriving.
+local PHASES: { [string]: string } = {
+	Arriving = "Arriving",
+	ToBay = "Arriving",
+	Waiting = "Waiting",
+	AtBay = "Waiting",
+	Planned = "Waiting",
+	Examining = "Treating",
+	Treating = "Treating",
+	Done = "Treated",
+	Treated = "Treated",
+	ToWard = "Recovering",
+	Recovering = "Recovering",
+	Cured = "Cured",
+	Sad = "Sad",
+}
+
+local function phaseOf(raw: any, previous: string): string
+	if raw == "Leaving" then
+		local happy = previous == "Treated" or previous == "Recovering" or previous == "Cured"
+		return if happy then "Cured" else "Calm"
+	end
+	return if type(raw) == "string" and PHASES[raw] then PHASES[raw] else "Arriving"
+end
+
+-- Before the exam a patient shows only its symptom: the case whose bubble that is.
+local BY_BUBBLE: { [string]: string } = {}
+for _, caseId in Cases.ORDER do
+	local case = rawget(Cases :: any, caseId)
+	if type(case) == "table" and type(case.Bubble) == "string" then
+		BY_BUBBLE[case.Bubble] = caseId
+	end
+end
+
+local function actingOf(model: Model): Acting
+	local case = model:GetAttribute("Case")
+	if type(case) ~= "string" or case == "" then
+		case = model:GetAttribute("Acting") -- the server's own pick for the acting, from the start
+	end
+	if type(case) ~= "string" or case == "" then
+		local symptom = model:GetAttribute("Symptom")
+		case = if type(symptom) == "string" then BY_BUBBLE[symptom] else nil
+	end
+	local acting = if type(case) == "string" then rawget(CaseActing :: any, case) else nil
+	return if type(acting) == "table" then acting else CaseActing.Default
+end
 
 type Creature = {
 	Model: Model,
@@ -79,7 +133,7 @@ local ALERT_WAVE_SECONDS = 1.7
 local RELIEF_SECONDS = 0.9
 local JOY_SECONDS = 2
 
--- How long one beat of each motion lasts (AilmentActing.Vocabulary.Motions).
+-- How long one beat of each motion lasts (CaseActing.Vocabulary.Motions).
 local BEAT_SECONDS: { [string]: number } = {
 	Hiccup = 0.5,
 	Sneeze = 1.6,
@@ -335,9 +389,9 @@ local function attention(c: Creature): number
 	if c.State ~= "Waiting" then
 		return 0
 	end
-	if c.Patience <= AilmentActing.Attention.Alert then
+	if c.Patience <= CaseActing.Attention.Alert then
 		return 2
-	elseif c.Patience <= AilmentActing.Attention.Wave then
+	elseif c.Patience <= CaseActing.Attention.Wave then
 		return 1
 	end
 	return 0
@@ -392,7 +446,7 @@ local function act(c: Creature, now: number, quiet: boolean)
 		if waveAt and now - waveAt >= (if c.WaveBoth then ALERT_WAVE_SECONDS else WAVE_SECONDS) then
 			c.Wave = nil
 			waveAt = nil
-			local every = if level == 2 then AilmentActing.Attention.AlertEvery else AilmentActing.Attention.WaveEvery
+			local every = if level == 2 then CaseActing.Attention.AlertEvery else CaseActing.Attention.WaveEvery
 			c.NextWave = now + between(every, 1)
 		end
 		if level > 0 and not waveAt and not c.Beat and now >= c.NextWave then
@@ -498,8 +552,7 @@ local function updateProps(c: Creature, quiet: boolean)
 end
 
 local function onState(c: Creature)
-	local state = c.Model:GetAttribute("State")
-	local new = if type(state) == "string" then state else "Arriving"
+	local new = phaseOf(c.Model:GetAttribute("State"), c.State)
 	if new == c.State then
 		return
 	end
@@ -514,7 +567,7 @@ local function onState(c: Creature)
 	end
 	if new == "Treated" or new == "Recovering" or new == "Cured" then
 		dropProps(c, new == "Treated")
-	elseif new == "Sad" then
+	elseif new == "Sad" or new == "Calm" then
 		dropProps(c, false)
 	end
 	if new == "Cured" then
@@ -588,10 +641,7 @@ local function track(instance: Instance)
 		local found = core:FindFirstChild(name)
 		return if found and found:IsA("Motor6D") then found else nil
 	end
-	local ailment = model:GetAttribute("Ailment")
-	local acting: Acting = if type(ailment) == "string" and AilmentActing[ailment]
-		then AilmentActing[ailment]
-		else AilmentActing.Default
+	local acting: Acting = actingOf(model)
 	local unit = model:GetAttribute("BuildScale")
 	local hasFeet = model:FindFirstChild("Foot") ~= nil
 	local now = os.clock()
@@ -638,6 +688,24 @@ local function track(instance: Instance)
 			c.Patience = if type(value) == "number" then value else 1
 		end)
 	)
+	-- The symptom (or, after the exam, the case) can arrive after the model: act it out once it's known.
+	local function recast()
+		local nextActing = actingOf(model)
+		if nextActing == c.Acting then
+			return
+		end
+		c.Acting = nextActing
+		c.Seconds = BEAT_SECONDS[nextActing.Motion] or 1
+		c.Beat = nil
+		local kit = c.Props
+		if kit and kit.Live then
+			Props.remove(kit, false) -- the new props come with the next check (updateProps)
+		end
+		c.Props = nil
+	end
+	for _, name in { "Case", "Acting", "Symptom" } do
+		table.insert(c.Connections, model:GetAttributeChangedSignal(name):Connect(recast))
+	end
 	table.insert(
 		c.Connections,
 		model.AncestryChanged:Connect(function(_, parent)
@@ -655,12 +723,12 @@ end
 
 function CreatureActing.init(_ctx: Types.Ctx)
 	-- Every prop and motion named in the data has a player here (a typo in the data only warns).
-	for _, name in AilmentActing.Vocabulary.Props do
+	for _, name in CaseActing.Vocabulary.Props do
 		if not Props.has(name) then
 			warn("[CreatureActing] no prop builder for " .. name)
 		end
 	end
-	for _, name in AilmentActing.Vocabulary.Motions do
+	for _, name in CaseActing.Vocabulary.Motions do
 		if not BEAT_SECONDS[name] then
 			warn("[CreatureActing] no motion for " .. name)
 		end

@@ -1,8 +1,9 @@
 --!strict
 -- Content checks for the Lune-safe Data modules (Task 0). Stations uses Color3, so it is checked from its source
 -- text here instead of being required. The Real Clinic (build plan contract C3): cases, tools, items, stations,
--- levels and departments are checked against the design's tables; the patient, regular and acting checks further
--- down still speak of ailments until Data/Patients, Data/Regulars and Data/CaseActing follow (build plan Task 3).
+-- levels and departments are checked against the design's tables; patients by wing and case pool, regulars by their
+-- one Lv 1 case, the acting by case, a badge for every station, and the words (Task 3: no player-visible "cure" in
+-- Data/* or Logic/*, design §12).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
@@ -19,7 +20,7 @@ local Decor = require("../src/shared/Data/Decor")
 local DailyGoals = require("../src/shared/Data/DailyGoals")
 local Wings = require("../src/shared/Data/Wings")
 local Variants = require("../src/shared/Data/Variants")
-local AilmentActing = require("../src/shared/Data/AilmentActing")
+local CaseActing = require("../src/shared/Data/CaseActing")
 local CreatureSize = require("../src/shared/Logic/CreatureSize")
 local Nurses = require("../src/shared/Data/Nurses")
 local Rarities = require("../src/shared/Data/Rarities")
@@ -31,25 +32,11 @@ local Tree = require("../src/shared/Data/Tree")
 local Themes = require("../src/shared/Data/Themes")
 local Levels = require("../src/shared/Data/Levels")
 local Badges = require("../src/shared/Data/Badges")
+local Building = require("../src/shared/Logic/Building")
+local Visit = require("../src/shared/Logic/Visit")
 local fs = require("@lune/fs")
 
 local STATIONS = { Remedy = true, Plaster = true, Ice = true, Bandage = true, Cast = true, Bath = true, Cocoa = true }
-local AILMENTS = {
-	Hiccups = "Remedy",
-	Sneezes = "Remedy",
-	Cough = "Remedy",
-	Bump = "Plaster",
-	Scrape = "Plaster",
-	LostGlow = "Plaster",
-	Sticky = "Bath",
-	Muddy = "Bath",
-	Chills = "Cocoa",
-	FrozenNose = "Cocoa",
-	-- Progression v2
-	Pollen = "Remedy",
-	Prickles = "Plaster",
-	Airsick = "Remedy",
-}
 -- What Logic/Abilities.useful and the servers know how to do (Data/Abilities Kind)
 local ABILITY_KINDS = {
 	AutoPerfect = true,
@@ -144,6 +131,56 @@ local function sorted(list: { string }): { string }
 	return out
 end
 
+-- The folder a source path lives in, from game/ or the repo root (as `source` finds files).
+local function folder(path: string): string
+	for _, prefix in { "", "game/", "../" } do
+		if fs.isDir(prefix .. path) then
+			return prefix .. path
+		end
+	end
+	error("could not find " .. path)
+end
+
+-- Every string literal in Luau source, comments left out: "...", '...', `...` and [[...]] (any level).
+local function literals(text: string): { string }
+	local out = {}
+	local i, n = 1, #text
+	while i <= n do
+		local c = string.sub(text, i, i)
+		if c == "-" and string.sub(text, i, i + 1) == "--" then
+			local level = string.match(text, "^%-%-%[(=*)%[", i)
+			local close = if level then "]" .. level .. "]" else "\n"
+			local stop = string.find(text, close, i + 2, true)
+			i = if stop then stop + #close else n + 1
+		elseif c == '"' or c == "'" or c == "`" then
+			local j, parts = i + 1, {}
+			while j <= n do
+				local d = string.sub(text, j, j)
+				if d == "\\" then
+					table.insert(parts, string.sub(text, j, j + 1))
+					j += 2
+				elseif d == c then
+					break
+				else
+					table.insert(parts, d)
+					j += 1
+				end
+			end
+			table.insert(out, table.concat(parts))
+			i = j + 1
+		elseif c == "[" and string.match(text, "^%[=*%[", i) then
+			local level = string.match(text, "^%[(=*)%[", i) :: string
+			local first = i + #level + 2
+			local stop = string.find(text, "]" .. level .. "]", first, true)
+			table.insert(out, string.sub(text, first, (stop or n + 1) - 1))
+			i = if stop then stop + #level + 2 else n + 1
+		else
+			i += 1
+		end
+	end
+	return out
+end
+
 T.describe("Data", function()
 	test("every keyed module's Order lists exactly its entries", function()
 		for name, module in
@@ -158,7 +195,7 @@ T.describe("Data", function()
 				Decor = Decor,
 				Wings = Wings,
 				Variants = Variants,
-				AilmentActing = AilmentActing,
+				CaseActing = CaseActing,
 				Nurses = Nurses,
 				Rarities = Rarities,
 				Jobs = Jobs,
@@ -184,11 +221,13 @@ T.describe("Data", function()
 		expect(table.isfrozen(DailyGoals)).toBe(true)
 	end)
 
-	test("patients use known ailments and wings, with the plan's cast", function()
+	test("patients: known wings, each with a case pool; no case of their own (it's rolled each visit)", function()
 		expect(#Patients.Order).toBe(17) -- 10 + Progression v2's Sunny (4) and Sky (3)
 		for id, patient in Patients do
-			expect(AILMENTS[patient.Ailment] ~= nil).toBe(true)
 			expect(Wings[patient.Wing] ~= nil).toBe(true)
+			expect(Cases.POOLS[patient.Wing] ~= nil).toBe(true)
+			expect((patient :: any).Ailment).toBeNil()
+			expect((patient :: any).Case).toBeNil()
 			expect(patient.Night == true).toBe(patient.Wing == "Night")
 			expect(type(patient.Look.Body) == "string" and string.sub(patient.Look.Body, 1, 1) == "#").toBe(true)
 			expect(type(id)).toBe("string")
@@ -208,9 +247,7 @@ T.describe("Data", function()
 				end
 				expect(#beat.Emote > 0).toBe(true)
 			end
-			-- Every clinic can treat a regular: their ailment uses a First-Aid Stand station.
-			local station = AILMENTS[regular.Ailment]
-			expect(station == "Remedy" or station == "Plaster").toBe(true)
+			expect(Wings[regular.Wing] ~= nil).toBe(true)
 			if regular.RewardKind == "Decor" then
 				expect(Decor[regular.Reward] ~= nil).toBe(true)
 			else
@@ -498,7 +535,7 @@ T.describe("Data", function()
 			CutKnee = { "Magnifier", "Plaster", "", 1, "" },
 			BumpedHead = { "Magnifier", "Ice", "", 1, "" },
 			Earache = { "Light", "EarDrops", "", 1, "" },
-			Sprain = { "Magnifier", "Ice,Bandage", "", 2, "" },
+			Sprain = { "Magnifier", "Ice,Bandage", "Wards", 2, "" },
 			SoreThroat = { "Light", "Lozenges,CoughSyrup", "", 2, "" },
 			Rash = { "Magnifier", "Cream,Ice", "", 2, "" },
 			BrokenArm = { "XRay", "Cast,PainRelief", "Wards", 3, "" },
@@ -634,17 +671,27 @@ T.describe("Data", function()
 		end
 	end)
 
-	test("regulars have their own recipes of Stand items, led by their ailment's item", function()
-		local recipes = ailmentRecipes()
-		for _, id in Regulars.Order do
-			local recipe = Regulars[id].Recipe
-			expect(#recipe >= 1 and #recipe <= 3).toBe(true)
-			expect(recipe[1]).toBe(recipes[Regulars[id].Ailment][1])
-			for _, item in recipe do
-				expect(item == "Potion" or item == "Plaster").toBe(true)
-			end
+	test("regulars: one fixed Lv 1 case each, which a fresh Lv 1 clinic with no rooms can treat", function()
+		local function lv1(stationId: string): boolean
+			return Building.stationOpen(stationId, 1)
 		end
-		expect(#Regulars.ShySprout.Recipe).toBe(1) -- the first regular stays simple
+		local cases = {}
+		for _, id in Regulars.Order do
+			local regular = Regulars[id] :: any
+			local case = Cases[regular.Case]
+			if case == nil then
+				error(id .. ": unknown case " .. tostring(regular.Case))
+			end
+			expect(case.Level).toBe(1)
+			expect(case.Room).toBeNil()
+			expect(Visit.canTreat(case, 1, {}, lv1, Items)).toBe(true)
+			expect(regular.Ailment).toBeNil() -- the ailments and their recipes are gone
+			expect(regular.Recipe).toBeNil()
+			cases[id] = regular.Case
+		end
+		-- their words fit their case: Shy Sprout coughs, Grumpy Teapot runs hot, Dizzy Comet bumped its head
+		expect(cases).toEqual({ ShySprout = "Cough", GrumpyTeapot = "Fever", DizzyComet = "BumpedHead" })
+		expect(#Cases[Regulars.ShySprout.Case].Plan).toBe(1) -- the first regular stays simple
 	end)
 
 	test("the nurse cast: 16 belt nurses (5/4/3/2/1/1) + 1 rebirth-only, each with a role and a look", function()
@@ -849,8 +896,11 @@ T.describe("Data", function()
 			Miracle = { "CureLine", 600, 1, 1, 1 },
 			TeamSpirit = { "Recharge", 240, 1, 1, 1 },
 		})
-		expect(Abilities.QuickBandage.Game).toBe("Patch")
-		expect(Abilities.QuickSoap.Game).toBe("Scrub")
+		-- GameIds since the Real Clinic: the 🩹 Plaster and 🛁 Bath games (they were the Patch and Scrub engines)
+		expect(Abilities.QuickBandage.Game).toBe("Plaster")
+		expect(Abilities.QuickSoap.Game).toBe("Bath")
+		expect(MiniGame.ENGINE.Plaster).toBe("Patch")
+		expect(MiniGame.ENGINE.Bath).toBe("Scrub")
 		expect(Abilities.GoldenTouch.Game).toBeNil()
 		expect(Abilities.Miracle.Daily).toBe(true)
 	end)
@@ -930,6 +980,93 @@ T.describe("Data", function()
 		expect(found.Boost).toEqual({ Kind = "Stars", Percent = 2 })
 	end)
 
+	test(
+		"every station has a Made: badge; the old potion badge is the 💊 Pharmacist and counts dispensing",
+		function()
+			local byStat = {}
+			for _, badge in Badges.List do
+				byStat[badge.Stat] = badge
+			end
+			for id in stationRows() do
+				local badge = byStat["Made:" .. id]
+				if badge == nil then
+					error("no badge counts Made:" .. id)
+				end
+				expect(badge.Category).toBe("Stations")
+				expect(badge.Boost).toEqual({ Kind = "MakeSpeed", Scope = id, Percent = 3 })
+			end
+			local pharmacist = byStat["Made:Remedy"]
+			expect({ pharmacist.Id, pharmacist.Name, pharmacist.Icon }).toEqual({ "Potions", "Pharmacist", "💊" })
+			-- the stations a save already counted keep their badge ids (and so their tiers); the new ones start at 0
+			expect({ byStat["Made:Plaster"].Id, byStat["Made:Bath"].Id, byStat["Made:Cocoa"].Id }).toEqual({
+				"Plasters",
+				"Bubbles",
+				"Cocoa",
+			})
+			expect({ byStat["Made:Ice"].Id, byStat["Made:Bandage"].Id, byStat["Made:Cast"].Id }).toEqual({
+				"IcePacks",
+				"Bandages",
+				"Casts",
+			})
+		end
+	)
+
+	test('no player-visible string in Data/* or Logic/* says "cure" (design §12)', function()
+		local VISIBLE =
+			{ Name = true, Title = true, Caption = true, Text = true, Goal = true, Hint = true, Bubble = true }
+		local function says(text: string): boolean
+			return string.find(text, "%f[%a][Cc]ure") ~= nil
+		end
+		local scanned = 0
+		for _, dir in { "src/shared/Data", "src/shared/Logic" } do
+			local path = folder(dir)
+			for _, name in fs.readDir(path) do
+				if string.sub(name, -5) ~= ".luau" then
+					continue
+				end
+				scanned += 1
+				-- 1. Every literal in the code: one that says cure must be an id ("Cures", "CureWing", "Cured": the
+				-- saved names), never words (a space, a "!" or any other mark gives words away).
+				local text = fs.readFile(path .. "/" .. name)
+				for _, literal in literals(text) do
+					if says(literal) and not string.match(literal, "^[%w_:]+$") then
+						error(dir .. "/" .. name .. ' says "' .. literal .. '"')
+					end
+				end
+				-- 2. One-word texts a player reads (a board's Caption, a Name...): every table field of those names,
+				-- in each module Lune can load (not one that reaches for Roblox, like Data/Stations' Palette: its
+				-- literals were checked above).
+				local roblox = string.find(text, "script.Parent", 1, true)
+					or string.find(text, "game:GetService", 1, true)
+				local ok, module = false, nil
+				if not roblox then
+					ok, module = pcall(require, "../" .. dir .. "/" .. string.sub(name, 1, -6))
+				end
+				local seen = {}
+				local function walk(where: string, value: any, depth: number)
+					if type(value) ~= "table" or seen[value] or depth > 8 then
+						return
+					end
+					seen[value] = true
+					for key, child in value do
+						if type(child) == "string" and VISIBLE[key] and says(child) then
+							error(where .. "." .. tostring(key) .. ' says "' .. child .. '"')
+						end
+						walk(where .. "." .. tostring(key), child, depth + 1)
+					end
+				end
+				if ok then
+					walk(dir .. "/" .. name, module, 0)
+				end
+			end
+		end
+		expect(scanned >= 40).toBe(true)
+		-- and the words that replaced them
+		expect(Badges.List[1].Goal).toBe("Treat patients")
+		expect(Upgrades.Tips.Hint).toBe("More cash per patient")
+		expect(Upgrades.NightClinic.Hint).toBe("Night patients pay more")
+	end)
+
 	test("rarities: lowest first, Epic+ shout, events only on Mythic and Secret, journal decor is earned", function()
 		expect(Rarities.Order).toEqual({ "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret" })
 		expect(Rarities.Mythic.Event).toBe("NightRush")
@@ -985,15 +1122,15 @@ T.describe("Creatures", function()
 		end)
 	end)
 
-	test("every ailment acts something out, with only things the client can play", function()
+	test("every case acts something out, with only things the client can play", function()
 		local known: { [string]: { [string]: boolean } } = {}
-		for kind, list in AilmentActing.Vocabulary do
+		for kind, list in CaseActing.Vocabulary do
 			known[kind] = {}
 			for _, name in list do
 				known[kind][name] = true
 			end
 		end
-		expect(sorted(AilmentActing.Order)).toEqual(keys(AILMENTS))
+		expect(CaseActing.Order).toEqual(Cases.ORDER) -- one per case, in the cases' order
 		local function check(name: string, acting: any)
 			if not known.Motions[acting.Motion] then
 				error(name .. ": unknown Motion " .. tostring(acting.Motion))
@@ -1018,15 +1155,17 @@ T.describe("Creatures", function()
 				expect(acting.Glow > 0 and acting.Glow <= 1).toBe(true)
 			end
 		end
-		for _, id in AilmentActing.Order do
-			check(id, AilmentActing[id])
-			expect(#AilmentActing[id].Props >= 1).toBe(true) -- every ailment shows a prop
+		for _, id in CaseActing.Order do
+			check(id, CaseActing[id])
+			expect(#CaseActing[id].Props >= 1).toBe(true) -- every case shows a prop
+			-- gentle only (design §2): no crying
+			expect(table.find(CaseActing[id].Props, "Tear")).toBeNil()
 		end
-		check("Default", AilmentActing.Default)
+		check("Default", CaseActing.Default)
 	end)
 
 	test("attention comes as patience runs low", function()
-		local attention = AilmentActing.Attention
+		local attention = CaseActing.Attention
 		expect(0 < attention.Alert and attention.Alert < attention.Wave and attention.Wave < 1).toBe(true)
 		for _, range in { attention.WaveEvery, attention.AlertEvery } do
 			expect(range[1] > 0 and range[1] <= range[2]).toBe(true)

@@ -13,10 +13,15 @@
 --               "PlayHours" (Data.Playtime.TotalSeconds in whole hours), "Beats" (story beats told, all regulars),
 --               "Builder" (rooms owned + Stats.RoomsBefore, the rooms rebirths reset, + decor owned), "Rebirths"
 --               (Data.Rebirth.Count, Progression v2)
---   Goal        what to do, 6 words or fewer (the card's subtitle)
+--   Goal        what to do, 6 words or fewer (the card's subtitle). Players read "treat", never "cure" (design
+--               §12): the ids and Stat keys keep their old names, so every save keeps its counts and tiers
 --   Thresholds  the Stat value for each tier (6 numbers, rising)
 --   Boost       a permanent boost per tier reached: { Kind, Scope?, Percent }. Kind as in Logic/Boosts; Scope limits it
---               to a wing ("Starter"...), a station ("Remedy"...) or "Night" cures. Gold (tier 3) of a 1% badge = +3%.
+--               to a wing ("Starter"...), a station ("Remedy"...) or "Night" patients. Gold (tier 3) of a 1% badge =
+--               +3%.
+-- The Real Clinic (build plan Task 3): every station in Data/Stations has a "Made:<StationId>" badge. The 💊 Pharmacist
+-- keeps the old potion badge's id ("Potions") and counter ("Made:Remedy", which now counts medicines dispensed), so
+-- its tier keeps climbing; 🧊 Ice Packs, 🧻 Bandages and 🦴 Casts are new and start at tier 0.
 -- Room left for later badges (perfect mini-games, nurses hired, hospital level): add a counter and a row.
 
 export type Tier = { Id: string, Name: string, Icon: string, Color: string, Cash: number, Stars: number }
@@ -45,7 +50,7 @@ local TIERS: { Tier } = {
 local CATEGORIES: { Category } = {
 	{ Id = "Clinic", Name = "Clinic", Icon = "🏥" },
 	{ Id = "Wings", Name = "Wings", Icon = "🗺️" },
-	{ Id = "Stations", Name = "Stations", Icon = "🧪" },
+	{ Id = "Stations", Name = "Stations", Icon = "🩹" },
 	{ Id = "Friends", Name = "Friends", Icon = "💛" },
 }
 
@@ -63,7 +68,7 @@ local LIST: { Badge } = {
 		Icon = "🏥",
 		Category = "Clinic",
 		Stat = "Cures",
-		Goal = "Cure patients",
+		Goal = "Treat patients",
 		Thresholds = BIG,
 		Boost = { Kind = "Cash", Percent = 1 },
 	},
@@ -73,7 +78,7 @@ local LIST: { Badge } = {
 		Icon = "🔦",
 		Category = "Clinic",
 		Stat = "NightCures",
-		Goal = "Cure patients at night",
+		Goal = "Treat patients at night",
 		Thresholds = SMALL_WING,
 		Boost = { Kind = "Cash", Scope = "Night", Percent = 5 },
 	},
@@ -83,7 +88,7 @@ local LIST: { Badge } = {
 		Icon = "⭐",
 		Category = "Clinic",
 		Stat = "Visitors",
-		Goal = "Cure Today's Visitor",
+		Goal = "Treat Today's Visitor",
 		Thresholds = { 1, 5, 15, 40, 100, 250 },
 		Boost = { Kind = "Patience", Percent = 4 },
 	},
@@ -117,14 +122,14 @@ local LIST: { Badge } = {
 		Thresholds = { 1, 5, 15, 40, 100, 250 },
 		Boost = { Kind = "MakeSpeed", Percent = 2 },
 	},
-	-- Wings: cures of that wing's creatures
+	-- Wings: that wing's creatures treated
 	{
 		Id = "Meadow",
 		Name = "Meadow",
 		Icon = "🌳",
 		Category = "Wings",
 		Stat = "Cures:Starter",
-		Goal = "Cure Meadow patients",
+		Goal = "Treat Meadow patients",
 		Thresholds = WING,
 		Boost = { Kind = "Cash", Scope = "Starter", Percent = 2 },
 	},
@@ -134,7 +139,7 @@ local LIST: { Badge } = {
 		Icon = "🛁",
 		Category = "Wings",
 		Stat = "Cures:Bath",
-		Goal = "Cure Bubble Pond patients",
+		Goal = "Treat Bubble Pond patients",
 		Thresholds = { 10, 40, 150, 600, 2500, 10000 },
 		Boost = { Kind = "Cash", Scope = "Bath", Percent = 2 },
 	},
@@ -144,7 +149,7 @@ local LIST: { Badge } = {
 		Icon = "❄️",
 		Category = "Wings",
 		Stat = "Cures:Winter",
-		Goal = "Cure Snowy Hills patients",
+		Goal = "Treat Snowy Hills patients",
 		Thresholds = SMALL_WING,
 		Boost = { Kind = "Cash", Scope = "Winter", Percent = 2 },
 	},
@@ -154,18 +159,18 @@ local LIST: { Badge } = {
 		Icon = "🌙",
 		Category = "Wings",
 		Stat = "Cures:Night",
-		Goal = "Cure Moonlit Woods patients",
+		Goal = "Treat Moonlit Woods patients",
 		Thresholds = SMALL_WING,
 		Boost = { Kind = "Cash", Scope = "Night", Percent = 2 },
 	},
-	-- Stations: treatments made there
+	-- Stations: supplies taken and medicines dispensed there, one badge per Data/Stations row
 	{
-		Id = "Potions",
-		Name = "Potions",
-		Icon = "🧪",
+		Id = "Potions", -- the id from before the Real Clinic: saved tiers keep counting
+		Name = "Pharmacist",
+		Icon = "💊",
 		Category = "Stations",
-		Stat = "Made:Remedy",
-		Goal = "Make potions",
+		Stat = "Made:Remedy", -- each medicine dispensed (Server/Stations)
+		Goal = "Dispense medicines",
 		Thresholds = MAKE,
 		Boost = { Kind = "MakeSpeed", Scope = "Remedy", Percent = 3 },
 	},
@@ -178,6 +183,36 @@ local LIST: { Badge } = {
 		Goal = "Make plasters",
 		Thresholds = MAKE,
 		Boost = { Kind = "MakeSpeed", Scope = "Plaster", Percent = 3 },
+	},
+	{
+		Id = "IcePacks",
+		Name = "Ice Packs",
+		Icon = "🧊",
+		Category = "Stations",
+		Stat = "Made:Ice",
+		Goal = "Make ice packs",
+		Thresholds = MAKE,
+		Boost = { Kind = "MakeSpeed", Scope = "Ice", Percent = 3 },
+	},
+	{
+		Id = "Bandages",
+		Name = "Bandages",
+		Icon = "🧻",
+		Category = "Stations",
+		Stat = "Made:Bandage", -- from Lv 2
+		Goal = "Roll bandages",
+		Thresholds = SMALL_MAKE,
+		Boost = { Kind = "MakeSpeed", Scope = "Bandage", Percent = 3 },
+	},
+	{
+		Id = "Casts",
+		Name = "Casts",
+		Icon = "🦴",
+		Category = "Stations",
+		Stat = "Made:Cast", -- from Lv 3, broken arms and legs only
+		Goal = "Make casts",
+		Thresholds = SMALL_MAKE,
+		Boost = { Kind = "MakeSpeed", Scope = "Cast", Percent = 3 },
 	},
 	{
 		Id = "Bubbles",

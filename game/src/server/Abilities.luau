@@ -4,7 +4,7 @@
 -- Data/Abilities; the state machine is the Pure block below (tests/NurseWork.spec).
 --
 -- Every ability fires BY ITSELF, only when it would help (Logic/Abilities.useful; build plan §E3: no button to learn).
--- "Banked" ones (Quick Bandage, Quick Soap, Golden Touch, Double Dose, Star Burst) light up when ready and wait: the
+-- "Banked" ones (Quick Plaster, Quick Soap, Golden Touch, Double Dose, Star Burst) light up when ready and wait: the
 -- next matching treat or cure spends them, and their cooldown starts then. Cooldowns run in real seconds from the
 -- moment an ability fired (Miracle: once per in-game day, until the next morning). Kids see a filling ring, never
 -- seconds (red line 3). Nothing fires while the owner is away (their plot and its nurses are gone) or in the tutorial.
@@ -14,18 +14,24 @@
 --                                            done with the tutorial; the in-game day count (IsNight true -> false)
 --   Abilities.Fired: Signal (plot, nurseId, abilityId, kind, value)
 --                                            after an ability fires (a banked one: when charges are spent, value = how
---                                            many). Patients does RefillFront, RefillLine, CureLine and PauseLine;
---                                            Abilities itself does TrayItem (Nurses.addToTray), FastMake and InstantMake
---                                            (the plot's MakeRushUntil / MakeRushFactor), PauseLine's
---                                            PatiencePausedUntil, and Recharge (every OTHER ability at the plot ready
---                                            now; never a once-a-day one)
+--                                            many). Patients does RefillFront (the front bay patient: Visit.front),
+--                                            RefillLine and PauseLine (everyone waiting: the seats and the bays);
+--                                            Abilities itself does TrayItem (Nurses.addToTray: supplies only),
+--                                            FastMake and InstantMake (the plot's MakeRushUntil / MakeRushFactor),
+--                                            PauseLine's PatiencePausedUntil, Recharge (every OTHER ability at the plot
+--                                            ready now; never a once-a-day one) and CureLine: 💫 Miracle finishes the
+--                                            whole visit of every bay patient waiting for the doctor (not one in a
+--                                            mini-game), medicine steps included (design §15 #1), through
+--                                            Patients.finishVisit(plotModel, patientId, owner) (contract C6); its
+--                                            Fired value is how many it finished, sent after they are
 --   Abilities.consumePerfects(plot, games: { GameId }): { boolean }
 --                                            Treatment asks at TreatStart (any helper at the plot): which games a
 --                                            banked AutoPerfect makes PERFECT (a charge for that very game first, then
---                                            Golden Touch's any-game ones: Logic/Abilities.autoGames). Spends them
+--                                            Golden Touch's any-game ones: Logic/Abilities.autoGames). Spends them.
+--                                            Quick Plaster's game is "Plaster", Quick Soap's "Bath" (GameIds)
 --   Abilities.consumeCure(plot): { Cash: number, Stars: number }
---                                            Cure asks once per cure: x2 Cash with a banked Double Dose (one charge),
---                                            + Stars with a banked Star Burst. x1 and +0 when nothing is banked
+--                                            Cure asks once per treated patient: x2 Cash with a banked Double Dose (one
+--                                            charge), + Stars with a banked Star Burst. x1 and +0 when none is banked
 --   Abilities.patiencePaused(plot): boolean  Calm Song is pausing every waiting patient's patience
 --   Abilities.makeFactor(plot): number       station holds x this: 1, 0.5 (Busy Paws) or 0 (Time Bubble: the shortest
 --                                            hold); the strongest one running wins
@@ -38,8 +44,10 @@
 -- and AbilityAt (server time it last fired or spent a charge: clients play the sparkle). The ring billboard
 -- (NurseBuilder.setAbility) fills in RING_STEPS steps per cooldown, never every frame. Plot attributes:
 -- PatiencePausedUntil, MakeRushUntil (server times), MakeRushFactor.
--- Requires Nurses, PlayerData and Plots (and the NurseBuilder library); NEVER Patients, Treatment, Cure or Stations
--- (they require this).
+-- The usefulness view (Logic/Abilities.useful) comes from Nurses.bays (the bay patients, front first, from
+-- Patients.bayView) and the waiting room's patients (State "Waiting", their PatienceFraction).
+-- Requires Nurses, PlayerData and Plots (and the NurseBuilder library); never Treatment, Cure or Stations (they require
+-- this). Patients requires this module too, so Miracle requires it LAZILY (at fire time, never while loading).
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -54,6 +62,7 @@ local RebirthLogic = require(Shared.Logic.Rebirth)
 local RecipeLogic = require(Shared.Logic.Recipe)
 local TutorialLogic = require(Shared.Logic.Tutorial)
 local AbilitiesData = require(Shared.Data.Abilities)
+local ItemsData = require(Shared.Data.Items)
 local NursesData = require(Shared.Data.Nurses)
 local PerksData = require(Shared.Data.Perks)
 local TreeData = require(Shared.Data.Tree)
@@ -63,6 +72,7 @@ local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
 
 type Plot = Types.Plot
+type Row = Nurses.Row
 
 local Abilities = {}
 
@@ -231,58 +241,108 @@ function Pure.without(list: { string }, take: { string }): { string }
 	return out
 end
 
--- What the line still needs that no hand or tray holds (front first).
+-- What the bay patients still need that no hand or tray holds (front first).
 function Pure.missing(needs: { string }, tray: { string }, carry: { string }): { string }
 	return Pure.without(Pure.without(needs, tray), carry)
 end
 
--- The usefulness view (Logic/Abilities.useful) from what the plot shows: `patients` = { { Queue, State, Patience } }
--- (QueueIndex, State and PatienceFraction), in any order.
+-- Every step the bay patients still need, front first, duplicates kept. `bays` = Nurses.bays (front first).
+function Pure.needs(bays: { any }): { string }
+	local out: { string } = {}
+	for _, row in bays do
+		if type(row) == "table" and type(row.Needs) == "table" then
+			for _, item in row.Needs do
+				if type(item) == "string" then
+					table.insert(out, item)
+				end
+			end
+		end
+	end
+	return out
+end
+
+-- Who 💫 Miracle finishes: every bay patient waiting for the doctor (never one in a mini-game), front first.
+function Pure.targets(bays: { any }): { number }
+	local out: { number } = {}
+	for _, row in bays do
+		if type(row) == "table" and row.NeedsDoctor == true and type(row.PatientId) == "number" then
+			table.insert(out, row.PatientId)
+		end
+	end
+	return out
+end
+
+local function fraction(value: any): number
+	return if type(value) == "number" and value == value then math.clamp(value, 0, 1) else 1
+end
+
+-- The usefulness view (Logic/Abilities.useful) from what the plot shows. `bays` = Nurses.bays (the bay patients,
+-- front first: { PatientId, Needs, NeedsDoctor, Patience }); `seats` = the patience (0..1) of every patient waiting
+-- in the waiting room; `isSupply(itemId)` says what a tray can hold.
 function Pure.view(
-	patients: { any },
-	needs: { string },
+	bays: { any },
+	seats: { any },
 	tray: { string },
 	carry: { string },
 	trayMax: number,
 	nearStation: boolean,
-	onCooldown: number
+	onCooldown: number,
+	isSupply: (string) -> boolean
 ): any
-	local waiting: { any } = {}
-	for _, p in patients do
-		if type(p) == "table" and p.State == "Waiting" and type(p.Queue) == "number" and p.Queue >= 1 then
-			table.insert(waiting, p)
+	local front: any = nil
+	local low, waiting = 0, 0
+	for _, row in bays do
+		if type(row) == "table" and row.NeedsDoctor == true then
+			waiting += 1
+			front = front or row
+			if fraction(row.Patience) < Pure.LOW then
+				low += 1
+			end
 		end
 	end
-	table.sort(waiting, function(a, b)
-		return a.Queue < b.Queue
-	end)
-	local low = 0
-	for _, p in waiting do
-		local patience = if type(p.Patience) == "number" then p.Patience else 1
-		if patience < Pure.LOW then
+	for _, patience in seats do
+		if fraction(patience) < Pure.LOW then
 			low += 1
 		end
 	end
-	local front = waiting[1]
+	local missing = Pure.missing(Pure.needs(bays), tray, carry)
+	local supplies = 0
+	for _, item in missing do
+		if isSupply(item) then
+			supplies += 1
+		end
+	end
 	return {
-		FrontPatience = if front and type(front.Patience) == "number"
-			then front.Patience
-			else (if front then 1 else nil),
+		FrontPatience = if front then fraction(front.Patience) else nil,
 		LowCount = low,
-		Waiting = #waiting,
-		Missing = #Pure.missing(needs, tray, carry),
+		Waiting = waiting,
+		Missing = #missing,
+		Supplies = supplies,
 		TrayRoom = math.max(0, trayMax - #tray),
 		NearStation = nearStation,
 		OnCooldown = onCooldown,
 	}
 end
 
--- Fresh Brew's items: the line's missing ones (front first), at most `count` and the tray's free places.
-function Pure.brew(needs: { string }, tray: { string }, carry: { string }, count: number, room: number): { string }
-	local missing = Pure.missing(needs, tray, carry)
+-- Fresh Supplies's items: the missing SUPPLIES (front first; a medicine is the player's to dispense), at most `count` and
+-- the tray's free places.
+function Pure.brew(
+	needs: { string },
+	tray: { string },
+	carry: { string },
+	count: number,
+	room: number,
+	isSupply: (string) -> boolean
+): { string }
 	local out: { string } = {}
-	for index = 1, math.min(#missing, math.max(0, math.floor(count)), math.max(0, math.floor(room))) do
-		out[index] = missing[index]
+	local limit = math.min(math.max(0, math.floor(count)), math.max(0, math.floor(room)))
+	for _, item in Pure.missing(needs, tray, carry) do
+		if #out >= limit then
+			break
+		end
+		if isSupply(item) then
+			table.insert(out, item)
+		end
 	end
 	return out
 end
@@ -486,23 +546,33 @@ end
 -- What the plot looks like right now (for Logic/Abilities.useful)
 ------------------------------------------------------------------------------------------------------------------
 
-local function patientsOf(plot: Plot): { any }
+-- The patience (0..1) of every patient waiting in the waiting room (State "Waiting", Server/Patients).
+local function seatsOf(plot: Plot): { any }
 	local folder = plot.Model:FindFirstChild("Patients")
 	local list: { any } = {}
 	if folder then
 		for _, child in folder:GetChildren() do
-			table.insert(list, {
-				Queue = child:GetAttribute("QueueIndex"),
-				State = child:GetAttribute("State"),
-				Patience = child:GetAttribute("PatienceFraction"),
-			})
+			if child:GetAttribute("State") == "Waiting" then
+				table.insert(list, child:GetAttribute("PatienceFraction"))
+			end
 		end
 	end
 	return list
 end
 
-local function needsOf(plot: Plot): { string }
-	return RecipeLogic.split(plot.Model:GetAttribute("QueueNeeds"))
+-- The bay patients, front first (Nurses.bays: Patients.bayView with each one's patience).
+local function baysOf(plot: Plot): { Row }
+	local ok, rows = pcall(Nurses.bays, plot)
+	if not ok then
+		report("Nurses.bays", rows)
+		return {}
+	end
+	return if type(rows) == "table" then rows else {}
+end
+
+-- A tray may hold it: a supply (Data/Items Kind "Supply"), never a medicine (the player dispenses those).
+local function isSupply(itemId: string): boolean
+	return Nurses.Pure.isSupply(ItemsData, itemId)
 end
 
 local function trayOf(plot: Plot): { string }
@@ -514,26 +584,81 @@ local function carryOf(owner: Player): { string }
 	return RecipeLogic.split(owner:GetAttribute("Carry"))
 end
 
--- The owner stands within NEAR_STATION studs of one of this plot's stations (rooms, or the building's Pharmacy).
+-- Every station id an item comes from (the supply stations and the dispensary), each once.
+local STATION_IDS: { string } = {}
+for _, itemId in ItemsData.Order do
+	local item = rawget(ItemsData :: any, itemId)
+	if type(item) == "table" and type(item.Station) == "string" and not table.find(STATION_IDS, item.Station) then
+		table.insert(STATION_IDS, item.Station)
+	end
+end
+
+-- The owner stands within NEAR_STATION studs of one of this plot's OPEN stations (Station_<id> under the Building or
+-- the Rooms whose Open isn't false: the supply shelf, the Cast Table, the dispensary, the bought rooms').
 local function nearStation(plot: Plot, owner: Player): boolean
 	local character = owner.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root or not root:IsA("BasePart") then
 		return false
 	end
-	for _, name in { "Rooms", "Building" } do
+	for _, name in { "Building", "Rooms" } do
 		local holder = plot.Model:FindFirstChild(name)
 		if holder then
-			for _, descendant in holder:GetDescendants() do
-				if descendant:IsA("BasePart") and string.match(descendant.Name, "^Station_%w+$") then
-					if (descendant.Position - root.Position).Magnitude <= NEAR_STATION then
-						return true
-					end
+			for _, stationId in STATION_IDS do
+				local station = holder:FindFirstChild("Station_" .. stationId, true)
+				local part = if station and station:IsA("Model")
+					then station.PrimaryPart or station:FindFirstChildWhichIsA("BasePart", true)
+					else station
+				if
+					station
+					and part
+					and part:IsA("BasePart")
+					and station:GetAttribute("Open") ~= false
+					and (part.Position - root.Position).Magnitude <= NEAR_STATION
+				then
+					return true
 				end
 			end
 		end
 	end
 	return false
+end
+
+local patientsModule: any = nil
+
+-- Server/Patients, once it can be had. Patients requires this module (Patients -> Treatment -> Abilities), so it is
+-- required only here, at fire time, never while either module loads.
+local function patientsApi(): any
+	if patientsModule == nil then
+		local ok, module = pcall(function(): any
+			local holder = script.Parent:FindFirstChild("Patients")
+			return if holder and holder:IsA("ModuleScript") then require(holder :: any) else nil
+		end)
+		if ok and type(module) == "table" then
+			patientsModule = module
+		end
+	end
+	return patientsModule
+end
+
+-- 💫 Miracle: every bay patient waiting for the doctor has its whole visit finished (Patients.finishVisit, the owner
+-- as helper), medicine steps included. Returns how many.
+local function finishVisits(plot: Plot, owner: Player): number
+	local api = patientsApi()
+	if not api or type(api.finishVisit) ~= "function" then
+		report("Patients.finishVisit", "not there")
+		return 0
+	end
+	local done = 0
+	for _, patientId in Pure.targets(baysOf(plot)) do
+		local ok, err = pcall(api.finishVisit, plot.Model, patientId, owner)
+		if ok then
+			done += 1
+		else
+			report("Patients.finishVisit", err)
+		end
+	end
+	return done
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -547,7 +672,8 @@ local function fire(plot: Plot, owner: Player, clinic: Clinic, nurseId: string, 
 	local seconds: number = strength.Seconds or value
 	if kind == "TrayItem" then
 		local tray = trayOf(plot)
-		local items = Pure.brew(needsOf(plot), tray, carryOf(owner), value, Config.Nurses.TrayMax - #tray)
+		local needs = Pure.needs(baysOf(plot))
+		local items = Pure.brew(needs, tray, carryOf(owner), value, Config.Nurses.TrayMax - #tray, isSupply)
 		for _, itemId in items do
 			local ok, err = pcall(Nurses.addToTray, plot, itemId)
 			if not ok then
@@ -562,6 +688,8 @@ local function fire(plot: Plot, owner: Player, clinic: Clinic, nurseId: string, 
 		clinic.PausedUntil = math.max(clinic.PausedUntil, at + seconds)
 	elseif kind == "Recharge" then
 		Pure.recharge(clinic.Slots, nurseId, at)
+	elseif kind == "CureLine" then
+		value = finishVisits(plot, owner) -- before Fired: a listener finds those visits already finished
 	end
 	showPlot(plot, clinic, at)
 	Abilities.Fired:Fire(plot, nurseId, slot.AbilityId, kind, value)
@@ -607,13 +735,14 @@ local function tick(plot: Plot)
 				else
 					if not base then
 						base = Pure.view(
-							patientsOf(plot),
-							needsOf(plot),
+							baysOf(plot),
+							seatsOf(plot),
 							trayOf(plot),
 							carryOf(owner),
 							Config.Nurses.TrayMax,
 							false,
-							0
+							0,
+							isSupply
 						)
 					end
 					local view = table.clone(base)

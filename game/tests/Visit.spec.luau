@@ -249,6 +249,7 @@ T.describe("Visit: the glow, the plan and the ward stay", function()
 		expect(Visit.stayWard(Cases.BrokenArm, 1)).toBeNil()
 		expect(Visit.stayWard(Cases.BrokenArm, 2)).toBe("Wards")
 		expect(Visit.stayWard(Cases.BrokenArm, 5)).toBe("Wards")
+		expect(Visit.stayWard(Cases.Sprain, 2)).toBe("Wards") -- the Injury Ward has patients from the level it opens
 		expect(Visit.stayWard(Cases.Fever, 2)).toBeNil()
 		expect(Visit.stayWard(Cases.Fever, 3)).toBe("Rest")
 		expect(Visit.stayWard(Cases.Chills, 5)).toBe("Rest")

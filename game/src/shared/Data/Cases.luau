@@ -82,6 +82,7 @@ local ENTRIES: { [CaseId]: Case } = {
 		Bubble = "🦶 can't walk",
 		Tool = "Magnifier",
 		Plan = { "Ice", "Bandage" },
+		Stay = "Wards", -- design §15 #3: the Injury Ward is for sprains and broken bones, so it is used from Lv 2
 		Level = 2,
 	},
 	SoreThroat = {

@@ -3,10 +3,13 @@
 -- there are no streaks (build plan §B2, design §5.5). An ARRAY (the pool): find a goal by its Id.
 -- Lune-safe (no Roblox types).
 --
--- Kind  "Cure"      cure Target patients (any)
---       "CureNight" cure Target night patients
---       "Make"      make Target treatments at any station
---       "CureWing"  cure Target patients from Wing (only offer it if the player can treat that wing)
+-- Kind  "Cure"      treat Target patients (any)
+--       "CureNight" treat Target night patients
+--       "Make"      take Target supplies or dispense Target medicines, at any station
+--       "CureWing"  treat Target patients from Wing (only offer it if the player can treat that wing)
+-- The Kind and Id names are saved ids from before the Real Clinic: they keep "Cure", but players only ever read
+-- "treat" (design §12; the Mailbox words them). A goal whose Id leaves this pool is pruned from saves on load
+-- (Logic/Daily.prune), so no banked goal can name something that's gone.
 
 export type GoalKind = "Cure" | "CureNight" | "Make" | "CureWing"
 export type GoalDef = {

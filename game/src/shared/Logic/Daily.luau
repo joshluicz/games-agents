@@ -10,13 +10,25 @@
 --   Daily.visitor(day, pool): PatientId             deterministic per day, the same on every server; never the
 --                                                   same two days running, and everyone in the pool comes round
 --   Daily.grant(daily, today, pool, max): daily     adds one goal per new day, banked up to max, never removes
---   Daily.onEvent(daily, kind, ctx): daily          kind "Cure" | "Make". ctx = { Pool = goal defs (required),
+--   Daily.onEvent(daily, kind, ctx): daily          kind "Cure" (a patient treated) | "Make" (a supply taken or a
+--                                                   medicine dispensed). ctx = { Pool = goal defs (required),
 --                                                   Night: boolean?, Wing: WingId? (both for "Cure") }
 --   Daily.claim(daily, index, pool): (daily, reward?)  reward = { Cash, Stars } once the goal reached its Target
 --   Daily.mailboxReady(lastSeenDay, today): boolean
 -- Extra helpers (the server Daily and Events use them):
 --   Daily.mailboxGift(lastSeenDay, today, gift): number   `gift` when ready, else 0
 --   Daily.eligible(pool, wings): { GoalDef }        the goals a player can finish: CureWing only for wings in `wings`
+--   Daily.visitorPool(patients, wings): { PatientId }   who can be Today's Visitor, from patient -> wing: the day
+--                                                   patients (not Night) whose wing needs no rebirths and comes by
+--                                                   road (Data/Wings Rebirths / Only), in the patients' Order. A
+--                                                   species has no case of its own: it rolls one when it comes
+--   Daily.treatableWings(pools, cases, can): { [WingId]: boolean }   the wings this clinic can treat: pools =
+--                                                   Data/Cases.POOLS, cases = Data/Cases, can(caseId) = this clinic
+--                                                   can treat that case (Logic/Visit.canTreat). A wing counts when
+--                                                   its pool has a case `can` allows, and, if its pool brings a
+--                                                   room's own case (Bath: Sore muscles, Winter: Chills), once one of
+--                                                   those can come too: a Bubble Pond goal or visitor waits for the
+--                                                   Bath Room, as it always has
 --   Daily.prune(daily, pool): daily                 drops goals whose Id left the pool (content removed in an update)
 --   Daily.readyCount(daily, pool): number           goals at their target, waiting to be claimed
 --   Daily.find(pool, id): GoalDef?
@@ -24,7 +36,7 @@
 --   Daily.inWindow(today, { Start, End }): boolean  inclusive at both ends; a broken window is never on
 --
 -- `daily` is Data.Daily: { Goals: { { Id, Progress, Day } }, LastGrantDay }. `pool` is Data/DailyGoals or a filtered
--- copy of it (an array of goal defs).
+-- copy of it (an array of goal defs). The kinds keep their saved names ("Cure", "CureWing"...); players read "treat".
 
 export type Goal = { Id: string, Progress: number, Day: number }
 export type DailyData = { Goals: { Goal }, LastGrantDay: number }
@@ -211,6 +223,62 @@ function Daily.eligible(pool: { GoalDef }, wings: { [string]: boolean }): { Goal
 	for _, def in pool do
 		if def.Kind ~= "CureWing" or (def.Wing ~= nil and wings[def.Wing] == true) then
 			table.insert(out, def)
+		end
+	end
+	return out
+end
+
+-- A keyed Data map's ids: its `.Order` list when it has one, otherwise its string keys sorted.
+local function orderOf(map: any): { string }
+	if type(map) ~= "table" then
+		return {}
+	end
+	if type(map.Order) == "table" then
+		return map.Order
+	end
+	local ids = {}
+	for id in map do
+		if type(id) == "string" then
+			table.insert(ids, id)
+		end
+	end
+	table.sort(ids)
+	return ids
+end
+
+function Daily.visitorPool(patients: any, wings: any): { string }
+	local out: { string } = {}
+	for _, patientId in orderOf(patients) do
+		local patient = rawget(patients, patientId)
+		local wing = if type(patient) == "table" and type(wings) == "table" then rawget(wings, patient.Wing) else nil
+		if type(wing) == "table" and patient.Night ~= true and wing.Rebirths == nil and wing.Only == nil then
+			table.insert(out, patientId)
+		end
+	end
+	return out
+end
+
+function Daily.treatableWings(pools: any, cases: any, can: (string) -> boolean): { [string]: boolean }
+	local out: { [string]: boolean } = {}
+	if type(pools) ~= "table" or type(cases) ~= "table" or type(can) ~= "function" then
+		return out
+	end
+	for wingId, pool in pools do
+		if type(wingId) ~= "string" or type(pool) ~= "table" then
+			continue
+		end
+		local any, roomCase, roomOk = false, false, false
+		for _, caseId in pool do
+			local case = if type(caseId) == "string" then rawget(cases, caseId) else nil
+			local ok = type(case) == "table" and can(caseId) == true
+			any = any or ok
+			if type(case) == "table" and case.Room ~= nil then
+				roomCase = true
+				roomOk = roomOk or ok
+			end
+		end
+		if any and (roomOk or not roomCase) then
+			out[wingId] = true
 		end
 	end
 	return out

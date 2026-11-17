@@ -3,9 +3,11 @@
 -- Logic/Badges (Lune-tested) and the list is Data/Badges.
 --
 --   Badges.add(p, counts)             adds { [counter]: n } to the player's Data.Stats (e.g. { ["Made:Remedy"] = 1 })
---   Badges.onCure(cure)               Cure calls it once per cure: the helper's Cures, its wing and night counters,
---                                     a friend helped (helper ~= owner: the helper's Friendly); the owner's Visitors
---   Badges.onMade(p, stationId)       Stations calls it after a treatment is made: "Made:<StationId>"
+--   Badges.onCure(cure)               Cure calls it once per patient treated: the helper's Cures, its wing and night
+--                                     counters, a friend helped (helper ~= owner: the helper's Friendly); the owner's
+--                                     Visitors
+--   Badges.onMade(p, stationId)       Stations calls it after a supply is taken or a medicine dispensed:
+--                                     "Made:<StationId>" ("Made:Remedy" = one medicine dispensed: the 💊 Pharmacist)
 --   Badges.onHeart(p)                 Visits calls it when p sends a heart: Friendly
 --   Badges.maxAll(p): boolean         the 🛠️ Admin panel only: every badge to its top tier, with its rewards
 --   Badges.awardRoblox(p, key)        a Roblox badge by its Config.Badges key (0 = not created: skipped), in a pcall,
@@ -18,6 +20,8 @@
 -- by Server/Boosts from Data.Badges.
 -- Seeding: a save from before badges (Data.Stats without "Seeded") gets its counters worked out once from what it
 -- already has (Logic/Badges.seed: Cured, the Patient Book, Today's Visitor), so existing players start with credit.
+-- A species' station for that is Logic/Badges.SEED_STATIONS (where it was treated back then: species have no fixed
+-- case since the Real Clinic).
 -- Roblox badges: only Gold 🏥 Healer here (and the Doctor ranks in Server/Playtime), so there are only a few to make.
 
 local BadgeService = game:GetService("BadgeService")
@@ -30,7 +34,6 @@ local Types = require(Shared.Types)
 local BadgeData = require(Shared.Data.Badges)
 local PatientsData = require(Shared.Data.Patients)
 local RegularsData = require(Shared.Data.Regulars)
-local AilmentsData = require(Shared.Data.Ailments)
 local BadgesLogic = require(Shared.Logic.Badges)
 local PlayerData = require(script.Parent.PlayerData)
 local Economy = require(script.Parent.Economy)
@@ -64,12 +67,12 @@ local function defOf(id: string): BadgesLogic.Def?
 	return nil
 end
 
--- Every creature id (patients and regulars) -> its wing, the station that treats it, and whether it's a night one.
+-- Every creature id (patients and regulars) -> its wing, the station its treatment was made at for an older save's
+-- seed (Logic/Badges.SEED_STATIONS), and whether it's a night one.
 local function creatures(): { [string]: BadgesLogic.Creature }
 	local out: { [string]: BadgesLogic.Creature } = {}
 	local function add(id: string, row: any, night: boolean)
-		local ailment = rawget(AilmentsData :: any, row.Ailment)
-		out[id] = { Wing = row.Wing, Station = if ailment then ailment.Station else nil, Night = night }
+		out[id] = { Wing = row.Wing, Station = BadgesLogic.SEED_STATIONS[id], Night = night }
 	end
 	for _, id in PatientsData.Order do
 		local row = PatientsData[id]

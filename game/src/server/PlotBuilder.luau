@@ -1,5 +1,6 @@
 --!strict
--- Builds the clinic plots and their rooms, and puts the town together (build plan §B1). Server only.
+-- Builds the clinic plots and their rooms, and puts the town together (build plan §B1; the Real Clinic build plan,
+-- Task 2). Server only.
 --   PlotBuilder.buildTown(): { Model }            Workspace.Clinics.Plot_1..N, the town around them, TownSpawn
 --   PlotBuilder.buildRoom(roomId): Model           an unplaced room (kit clone or placeholder), PrimaryPart = Floor
 --   PlotBuilder.clearPlot(plotModel)               removes patients, decor and every room except the Stand, and
@@ -11,69 +12,78 @@
 -- Extra helpers (Plots uses them):
 --   PlotBuilder.placeRoom(plotModel, roomId): Model?      build + place in its slot (Floor.CFrame == slot CFrame)
 --   PlotBuilder.setPreview(plotModel, slotId, roomId?)    the "for sale" outline in an empty slot (nil = none)
---   PlotBuilder.queueSpot(queueStart, spawn?, index): CFrame   place `index` in line (Patients stands patients there)
 --   PlotBuilder.SLOTS                                      the room slots on a plot
+-- The Real Clinic removed the queue: no QueueStart, no QueueLane and no queueSpot. The line is the Building's waiting
+-- room (WaitSeat_<n>, Shared/Logic/Building.SEATS).
 --
--- THE SPLIT (look build plan §A/§B4; the look overhaul's Foundation). This file used to hold everything. Now:
---   Server/TownBuilder            the town round the plots, and TownSpawn                        (T2)
---   Server/HospitalBuilder        the Building and its layout numbers (Pure)                     (T3)
---   Server/World/Props            the shared scenery: trees, bushes, lamps, benches, fences      (T2)
---   Server/World/NightLights      the parts that glow after dark                                 (T1)
+-- THE SPLIT (look build plan §A/§B4):
+--   Server/TownBuilder            the town round the plots, and TownSpawn
+--   Server/HospitalBuilder        the Building (Shared/Logic/Building's contract, C1/C2)
+--   Server/World/Props            the shared scenery: trees, bushes, lamps, benches, fences
+--   Server/World/NightLights      the parts that glow after dark
 --   Server/World/Parts            the generic part and label helpers, and the shared look pieces (frozen)
 --   Server/World/Studs            the studs look                                                 (frozen)
--- PlotBuilder keeps the plots, the rooms, the queue lane and every public function above, and requires the others
--- (never the other way round: TownBuilder and HospitalBuilder require World/* only). These stay as RE-EXPORTS, so
--- no caller changed:
+-- PlotBuilder keeps the plots, the rooms and every public function above, and requires the others (never the other
+-- way round: TownBuilder and HospitalBuilder require World/* only). These stay as RE-EXPORTS, so no caller changed:
 --   PlotBuilder.NIGHT_LIGHT_TAG   = World/NightLights.TAG     tag a lamp Part: Neon + PointLight on only at night
---   PlotBuilder.STATION_TAG / LIFT_TAG / PROMPT_TAGS   = HospitalBuilder's (Progression v2's CollectionService tags)
+--   PlotBuilder.STATION_TAG / LIFT_TAG / PROMPT_TAGS   = HospitalBuilder's (CollectionService tags)
 --   PlotBuilder.Pure              = HospitalBuilder.Pure      the building's layout in numbers
 -- Every plot Model carries the attribute `Accent` (a Color3: its Palette.PlotColors entry), which HospitalBuilder
 -- reads, beside PlotIndex, OwnerUserId, OpenHelpers and Hearts.
 --
--- THE LOOK (memory-20261117-001; look build plan §B6 "T4's side"; docs/research/2026-11-16-hospital-building.md
--- §3.8-3.9, §5.4; art-direction §2.4, §4.1). Studs, dark anchors, one colour per surface, no lerp toward white:
---   Ground       a Model: the plot's dark studded `Pad` (World.Pad, 77 x 77: odd, so its studs fall whole at its
---                edges) framed by 4 Slate `Edge` parts (World.Edge) out to the plot's 80 x 80. Patients and Nurses
---                stand creatures on it by the name Ground (their rays include its descendants)
---   Scenery      the plank path from the gate to the Counter, 2 slate stepping stones to the main entrance, the fence
---                (Props.fence: posts every 14 studs) and the gate (warm-white posts, a studded arch in the plot's
---                colour, two lamps), the mailbox, 5 voxel trees (Props.tree: the big one beside the hospital at (30,
---                -12), in front of slot C and off the +x walkway; one in each corner) and 5 one-cube bushes (Props.bush;
---                the 80-stud plot's longer fence takes 3 more posts, so 3 bushes went to keep Config.Look.PlotParts).
---                No blossom tree on a plot: Pink is one plot's colour, and the town keeps blossoms to 1 tree in 6
---   Counter      the reception desk: a SmoothPlastic body in the plot's colour, its CounterTop studded in warm
---                white, and OUR paw-heart mark (Parts.pawHeart) on its street face: one SurfaceGui, no cross
+-- THE PLOT (Real Clinic design §8; Shared/Logic/Building, contract C1). A 110 x 110 plot (Config.Town.PlotSize) round
+-- the 64 x 44 clinic (x -32..32, z -24..20): the front garden and path (z -55..-24), the ambulance bay's yard on -x
+-- (Building.BAY_AMBULANCE.Area, kept clear), a side yard on +x and the Sunny Garden's yard behind (z 20..55).
+--   Ground       a Model: the plot's dark studded `Pad` (107 x 107: odd, so its studs fall whole at its edges) framed
+--                by 4 Slate `Edge` parts out to the plot's 110 x 110. Patients and Nurses stand creatures on it by the
+--                name Ground (their rays include its descendants)
+--   Scenery      the plank path from the gate to the Stand's forecourt at the front doors (Building.DOORS.Front), the
+--                fence (Props.fence: posts every 14 studs) and the gate (warm-white posts, a studded arch in the
+--                plot's colour, two lamps), the mailbox, 5 voxel trees (Props.tree: the big one in the +x side yard,
+--                the others in the corners) and 5 one-cube bushes (Props.bush) by the fence. No blossom tree on a
+--                plot: Pink is one plot's colour, and the town keeps blossoms to 1 tree in 6
+--   Counter      the reception desk INSIDE the lobby, on Building.RECEPTION.Desk (8 x 2.4): a SmoothPlastic body in
+--                the plot's colour, its CounterTop studded in warm white (soft), and OUR paw-heart mark
+--                (Parts.pawHeart) on its street face, toward the front doors: one SurfaceGui, no cross. Kept by that
+--                name at the plot's top level: Plots and Patients find it
+--   Markers      PatientSpawn (facing in) and PatientExit (facing the street) just inside the gate; MascotSpot on the
+--                Stand's forecourt beside the front doors (Server/Rebirth's mascot, from R5)
 --   Sign         the owner's name floats (Parts.floatText: outlined letters, NO board; the Sign part is invisible)
 --                between two studded posts in the plot's colour, above the fence. SignGui keeps OwnerName and
 --                HeartCount (Plots and Visits write them), RankBadge (Playtime) and BranchBadge (Rebirth): navy pills,
 --                hidden until their system fills them
---   MascotSpot   at Shared/Logic/Building's (-8.5, -14.8), beside the Counter's -x end (Server/Rebirth's mascot)
---   QueueLane    6 tiles in the mid-tone pavement (World.Pavement / PavementAlt), an edge in the plot's colour on
---                each side, and a disc in the plot's colour at each place in line with its number floating on it
---   Rooms        no awnings, walls in pale tints or plaques. The Stand has NO shell (the hospital podium is its
---                building, HospitalBuilder's): a tiled floor, the stations, Bed_1 and the decor slots at
---                Shared/Logic/Building's spots (decor slot 2 sits on the pad, out front). The Bath Room (Cyan),
---                Cozy Ward (Purple) and Winter Wing (Blue) are single-storey ANNEXES: a tiled floor, three studded
---                walls in the room colour (inside: the colour as a dado band, warm upper walls above a wood rail,
---                drawn on), a dark flat roof with a warm-white trim edge and the room's name floating on it, and the
---                same open front as before, so stations and patients work unchanged. The Winter Wing keeps one snow
---                slab. The Garden is a studded lawn with studded hedges and an arbor. Beds are 3 parts (Frame,
---                Headboard studded, the mattress Bed_<n>); stations are a body, a studded Top and a few blocky props
+-- THE ROOMS. A room is an INTERIOR FIT-OUT now: no walls and no roof (the Building has them, with each room's door).
+-- Its Floor is the slot (CeramicTiles, ROOM_FLOOR thick, laid on the Building's ground floor); everything stays
+-- inside its Building.ROOMS rect, inside the partitions, and off its door's span:
+--   Stand       the forecourt in front of the doors (tiles, the plot's colour nowhere loud) with its 2 decor slots
+--               either side of the canopy. Data/Rooms still lists Remedy, Plaster and a bed for it: those are the
+--               Building's now (Station_Remedy in the dispensary, Station_Plaster on the supply shelf), so the
+--               Stand's fit-out builds neither
+--   BathRoom    (Cyan) Station_Bath (the tub) at the back wall, a bath mat, 1 decor slot
+--   WinterWing  (Blue) Station_Cocoa, Bed_1 (a 3-part recovery bed, as before) on the -x wall, a rug, 2 decor slots
+--   Ward        (Purple) the Cozy Ward: ExamBay_W1 and ExamBay_W2 to contract C2 at Building.bay("W1"/"W2") (Bed,
+--               DoctorSpot, Curtain, Tray, Sign; attributes Bay, Kind, Opens, Face, Room and Open = true: a bay of a
+--               room exists only while the room is owned). Its Bed is the mattress the patient sits on (its top
+--               ROOM_FLOOR + 1.8 over the pad, its LookVector toward the foot and the DoctorSpot, as the Building's
+--               couches), with a Frame and a studded Headboard; 2 small decor slots in the aisle's corners (its
+--               3.5-stud aisle is all the floor its two bays leave)
+--   Garden      the Sunny Garden behind the Garden door: a studded lawn, studded hedges (back and the back half of the
+--               sides) and an arbor with its name. Outdoors
+-- Stations in a room carry Open = true (Server/Patients' stationsOnPlot reads Open ~= false) and StationId, as the
+-- Building's do; they are NOT tagged HospitalBuilder.STATION_TAG (Server/Stations finds room stations through the
+-- rooms, Plots.observeRooms).
 -- No Texture or Decal anywhere. Studded parts go through World/Studs with whole-stud X and Z.
 --
--- Parts budget (docs/plan/2026-11-16-perf-budget.md; Config.Look): a Lv 5 plot with every room is at most 400 parts
--- without creatures and decor: the plot's own share (everything here but the Building and the rooms) at most
--- Config.Look.PlotParts (115), every room together at most Config.Look.RoomParts (90). tests/PlotWorld.spec holds
--- both; tests/PartBudget.spec the total.
---
--- Every plot (kit or placeholder) also gets a QueueLane Model: pavement under the patients' line, from the Counter
--- out toward the gate, so it reads as "the line" (Joshua: "make a pavement outside of the place where they line
--- up"). Walk-through and ray-ignored. A kit Plot with its own QueueLane child keeps that one.
+-- Parts budget (Config.Look; docs/plan/2026-11-16-perf-budget.md): a Lv 5 plot with every room is at most PlotBudget
+-- (640) parts without creatures and decor: the Building's share (HospitalBuilder), every room together at most
+-- RoomParts (90), and the plot's own share (everything here but the Building and the rooms) at most PlotParts (130).
+-- tests/PlotWorld.spec holds the rooms' and the plot's shares; tests/PartBudget.spec the total.
 --
 -- Coordinates. Each plot has a CFrame at the centre of its ground's TOP face, LookVector pointing at the street
 -- (that CFrame is also the plot Model's WorldPivot). In plot-local space +X is right as you face the street, -Z is
--- the street side (front edge z = -40) and +Z the back. Markers are 2x1x2 invisible Parts resting on the ground.
--- Rooms face the street too. Inside a room Model, y = 0.3 is the top of the Floor (and y = -0.3 the pad under it).
+-- the street side (front edge z = -55) and +Z the back: Shared/Logic/Building's space. Markers are 2x1x2 invisible
+-- Parts resting on the ground. Rooms face the street too. Inside a room Model the Floor's centre is the origin, so
+-- y = ROOM_FLOOR / 2 is the top of the Floor.
 --
 -- The brother's models win: ServerStorage.ClinicKit.<RoomId> replaces a placeholder room, and
 -- ServerStorage.ClinicKit.Plot (pivot = ground-top centre, facing the street) replaces the placeholder plot.
@@ -96,7 +106,7 @@ local Props = require(script.Parent.World.Props)
 local Studs = require(script.Parent.World.Studs)
 
 local part, soft, cylinder = Parts.part, Parts.soft, Parts.cylinder
-local ball, marker, paint, rounded, band = Parts.ball, Parts.marker, Parts.paint, Parts.rounded, Parts.band
+local ball, marker, paint, rounded = Parts.ball, Parts.marker, Parts.paint, Parts.rounded
 local detailGui, iconBadge, iconLabel = Parts.surface, Parts.iconBadge, Parts.iconLabel
 local floatText, navyPlate, pawHeart = Parts.floatText, Parts.navyPlate, Parts.pawHeart
 local anchorAll, scrubScripts = Parts.anchorAll, Parts.scrubScripts
@@ -110,24 +120,85 @@ PlotBuilder.LIFT_TAG = HospitalBuilder.LIFT_TAG
 PlotBuilder.PROMPT_TAGS = HospitalBuilder.PROMPT_TAGS
 PlotBuilder.Pure = HospitalBuilder.Pure
 
--- Room slots on an 80 x 80 plot (Config.Town.PlotSize), plot-local. Offset is the slot (= Floor) centre; Size is
--- the floor footprint. The Stand is the podium's floor inside the hospital's walls (Shared/Logic/Building: x ±16,
--- z -13..3): x ±15, z -13..1. The side slots A and C (x 20..38, z -2..14) stand 4 studs off the side walls, so
--- Server/Patients' walkways (makeNav: halfway between the Stand's edge and a side slot's) run at x = ±17.5, 1.5
--- outside the walls. The back slots B and D (x 2..24, z 20..34) keep a 7-stud yard behind the block (z 13).
+type Rect = Building.Rect
+
+local ROOM_FLOOR = 0.2 -- every room's Floor: laid on the Building's ground floor (slab top 0) or the pad
+
+-- A ground-floor room's floor inside its walls: its Building.ROOMS rect pulled in past every wall Building.obstacles
+-- puts across one of its edges (the outer walls, the 0.4 partitions). Bought rooms' doors are modelled open, so a
+-- door never moves an edge.
+local function innerRect(room: Rect): Rect
+	local r = { X0 = room.X0, X1 = room.X1, Z0 = room.Z0, Z1 = room.Z1 }
+	local midX, midZ = (room.X0 + room.X1) / 2, (room.Z0 + room.Z1) / 2
+	for _, o in Building.obstacles(Building.MAX_LEVEL, 0) do
+		local wall = string.match(o.Name, "Wall$") ~= nil
+		if wall and o.X0 < room.X1 and o.X1 > room.X0 and o.Z0 < room.Z1 and o.Z1 > room.Z0 then
+			if o.X1 - o.X0 < 1 and o.Z1 - o.Z0 >= 1 then
+				if (o.X0 + o.X1) / 2 < midX then
+					r.X0 = math.max(r.X0, o.X1)
+				else
+					r.X1 = math.min(r.X1, o.X0)
+				end
+			elseif o.Z1 - o.Z0 < 1 and o.X1 - o.X0 >= 1 then
+				if (o.Z0 + o.Z1) / 2 < midZ then
+					r.Z0 = math.max(r.Z0, o.Z1)
+				else
+					r.Z1 = math.min(r.Z1, o.Z0)
+				end
+			end
+		end
+	end
+	return table.freeze(r)
+end
+
+-- Each bought room inside the Building: its Building.ROOMS name, and its floor inside the walls (plot-local).
+local INTERIOR_ROOM = table.freeze({ BathRoom = "BathRoom", WinterWing = "WinterWing", Ward = "CozyWard" })
+local INNER: { [string]: Rect } = {}
+for roomId, name in INTERIOR_ROOM do
+	INNER[roomId] = innerRect((Building.ROOMS :: any)[name])
+end
+
+-- The Stand's forecourt: in front of the front doors, under and either side of the canopy (Building.CANOPY), from
+-- the façade (Building.FRONT) out FORECOURT_DEPTH.
+local FORECOURT_HALF = 16
+local FORECOURT_DEPTH = 7
+-- The Sunny Garden: behind the Garden door (Building.DOORS.Garden), from the back wall out GARDEN_SIZE.Y. Whole studs
+-- (its lawn is studded).
+local GARDEN_SIZE = Vector2.new(24, 18)
+local GARDEN_X = (Building.DOORS.Garden.X0 :: number + Building.DOORS.Garden.X1 :: number) / 2
+
+local function slotOf(r: Rect)
+	return table.freeze({
+		Offset = Vector3.new((r.X0 + r.X1) / 2, ROOM_FLOOR / 2, (r.Z0 + r.Z1) / 2),
+		Size = Vector3.new(r.X1 - r.X0, ROOM_FLOOR, r.Z1 - r.Z0),
+	})
+end
+
+-- Room slots, plot-local. Offset is the slot (= Floor) centre; Size is the floor. Data/Rooms names each room's slot:
+-- Stand = the forecourt, A = the Bath Room, B = the Cozy Ward, C = the Winter Wing (all three inside the Building's
+-- ground floor, Building.ROOMS), D = the Sunny Garden behind the Building.
 PlotBuilder.SLOTS = table.freeze({
-	Stand = table.freeze({ Offset = Vector3.new(0, 0.3, -6), Size = Vector3.new(30, 0.6, 14) }),
-	A = table.freeze({ Offset = Vector3.new(-29, 0.3, 6), Size = Vector3.new(18, 0.6, 16) }),
-	C = table.freeze({ Offset = Vector3.new(29, 0.3, 6), Size = Vector3.new(18, 0.6, 16) }),
-	B = table.freeze({ Offset = Vector3.new(-13, 0.3, 27), Size = Vector3.new(22, 0.6, 14) }),
-	D = table.freeze({ Offset = Vector3.new(13, 0.3, 27), Size = Vector3.new(22, 0.6, 14) }),
+	Stand = slotOf({
+		X0 = -FORECOURT_HALF,
+		X1 = FORECOURT_HALF,
+		Z0 = Building.FRONT - FORECOURT_DEPTH,
+		Z1 = Building.FRONT,
+	}),
+	A = slotOf(INNER.BathRoom),
+	B = slotOf(INNER.Ward),
+	C = slotOf(INNER.WinterWing),
+	D = slotOf({
+		X0 = GARDEN_X - GARDEN_SIZE.X / 2,
+		X1 = GARDEN_X + GARDEN_SIZE.X / 2,
+		Z0 = Building.BACK,
+		Z1 = Building.BACK + GARDEN_SIZE.Y,
+	}),
 })
 
 local STREET_HALF_WIDTH = 18
 local PLOT_GAP = 8
 local BASE_TOP = 0.3 -- the town lawn's top, just above a default baseplate at y = 0 (TownBuilder's too)
 local PLOT_RAISE = 0.6 -- plots sit a small step above the street
-local FLOOR_TOP = 0.3 -- room-local height of the floor's top face
 local MAX_PLOTS = 6
 
 local WORLD = Palette.World
@@ -138,25 +209,18 @@ local COLORS = {
 	Pad = WORLD.Pad, -- the plot's floor: a dark anchor, studded
 	Edge = WORLD.Edge, -- the stone edging round it (Slate)
 	Path = WORLD.Plank, -- WoodPlanks
-	Stone = WORLD.Edge, -- the stepping stones (Slate)
 	Fence = WORLD.Fence, -- the gate posts (the fence itself is Props')
-	Trim = WORLD.Trim, -- warm white: the CounterTop, station tops, mattresses, trim edges, decor spots
-	Roof = WORLD.Roof, -- the annexes' flat roofs: a dark anchor
+	Trim = WORLD.Trim, -- warm white: the CounterTop, station tops, mattresses, trays, decor spots
 	Floor = WORLD.FloorTile, -- room floors: CeramicTiles (Joshua 2026-11-17: "floor texture shouldnt be wood")
-	WallUpper = WORLD.WallUpper, -- the warm upper wall inside an annex (drawn above the dado)
-	Rail = WORLD.Beam, -- the wood rail between the dado and the upper wall (drawn)
 	Wood = WORLD.Beam, -- the arbor's posts
 	Lawn = WORLD.GrassA, -- the Garden's floor, studded
 	Hedge = WORLD.LeavesB, -- the Garden's hedges, studded
 	Vine = WORLD.LeavesA, -- the arbor's beam, studded
-	Snow = WORLD.Trim, -- the Winter Wing's snow slab
 	LampGlow = WORLD.Lamp,
 	Water = WORLD.Water,
 	Flag = ACCENT.Red, -- the mailbox flag (Red: props only)
 	ForSale = ACCENT.Yellow,
-	Pavement = WORLD.Pavement, -- the queue lane's tiles, in mid-tones
-	PavementAlt = WORLD.PavementAlt,
-	Roll = WORLD.CheckerCream, -- the Plaster Table's bandage roll
+	Mug = WORLD.Trim,
 }
 
 -- Plot_n's own accent (Palette.PlotColors).
@@ -165,7 +229,7 @@ local function plotAccentFor(index: number): Color3
 	return colors[(index - 1) % #colors + 1]
 end
 
--- A station's colour in the WORLD: Data/Stations gives the UI's Candy colour (kids match it to the ailment); a world
+-- A station's colour in the WORLD: Data/Stations gives the UI's Candy colour (kids match it to the plan step); a world
 -- part wears the calmer world accent of the same name (Palette.Accent), so the hue still matches. A colour with no
 -- world twin stays as it is.
 local function worldColor(color: Color3): Color3
@@ -178,104 +242,234 @@ local function worldColor(color: Color3): Color3
 	return color
 end
 
--- Each room's look. Main is the room colour (art-direction §4.1: the Stand = its plot's colour, Bath = Cyan, Ward =
--- Purple, Winter Wing = Blue, Garden = leaves): annex walls, bed frames and headboards.
-type RoomKind = "Open" | "Annex" | "Garden"
-type RoomStyle = { Main: Color3, Kind: RoomKind, Snow: boolean }
-
-local STYLES: { [string]: RoomStyle } = {
-	Stand = { Main = ACCENT.Pink, Kind = "Open", Snow = false }, -- the plot's colour replaces Main (styleFor)
-	BathRoom = { Main = ACCENT.Cyan, Kind = "Annex", Snow = false },
-	Ward = { Main = ACCENT.Purple, Kind = "Annex", Snow = false },
-	WinterWing = { Main = ACCENT.Blue, Kind = "Annex", Snow = true },
-	Garden = { Main = WORLD.LeavesA, Kind = "Garden", Snow = false },
+-- Each room's colour (art-direction §4.1: Bath = Cyan, Ward = Purple, Winter Wing = Blue, Garden = leaves; the Stand
+-- = its plot's colour): bed frames, headboards, curtains, mats and rugs.
+local ROOM_COLOUR: { [string]: Color3 } = {
+	BathRoom = ACCENT.Cyan,
+	Ward = ACCENT.Purple,
+	WinterWing = ACCENT.Blue,
+	Garden = WORLD.LeavesA,
 }
 
-local function styleFor(roomId: string, accent: Color3?): RoomStyle
+local function colourFor(roomId: string, accent: Color3?): Color3
 	if roomId == "Stand" then
-		return { Main = accent or STYLES.Stand.Main, Kind = "Open", Snow = false }
+		return accent or ACCENT.Pink
 	end
-	return STYLES[roomId] or { Main = ACCENT.Orange, Kind = "Annex", Snow = false }
+	return ROOM_COLOUR[roomId] or ACCENT.Orange
 end
 
--- Where things go inside each placeholder room (room-local x, z; y is ignored). Counts match Data/Rooms.
--- The Stand's spots are Shared/Logic/Building's (plot-local; the hospital is built round them), moved into the
--- Stand slot's own space: Remedy and Plaster clear of the lift shaft, decor slot 2 on the front pad.
-type Layout = { Stations: { [string]: Vector3 }, Beds: { Vector3 }, Decor: { Vector3 } }
+------------------------------------------------------------------------------------------------------------------
+-- Room layouts: where things go in each fit-out (room-local x, z: the Floor's centre is the origin)
+------------------------------------------------------------------------------------------------------------------
 
-local STAND_AT = PlotBuilder.SLOTS.Stand.Offset
-local function standLocal(spot: { X: number, Z: number }): Vector3
-	return Vector3.new(spot.X - STAND_AT.X, 0, spot.Z - STAND_AT.Z)
-end
-
-local LAYOUTS: { [string]: Layout } = {
-	Stand = {
-		Stations = { Remedy = standLocal(Building.STAND.Remedy), Plaster = standLocal(Building.STAND.Plaster) },
-		Beds = { standLocal(Building.STAND.Bed) },
-		Decor = { standLocal(Building.STAND.Decor[1]), standLocal(Building.STAND.Decor[2]) },
-	},
-	BathRoom = {
-		Stations = { Bath = Vector3.new(0, 0, 4.6) },
-		Beds = {},
-		Decor = { Vector3.new(-5.5, 0, -4.6) },
-	},
-	Ward = {
-		Stations = {},
-		Beds = { Vector3.new(-6, 0, 1.3), Vector3.new(6, 0, 1.3) },
-		Decor = { Vector3.new(0, 0, 3.6), Vector3.new(8.6, 0, -4.5) },
-	},
-	WinterWing = {
-		Stations = { Cocoa = Vector3.new(-3, 0, 5) },
-		Beds = { Vector3.new(5, 0, 1.6) },
-		Decor = { Vector3.new(-5.5, 0, -4.8), Vector3.new(4.8, 0, -5.2) },
-	},
-	Garden = {
-		Stations = {},
-		Beds = {},
-		Decor = { Vector3.new(-6.5, 0, 2.4), Vector3.new(6.5, 0, 2.4), Vector3.new(0, 0, -3.2) },
-	},
+type Spot = { At: Vector3, Size: number } -- a decor slot: its centre and its square marker's side
+type Layout = {
+	Stations: { [string]: Vector3 },
+	Beds: { Vector3 },
+	Bays: { Building.Bay },
+	Decor: { Spot },
+	Mats: { { Name: string, At: Vector3, Size: Vector2 } },
 }
 
-------------------------------------------------------------------------------------------------------------------
--- Rooms
-------------------------------------------------------------------------------------------------------------------
+-- The Building builds these rooms' stations and beds itself (Data/Rooms still lists them for the Stand: the free
+-- clinic's Remedy and Plaster, now Station_Remedy in the dispensary and Station_Plaster on the supply shelf).
+local BUILDING_OWNS: { [string]: boolean } = { Stand = true }
+
+-- A room's own exam bays (Building.BAYS whose Room is that room: the Cozy Ward's W1 and W2).
+local function baysOf(roomId: string): { Building.Bay }
+	local out: { Building.Bay } = {}
+	for _, bay in Building.BAYS do
+		if bay.Room == roomId then
+			table.insert(out, bay)
+		end
+	end
+	return out
+end
+
+-- The stations a room's fit-out builds: its Data/Rooms stations, less the ones the Building builds.
+local function ownStations(roomId: string): { string }
+	local out: { string } = {}
+	if BUILDING_OWNS[roomId] then
+		return out
+	end
+	for _, stationId in Rooms[roomId].Stations do
+		if not Building.STATIONS[stationId] then
+			table.insert(out, stationId)
+		end
+	end
+	return out
+end
+
+-- The Bed_<n> recovery beds a room's fit-out builds: its Data/Rooms beds, less the ones its exam bays stand for (the
+-- Cozy Ward's 2 beds ARE its bays' beds) and none for a room whose bed the Building has.
+local function ownBeds(roomId: string): number
+	if BUILDING_OWNS[roomId] then
+		return 0
+	end
+	return math.max(0, Rooms[roomId].Beds - #baysOf(roomId))
+end
+
+local function slotCentre(roomId: string): Vector3
+	local room = Rooms[roomId]
+	local slot = room and PlotBuilder.SLOTS[room.Slot]
+	return if slot then slot.Offset else Vector3.zero
+end
+
+-- Plot-local (x, z) into the room's own space.
+local function roomLocal(roomId: string, x: number, z: number): Vector3
+	local centre = slotCentre(roomId)
+	return Vector3.new(x - centre.X, 0, z - centre.Z)
+end
+
+local FULL_DECOR = 4 -- a decor model fits a 4 x 4 footprint (Server/DecorBuilder's contract)
+local BED_DEPTH = 8 -- a recovery bed's frame (7) and its headboard (1), head to foot
+local COCOA_DEPTH = 3 -- the Cocoa table's studded top, out from the wall
+
+local function bathLayout(): Layout
+	local r = INNER.BathRoom
+	local midX = (r.X0 + r.X1) / 2
+	local tubX = midX + 2
+	return {
+		Stations = { Bath = roomLocal("BathRoom", tubX, r.Z1 - 2) },
+		Beds = {},
+		Bays = {},
+		Decor = { { At = roomLocal("BathRoom", r.X0 + 2.2, r.Z1 - 2.2), Size = FULL_DECOR } },
+		Mats = { { Name = "BathMat", At = roomLocal("BathRoom", tubX, r.Z1 - 5.2), Size = Vector2.new(4, 2) } },
+	}
+end
+
+local function winterLayout(): Layout
+	local r = INNER.WinterWing
+	local bedX = r.X0 + 0.2 + Building.BED_HALF
+	local cocoaX = r.X1 - 2.2
+	-- decor slot 2 sits between the bed's frame and the Cocoa table, at the back
+	local between0, between1 = bedX + Building.BED_HALF, cocoaX - 2
+	return {
+		Stations = { Cocoa = roomLocal("WinterWing", cocoaX, r.Z1 - COCOA_DEPTH / 2 - 0.2) },
+		Beds = { roomLocal("WinterWing", bedX, r.Z1 - BED_DEPTH / 2 - 0.5) },
+		Bays = {},
+		Decor = {
+			{ At = roomLocal("WinterWing", r.X1 - 2, r.Z0 + 2.1), Size = FULL_DECOR },
+			{
+				At = roomLocal("WinterWing", (between0 + between1) / 2, r.Z1 - 2.1),
+				Size = math.min(FULL_DECOR, between1 - between0 - 0.2),
+			},
+		},
+		Mats = {
+			{
+				Name = "Rug",
+				At = roomLocal("WinterWing", (between0 + r.X1 - 4) / 2, r.Z0 + 4.9),
+				Size = Vector2.new(3.6, 2.6),
+			},
+		},
+	}
+end
+
+-- The Cozy Ward: its two bays fill the back; the aisle in front (to the bays' DoctorSpots) leaves a small decor spot in
+-- each corner, between the side wall and the DoctorSpot nearest it.
+local DOCTOR_ROOM = 1.2 -- clear either side of a DoctorSpot (where the doctor stands)
+local function wardLayout(): Layout
+	local r = INNER.Ward
+	local bays = baysOf("Ward")
+	local spots: { Spot } = {}
+	if #bays > 0 then
+		local left, right = math.huge, -math.huge
+		for _, bay in bays do
+			local spot = Building.doctorSpot(bay)
+			left = math.min(left, spot.X - DOCTOR_ROOM)
+			right = math.max(right, spot.X + DOCTOR_ROOM)
+		end
+		local aisle = math.huge
+		for _, bay in bays do
+			aisle = math.min(aisle, Building.bayBed(bay).Z0)
+		end
+		local z = (r.Z0 + aisle) / 2
+		local leftSize = math.min(FULL_DECOR, left - r.X0 - 0.2)
+		local rightSize = math.min(FULL_DECOR, r.X1 - right - 0.2)
+		table.insert(spots, { At = roomLocal("Ward", (r.X0 + left) / 2, z), Size = leftSize })
+		table.insert(spots, { At = roomLocal("Ward", (right + r.X1) / 2, z), Size = rightSize })
+	end
+	return { Stations = {}, Beds = {}, Bays = bays, Decor = spots, Mats = {} }
+end
+
+local function standLayout(): Layout
+	local canopy = Building.CANOPY
+	local z = Building.FRONT - FORECOURT_DEPTH / 2
+	local x = (canopy.X1 + FORECOURT_HALF) / 2 -- beside the canopy, out to the forecourt's end
+	return {
+		Stations = {},
+		Beds = {},
+		Bays = {},
+		Decor = {
+			{ At = roomLocal("Stand", -x, z), Size = FULL_DECOR },
+			{ At = roomLocal("Stand", x, z), Size = FULL_DECOR },
+		},
+		Mats = {},
+	}
+end
+
+local function gardenLayout(): Layout
+	return {
+		Stations = {},
+		Beds = {},
+		Bays = {},
+		Decor = {
+			{ At = Vector3.new(-7.5, 0, -2), Size = FULL_DECOR },
+			{ At = Vector3.new(7.5, 0, -2), Size = FULL_DECOR },
+			{ At = Vector3.new(0, 0, 3), Size = FULL_DECOR },
+		},
+		Mats = {},
+	}
+end
+
+local LAYOUTS: { [string]: () -> Layout } = {
+	Stand = standLayout,
+	BathRoom = bathLayout,
+	WinterWing = winterLayout,
+	Ward = wardLayout,
+	Garden = gardenLayout,
+}
 
 local function slotSize(roomId: string): Vector3
 	local room = Rooms[roomId]
 	local slot = room and PlotBuilder.SLOTS[room.Slot]
-	return if slot then slot.Size else Vector3.new(18, 0.6, 14)
+	return if slot then slot.Size else Vector3.new(12, ROOM_FLOOR, 10)
 end
 
--- Fallback positions if Data/Rooms counts ever outgrow a layout: stations along the back, beds along the
--- sides, decor along the front.
+-- Fallback positions if Data/Rooms counts ever outgrow a layout: stations along the back, beds along the sides,
+-- decor along the front.
 local function genericLayout(roomId: string, w: number, d: number): Layout
 	local room = Rooms[roomId]
-	local layout: Layout = { Stations = {}, Beds = {}, Decor = {} }
-	local stationCount = #room.Stations
-	for i, stationId in room.Stations do
-		layout.Stations[stationId] = Vector3.new((i - (stationCount + 1) / 2) * 6, 0, d / 2 - 2)
+	local layout: Layout = { Stations = {}, Beds = {}, Bays = baysOf(roomId), Decor = {}, Mats = {} }
+	local stations = ownStations(roomId)
+	for i, stationId in stations do
+		layout.Stations[stationId] = Vector3.new((i - (#stations + 1) / 2) * 5, 0, d / 2 - 2)
 	end
-	for i = 1, room.Beds do
+	for i = 1, ownBeds(roomId) do
 		local side = if i % 2 == 1 then 1 else -1
-		layout.Beds[i] = Vector3.new(side * (w / 2 - 2.6), 0, d / 2 - 6 - math.floor((i - 1) / 2) * 7.5)
+		layout.Beds[i] = Vector3.new(side * (w / 2 - 2.6), 0, d / 2 - 4.5)
 	end
 	for i = 1, room.DecorSlots do
-		layout.Decor[i] = Vector3.new((i - (room.DecorSlots + 1) / 2) * (w / (room.DecorSlots + 1)), 0, -d / 2 + 2.5)
+		layout.Decor[i] = {
+			At = Vector3.new((i - (room.DecorSlots + 1) / 2) * (w / (room.DecorSlots + 1)), 0, -d / 2 + 2),
+			Size = 2,
+		}
 	end
 	return layout
 end
 
 local function layoutFor(roomId: string, w: number, d: number): Layout
 	local room = Rooms[roomId]
-	local layout = LAYOUTS[roomId]
-	if layout then
+	local make = LAYOUTS[roomId]
+	if make then
+		local layout = make()
 		local stationsOk = true
-		for _, stationId in room.Stations do
+		for _, stationId in ownStations(roomId) do
 			if not layout.Stations[stationId] then
 				stationsOk = false
 			end
 		end
-		if stationsOk and #layout.Beds == room.Beds and #layout.Decor == room.DecorSlots then
+		if stationsOk and #layout.Beds == ownBeds(roomId) and #layout.Decor == room.DecorSlots then
 			return layout
 		end
 		warn("[PlotBuilder] Layout for", roomId, "doesn't match Data/Rooms; using a generic one")
@@ -283,17 +477,21 @@ local function layoutFor(roomId: string, w: number, d: number): Layout
 	return genericLayout(roomId, w, d)
 end
 
--- A table station: its body in the station's colour, a studded warm-white Top in whole studs (4 x 3: at Remedy's x
--- it ends 3 studs short of the lift shaft's face, Shared/Logic/Building.SHAFT), and a few blocky props on it.
-local STATION_BODY = Vector3.new(3.8, 3, 2.6)
-local STATION_TOP = Vector3.new(4, 0.3, 3)
+------------------------------------------------------------------------------------------------------------------
+-- Room pieces
+------------------------------------------------------------------------------------------------------------------
 
-local function buildStation(model: Model, stationId: string, at: Vector3)
+-- A table station: its body in the station's colour, a studded warm-white Top in whole studs, and a few blocky props
+-- on it. The Bath is a tub. Its front (where the player stands) is the room's front, -z.
+local STATION_BODY = Vector3.new(3.8, 3, 2.6)
+local STATION_TOP = Vector3.new(4, 0.3, COCOA_DEPTH)
+
+local function buildStation(model: Model, stationId: string, at: Vector3, floorTop: number)
 	local station = Stations[stationId]
 	local uiColor = if station then station.Color else Palette.Candy.Orange
 	local color = worldColor(uiColor)
 	local icon = if station then station.Icon else "❔"
-	local base = CFrame.new(at.X, FLOOR_TOP, at.Z)
+	local base = CFrame.new(at.X, floorTop, at.Z)
 	local stationPart: BasePart
 
 	if stationId == "Bath" then
@@ -303,57 +501,128 @@ local function buildStation(model: Model, stationId: string, at: Vector3)
 		paint(part(model, "Water", Vector3.new(5, 0.15, 3), base * CFrame.new(0, 2.15, 0), COLORS.Water))
 	else
 		local body = STATION_BODY
-		stationPart = part(model, "Station_" .. stationId, body, base * CFrame.new(0, body.Y / 2, 0), color) :: BasePart
+		local back = (STATION_TOP.Z - body.Z) / 2 -- the body stands against the wall, under the Top's back edge
+		stationPart =
+			part(model, "Station_" .. stationId, body, base * CFrame.new(0, body.Y / 2, back), color) :: BasePart
 		local top =
 			soft(part(model, "Top", STATION_TOP, base * CFrame.new(0, body.Y + STATION_TOP.Y / 2, 0), COLORS.Trim))
 		Studs.apply(top)
 		local on = base * CFrame.new(0, body.Y + STATION_TOP.Y, 0) -- the Top's upper face
-		if stationId == "Remedy" then
-			-- Potion bottles in colours no station wears, so they never read as a colour clue.
-			for i, bottleColor in { ACCENT.Lime, ACCENT.Yellow, ACCENT.Lime } do
-				local x = (i - 2) * 1.2
-				soft(part(model, "Bottle", Vector3.new(0.6, 1, 0.6), on * CFrame.new(x, 0.5, 0.2), bottleColor))
-			end
-		elseif stationId == "Plaster" then
-			soft(part(model, "Box", Vector3.new(1.8, 0.8, 1.2), on * CFrame.new(-0.6, 0.4, 0.2), COLORS.Trim))
-			soft(cylinder(model, "Roll", 0.5, 0.9, on * CFrame.new(1.2, 0.25, 0.1), COLORS.Roll))
-		elseif stationId == "Cocoa" then
-			soft(part(model, "Mug", Vector3.new(0.8, 0.9, 0.8), on * CFrame.new(-0.9, 0.45, 0.1), COLORS.Trim))
+		if stationId == "Cocoa" then
+			soft(part(model, "Mug", Vector3.new(0.8, 0.9, 0.8), on * CFrame.new(-0.9, 0.45, 0.1), COLORS.Mug))
 			soft(part(model, "Pot", Vector3.new(1.3, 1.1, 1.3), on * CFrame.new(0.9, 0.55, 0.2), ACCENT.Red))
 		end
 	end
+	stationPart:SetAttribute("Open", true) -- a room's station works while the room stands (it's owned)
+	stationPart:SetAttribute("StationId", stationId) -- as the Building's Station_<id> parts carry
 
 	-- The floating icon badge is a billboard (unlit, like the UI), so its ring keeps the UI's colour.
 	iconBadge(stationPart, "IconGui", icon, uiColor, 2.6, stationPart.Size.Y / 2 + 2.1)
 end
 
--- A bed: 3 parts (the look build plan's bed contract). Frame in the room's colour, a studded Headboard in it (whole
--- studs), and Bed_<n>, the warm-white mattress patients lie on (its top face; the pillow end is +Z, the room's
--- back). Bed_<n>'s size and place are unchanged, so a patient lies exactly as before.
-local function buildBed(model: Model, index: number, at: Vector3, color: Color3)
-	local base = CFrame.new(at.X, FLOOR_TOP, at.Z)
+-- A recovery bed: 3 parts (the look build plan's bed contract). Frame in the room's colour, a studded Headboard in it
+-- (whole studs), and Bed_<n>, the warm-white mattress patients lie on (its top face; the pillow end is +Z, the room's
+-- back). Bed_<n>'s size is unchanged, so a patient lies exactly as before.
+local function buildBed(model: Model, index: number, at: Vector3, color: Color3, floorTop: number)
+	local base = CFrame.new(at.X, floorTop, at.Z)
 	part(model, "Frame", Vector3.new(4.4, 0.8, 7), base * CFrame.new(0, 0.4, 0), color)
 	part(model, "Bed_" .. index, Vector3.new(4, 1, 6.6), base * CFrame.new(0, 1.3, 0), COLORS.Trim)
 	Studs.apply(part(model, "Headboard", Vector3.new(4, 2.6, 1), base * CFrame.new(0, 1.3, 4), color))
 end
 
--- A decor slot: the invisible 4 x 4 marker (Plots puts decor on its bottom face) and a warm-white spot that shows
--- where decor goes. `floorTop` is the height under it in room space: a slot off the room's floor (the Stand's decor
--- slot 2, out front) stands on the pad instead.
-local function buildDecorSlot(model: Model, index: number, at: Vector3, floorTop: number)
-	marker(model, "DecorSlot_" .. index, CFrame.new(at.X, floorTop + 0.5, at.Z), Vector3.new(4, 1, 4))
-	paint(cylinder(model, "DecorSpot", 0.06, 3.4, CFrame.new(at.X, floorTop + 0.03, at.Z), COLORS.Trim))
+-- An exam bay of a room (contract C2: ExamBay_<id>, built here for the Cozy Ward's W1 and W2). The bed fills
+-- Building.bayBed (a Frame in the room's colour, the warm-white `Bed` the patient sits on, a studded Headboard at the
+-- head end), a soft Curtain on the side toward the room's middle, a Tray cart at the head on the other side, a Sign
+-- on the wall over the head (the room's icon and the bay's number in it: "🛏️ 1", so a kid reads "bed 1"), and the
+-- DoctorSpot marker at Building.doctorSpot, facing the bed. `toRoom` turns Building's plot-local (x, z) into the room's
+-- own space.
+local BAY_MATTRESS = 6 -- the Bed: from the foot end, leaving the head end to the Headboard
+local CURTAIN_HEIGHT = 5.6
+
+local function buildBay(
+	model: Model,
+	bay: Building.Bay,
+	color: Color3,
+	floorTop: number,
+	toRoom: (number, number) -> Vector3,
+	label: string
+)
+	local m = Instance.new("Model")
+	m.Name = "ExamBay_" .. bay.Id
+	m:SetAttribute("Bay", bay.Id)
+	m:SetAttribute("Kind", bay.Kind)
+	m:SetAttribute("Opens", bay.Opens)
+	m:SetAttribute("Face", bay.Face)
+	m:SetAttribute("Room", bay.Room)
+	m:SetAttribute("Open", true) -- a room's bay exists only while the room is owned
+	local turn = CFrame.Angles(0, math.rad(bay.Face), 0) -- local -Z is the bed's foot (its front)
+	local centre = toRoom(bay.X, bay.Z)
+	local base = CFrame.new(centre.X, floorTop, centre.Z) * turn
+	local width, length = Building.BAY_BED.Width, Building.BAY_BED.Length
+
+	part(m, "Frame", Vector3.new(width, 0.8, length), base * CFrame.new(0, 0.4, 0), color)
+	local headDepth = length - BAY_MATTRESS
+	local bed = part(
+		m,
+		"Bed",
+		Vector3.new(width - 0.4, 1, BAY_MATTRESS),
+		base * CFrame.new(0, 1.3, -headDepth / 2),
+		COLORS.Trim
+	)
+	Studs.apply(
+		part(
+			m,
+			"Headboard",
+			Vector3.new(math.floor(width - 0.4), 2.6, math.floor(headDepth)),
+			base * CFrame.new(0, 1.3, length / 2 - headDepth / 2),
+			color
+		)
+	)
+	m.PrimaryPart = bed
+
+	-- The curtain hangs along the side toward the room's middle; the tray stands at the head on the other side.
+	local inward = if centre.X < 0 then 1 else -1
+	local curtain = soft(
+		part(
+			m,
+			"Curtain",
+			Vector3.new(0.2, CURTAIN_HEIGHT, length - 1),
+			base * CFrame.new(inward * (width / 2 + 0.4), 1 + CURTAIN_HEIGHT / 2, 0.5),
+			color,
+			Enum.Material.Fabric
+		)
+	)
+	curtain.CastShadow = false
+	part(
+		m,
+		"Tray",
+		Vector3.new(1, 2.8, 1.4),
+		base * CFrame.new(-inward * (width / 2 + 0.6), 1.4, length / 2 - 1),
+		COLORS.Trim
+	)
+	local sign = soft(part(m, "Sign", Vector3.new(2, 1.2, 0.2), base * CFrame.new(0, 5.4, length / 2 - 0.2), color))
+	local gui = detailGui(sign, "SignGui", Enum.NormalId.Front, 40, 60)
+	floatText(gui, label, { Size = UDim2.fromScale(0.9, 0.9), Position = UDim2.fromScale(0.05, 0.05) })
+
+	local spot = Building.doctorSpot(bay)
+	local at = toRoom(spot.X, spot.Z)
+	marker(m, "DoctorSpot", CFrame.new(at.X, floorTop + 0.5, at.Z) * turn * CFrame.Angles(0, math.pi, 0))
+	m.Parent = model
 end
 
--- The inside of an annex wall: the room's colour stays below as the dado band, the warm upper wall goes above it,
--- with a wood rail between (drawn on that face: no parts).
-local DADO = 3 -- studs of room colour above the floor, inside
-local function lineWall(wall: BasePart, face: Enum.NormalId)
-	local h = wall.Size.Y
-	local upper = (h - DADO) / h
-	local gui = detailGui(wall, "LiningGui", face, 8)
-	band(gui, "UpperWall", UDim2.fromScale(1, upper), UDim2.fromScale(0.5, upper / 2), COLORS.WallUpper)
-	band(gui, "Rail", UDim2.fromScale(1, 0.3 / h), UDim2.fromScale(0.5, upper), COLORS.Rail)
+-- A decor slot: the invisible square marker (Plots puts decor on its bottom face) and a warm-white spot that shows
+-- where decor goes, both resting on the floor.
+local function buildDecorSlot(model: Model, index: number, spot: Spot, floorTop: number)
+	local side = spot.Size
+	marker(model, "DecorSlot_" .. index, CFrame.new(spot.At.X, floorTop + 0.5, spot.At.Z), Vector3.new(side, 1, side))
+	paint(
+		cylinder(model, "DecorSpot", 0.06, side - 0.6, CFrame.new(spot.At.X, floorTop + 0.03, spot.At.Z), COLORS.Trim)
+	)
+end
+
+-- A flat mat or rug on the floor, in the room's colour.
+local function buildMat(model: Model, name: string, at: Vector3, size: Vector2, color: Color3, floorTop: number)
+	paint(part(model, name, Vector3.new(size.X, 0.06, size.Y), CFrame.new(at.X, floorTop + 0.03, at.Z), color))
 end
 
 -- The room's name in floating outlined letters (no board) on a face: bright at night like the signs.
@@ -368,67 +637,11 @@ local function nameOn(p: BasePart, room: RoomInfo)
 	})
 end
 
--- An annex (hospital doc §3.8): three studded walls in the room's colour (the back one full width; the side ones
--- on the back half only, as before, so the patients' ways in at the front stay open), a dark flat roof over the
--- back half with a warm-white trim along its front edge and the name floating on it. Walk-through roof (the camera
--- isn't pushed in under it, like the old awning); solid walls.
-local WALL_HEIGHT = 8
-local ROOF_THICK = 1.5
-
-local function buildAnnex(model: Model, room: RoomInfo, w: number, d: number, style: RoomStyle)
+-- The Garden: a studded lawn (its Floor), studded hedges on three sides (the side ones on the back half; the front
+-- stays open to the Garden door) and an arbor at the back: two wood posts and a studded beam of leaves with the name.
+local function buildGarden(model: Model, room: RoomInfo, w: number, d: number, floorTop: number)
 	local back = d / 2
-	local wallY = FLOOR_TOP + WALL_HEIGHT / 2
-	local backWall =
-		part(model, "BackWall", Vector3.new(w, WALL_HEIGHT, 1), CFrame.new(0, wallY, back - 0.5), style.Main)
-	Studs.apply(backWall)
-	lineWall(backWall, Enum.NormalId.Front)
-	local sideDepth = back - 1 -- from the room's middle (z = 0) to the back wall
-	for _, side in { -1, 1 } do
-		local wall = part(
-			model,
-			"SideWall",
-			Vector3.new(1, WALL_HEIGHT, sideDepth),
-			CFrame.new(side * (w / 2 - 0.5), wallY, sideDepth / 2),
-			style.Main
-		)
-		Studs.apply(wall)
-		lineWall(wall, if side < 0 then Enum.NormalId.Right else Enum.NormalId.Left) -- the face toward the room
-	end
-
-	local roofY = FLOOR_TOP + WALL_HEIGHT + ROOF_THICK / 2
-	local roof =
-		soft(part(model, "Roof", Vector3.new(w + 1, ROOF_THICK, back + 1), CFrame.new(0, roofY, back / 2), COLORS.Roof))
-	nameOn(roof, room)
-	-- The warm-white trim under the roof's front edge, from side wall to side wall.
-	soft(
-		part(
-			model,
-			"Trim",
-			Vector3.new(w + 1.2, 0.5, 0.5),
-			CFrame.new(0, FLOOR_TOP + WALL_HEIGHT - 0.25, -0.25),
-			COLORS.Trim
-		)
-	)
-	if style.Snow then
-		paint(
-			part(
-				model,
-				"Snow",
-				Vector3.new(w - 1, 0.4, back - 0.5),
-				CFrame.new(0, roofY + ROOF_THICK / 2 + 0.2, back / 2 + 0.25),
-				COLORS.Snow
-			)
-		)
-	end
-end
-
--- The Garden: a studded lawn (its Floor), studded hedges on three sides (the side ones on the back half, like the
--- annexes' walls) and an arbor at the back: two wood posts and a studded beam of leaves with the name on it.
-local function buildGarden(model: Model, room: RoomInfo, w: number, d: number)
-	local back = d / 2
-	Studs.apply(
-		part(model, "BackHedge", Vector3.new(w, 3, 1), CFrame.new(0, FLOOR_TOP + 1.5, back - 0.5), COLORS.Hedge)
-	)
+	Studs.apply(part(model, "BackHedge", Vector3.new(w, 3, 1), CFrame.new(0, floorTop + 1.5, back - 0.5), COLORS.Hedge))
 	local sideDepth = back - 1
 	for _, side in { -1, 1 } do
 		Studs.apply(
@@ -436,32 +649,33 @@ local function buildGarden(model: Model, room: RoomInfo, w: number, d: number)
 				model,
 				"SideHedge",
 				Vector3.new(1, 2, sideDepth),
-				CFrame.new(side * (w / 2 - 0.5), FLOOR_TOP + 1, sideDepth / 2),
+				CFrame.new(side * (w / 2 - 0.5), floorTop + 1, sideDepth / 2),
 				COLORS.Hedge
 			)
 		)
 	end
 	local arborZ = back - 1.5
 	for _, side in { -1, 1 } do
-		part(model, "ArborPost", Vector3.new(0.8, 7, 0.8), CFrame.new(side * 4.5, FLOOR_TOP + 3.5, arborZ), COLORS.Wood)
+		part(model, "ArborPost", Vector3.new(0.8, 7, 0.8), CFrame.new(side * 4.5, floorTop + 3.5, arborZ), COLORS.Wood)
 	end
 	-- Overhead and walk-through: no ray (Patients', Nurses') ever lands a creature on it.
 	local beam =
-		soft(part(model, "ArborBeam", Vector3.new(11, 1.5, 2), CFrame.new(0, FLOOR_TOP + 7.75, arborZ), COLORS.Vine))
+		soft(part(model, "ArborBeam", Vector3.new(11, 1.5, 2), CFrame.new(0, floorTop + 7.75, arborZ), COLORS.Vine))
 	Studs.apply(beam)
 	nameOn(beam, room)
 end
 
 local function placeholderRoom(roomId: string, accent: Color3?): Model
 	local room = Rooms[roomId]
-	local style = styleFor(roomId, accent)
+	local color = colourFor(roomId, accent)
 	local size = slotSize(roomId)
 	local w, d = size.X, size.Z
+	local floorTop = size.Y / 2
 
 	local model = Instance.new("Model")
 	model.Name = "Room_" .. roomId
 	local floor: BasePart
-	if style.Kind == "Garden" then
+	if roomId == "Garden" then
 		floor = part(model, "Floor", size, CFrame.identity, COLORS.Lawn)
 		Studs.apply(floor)
 	else
@@ -469,22 +683,28 @@ local function placeholderRoom(roomId: string, accent: Color3?): Model
 	end
 	model.PrimaryPart = floor
 
-	if style.Kind == "Annex" then
-		buildAnnex(model, room, w, d, style)
-	elseif style.Kind == "Garden" then
-		buildGarden(model, room, w, d)
+	if roomId == "Garden" then
+		buildGarden(model, room, w, d, floorTop)
 	end
 
 	local layout = layoutFor(roomId, w, d)
-	for _, stationId in room.Stations do
-		buildStation(model, stationId, layout.Stations[stationId])
+	for _, stationId in ownStations(roomId) do
+		buildStation(model, stationId, layout.Stations[stationId], floorTop)
 	end
 	for index, at in layout.Beds do
-		buildBed(model, index, at, style.Main)
+		buildBed(model, index, at, color, floorTop)
 	end
-	for index, at in layout.Decor do
-		local onFloor = math.abs(at.X) <= w / 2 and math.abs(at.Z) <= d / 2
-		buildDecorSlot(model, index, at, if onFloor then FLOOR_TOP else -FLOOR_TOP)
+	local function toRoom(x: number, z: number): Vector3
+		return roomLocal(roomId, x, z)
+	end
+	for index, bay in layout.Bays do
+		buildBay(model, bay, color, floorTop, toRoom, room.Icon .. " " .. index)
+	end
+	for _, mat in layout.Mats do
+		buildMat(model, mat.Name, mat.At, mat.Size, color, floorTop)
+	end
+	for index, spot in layout.Decor do
+		buildDecorSlot(model, index, spot, floorTop)
 	end
 	return model
 end
@@ -523,11 +743,13 @@ local function kitRoom(roomId: string): Model?
 	anchorAll(model)
 
 	local room = Rooms[roomId]
-	for _, stationId in room.Stations do
+	for _, stationId in ownStations(roomId) do
 		local station = model:FindFirstChild("Station_" .. stationId, true)
 		if not station then
 			warn("[PlotBuilder] ClinicKit." .. roomId .. " is missing Station_" .. stationId)
 		else
+			station:SetAttribute("Open", true)
+			station:SetAttribute("StationId", stationId)
 			local kitIcon = station:FindFirstChild("IconGui", true)
 			if not kitIcon then
 				-- Placeholder stations carry their icon badge; give the brother's the same one.
@@ -541,9 +763,22 @@ local function kitRoom(roomId: string): Model?
 			end
 		end
 	end
-	for i = 1, room.Beds do
+	for i = 1, ownBeds(roomId) do
 		if not model:FindFirstChild("Bed_" .. i, true) then
 			warn("[PlotBuilder] ClinicKit." .. roomId .. " is missing Bed_" .. i)
+		end
+	end
+	for _, bay in baysOf(roomId) do
+		local found = model:FindFirstChild("ExamBay_" .. bay.Id, true)
+		if not found then
+			warn("[PlotBuilder] ClinicKit." .. roomId .. " is missing ExamBay_" .. bay.Id)
+		else
+			found:SetAttribute("Bay", bay.Id)
+			found:SetAttribute("Kind", bay.Kind)
+			found:SetAttribute("Opens", bay.Opens)
+			found:SetAttribute("Face", bay.Face)
+			found:SetAttribute("Room", bay.Room)
+			found:SetAttribute("Open", true)
 		end
 	end
 	for i = 1, room.DecorSlots do
@@ -554,7 +789,7 @@ local function kitRoom(roomId: string): Model?
 	return model
 end
 
--- `accent` is the plot's colour, for the Stand's bed (a kit room ignores it).
+-- `accent` is the plot's colour, for the Stand (a kit room ignores it).
 local function buildRoomModel(roomId: string, accent: Color3?): Model
 	assert(Rooms[roomId], "Unknown room " .. tostring(roomId))
 	local model = kitRoom(roomId) or placeholderRoom(roomId, accent)
@@ -679,10 +914,10 @@ local function plotCFrame(index: number, count: number): CFrame
 end
 
 -- The plot's floor: the Ground Model holding the dark studded Pad and the 4 Slate Edge parts round it. The pad is
--- odd (77 x 77) and centred on the plot, so its studs fall whole at its edges in both studs modes; the edging fills
--- the rest of the plot's 80 x 80 square (1.5 wide) and stands EDGE_RAISE proud of the pad, so it reads as a stone
--- frame.
-local PAD = 77
+-- odd (PAD x PAD) and centred on the plot, so its studs fall whole at its edges in both studs modes; the edging fills
+-- the rest of the plot's square ((PlotSize - PAD) / 2 wide) and stands EDGE_RAISE proud of the pad, so it reads as a
+-- stone frame.
+local PAD = 107
 local EDGE_RAISE = 0.1
 
 local function buildGround(model: Model, cf: CFrame, half: number): BasePart
@@ -723,7 +958,7 @@ end
 -- (a world information plate) hidden until their system fills them.
 local SIGN_SIZE = Vector3.new(10, 4, 0.5)
 local SIGN_X = -13 -- plot-local: beside the gate (the gate posts stand at x = ±6.2)
-local SIGN_Z = -39 -- just behind the front fence (z = -39.6)
+local SIGN_IN = 1 -- studs inside the plot's front edge: just behind the front fence (0.4 inside it)
 local SIGN_BOTTOM = 4 -- the letters' bottom edge: 1 stud over the fence's 3-stud top
 
 local function signPill(gui: SurfaceGui, name: string, size: UDim2, position: UDim2): TextLabel
@@ -751,9 +986,10 @@ local function signPill(gui: SurfaceGui, name: string, size: UDim2, position: UD
 	return pill
 end
 
-local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color3)
+local function buildSign(model: Model, scenery: Model, cf: CFrame, half: number, accent: Color3)
 	local w, h = SIGN_SIZE.X, SIGN_SIZE.Y
-	local sign = part(model, "Sign", SIGN_SIZE, cf * CFrame.new(SIGN_X, SIGN_BOTTOM + h / 2, SIGN_Z), accent)
+	local z = -half + SIGN_IN
+	local sign = part(model, "Sign", SIGN_SIZE, cf * CFrame.new(SIGN_X, SIGN_BOTTOM + h / 2, z), accent)
 	sign.Transparency = 1
 	sign.CastShadow = false
 	soft(sign)
@@ -763,7 +999,7 @@ local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color
 			scenery,
 			"SignPost",
 			Vector3.new(1, postHeight, 1),
-			cf * CFrame.new(SIGN_X + side * (w / 2 - 0.5), postHeight / 2, SIGN_Z + 0.75),
+			cf * CFrame.new(SIGN_X + side * (w / 2 - 0.5), postHeight / 2, z + 0.75),
 			accent
 		)
 		Studs.apply(post)
@@ -789,9 +1025,11 @@ local function buildSign(model: Model, scenery: Model, cf: CFrame, accent: Color
 end
 
 -- Progression v2 (§B4): every sign has a hidden BranchBadge pill (Server/Rebirth shows "🏢 n" from R1), and every
--- plot a MascotSpot marker beside the Counter (Server/Rebirth's mascot, from R5). A kit plot without them gets them.
--- The spot is Shared/Logic/Building's: beside the Counter's -x end, clear of the line and the hospital's façade.
-local MASCOT_SPOT = Vector3.new(Building.STAND.Mascot.X, 0.5, Building.STAND.Mascot.Z)
+-- plot a MascotSpot marker (Server/Rebirth's mascot, from R5). A kit plot without them gets them.
+-- The spot is on the Stand's forecourt, under the canopy beside the front doors, facing the street: it greets
+-- whoever walks up the path, and stands off the doors' span (Building.DOORS.Front).
+local MASCOT_SPOT =
+	Vector3.new((Building.DOORS.Front.X0 :: number) - 2.5, ROOM_FLOOR + 0.5, Building.FRONT - FORECOURT_DEPTH / 2)
 
 local function ensureSignBits(model: Model)
 	local sign = model:FindFirstChild("Sign")
@@ -839,20 +1077,44 @@ local function buildFenceAndGate(scenery: Model, cf: CFrame, half: number, accen
 	Studs.apply(arch)
 end
 
-local function buildMailbox(scenery: Model, cf: CFrame, accent: Color3)
+local MAILBOX_X = 9.5 -- beside the gate, on the side away from the sign
+
+local function buildMailbox(scenery: Model, cf: CFrame, half: number, accent: Color3)
+	local z = -half + 2
 	local model = Instance.new("Model")
 	model.Name = "MailboxProp"
-	part(model, "Post", Vector3.new(0.4, 3, 0.4), cf * CFrame.new(9.5, 1.5, -38), COLORS.Trim)
-	part(model, "Box", Vector3.new(1.6, 1.2, 2), cf * CFrame.new(9.5, 3.5, -38), accent)
-	soft(part(model, "Flag", Vector3.new(0.1, 0.9, 0.35), cf * CFrame.new(10.4, 3.9, -38.5), COLORS.Flag))
+	part(model, "Post", Vector3.new(0.4, 3, 0.4), cf * CFrame.new(MAILBOX_X, 1.5, z), COLORS.Trim)
+	part(model, "Box", Vector3.new(1.6, 1.2, 2), cf * CFrame.new(MAILBOX_X, 3.5, z), accent)
+	soft(part(model, "Flag", Vector3.new(0.1, 0.9, 0.35), cf * CFrame.new(MAILBOX_X + 0.9, 3.9, z - 0.5), COLORS.Flag))
 	model.Parent = scenery
 end
 
--- The reception desk: the Counter (solid: patients queue in front of it, you treat from behind it) in the plot's
--- colour, its studded CounterTop (13 x 3: whole studs) and our paw-heart mark on the street face.
+-- The reception desk: the Counter on Building.RECEPTION.Desk, inside the lobby (solid: an arriving patient stops in
+-- front of it at RECEPTION.Stop, a Receptionist stands behind it at RECEPTION.Staff) in the plot's colour, its studded
+-- CounterTop (whole studs, a little proud of the body; soft) and our paw-heart mark on its street face, toward the
+-- front doors.
+local COUNTER_HEIGHT = 3.4
+
 local function buildCounter(model: Model, scenery: Model, cf: CFrame, accent: Color3)
-	local counter = part(model, "Counter", Vector3.new(12, 3.4, 2.4), cf * CFrame.new(0, 1.7, -14.5), accent)
-	local top = soft(part(scenery, "CounterTop", Vector3.new(13, 0.4, 3), cf * CFrame.new(0, 3.6, -14.5), COLORS.Trim))
+	local desk = Building.RECEPTION.Desk
+	local width, depth = desk.X1 - desk.X0, desk.Z1 - desk.Z0
+	local x, z = (desk.X0 + desk.X1) / 2, (desk.Z0 + desk.Z1) / 2
+	local counter = part(
+		model,
+		"Counter",
+		Vector3.new(width, COUNTER_HEIGHT, depth),
+		cf * CFrame.new(x, COUNTER_HEIGHT / 2, z),
+		accent
+	)
+	local top = soft(
+		part(
+			scenery,
+			"CounterTop",
+			Vector3.new(math.ceil(width + 0.5), 0.4, math.ceil(depth + 0.4)),
+			cf * CFrame.new(x, COUNTER_HEIGHT + 0.2, z),
+			COLORS.Trim
+		)
+	)
 	Studs.apply(top)
 	local gui = detailGui(counter, "DeskGui", Enum.NormalId.Front, 40, 120)
 	local holder = Instance.new("Frame")
@@ -864,26 +1126,28 @@ local function buildCounter(model: Model, scenery: Model, cf: CFrame, accent: Co
 	pawHeart(holder, UDim2.fromScale(0.82, 0.82), accent)
 end
 
--- The trees and bushes (Props: voxel trees, one-cube bushes), all clear of the hospital (x ±16; hospital doc §3.9),
--- the walkways (x ±17.5), the room slots, the queue lane, the patients' way out and the ambulance bay on the
--- front-left lawn (HospitalBuilder's Pure.BAY: x -35..-27.6, z -23..-10; tests/PlotWorld.spec checks them all). The
--- big tree stands beside the hospital at (30, -12), in front of slot C (which starts at z -2); the others stand in the
--- corners. The bushes stand by the fence (z ±37.6, x 37), three along the front either side of the gate. Only 5: the
--- longer fence's 3 extra posts keep the plot inside Config.Look.PlotParts.
+-- The trees and bushes (Props: voxel trees, one-cube bushes), all clear of the Building and its canopy, the path and
+-- the gate, the room slots and the ambulance bay's yard (Building.BAY_AMBULANCE.Area; tests/PlotWorld.spec checks
+-- them all). The big tree stands in the +x side yard; the others in the corners. The bushes stand by the fence: three
+-- along the front either side of the gate, one on the +x side, one at the back.
 local TREES = {
-	{ X = 30, Z = -12, Scale = 1.35 },
-	{ X = -33, Z = -33, Scale = 1 },
-	{ X = 33, Z = -31, Scale = 1.1 },
-	{ X = -33, Z = 33, Scale = 1.2 },
-	{ X = 33, Z = 33, Scale = 1 },
+	{ X = 44, Z = -10, Scale = 1.35 },
+	{ X = -46, Z = -45, Scale = 1 },
+	{ X = 45, Z = -44, Scale = 1.1 },
+	{ X = -45, Z = 45, Scale = 1.2 },
+	{ X = 45, Z = 45, Scale = 1 },
 }
 local BUSHES = {
-	Vector3.new(-24, 0, -37.6),
-	Vector3.new(16, 0, -37.6),
-	Vector3.new(21.5, 0, -37.6),
-	Vector3.new(37, 0, -10),
-	Vector3.new(0, 0, 37.6),
+	Vector3.new(-26, 0, -52.6),
+	Vector3.new(20, 0, -52.6),
+	Vector3.new(26, 0, -52.6),
+	Vector3.new(52.6, 0, 24),
+	Vector3.new(-20, 0, 52.6),
 }
+
+-- Where patients come in and leave: just inside the gate, either side of the path's middle.
+local GATE_MARK_X = 4
+local GATE_MARK_IN = 2.5 -- studs inside the plot's front edge
 
 local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 	local half = Config.Town.PlotSize / 2
@@ -897,31 +1161,30 @@ local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 
 	local pad = buildGround(model, cf, half)
 
-	-- The plank path from the gate to the Counter (under the queue lane), and 2 slate stepping stones from it to the
-	-- hospital's main entrance (ground-bed patients walk in that way). Nothing under the building.
+	-- The plank path from the gate to the Stand's forecourt (whose tiles run on to the front doors). Nothing under the
+	-- building.
 	local front = pad.Size.Z / 2
-	local pathLength = front - 15.6
+	local doors = Building.DOORS.Front
+	local doorX = ((doors.X0 :: number) + (doors.X1 :: number)) / 2
+	local forecourtFront = Building.FRONT - FORECOURT_DEPTH
+	local pathLength = front + forecourtFront
 	local path = part(
 		scenery,
 		"Path",
-		Vector3.new(11, 0.2, pathLength),
-		cf * CFrame.new(0, 0.05, -(front + 15.6) / 2),
+		Vector3.new(GATE * 2 - 0.2, 0.2, pathLength),
+		cf * CFrame.new(doorX, 0.05, -(front - pathLength / 2)),
 		COLORS.Path,
 		Enum.Material.WoodPlanks
 	)
 	path.CastShadow = false
-	local doorX = (Building.DOORS.Main.X0 + Building.DOORS.Main.X1) / 2
-	for _, z in { -16.2, -19.6 } do
-		paint(cylinder(scenery, "Stone", 0.2, 2.6, cf * CFrame.new(doorX, 0.05, z), COLORS.Stone, Enum.Material.Slate))
-	end
 
 	buildCounter(model, scenery, cf, accent)
 
-	-- Markers. QueueStart and PatientSpawn face the counter; PatientExit faces the street.
+	-- Markers. PatientSpawn faces into the plot; PatientExit faces the street.
 	local turn = CFrame.Angles(0, math.pi, 0)
-	marker(model, "QueueStart", cf * CFrame.new(0, 0.5, -18) * turn)
-	marker(model, "PatientSpawn", cf * CFrame.new(-4, 0.5, -37.5) * turn)
-	marker(model, "PatientExit", cf * CFrame.new(4, 0.5, -37.5))
+	local markZ = -half + GATE_MARK_IN
+	marker(model, "PatientSpawn", cf * CFrame.new(doorX - GATE_MARK_X, 0.5, markZ) * turn)
+	marker(model, "PatientExit", cf * CFrame.new(doorX + GATE_MARK_X, 0.5, markZ))
 	marker(model, "MascotSpot", cf * CFrame.new(MASCOT_SPOT))
 
 	local slots = Instance.new("Folder")
@@ -937,9 +1200,9 @@ local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 		folder.Parent = model
 	end
 
-	buildSign(model, scenery, cf, accent)
+	buildSign(model, scenery, cf, half, accent)
 	buildFenceAndGate(scenery, cf, half, accent)
-	buildMailbox(scenery, cf, accent)
+	buildMailbox(scenery, cf, half, accent)
 
 	for _, tree in TREES do
 		Props.tree(scenery, cf * CFrame.new(tree.X, 0, tree.Z), tree.Scale)
@@ -958,7 +1221,7 @@ local function kitPlot(index: number, cf: CFrame): Model?
 		return nil
 	end
 	local problems = {}
-	for _, name in { "Ground", "Sign", "Counter", "QueueStart", "PatientSpawn", "PatientExit" } do
+	for _, name in { "Ground", "Sign", "Counter", "PatientSpawn", "PatientExit" } do
 		local found = template:FindFirstChild(name)
 		if not (found and found:IsA("BasePart")) then
 			table.insert(problems, "a Part named " .. name)
@@ -1001,268 +1264,6 @@ local function kitPlot(index: number, cf: CFrame): Model?
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The line: where patients stand, and the queue lane paved under them
-------------------------------------------------------------------------------------------------------------------
-
--- Markers are 2x1x2 and rest on the ground: their bottom face is the ground, facing as they face.
-local function markerGround(markerPart: BasePart): CFrame
-	return markerPart.CFrame * CFrame.new(0, -markerPart.Size.Y / 2, 0)
-end
-
--- How many places run straight back from the counter before the line turns.
-local function straightPlaces(): number
-	return math.max(1, math.floor(Config.QueueDepth / Config.QueueSpacing) + 1)
-end
-
--- Place `index` in line (1 = the front), on the ground, facing the counter as QueueStart does. Patients stand
--- exactly here (Patients.queueSpot calls this) and the queue lane paints its numbered spots here, so the two always
--- agree, kit plots included. The line grows away from the counter, Config.QueueSpacing apart. Once it is
--- Config.QueueDepth studs long it turns sideways (away from where patients arrive), so big creatures spaced out
--- still fit on the plot's path instead of spilling into the street.
-function PlotBuilder.queueSpot(queueStart: BasePart, spawn: BasePart?, index: number): CFrame
-	local start = markerGround(queueStart)
-	local spacing = Config.QueueSpacing
-	local straight = straightPlaces()
-	if index <= straight then
-		return start * CFrame.new(0, 0, (index - 1) * spacing)
-	end
-	local arriveX = if spawn then start:PointToObjectSpace(spawn.Position).X else 0
-	local side = if arriveX > 0 then -1 else 1
-	return start * CFrame.new(side * (index - straight) * spacing, 0, (straight - 1) * spacing)
-end
-
--- The lane, in the frame of the ground under QueueStart: +Z runs back from the counter toward the gate.
-local LANE_WIDTH = 6 -- the pavement between its edges (the biggest creature is about 5 studs wide)
-local LANE_EDGE = 0.45 -- each coloured edge
-local LANE_TILE = 3 -- each tile runs about this far along the lane, the lane's full width across (6 on a plot)
-local LANE_GROUT = 0.14 -- the gap between tiles
-local LANE_FAR = 3 -- the pavement runs this far past the last place in line ...
-local LANE_GATE_GAP = 0.9 -- ... but stops this short of the plot's edge (inside the fence, in the gate)
-local LANE_NEAR_GAP = 0.25 -- it starts this far in front of the Counter ...
-local LANE_NEAR_MAX = 3.5 -- ... or at most this far ahead of the front place
-local SPOT_DIAMETER = 3.6
--- Heights of each layer's top above the ground. The placeholder path's top is at 0.15; each layer sits a visible
--- step above the one under it so nothing flickers. A creature standing in line sinks only a little into it.
-local LANE_TILE_TOP = 0.25
-local LANE_SPOT_TOP = 0.3
-local LANE_EDGE_TOP = 0.35
--- Each number floats on its spot disc: on the disc's top (a cylinder's Right face once Parts.cylinder stands it
--- up). The disc turns a quarter first, so the face's up runs toward the Counter and the numbers read upright for
--- someone walking in from the gate (the same quarter turn the old number plates took, checked in Studio 2026-11-16).
-local NUMBER_TURN = CFrame.Angles(0, -math.pi / 2, 0)
-
--- How far a point can go along a flat world direction before it leaves the part's footprint (its own X and Z).
--- math.huge when it never does, or when the point isn't over the part.
-local function distanceToEdge(boxPart: BasePart, origin: Vector3, direction: Vector3): number
-	local o = boxPart.CFrame:PointToObjectSpace(origin)
-	local d = boxPart.CFrame:VectorToObjectSpace(direction)
-	local halfX, halfZ = boxPart.Size.X / 2, boxPart.Size.Z / 2
-	if math.abs(o.X) > halfX or math.abs(o.Z) > halfZ then
-		return math.huge
-	end
-	local function exit(p: number, v: number, half: number): number
-		if v > 1e-6 then
-			return (half - p) / v
-		elseif v < -1e-6 then
-			return (-half - p) / v
-		end
-		return math.huge
-	end
-	return math.min(exit(o.X, d.X, halfX), exit(o.Z, d.Z, halfZ))
-end
-
--- The Counter's half depth along a flat world direction (its box projected on it).
-local function halfDepth(boxPart: BasePart, direction: Vector3): number
-	local cf, size = boxPart.CFrame, boxPart.Size
-	return math.abs(direction:Dot(cf.RightVector)) * size.X / 2
-		+ math.abs(direction:Dot(cf.UpVector)) * size.Y / 2
-		+ math.abs(direction:Dot(cf.LookVector)) * size.Z / 2
-end
-
--- The part the plot stands on: a kit plot's Ground Part, or the placeholder's Ground.Pad.
-local function groundPart(plotModel: Model): BasePart?
-	local ground = plotModel:FindFirstChild("Ground")
-	if ground and ground:IsA("BasePart") then
-		return ground
-	end
-	local pad = ground and ground:FindFirstChild("Pad")
-	return if pad and pad:IsA("BasePart") then pad else nil
-end
-
--- A flat strip in lane space from (a.X, a.Y) to (b.X, b.Y) (x, z on the ground), `width` across, its top at `top`.
-local function laneStrip(
-	lane: Model,
-	start: CFrame,
-	name: string,
-	a: Vector2,
-	b: Vector2,
-	width: number,
-	top: number,
-	color: Color3
-): BasePart
-	local from = Vector3.new(a.X, top / 2, a.Y)
-	local to = Vector3.new(b.X, top / 2, b.Y)
-	local length = (to - from).Magnitude
-	local middle = (from + to) / 2
-	local cf = start * (if length > 1e-3 then CFrame.lookAt(middle, to) else CFrame.new(middle))
-	return paint(part(lane, name, Vector3.new(width, top, math.max(length, 0.05)), cf, color))
-end
-
--- Pavement over the rectangle from (a) to (b) in lane space, LANE_WIDTH across: rows of tiles the lane's full width,
--- alternating the two mid-tones, with a thin gap between them.
-local function lanePaving(lane: Model, start: CFrame, a: Vector2, b: Vector2)
-	local length = (b - a).Magnitude
-	if length < 0.1 then
-		return
-	end
-	local along = (b - a) / length
-	local rows = math.max(1, math.floor(length / LANE_TILE + 0.5))
-	local tileLength = length / rows
-	for row = 1, rows do
-		local centre = a + along * ((row - 0.5) * tileLength)
-		local half = along * ((tileLength - LANE_GROUT) / 2)
-		local color = if row % 2 == 0 then COLORS.Pavement else COLORS.PavementAlt
-		laneStrip(lane, start, "LaneTile", centre - half, centre + half, LANE_WIDTH, LANE_TILE_TOP, color)
-	end
-end
-
--- A numbered spot where a patient waits: a disc in the plot's colour with its number floating on it (white,
--- outlined, no board).
-local function laneSpot(lane: Model, spot: CFrame, index: number, accent: Color3)
-	local disc = paint(
-		cylinder(
-			lane,
-			"LaneSpot",
-			0.1,
-			SPOT_DIAMETER,
-			spot * CFrame.new(0, LANE_SPOT_TOP - 0.05, 0) * NUMBER_TURN,
-			accent
-		)
-	)
-	-- Lit like the ground, so it dims at night with everything else.
-	local gui = detailGui(disc, "NumberGui", Enum.NormalId.Right, 40, 100, 1)
-	local number = floatText(gui, tostring(index), {
-		Size = UDim2.fromScale(0.62, 0.62),
-		Position = UDim2.fromScale(0.19, 0.19),
-	})
-	number.Name = "Number"
-end
-
--- Paves the plot's line from just in front of the Counter out toward the gate, worked out from the QueueStart,
--- PatientSpawn, Counter and Ground parts and PlotBuilder.queueSpot, so it lines up on a kit plot too.
-local function buildQueueLane(plotModel: Model, accent: Color3)
-	if plotModel:FindFirstChild("QueueLane") then
-		return -- the brother's own
-	end
-	local queueStart = plotModel:FindFirstChild("QueueStart")
-	if not (queueStart and queueStart:IsA("BasePart")) then
-		return
-	end
-	local spawnMarker = plotModel:FindFirstChild("PatientSpawn")
-	local spawn = if spawnMarker and spawnMarker:IsA("BasePart") then spawnMarker else nil
-	local start = markerGround(queueStart)
-	local back = start:VectorToWorldSpace(Vector3.zAxis) -- from the counter toward the gate
-
-	local lane = Instance.new("Model")
-	lane.Name = "QueueLane"
-
-	-- The front end: just short of the Counter's face.
-	local near = 1.5
-	local counter = plotModel:FindFirstChild("Counter")
-	if counter and counter:IsA("BasePart") then
-		local gap = -start:PointToObjectSpace(counter.Position).Z - halfDepth(counter, back)
-		if gap > 0 then
-			near = math.clamp(gap - LANE_NEAR_GAP, 0.5, LANE_NEAR_MAX)
-		end
-	end
-
-	-- Every place in line, in lane space.
-	local count = math.max(1, Config.MaxQueue)
-	local spots: { CFrame } = {}
-	for index = 1, count do
-		spots[index] = start:ToObjectSpace(PlotBuilder.queueSpot(queueStart, spawn, index))
-	end
-	local last = spots[count].Position
-
-	-- The far end: LANE_FAR past the last place, inside the plot's edge.
-	local turned = count > straightPlaces()
-	local cornerZ = spots[math.min(count, straightPlaces())].Position.Z
-	local outward = if turned then Vector2.new(if last.X > 0 then 1 else -1, 0) else Vector2.new(0, 1)
-	local far = LANE_FAR
-	local ground = groundPart(plotModel)
-	if ground then
-		local room = distanceToEdge(
-			ground,
-			start:PointToWorldSpace(last),
-			start:VectorToWorldSpace(Vector3.new(outward.X, 0, outward.Y))
-		)
-		far = math.max(math.min(far, room - LANE_GATE_GAP), SPOT_DIAMETER / 2 + 0.3)
-	end
-	local tip = Vector2.new(last.X, last.Z) + outward * far
-
-	local h, e = LANE_WIDTH / 2, LANE_EDGE
-	local frontZ = -near
-	if not turned then
-		lanePaving(lane, start, Vector2.new(0, frontZ), tip)
-		for _, side in { -1, 1 } do
-			local x = side * (h + e / 2)
-			laneStrip(lane, start, "LaneEdge", Vector2.new(x, frontZ), Vector2.new(x, tip.Y), e, LANE_EDGE_TOP, accent)
-		end
-	else
-		-- Straight back to the corner, then sideways (Patients turns the line once it's Config.QueueDepth long).
-		local s = outward.X
-		lanePaving(lane, start, Vector2.new(0, frontZ), Vector2.new(0, cornerZ + h))
-		lanePaving(lane, start, Vector2.new(s * h, cornerZ), Vector2.new(tip.X, cornerZ))
-		local outer, inner = -s * (h + e / 2), s * (h + e / 2)
-		laneStrip(
-			lane,
-			start,
-			"LaneEdge",
-			Vector2.new(outer, frontZ),
-			Vector2.new(outer, cornerZ + h + e),
-			e,
-			LANE_EDGE_TOP,
-			accent
-		)
-		laneStrip(
-			lane,
-			start,
-			"LaneEdge",
-			Vector2.new(-s * h, cornerZ + h + e / 2),
-			Vector2.new(tip.X, cornerZ + h + e / 2),
-			e,
-			LANE_EDGE_TOP,
-			accent
-		)
-		laneStrip(
-			lane,
-			start,
-			"LaneEdge",
-			Vector2.new(inner, frontZ),
-			Vector2.new(inner, cornerZ - h - e),
-			e,
-			LANE_EDGE_TOP,
-			accent
-		)
-		laneStrip(
-			lane,
-			start,
-			"LaneEdge",
-			Vector2.new(s * h, cornerZ - h - e / 2),
-			Vector2.new(tip.X, cornerZ - h - e / 2),
-			e,
-			LANE_EDGE_TOP,
-			accent
-		)
-	end
-
-	for index, spot in spots do
-		laneSpot(lane, start * spot, index, accent)
-	end
-	lane.Parent = plotModel
-end
-
-------------------------------------------------------------------------------------------------------------------
 -- The hospital building: Server/HospitalBuilder builds it
 ------------------------------------------------------------------------------------------------------------------
 
@@ -1295,7 +1296,6 @@ function PlotBuilder.buildTown(): { Model }
 		local cf = plotCFrame(index, count)
 		local model = kitPlot(index, cf) or buildPlaceholderPlot(index, cf)
 		model.WorldPivot = cf
-		buildQueueLane(model, plotAccentFor(index))
 		ensureSignBits(model) -- a kit plot's sign gets its BranchBadge, and the plot its MascotSpot
 		model:SetAttribute("PlotIndex", index)
 		model:SetAttribute("Accent", plotAccentFor(index)) -- HospitalBuilder reads it
@@ -1337,7 +1337,7 @@ function PlotBuilder.clearPlot(plotModel: Model)
 			end
 		end
 	end
-	PlotBuilder.buildBuilding(plotModel, 1) -- a free plot is back to Lv 1's podium (Level attribute 1)
+	PlotBuilder.buildBuilding(plotModel, 1) -- a free plot is back to Lv 1's Building (Level attribute 1)
 end
 
 return PlotBuilder

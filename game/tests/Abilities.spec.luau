@@ -1,10 +1,12 @@
 --!strict
--- Nurse signature abilities (Logic/Abilities; Progression v2 build plan §B5/§B7).
+-- Nurse signature abilities (Logic/Abilities; Progression v2 build plan §B5/§B7; the Real Clinic: games are GameIds,
+-- and a tray holds supplies only).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
 
 local Abilities = require("../src/shared/Logic/Abilities")
+local MiniGame = require("../src/shared/Logic/MiniGame")
 local AbilitiesData = require("../src/shared/Data/Abilities")
 local Config = require("./config")
 
@@ -24,8 +26,17 @@ T.describe("Abilities", function()
 		expect(base.Kind).toBe("AutoPerfect")
 		expect(base.Cooldown).toBe(60)
 		expect(base.Value).toBe(1)
-		expect(base.Game).toBe("Patch")
+		expect(base.Game).toBe("Plaster") -- a GameId: Treatment's session games are GameIds now
 		expect(base.Seconds).toBeNil()
+		local soap = Abilities.strength("QuickSoap", 1, AbilitiesData, Config) :: Abilities.Strength
+		expect(soap.Game).toBe("Bath")
+		-- every AutoPerfect's game is a real GameId (or nil = any), so its charge can ever be spent
+		for _, id in AbilitiesData.Order do
+			local game = AbilitiesData[id].Game
+			if game ~= nil then
+				expect(table.find(MiniGame.GAME_IDS, game) ~= nil).toBe(true)
+			end
+		end
 		local five = Abilities.strength("QuickBandage", 5, AbilitiesData, Config) :: Abilities.Strength
 		expect(five.Cooldown).toBeCloseTo(51)
 		expect(five.Value).toBe(2)
@@ -72,6 +83,10 @@ T.describe("Abilities", function()
 		end
 		expect(Abilities.useful("TrayItem", { Missing = 1, TrayRoom = 1 })).toBe(true)
 		expect(Abilities.useful("TrayItem", { Missing = 1, TrayRoom = 0 })).toBe(false)
+		-- only medicines missing: nothing a tray can hold (the player dispenses them)
+		expect(Abilities.useful("TrayItem", { Missing = 2, Supplies = 0, TrayRoom = 3 })).toBe(false)
+		expect(Abilities.useful("TrayItem", { Missing = 2, Supplies = 1, TrayRoom = 3 })).toBe(true)
+		expect(Abilities.useful("FastMake", { Missing = 2, Supplies = 0 })).toBe(true) -- the dispensary's hold too
 		expect(Abilities.useful("RefillFront", { FrontPatience = 0.49 })).toBe(true)
 		expect(Abilities.useful("RefillFront", {})).toBe(false) -- nobody waiting at the front
 		expect(Abilities.useful("PauseLine", { LowCount = 1 })).toBe(true)
@@ -107,19 +122,24 @@ T.describe("Abilities", function()
 	end)
 
 	test("autoGames: one charge per game, a matching game's charge before an any-game one", function()
-		local flags, left = Abilities.autoGames({ "Pour", "Patch", "Patch" }, { Game = "Patch", Count = 1 })
+		local flags, left = Abilities.autoGames({ "Ice", "Plaster", "Plaster" }, { Game = "Plaster", Count = 1 })
 		expect(flags).toEqual({ false, true, false })
-		expect(left).toEqual({ Game = "Patch", Count = 0 })
-		flags, left = Abilities.autoGames({ "Patch", "Scrub" }, {
+		expect(left).toEqual({ Game = "Plaster", Count = 0 })
+		flags, left = Abilities.autoGames({ "Plaster", "Bath" }, {
 			{ Game = nil, Count = 3 },
-			{ Game = "Patch", Count = 1 },
+			{ Game = "Plaster", Count = 1 },
 		})
 		expect(flags).toEqual({ true, true })
-		expect(left).toEqual({ { Count = 2 }, { Game = "Patch", Count = 0 } })
-		flags = Abilities.autoGames({ "Pour" }, {})
+		expect(left).toEqual({ { Count = 2 }, { Game = "Plaster", Count = 0 } })
+		flags = Abilities.autoGames({ "Dose" }, {})
 		expect(flags).toEqual({ false })
+		-- an exam's Pick and its tool's game: Golden Touch makes both Perfect; Quick Soap makes neither
+		flags = Abilities.autoGames({ "Pick", "Listen" }, { { Game = nil, Count = 2 }, { Game = "Bath", Count = 1 } })
+		expect(flags).toEqual({ true, true })
+		flags = Abilities.autoGames({ "Pick", "Listen" }, { Game = "Bath", Count = 1 })
+		expect(flags).toEqual({ false, false })
 		local charge = { Game = nil, Count = 1 }
-		Abilities.autoGames({ "Pour" }, charge)
+		Abilities.autoGames({ "Dose" }, charge)
 		expect(charge.Count).toBe(1) -- never changed in place
 	end)
 end)

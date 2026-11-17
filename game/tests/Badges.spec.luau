@@ -1,5 +1,6 @@
 --!strict
--- Achievement badges (Logic/Badges, Data/Badges): tiers, derived stats, rewards, boosts and seeding old saves.
+-- Achievement badges (Logic/Badges, Data/Badges): tiers, derived stats, rewards, boosts and seeding old saves. The Real
+-- Clinic: a badge for each of the seven stations, the words say "treat", and old saves seed as they always did.
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
@@ -9,6 +10,8 @@ local Data = require("../src/shared/Data/Badges")
 local Boosts = require("../src/shared/Logic/Boosts")
 local Schema = require("../src/shared/Logic/Schema")
 local Wings = require("../src/shared/Data/Wings")
+local Patients = require("../src/shared/Data/Patients")
+local Regulars = require("../src/shared/Data/Regulars")
 
 local DEFS = Data.List :: { Badges.Def }
 local TIERS = Data.Tiers :: { Badges.Tier }
@@ -66,9 +69,10 @@ T.describe("Data/Badges", function()
 		end
 	end)
 
-	test("Healer counts cures at 25 / 100 / 500 / 2,000 / 10,000 / 50,000 for +1% Cash a tier", function()
+	test("Healer counts patients treated at 25 / 100 / 500 / 2,000 / 10,000 / 50,000 for +1% Cash a tier", function()
 		local healer = def("Healer")
-		expect(healer.Stat).toBe("Cures")
+		expect(healer.Stat).toBe("Cures") -- the saved counter keeps its name
+		expect(healer.Goal).toBe("Treat patients")
 		expect(healer.Thresholds).toEqual({ 25, 100, 500, 2000, 10000, 50000 })
 		expect(healer.Boost).toEqual({ Kind = "Cash", Percent = 1 })
 	end)
@@ -84,7 +88,7 @@ T.describe("Data/Badges", function()
 			end
 			expect(found).toBe(true)
 		end
-		for _, stationId in { "Remedy", "Plaster", "Bath", "Cocoa" } do
+		for _, stationId in { "Remedy", "Plaster", "Ice", "Bandage", "Cast", "Bath", "Cocoa" } do
 			local badge = nil
 			for _, candidate in DEFS do
 				if candidate.Stat == "Made:" .. stationId then
@@ -94,6 +98,23 @@ T.describe("Data/Badges", function()
 			expect(badge ~= nil).toBe(true)
 			expect((badge :: any).Boost).toEqual({ Kind = "MakeSpeed", Scope = stationId, Percent = 3 })
 		end
+	end)
+
+	test("the old potion badge is the 💊 Pharmacist: same id and counter, so its tier keeps climbing", function()
+		local pharmacist = def("Potions")
+		expect({ pharmacist.Name, pharmacist.Icon, pharmacist.Stat, pharmacist.Goal }).toEqual({
+			"Pharmacist",
+			"💊",
+			"Made:Remedy",
+			"Dispense medicines",
+		})
+		expect(pharmacist.Thresholds).toEqual({ 25, 100, 400, 1500, 6000, 25000 }) -- unchanged
+		-- a save at Gold with 700 made stays Gold, and dispensing on to 1,500 takes it to Diamond
+		local data = Schema.default()
+		data.Stats = { ["Made:Remedy"] = 700 }
+		expect(#Badges.ups({ Potions = 3 }, data, { pharmacist })).toBe(0)
+		data.Stats = { ["Made:Remedy"] = 1500 }
+		expect(Badges.ups({ Potions = 3 }, data, { pharmacist })).toEqual({ { Id = "Potions", From = 3, To = 4 } })
 	end)
 
 	test("every badge at Mythic stays inside the boost caps", function()
@@ -233,6 +254,31 @@ T.describe("Badges stats", function()
 			Visitors = 1,
 			Seeded = 1,
 		})
+	end)
+
+	test("SEED_STATIONS: every creature, at the station it was treated at before the Real Clinic", function()
+		local OLD = { Remedy = true, Plaster = true, Bath = true, Cocoa = true }
+		local ids = {}
+		for _, id in Patients.Order do
+			table.insert(ids, id)
+		end
+		for _, id in Regulars.Order do
+			table.insert(ids, id)
+		end
+		for _, id in ids do
+			local station = Badges.SEED_STATIONS[id]
+			if not OLD[station] then
+				error(id .. " seeds " .. tostring(station))
+			end
+		end
+		local count = 0
+		for _ in Badges.SEED_STATIONS do
+			count += 1
+		end
+		expect(count).toBe(#ids) -- nothing else
+		expect(table.isfrozen(Badges.SEED_STATIONS)).toBe(true)
+		-- a wing's room station is where its patients were treated
+		expect({ Badges.SEED_STATIONS.SlimeCat, Badges.SEED_STATIONS.IcicleOwl }).toEqual({ "Bath", "Cocoa" })
 	end)
 
 	test("maxed lifts every counter to its top threshold, never lowers one", function()

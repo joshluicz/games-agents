@@ -1,94 +1,72 @@
 --!strict
--- The hospital Building on a plot (look build plan §B6; docs/research/2026-11-16-hospital-building.md §3-6; the
--- Progression v2 build plan §B4 for the names). Server only. OWNER: T3 (the look overhaul).
+-- The clinic Building on a plot (the Real Clinic build plan, Task 1, contracts C1 and C2; design §8 and §15 #3).
+-- Server only. OWNER: Task 1 (the building).
 --   HospitalBuilder.build(plotModel, level, grewFrom?, theme?): Model
---       = PlotBuilder.buildBuilding (the same signature and attributes): the hospital for that level (Data/Levels)
---       in that branch theme (Data/Themes id; nil or unknown = Candy). Replaces Plot.Building, sets the Building's
---       Level, GrewFrom, GrewAt, Floors, Theme and Origin (the plot-local frame as a CFrame, for Feel/Cutaway) and
---       the plot's Level and Theme attributes
---   HospitalBuilder.Pure          the interior layout in numbers (plot-local studs; PlotBuilder.Pure re-exports it;
+--       = PlotBuilder.buildBuilding (the same signature and attributes): the clinic at that level (Data/Levels) in
+--       that branch theme (Data/Themes id; nil or unknown = Candy). Replaces Plot.Building, sets the Building's
+--       Level, GrewFrom, GrewAt, Floors (OPEN floors above the ground), Storeys (floors that STAND above it), Theme
+--       and Origin (the plot-local frame as a CFrame, for Feel/Cutaway) and the plot's Level and Theme attributes
+--   HospitalBuilder.Pure          the building's own numbers (plot-local studs; PlotBuilder.Pure re-exports it;
 --                                 tests/Hospital.spec loads the PURE block). Its functions take Shared/Logic/Building
---                                 (the interface numbers everyone else builds to) as their first argument, so those
---                                 numbers live in one place
---   HospitalBuilder.STATION_TAG   ("BuildingStation")  a station inside the Building (the 💊 Station_Pharmacy Model)
+--                                 (the interface numbers everyone else builds to) as their first argument
+--   HospitalBuilder.STATION_TAG   ("BuildingStation")  every Station_<id> part in the Building (Server/Stations)
 --   HospitalBuilder.LIFT_TAG      ("HospitalLift")     each Building's Lift Model (UI/LiftPanel slides its car)
---   HospitalBuilder.PROMPT_TAGS   { Lift = "LiftPrompt", Escort = "EscortPrompt", Soak = "SoakPrompt" }
---       (PlotBuilder re-exports all three)
+--   HospitalBuilder.DOOR_TAG      ("ClinicDoor")       each door Model (Server/World/Doors slides and locks them)
+--   HospitalBuilder.PROMPT_TAGS   { Lift = "LiftPrompt", Escort = "EscortPrompt" }  (PlotBuilder re-exports all)
 -- The plot's colour comes from the plot Model's `Accent` attribute (a Color3 PlotBuilder sets; its PlotIndex's
 -- Palette.PlotColors entry when missing). It never requires PlotBuilder (PlotBuilder requires this).
 --
--- THE BUILDING (memory-20261117-001 #2, -002 #1, -003; Joshua: "i want an actual hospital"). A studded podium clinic
--- from Lv 1 that grows a storey per level, one bold plot colour, warm trim, dark roofs, tiled floors, glass bands.
--- The wide hospital (Joshua, 2026-11-17: "cramped ... wider ... a little taller per storey"): 32 wide (x ±16), the
--- ground storey 12 tall and every upper storey 11 (slab tops 12, 23, 34, 45; 10.4 clear upstairs), so a big creature
--- sitting on a bed keeps its headroom; the extra width is space between the beds, stations and stairs:
---   Lv 1  the podium (x ±16, z -13..3): the reception window the Counter sits in, the main door, the display window,
---         the name floating on the fascia under the canopy, a warm stripe, a dark flat roof, a waiting bench and one
---         made-up bed with a sleeper. No tent, no awning
---   Lv 2  G + F1 over the whole footprint (z -13..13): the A&E door with its red canopy and the ambulance bay, the
---         glass lift on the street-facing -x corner (door on +z), the G -> 1 flight, F1 = the Wards (7 beds in two
---         rooms, below), a dark roof with the lift's head
---   Lv 3  the tower rises over z -3..13: F2 = Hydro (the hot tub). F1's roof in front of it is a dark terrace, and
---         the paw-heart stands on the tower's roof edge, facing the street
---   Lv 4  F3 = the Pharmacy (Station_Pharmacy, the medicine shelf that is the atrium rail, a bench); BedSpot_3 turns
---         from a made-up bed into a real one, in the same spot
---   Lv 5  the walkable roof (Floor_4): the helipad and HeliSpot, planters, the lift tower with the NEON paw-heart
---         facing the street and a beacon
--- THE WARDS (Joshua: "more beds, wards should look full"). F1 holds 7 beds: the main ward (z -3..7) has the three
--- BedSpot spots (3.1 studs between frames), pillows hard against a glass partition (z -3), feet in the 3-stud back
--- aisle (foot spots at z 5.6, a straight walk from the landing); the front ward (z -13..-3) has 4 made-up beds (2.8
--- between frames, 2.7 from their feet to the partition), heads at the street window, 2 with sleepers the street sees.
--- Made-up beds are Wards.Dressing.DressBed_<n> (Base + Headboard; never named Bed_* or BedSpot_*, so no system ever
--- picks one). A sleeper is DressBed_<n>.Sleeper (Head + Blanket + a 💤 billboard): soft, never moving, no faces.
--- The usable beds are exactly Data/Levels.Beds - 1 (BedSpot_<n>.Bed_<n>, Floor = 1): no gameplay change.
+-- THE BIG CLINIC (Joshua, 2026-11-17: "realistic and big enough from the first moment"). The whole 64 x 44 block
+-- (Logic/Building, x -32..32, z -24..20) stands at EVERY level, with its tower over the back right (x -5..32,
+-- z -5..20). A level only OPENS what is already there: bays, the A&E door, the X-ray room, the floors upstairs.
+-- A closed door is shut and solid with a navy "🔒 Opens at Lv N" (or "💰 150 to open") plate; a closed bay has its
+-- curtain drawn and a 🔒 sign; a closed station shows a 🔒 badge.
+--   Ground floor (Storey 0), as the sketch in Logic/Building:
+--     the front: a sliding glass pair (FrontDoor) in the middle, the canopy over it and the clinic's name floating
+--       on the fascia; studded walls in the plot's colour with dark ribbon windows; the A&E door on the -x wall
+--       (shut until Lv 2) with its red canopy; the Garden door in the back wall (shut until the Garden is bought)
+--     the waiting room: 6 chairs (WaitSeat_<n> markers on their seats), a plant; ReceptionStop and ReceptionStaff
+--       markers by the desk. The desk itself is the plot's Counter (Server/PlotBuilder): its rect is left clear
+--     the dispensary: its glass hatch onto the lobby, Station_Remedy (the counter behind it), bottle shelves
+--     the exam bays 1-6 in a row (ExamBay_<id>: a couch, a curtain, a tool tray, a number sign, the DoctorSpot)
+--     the supply alcove (Station_Plaster, Station_Ice, Station_Bandage) between the two corridors
+--     the X-ray room (shut until Lv 3): ExamBay_X under the X-ray arm, Station_Cast
+--     the Bath Room, Winter Wing and Cozy Ward behind their doors (shut until bought; their fit-outs are
+--       PlotBuilder's, ExamBay_W1/W2 included), the lift (glass shaft, door on its -x face) and the dog-leg stairs
+--   Upstairs (Floor_<n>, Storey n): F1 the Injury Ward (stands from Lv 1, shut; opens at Lv 2), F2 the Rest Ward
+--     (Lv 3), F3 the staff room with more Rest beds (Lv 4); each with its slab, landing, glass front band, studded
+--     walls, ribbon windows and a row of beds: BedSpot_<k> (Model; Floor, Ward) round Bed_<k> (the mattress; Floor,
+--     Ward) for the functional beds (Logic/Building.wardBeds), made-up beds (Dressing.DressBed_<k>, never named Bed_*)
+--     for the rest, one with a sleeper. A floor that stands but isn't open (F1 at Lv 1) has every bed made up and no
+--     Landing. Lv 5: Floor_4 is the roof deck (the helipad, Roof.HeliSpot) and the lift tower with the neon sign
+--   AmbulanceBay (Lv 2+) in the -x yard (Logic/Building.BAY_AMBULANCE): the Ambulance and the StretcherSpot
+-- Contract C2's markers are DIRECT children of the Building: FrontDoor, ReceptionStop, WaitSeat_<n>, ExamBay_<id>,
+-- Station_<id>, Landing_0, Lift, Stairs, Floor_<n>, AmbulanceBay, Roof (with HeliSpot). Facing: a marker's LookVector
+-- is its Logic/Building Face (a WaitSeat_<n> looks where its sitter looks, a DoctorSpot at its bed, a landing into
+-- the lift); a marker RESTS on its surface (its bottom face is the seat top, the floor), like the lift landings.
+-- An ExamBay_<id> Model's Bed is the couch the patient sits on (its top at Pure.COUCH; its LookVector toward the
+-- foot, where the DoctorSpot is), with the attributes Bay, Kind, Opens, Face and Open (level >= Opens).
+-- Station_<id> parts carry Open (Logic/Building.stationOpen) and StationId and are tagged STATION_TAG.
 --
--- Pieces. Every child is a Model piece with the attributes Since (the level that adds it: HospitalFX grows only
--- those in) and Storey (0 = the ground ... 4 = the roof; a loose part carries its own). Feel/Cutaway hides every
--- part whose Storey is above the floor you stand on and fades your floor's parts with Outer = true:
---   Podium (0)       the street face at every level: WallFascia (the name), the Pier frames, GlassDisplay, the
---                    studded WallFrontLeft/WallFrontRight beside the windows and the main door, the BandFascia
---                    stripe, RoofCanopy + TrimCanopy over the Counter and the main door, the waiting Bench, and
---                    two FloorSide plank strips that carry the Stand's floor on to the side walls
---   PodiumShell (0)  Lv 1 only: the side walls with their side doors, the back wall, RoofPodium (Storey 1), the
---                    floor strip and the made-up bed with its sleeper (Dressing.DressBed_1)
---   Hall (0)         Lv 2+: the ground's sides and back with the A&E, lift-lobby and corridor doors, the A&E canopy,
---                    the hall floor and the lift directory (a navy plate)
---   Landing_0 (0)    a loose marker in front of the lift door, with the LiftPrompt and EscortPrompt
---   Lift (0)         the glass Shaft (solid: it is the wall at that corner), the Car (soft, the plot colour,
---                    studded; its DoorsGui faces the landings, +z); attributes Ride, Rider, RideAt; tag HospitalLift
---   Stairs (0)       one collidable wedge per storey, Flight_<k> (Storey k), alternating the atrium's two lanes:
---                    24 long, rising 12 (G -> 1) or 11, with a 3.4-stud landing at each lane end (lane A is 3
---                    wide, lane B the 2.4 inside the back wall)
---   Floor_<n> (n)    the slab (Slab is the part with the landing; plank, 0.6 thick), the Landing (Floor = n), the
---                    storey's studded walls (Wall*, Outer), its front glass band with the floor's icon, dark ribbon
---                    windows (Window*, Outer), a department dado band and the atrium rails. Floor_4 is the roof
---                    deck: dark, with parapets
---   Wards (1)        BedSpot_<n> (Floor = 1), Dressing (the made-up beds), Curtain x 4, GlassPartition
---   Terrace (2)      Lv 3+: the dark roof over the front ward and its parapet
---   Hydro (2)        HotTub (Tub, Water, TubSpot_1/2 with Floor = 2, Tub.SoakPoint.SoakPrompt), TowelShelf, Plant
---   Pharmacy (3)     Station_Pharmacy (tagged BuildingStation; IconGui), the Shelf (the rail, "Pharmacy"), a Bench
---   RoofTop (top)    Lv 2-4: RoofCap, BandRoof, the LiftHead and (Lv 3-4) the LogoSign paw-heart
---   Roof (4)         Lv 5: Helipad (the ring and the H drawn on top), HeliSpot (ArriveAt), Planter x 2
---   Tower (4)        Lv 5: TowerHead, LogoNeon (the neon paw-heart, NightLights "Lamp" with one light), Beacon
---   AmbulanceBay (0) Lv 2+: the bay and the Ambulance (ArriveAt, StretcherSpot; warm white, a red stripe, the
---                    paw-heart; never a cross)
---   ThemeProp        a branch theme's roof prop (<= 6 parts)
--- Themes (Data/Themes, unchanged data): the outer walls always stay the plot's Accent (kids find "the pink one"). A
--- theme recolours only the parts with the attribute Paint: "Trim" (the piers, the canopy's edge, the rails) takes
--- its Trim hex, "Band" (the fascia stripe and the top roof's edge band) its Roof hex; plus its prop. Theme colours
--- are capped at 240 a channel (no bleached white in the world).
--- Night (World/NightLights): the glass and the ribbon windows are "Window" (warm, not Neon); the neon paw-heart, the
--- beacon and the ambulance's sirens are "Lamp". One shadowless light per building, on the paw-heart.
--- Budget (Config.Look): <= BuildingParts (160) parts at every level and theme, <= SurfaceGuisPerBuilding (12)
--- SurfaceGuis (each with a MaxDistance), <= GlassPerBuilding (6) see-through parts, no Texture, no Decal, nothing
--- named like a cross. tests/Hospital.spec measures them.
--- Solid. Every outer wall is CanCollide, upstairs too (kids can't walk out of F3); the lift shaft is the wall at its
--- corner. Patients and porters move by hops and PivotTo, so walls never stop them; what they walk past is in
--- Shared/Logic/Building.obstacles, and tests/Hospital.spec checks that everything solid here is inside it.
+-- Pieces. Every direct child carries Since (the level that adds it: Feel/HospitalFX grows only those in) and Storey
+-- (0 = the ground ... 4 = the roof deck; a part may carry its own). Feel/Cutaway hides every part whose Storey is
+-- above the floor you stand on and fades your floor's parts with Outer = true.
+-- Themes (Data/Themes): the outer walls always stay the plot's Accent (kids find "the pink one"). A theme recolours
+-- only the parts with the attribute Paint: "Trim" (the door's piers, the canopy's edge, the rails) takes its Trim
+-- hex, "Band" (the fascia stripe and the top roof's edge band) its Roof hex; plus its prop. Theme colours are capped
+-- at 240 a channel.
+-- Night (World/NightLights): the glass and the ribbon windows are "Window"; the neon paw-heart, the beacon and the
+-- ambulance's sirens are "Lamp". One shadowless night light per building (Lv 5, on the paw-heart); the room lights
+-- are shadowless PointLights on Attachments.
+-- Budget (Config.Look): <= BuildingParts parts at every level and theme, <= SurfaceGuisPerBuilding SurfaceGuis (each
+-- with a MaxDistance), <= GlassPerBuilding see-through parts, no Texture, no Decal, nothing named or shaped like a
+-- cross. Floors, slabs and flights are CeramicTiles, never wood. tests/Hospital.spec measures them.
+-- Solid. Everything solid at walking height inside the footprint is inside Shared/Logic/Building.obstacles (the
+-- bought rooms' shut doors aside: obstacles counts those as open); door panels are solid only while locked.
 --
 -- ServerStorage.ClinicKit.Building<level> (pivot = the plot's ground-top centre, facing the street) replaces the
--- placeholder for that level: it needs the same names (Landing_0, Floor_<n>.Slab/Landing, Lift, BedSpot_<n>...).
--- It gets Floors and Theme, prompts on any landing without them and the station tag; a missing lift is warned.
+-- placeholder for that level: it needs the same names (FrontDoor, WaitSeat_<n>, ExamBay_<id>, Station_<id>,
+-- Landing_0, Floor_<n>.Landing, Lift ...). Its stations, doors and lift get their tags and its landings their prompts.
 --
 -- Coordinates: plot-local studs, the plot's ground-top centre at the origin, x right as you face the street, -z the
 -- street, y up. The Building's pivot is the plot's.
@@ -103,14 +81,16 @@ local Palette = require(Shared.Palette)
 local Departments = require(Shared.Data.Departments)
 local LevelsData = require(Shared.Data.Levels)
 local PatientsData = require(Shared.Data.Patients)
+local RoomsData = require(Shared.Data.Rooms)
 local Stations = require(Shared.Data.Stations)
 local Themes = require(Shared.Data.Themes)
 local BuildingLogic = require(Shared.Logic.Building)
+local Doors = require(script.Parent.World.Doors)
 local NightLights = require(script.Parent.World.NightLights)
 local Parts = require(script.Parent.World.Parts)
 local Studs = require(script.Parent.World.Studs)
 
-local part, soft, cylinder, wedge = Parts.part, Parts.soft, Parts.cylinder, Parts.wedge
+local part, soft, cylinder = Parts.part, Parts.soft, Parts.cylinder
 local marker, paint, band, disc = Parts.marker, Parts.paint, Parts.band, Parts.disc
 local surface, iconBadge, floatText, navyPlate = Parts.surface, Parts.iconBadge, Parts.floatText, Parts.navyPlate
 local anchorAll, scrubScripts = Parts.anchorAll, Parts.scrubScripts
@@ -119,43 +99,44 @@ local HospitalBuilder = {}
 
 HospitalBuilder.STATION_TAG = "BuildingStation"
 HospitalBuilder.LIFT_TAG = "HospitalLift"
-HospitalBuilder.PROMPT_TAGS = table.freeze({ Lift = "LiftPrompt", Escort = "EscortPrompt", Soak = "SoakPrompt" })
+HospitalBuilder.DOOR_TAG = Doors.TAG
+HospitalBuilder.PROMPT_TAGS = table.freeze({ Lift = "LiftPrompt", Escort = "EscortPrompt" })
 
 -- PURE-BEGIN
--- The building's interior layout in numbers only (no Roblox types, no requires): tests/Hospital.spec loads this
--- block on its own. `B` is Shared/Logic/Building: the footprints, slab tops, shaft, landing, atrium, doors and
--- bed spots come from there; what is only the building's own (bed sizes, the tub, the stairs' lanes per floor,
--- the slabs' pieces) is here.
+-- The building's own numbers (no Roblox types, no requires): tests/Hospital.spec loads this block on its own. `B` is
+-- Shared/Logic/Building: the footprint, rooms, doors, bays, stations, shaft, landing, stairs and beds come from there;
+-- what is only the building's own (heights, thicknesses, the flights' parts, the chairs, the signs) is here.
 local Pure = {}
 
 -- Every slab and roof (Logic/Building.SLAB_MAX): F1's underside is at 11.4, over the 10.4 it must clear.
 Pure.SLAB = 0.6
-Pure.DOOR = 7 -- every doorway's height; the fascia and the lintels start here
-Pure.BAND = 0.5 -- the fascia stripe's height, just under F1's slab (the podium's roof at Lv 1)
--- An upper storey's studded wall under its front glass band (8 of glass over it in a 10.4-clear storey). Kept low so
--- the front ward's sleepers, heads at the street window, still show over it.
-Pure.SPANDREL = 2.4
-Pure.GLASS = 0.55 -- (0.3 with a navy tint read as black from the street: Studio 2026-11-17) the see-through parts: the glass bands, the display window, the partition, the lift shaft
+Pure.DOOR = 8 -- every doorway's height (Logic/Building.DOORS Height): the lintels and the bays' header start here
+Pure.BAND = 0.5 -- the fascia stripe's height, at the top of the ground storey's façade
+Pure.SPANDREL = 2.4 -- an upper storey's studded wall under its front glass band
+Pure.GLASS = 0.55 -- the see-through parts: the front doors, the hatch, the glass bands, the lift shaft
 Pure.CAR = 7.5 -- the lift car's height: a 6.5-stud creature rides inside with room over its head
 Pure.CLEAR = 0.5 -- Lv 5: the shaft's glass reaches this far over the car standing at the roof
 Pure.HEAD = 4.5 -- Lv 5: the lift tower's head over the shaft (the neon paw-heart's wall)
-Pure.LIFT_HEAD = 2.5 -- Lv 2-4: the lift's head box on the top roof
-Pure.PAINT = 0.05 -- the hall's painted tile floor (walk-through: Landing_0 and the patients stand at 0)
-Pure.STAND_TOP = 0.6 -- the Stand room's floor top when the plot has no Room_Stand to measure (PlotBuilder.SLOTS)
-Pure.STAND_BACK = 1 -- the Stand room's back edge (PlotBuilder.SLOTS.Stand): the hall's floor starts there
-Pure.STAND_HALF = 15 -- the Stand room's floor is x ±15 (PlotBuilder.SLOTS.Stand): FloorSide fills on to the walls
--- The street face under the fascia stands this far proud of the façade's plane: the Stand's tile floor runs under
--- it to z = FRONT, and coplanar faces flicker.
-Pure.PROUD = 0.05
-Pure.DECOR_HALF = 2 -- a decor slot is 4 x 4 (PlotBuilder's DecorSlot markers): the Lv 1 bed stays off slot 1
-Pure.RAIL = { Height = 3, Thick = 0.3 } -- the atrium rails (inside the open lane, along its edges)
+Pure.LIFT_HEAD = 2.5 -- Lv 1-4: the lift's head box on the top roof
+Pure.PAINT = 0.05 -- the ground floor's painted tiles (walk-through: markers and patients stand at 0)
+Pure.PROUD = 0.1 -- trim and ribbon windows stand this far proud of an outer face
+Pure.CEILING = 0.4 -- the ground storey's light ceiling under the podium's dark roof
 Pure.PARAPET = 1.2
--- Ribbon windows: from the storey's floor (ends inset). Their tops line up with the doors' heads (Pure.DOOR) on the
--- ground, and they sit at mid-height in a 10.4-clear upper storey.
-Pure.WINDOW = { Y0 = 4, Y1 = 7, Inset = 1, Proud = 0.1 }
-Pure.DADO = { Height = 3, Thick = 0.2 } -- the department's studded band inside the +x wall (for an 11-tall storey)
--- A bed (look build plan §B6: the bed contract). Functional: Frame + Headboard + Bed_<n> (the mattress). Made up:
--- Base (frame and mattress in one block) + Headboard.
+Pure.RAIL = { Height = 3, Thick = 0.3 }
+Pure.RAMP = 0.6 -- a half-flight's thickness (a tilted tile slab: a storey of headroom under the next one)
+Pure.WINDOW = { Y0 = 3.5, Y1 = 7 } -- ribbon windows, from the storey's floor
+Pure.HATCH = { Sill = 3, Top = 7 } -- the dispensary's glass hatch over its counter
+Pure.COUCH = 1.8 -- an exam bay's Bed: its top, where the patient sits
+Pure.STATION = { Height = 4, Counter = 3.2 } -- a supply shelf; the dispensary counter and the cast table
+Pure.SEAT = { Height = 1.6, Back = 0.6, BackHeight = 4 } -- a waiting-room chair: the seat, its back
+Pure.PANEL = 0.2 -- a door panel's thickness, in its wall's middle
+Pure.SIGN = { Width = 2.6, Y0 = 8.6, Y1 = 10.6, Out = 0.1 } -- a bay's number sign over its mouth, on the corridor
+-- A bay's curtain: hung this far inside the mouth; drawn back it is Bunch wide at one side, drawn shut across.
+Pure.CURTAIN = { Inset = 0.5, Bunch = 1, Height = 7.3, Thick = 0.2, Half = 3 }
+Pure.XRAY = { Head = 9, HeadTop = 10, Width = 2.8, Depth = 2.4 } -- the scanner over bay X (clear of a sitter's head)
+Pure.LOGO = 6 -- the paw-heart sign on the tower's roof edge (Lv 1-4)
+-- A ward bed. Functional: Frame + Headboard + Bed_<k> (the mattress). Made up: Base (frame and mattress in one block)
+-- + Headboard.
 Pure.BED = {
 	Width = 4.4, -- the frame (= Logic/Building.BED_HALF * 2)
 	FrameHeight = 0.8,
@@ -168,129 +149,132 @@ Pure.BED = {
 	FootStep = 1.6, -- Server/Patients.bedFoot: a patient waits 1.6 past the mattress's foot
 	DressHeight = 1.6, -- a made-up bed's Base
 }
--- A sleeper: a head on the pillow and a blanket over the foot two-thirds. Blocky like every creature now
--- (memory-20261117-004); set Blocky = false for the round stand-in the plan first drew.
+-- A sleeper: a head on the pillow and a blanket over the foot two-thirds (blocky, like every creature).
 Pure.SLEEPER = { Width = 2, Height = 1.8, Depth = 1.8, Blocky = true, Blanket = 0.5 }
--- Hydro (F2, the room x -11..15.4 beside the shaft): the hot tub in the middle (11 studs of floor from the shaft
--- to its rim, 7.5 to the towel shelf), and its two spots on the landing's side so a soaker's approach (TUB_SHORT
--- short of its spot, on the line from the landing: Server/Patients.shortOf) stays outside the tub. The tub stands
--- back against the F2 -> 3 flight (lane A, from z 7), which leaves TUB_PASS studs of floor between its rim and the
--- front wall: the way round to the room's +x half (the towel shelf, the plant).
-Pure.TUB = { X = 3.5, Z = 3.4, Diameter = 7, Rim = 1.6 }
-Pure.TUB_SPOTS = { { X = 1.7, Z = 1.8 }, { X = 1.7, Z = 5 } }
-Pure.TUB_PASS = 2.2
-Pure.TUB_SHORT = 3
--- The Pharmacy (F3): the station in the middle of the room (hold it from the street side, z ~2.5: a straight walk
--- from the landing) and the bench by the front glass, off to the landing's side.
-Pure.PHARMACY = { X = 3.5, Z = 5, Width = 4.6, Depth = 2.6, Height = 3 }
-Pure.SHELF = { Height = 4, Thick = 0.6 }
-Pure.BENCH = { X0 = -7, X1 = -3, Z0 = -2.2, Z1 = -1.2, Height = 1.4 }
--- The roof (Lv 5): the helipad in the middle of the deck, the planters against the +x parapet.
-Pure.PAD = { X = 3, Z = 2.3, Diameter = 9 }
-Pure.PLANTERS = { { X = 14, Z = 3.5 }, { X = 14, Z = 5.8 } }
+-- The roof deck (Lv 5): the planters behind the helipad, and where a theme's prop stands (front right of the top
+-- roof or the deck, off the pad, the lift and the stairs).
+Pure.PLANTERS = { { X = -2.5, Z = 16.5 }, { X = 1.5, Z = 16.5 } }
 Pure.PLANTER = 2
--- Where a theme's prop stands: on the podium's roof (Lv 1), F1's roof (Lv 2), the tower's roof (Lv 3+), toward the
--- +x edge (the lift's head is at the -x corner).
-Pure.PROP = { Podium = { X = 12, Z = -9 }, Block = { X = 12, Z = -9 }, Tower = { X = 12, Z = -0.5 } }
--- The ambulance bay on the front-left lawn, its nose to the street: x -35..-27.6, z -23..-10, the same 11.6 studs
--- off the -x wall as in Progression v2 (it moved out with the wall), on the pad and clear of room slot A (z >= -2).
-Pure.BAY = { X = -31.3, Z = -16.5 }
+Pure.PROP = { X = 22, Z = -1 }
 Pure.CAP = 240 -- no world colour brighter than this in any channel (theme colours are capped to it)
 
 type Rect = { X0: number, X1: number, Z0: number, Z1: number }
 type Named = { Name: string, X0: number, X1: number, Z0: number, Z1: number }
-type Flight = { Lane: string, Z0: number, Z1: number, XLow: number, XHigh: number, YLow: number, YHigh: number }
 type Span = { Z0: number, Z1: number }
+-- A half-flight's walking surface: from its -x end (XL, YL) to its +x end (XR, YR), across Z0..Z1.
+export type Ramp = { XL: number, YL: number, XR: number, YR: number, Z0: number, Z1: number }
 
--- The atrium lane floor k leaves open, for the flight coming up from floor k - 1: F1 and F3 lane "A", F2 and the
--- roof lane "B". It covers the other lane: the next flight stands on it.
-function Pure.holeLane(k: number): string
-	return if k % 2 == 1 then "A" else "B"
+-- How many floors above the ground STAND at a level: Logic/Building.storeys, plus the roof deck once it is open.
+function Pure.standing(B: any, level: number): number
+	return B.storeys(level) + (if B.floors(level) >= #B.SLAB_TOPS then 1 else 0)
 end
 
-function Pure.lane(B: any, which: string): Rect
-	local a = B.LANE_A
-	if which == "A" then
-		return { X0 = a.X0, X1 = a.X1, Z0 = a.Z0, Z1 = a.Z1 }
-	end
-	-- Lane B stops at the back wall's inner face: its flights and rails never share the wall's outer plane (they
-	-- z-fought through it from the yard), and the slab runs on under the wall.
-	return { X0 = a.X0, X1 = a.X1, Z0 = a.Z1, Z1 = math.min(B.ATRIUM.Z1, B.BACK - B.WALL) }
-end
-
--- Flight_k, floor k up to k + 1: it stands in the lane floor k + 1 leaves open, rising toward +x when k is even
--- (G -> 1 lane A toward +x, 1 -> 2 lane B toward -x, ...), so each flight's top meets the next one's foot.
-function Pure.flight(B: any, k: number): Flight
-	local which = Pure.holeLane(k + 1)
-	local lane = Pure.lane(B, which)
-	local up = k % 2 == 0
-	return {
-		Lane = which,
-		Z0 = lane.Z0,
-		Z1 = lane.Z1,
-		XLow = if up then lane.X0 else lane.X1,
-		XHigh = if up then lane.X1 else lane.X0,
-		YLow = B.slabTop(k),
-		YHigh = B.slabTop(k + 1),
-	}
-end
-
--- Floor k's slab, in pieces: its footprint less the lift shaft and the open lane. "Slab" is the piece behind the
--- shaft that the landing stands on (the contract's Floor_<n>.Slab).
-function Pure.slabRects(B: any, k: number): { Named }
-	local f = B.footprint(B.MAX_LEVEL, k)
-	local s = B.SHAFT
-	local hole = Pure.lane(B, Pure.holeLane(k))
-	local out: { Named } = {}
-	local function add(name: string, x0: number, x1: number, z0: number, z1: number)
-		if x1 - x0 > 1e-6 and z1 - z0 > 1e-6 then
-			table.insert(out, { Name = name, X0 = x0, X1 = x1, Z0 = z0, Z1 = z1 })
+-- The first level at which floor k stands (Since of its pieces) ...
+function Pure.sinceStanding(B: any, k: number): number
+	for level = B.MIN_LEVEL, B.MAX_LEVEL do
+		if Pure.standing(B, level) >= k then
+			return level
 		end
 	end
-	add("SlabFront", f.X0, f.X1, f.Z0, s.Z0) -- F1 only: over the podium (the front ward)
-	add("SlabSide", s.X1, f.X1, s.Z0, s.Z1) -- beside the shaft
-	add("Slab", f.X0, f.X1, s.Z1, hole.Z0) -- behind the shaft: the landing's
-	add("SlabEnd", f.X0, hole.X0, hole.Z0, hole.Z1) -- the open lane's two ends (the stairs' landings)
-	add("SlabEnd", hole.X1, f.X1, hole.Z0, hole.Z1)
-	add("SlabBack", f.X0, f.X1, hole.Z1, f.Z1) -- behind the open lane
-	return out
+	return B.MAX_LEVEL
 end
 
--- Floor k's two rails, inside its open lane: Long along the edge you walk beside, End at the low end of the flight
--- below (the only drop: the other end is that flight's top, level with the floor).
-function Pure.rails(B: any, k: number): { Long: Rect, End: Rect }
-	local hole = Pure.lane(B, Pure.holeLane(k))
-	local below = Pure.flight(B, k - 1)
-	local t = Pure.RAIL.Thick
-	local long = { X0 = hole.X0, X1 = hole.X1, Z0 = hole.Z0, Z1 = hole.Z0 + t }
-	local x0 = if below.XLow < (hole.X0 + hole.X1) / 2 then hole.X0 else hole.X1 - t
-	return { Long = long, End = { X0 = x0, X1 = x0 + t, Z0 = hole.Z0 + t, Z1 = hole.Z1 } }
+-- ... and the first level at which it is open (its landing, its working beds).
+function Pure.sinceOpen(B: any, k: number): number
+	for level = B.MIN_LEVEL, B.MAX_LEVEL do
+		if B.floors(level) >= k then
+			return level
+		end
+	end
+	return B.MAX_LEVEL
 end
 
--- A main-ward mattress's centre z: its foot spot (Server/Patients.bedFoot) lands on Logic/Building.BED_FOOT_Z.
-function Pure.mattressZ(B: any): number
-	return B.BED_FOOT_Z - (Pure.BED.MattressLength / 2 + Pure.BED.FootStep)
+-- The top roof over `standing` floors: its top is the next slab top.
+function Pure.roofTop(B: any, standing: number): number
+	return B.slabTop(standing + 1)
 end
 
--- The top roof (Lv 2-4): its top is the next slab top over the highest floor.
-function Pure.roofTop(B: any, floors: number): number
-	return B.slabTop(floors + 1)
-end
-
--- Storey k's walls stand up to the next slab's (or roof's) underside.
+-- Storey k's walls stand up to the next slab's (or roof's) underside ...
 function Pure.wallTop(B: any, k: number): number
 	return B.slabTop(k + 1) - Pure.SLAB
 end
 
--- The glass shaft: up under the top roof, or (a walkable roof) past the car standing at the roof.
-function Pure.shaftTop(B: any, floors: number, roofFloor: number): number
-	if floors >= roofFloor then
-		return B.slabTop(floors) + Pure.CAR + Pure.CLEAR
-	end
-	return Pure.roofTop(B, floors) - Pure.SLAB
+-- ... from its own slab's underside (the ground's from the ground).
+function Pure.wallBase(B: any, k: number): number
+	return if k <= 0 then 0 else B.slabTop(k) - Pure.SLAB
 end
 
--- A wall from z0 to z1 with gaps (doorways, the shaft) left open, as the spans that stand.
+-- The glass shaft: up under the top roof, or (the roof deck) past the car standing at the roof.
+function Pure.shaftTop(B: any, standing: number, roofFloor: number): number
+	if standing >= roofFloor then
+		return B.slabTop(standing) + Pure.CAR + Pure.CLEAR
+	end
+	return Pure.roofTop(B, standing) - Pure.SLAB
+end
+
+-- An upper floor's slab, in pieces: the tower inside its walls (the walls stand on their own from the slab's
+-- underside), less the lift shaft and the stairwell. "Slab" is the piece the landing stands on (Floor_<n>.Slab).
+function Pure.slabRects(B: any): { Named }
+	local t, w, s, well = B.TOWER, B.WALL, B.SHAFT, B.STAIRWELL
+	local x0, x1, z0, z1 = t.X0 + w, t.X1 - w, t.Z0 + w, t.Z1 - w
+	local out: { Named } = {}
+	local function add(name: string, a0: number, a1: number, b0: number, b1: number)
+		if a1 - a0 > 1e-6 and b1 - b0 > 1e-6 then
+			table.insert(out, { Name = name, X0 = a0, X1 = a1, Z0 = b0, Z1 = b1 })
+		end
+	end
+	add("SlabFront", x0, x1, z0, s.Z0)
+	add("Slab", x0, s.X0, s.Z0, s.Z1)
+	add("SlabSide", s.X1, x1, s.Z0, s.Z1)
+	add("SlabMid", x0, x1, s.Z1, well.Z0)
+	add("SlabBack", x0, well.X0, well.Z0, z1)
+	add("SlabEnd", well.X1, x1, well.Z0, z1)
+	add("SlabRear", well.X0, well.X1, well.Z1, z1)
+	return out
+end
+
+-- Storey k's half-flights (Logic/Building's dog-leg): lane A from the floor's landing up toward +x to the mid
+-- landing, lane B from there back to the next floor. Lane B stops Pure.RAMP x sin(slope) short of the landing, so its
+-- tilted slab stays inside the stairwell (a 0.27-stud step onto the landing).
+function Pure.ramp(B: any, k: number, lane: string): Ramp
+	local y0, y1 = B.slabTop(k), B.slabTop(k + 1)
+	local rise = (y1 - y0) / 2
+	if lane == "A" then
+		local l = B.LANE_A
+		return { XL = l.X0, YL = y0, XR = l.X1, YR = y0 + rise, Z0 = l.Z0, Z1 = l.Z1 }
+	end
+	local l = B.LANE_B
+	local run = l.X1 - l.X0
+	local shift = Pure.RAMP * rise / math.sqrt(run * run + rise * rise)
+	return { XL = l.X0 + shift, YL = y1 - rise * shift / run, XR = l.X1, YR = y0 + rise, Z0 = l.Z0, Z1 = l.Z1 }
+end
+
+-- A half-flight's part: its centre, its length along the slope and its tilt about z (radians; + rises toward +x).
+function Pure.rampFrame(r: Ramp, thick: number): { X: number, Y: number, Z: number, Length: number, Angle: number }
+	local dx, dy = r.XR - r.XL, r.YR - r.YL
+	local angle = math.atan2(dy, dx)
+	return {
+		X = (r.XL + r.XR) / 2 + thick / 2 * math.sin(angle),
+		Y = (r.YL + r.YR) / 2 - thick / 2 * math.cos(angle),
+		Z = (r.Z0 + r.Z1) / 2,
+		Length = math.sqrt(dx * dx + dy * dy),
+		Angle = angle,
+	}
+end
+
+-- The box round a half-flight's part (its four edges across x and y).
+function Pure.rampBox(r: Ramp, thick: number): { X0: number, X1: number, Y0: number, Y1: number }
+	local angle = math.atan2(r.YR - r.YL, r.XR - r.XL)
+	local bx, by = thick * math.sin(angle), -thick * math.cos(angle)
+	return {
+		X0 = math.min(r.XL, r.XR, r.XL + bx, r.XR + bx),
+		X1 = math.max(r.XL, r.XR, r.XL + bx, r.XR + bx),
+		Y0 = math.min(r.YL, r.YR, r.YL + by, r.YR + by),
+		Y1 = math.max(r.YL, r.YR, r.YL + by, r.YR + by),
+	}
+end
+
+-- A wall from z0 to z1 with gaps (doorways) left open, as the spans that stand.
 function Pure.segments(z0: number, z1: number, gaps: { Span }): { Span }
 	local sorted = table.clone(gaps)
 	table.sort(sorted, function(a, b)
@@ -311,16 +295,53 @@ function Pure.segments(z0: number, z1: number, gaps: { Span }): { Span }
 	return out
 end
 
--- Where a soaker stops before hopping into its tub spot: TUB_SHORT short of it, on the line from `from`
--- (Server/Patients.shortOf).
-function Pure.tubApproach(spotX: number, spotZ: number, fromX: number, fromZ: number): (number, number)
-	local dx, dz = fromX - spotX, fromZ - spotZ
-	local length = math.sqrt(dx * dx + dz * dz)
-	if length < 0.05 then
-		return spotX, spotZ
+-- A waiting-room chair inside its seat's rect (Logic/Building.seatRect): the seat, and its back behind the sitter.
+function Pure.chair(B: any, seat: any): { Cushion: Rect, Back: Rect }
+	local r = B.seatRect(seat)
+	local dx, dz = B.facing(seat.Face) -- where the sitter looks: the back is the other side
+	local b = Pure.SEAT.Back
+	if dx > 0 then
+		return {
+			Cushion = { X0 = r.X0 + b, X1 = r.X1, Z0 = r.Z0, Z1 = r.Z1 },
+			Back = { X0 = r.X0, X1 = r.X0 + b, Z0 = r.Z0, Z1 = r.Z1 },
+		}
+	elseif dx < 0 then
+		return {
+			Cushion = { X0 = r.X0, X1 = r.X1 - b, Z0 = r.Z0, Z1 = r.Z1 },
+			Back = { X0 = r.X1 - b, X1 = r.X1, Z0 = r.Z0, Z1 = r.Z1 },
+		}
+	elseif dz > 0 then
+		return {
+			Cushion = { X0 = r.X0, X1 = r.X1, Z0 = r.Z0 + b, Z1 = r.Z1 },
+			Back = { X0 = r.X0, X1 = r.X1, Z0 = r.Z0, Z1 = r.Z0 + b },
+		}
 	end
-	local step = math.min(Pure.TUB_SHORT, length)
-	return spotX + dx / length * step, spotZ + dz / length * step
+	return {
+		Cushion = { X0 = r.X0, X1 = r.X1, Z0 = r.Z0, Z1 = r.Z1 - b },
+		Back = { X0 = r.X0, X1 = r.X1, Z0 = r.Z1 - b, Z1 = r.Z1 },
+	}
+end
+
+-- The words on a closed door's plate (short: a kid reads them at a glance).
+function Pure.levelLock(opens: number): string
+	return "🔒 Opens at Lv " .. tostring(opens)
+end
+
+-- A bought room's door: its name, then the level it needs (Data/Rooms Level) or its price (cash, in game).
+function Pure.roomLock(level: number, room: any): { string }
+	local icon = if type(room) == "table" and type(room.Icon) == "string" then room.Icon .. " " else ""
+	local name = if type(room) == "table" and type(room.Name) == "string" then room.Name else "Room"
+	local gate = if type(room) == "table" then room.Level else nil
+	if type(gate) == "number" and level < gate then
+		return { icon .. name, Pure.levelLock(gate) }
+	end
+	local price = if type(room) == "table" and type(room.Price) == "number" then room.Price else 0
+	return { icon .. name, "💰 " .. tostring(math.floor(price)) .. " to open" }
+end
+
+-- A main-ward mattress's centre z: its foot spot (Server/Patients.bedFoot) lands on Logic/Building.BED_FOOT_Z.
+function Pure.mattressZ(B: any): number
+	return B.BED_FOOT_Z - (Pure.BED.MattressLength / 2 + Pure.BED.FootStep)
 end
 
 -- Which of `count` made-up beds get a sleeper, spread out: 2 of 4 -> 1 and 3.
@@ -350,69 +371,42 @@ local B = BuildingLogic
 
 local WORLD = Palette.World
 local ACCENT = Palette.Accent
-local DEPT = Palette.Departments
 
--- The floors the departments are on (Data/Departments) and the level each building piece first appears at
--- (Data/Levels), so a piece's Since follows the data.
-local function deptFloor(dept: string, fallback: number): number
+-- A department's colour (Palette.Departments), with a stand-in should it ever list none.
+local function deptColor(dept: string, fallback: Color3): Color3
+	local color = rawget(Palette.Departments :: any, dept)
+	return if typeof(color) == "Color3" then color else fallback
+end
+local WARDS_COLOR = deptColor("Wards", ACCENT.Purple)
+local REST_COLOR = deptColor("Rest", ACCENT.Blue)
+local IMAGING_COLOR = deptColor("Imaging", ACCENT.Blue)
+local HYDRO_COLOR = deptColor("Hydro", ACCENT.Cyan)
+local AE_COLOR = deptColor("AE", ACCENT.Red)
+local INSIDE = WORLD.WallUpper -- the inside walls: warm white, studded
+local COUCH_COLOR = Parts.lighten(ACCENT.Cyan, 0.45)
+local CURTAIN_COLOR = Parts.lighten(ACCENT.Blue, 0.5)
+local CLOSED_RING = WORLD.Edge -- a closed station's badge ring
+
+local function deptRow(dept: string): any
 	local row = rawget(Departments :: any, dept)
-	return if type(row) == "table" and type(row.Floor) == "number" then row.Floor else fallback
+	return if type(row) == "table" then row else nil
 end
-local HYDRO_FLOOR = deptFloor("Hydro", 2)
-local PHARMACY_FLOOR = deptFloor("Pharmacy", 3)
-local ROOF_FLOOR = deptFloor("Roof", 4)
-local WARDS_FLOOR = B.WARD_FLOOR
+local ROOF_FLOOR = (deptRow("Roof") and deptRow("Roof").Floor) or #B.SLAB_TOPS
+local AE_OPENS = (deptRow("AE") and deptRow("AE").Opens) or 2
 
-local function hasDept(row: any, dept: string): boolean
-	return type(row) == "table" and type(row.Departments) == "table" and table.find(row.Departments, dept) ~= nil
-end
-
-local function firstLevel(test: (any) -> boolean): number
-	for level, row in LevelsData do
-		if test(row) then
-			return level
+-- The icon on floor k's glass band: the first department on it (Data/Departments), else the staff room's.
+local function floorIcon(k: number): string
+	for _, id in Departments.Order do
+		local row = deptRow(id)
+		if row and row.Floor == k and type(row.Icon) == "string" then
+			return row.Icon
 		end
 	end
-	return 2
+	return if k == 3 then "🛋️" else "🏥"
 end
 
-local function sinceFloor(k: number): number
-	return firstLevel(function(row)
-		return row.Floors >= k
-	end)
-end
-
-local function sinceDept(dept: string): number
-	return firstLevel(function(row)
-		return hasDept(row, dept)
-	end)
-end
-
-local function sinceBed(index: number): number
-	return firstLevel(function(row)
-		return row.Beds - 1 >= index
-	end)
-end
-
-local function extraBeds(level: number): number
-	local row = LevelsData[level]
-	return if row then math.max(0, row.Beds - 1) else 0
-end
-
--- The department on floor k (its icon on the glass band, its colour inside).
-local FLOOR_DEPTS = { "Wards", "Hydro", "Pharmacy", "Roof" }
-local function deptOn(k: number): string?
-	for _, dept in FLOOR_DEPTS do
-		if deptFloor(dept, -1) == k then
-			return dept
-		end
-	end
-	return nil
-end
-
-local function deptIcon(dept: string?, fallback: string): string
-	local row = if dept then rawget(Departments :: any, dept) else nil
-	return if type(row) == "table" and type(row.Icon) == "string" then row.Icon else fallback
+local function wardColor(ward: string?): Color3
+	return if ward == "Rest" then REST_COLOR else WARDS_COLOR
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -449,8 +443,8 @@ local function plotAccent(plotModel: Model): Color3
 end
 
 type Style = {
-	Accent: Color3, -- the plot's own colour: the walls, the car, the paw-heart. Never themed
-	Trim: Color3, -- Paint "Trim": the piers, the canopy's edge, the rails (a theme's Trim hex)
+	Accent: Color3, -- the plot's own colour: the walls, the chairs, the car, the paw-heart. Never themed
+	Trim: Color3, -- Paint "Trim": the door's piers, the canopy's edge, the rails (a theme's Trim hex)
 	Band: Color3, -- Paint "Band": the fascia stripe and the top roof's edge band (a theme's Roof hex)
 	Theme: string,
 	Prop: string,
@@ -520,6 +514,14 @@ local function piece(parent: Instance, name: string, since: number, storey: numb
 	return model
 end
 
+-- A loose part straight under the Building carries its own Since and Storey.
+local function loose<T>(p: T, since: number, storey: number): T
+	local instance = p :: any
+	instance:SetAttribute("Since", since)
+	instance:SetAttribute("Storey", storey)
+	return p
+end
+
 -- An outer wall: studded, the plot's colour, solid. Its name starts with "Wall".
 local function outerWall(
 	parent: Instance,
@@ -538,21 +540,20 @@ local function outerWall(
 	return p
 end
 
--- A room's own light: shadowless (the perf budget), always on, warm white, on an Attachment (no part). Without it
--- every storey read as black through its glass from the street by day (Studio run, 2026-11-17).
-local ROOM_LIGHT_BRIGHTNESS = 1.1
-local ROOM_LIGHT_RANGE = 22 -- from the ceiling's middle to the side walls' feet of a 32-wide, 10.4-clear storey
-local function roomLight(anchor: BasePart, at: Vector3)
-	local attachment = Instance.new("Attachment")
-	attachment.Name = "RoomLight"
-	attachment.Position = anchor.CFrame:PointToObjectSpace(at)
-	attachment.Parent = anchor
-	local light = Instance.new("PointLight")
-	light.Color = WORLD.WallUpper
-	light.Brightness = ROOM_LIGHT_BRIGHTNESS
-	light.Range = ROOM_LIGHT_RANGE
-	light.Shadows = false
-	light.Parent = attachment
+-- An inside wall: studded warm white, solid.
+local function partition(
+	parent: Instance,
+	name: string,
+	x0: number,
+	x1: number,
+	y0: number,
+	y1: number,
+	z0: number,
+	z1: number
+): Part
+	local p = box(parent, name, x0, x1, y0, y1, z0, z1, INSIDE)
+	Studs.apply(p)
+	return p
 end
 
 -- A part a theme recolours: "Trim" or "Band".
@@ -561,7 +562,7 @@ local function painted(p: BasePart, paintRole: string): BasePart
 	return p
 end
 
--- See-through glass (the bands, the display window, the partition): warm at night.
+-- See-through glass (the bands, the hatch, the shaft): warm at night.
 local function glass(
 	parent: Instance,
 	name: string,
@@ -579,28 +580,39 @@ local function glass(
 	return p
 end
 
--- A dark ribbon window on an outer face, `Pure.WINDOW.Proud` out from it (soft paint; warm at night). `side` is
--- "Left" (x = -HALF), "Right" (x = HALF) or "Back" (z = `at`); a0..a1 is its span along the wall.
-local function ribbon(parent: Instance, side: string, a0: number, a1: number, floorY: number, at: number?)
-	local w = Pure.WINDOW
-	local s0, s1 = a0 + w.Inset, a1 - w.Inset
-	if s1 - s0 < 1 then
+-- A dark ribbon window on an outer face (soft paint; warm at night). Its name starts with "Window".
+local function ribbon(
+	parent: Instance,
+	name: string,
+	x0: number,
+	x1: number,
+	y0: number,
+	y1: number,
+	z0: number,
+	z1: number
+)
+	if x1 - x0 < 1 and z1 - z0 < 1 then
 		return
 	end
-	local y0, y1 = floorY + w.Y0, floorY + w.Y1
-	local h = B.HALF
-	local p: Part
-	if side == "Left" then
-		p = box(parent, "WindowLeft", -h - w.Proud, -h, y0, y1, s0, s1, WORLD.Window)
-	elseif side == "Right" then
-		p = box(parent, "WindowRight", h, h + w.Proud, y0, y1, s0, s1, WORLD.Window)
-	else
-		local z = at or B.BACK
-		p = box(parent, "WindowBack", s0, s1, y0, y1, z, z + w.Proud, WORLD.Window)
-	end
-	paint(p)
+	local p = paint(box(parent, name, x0, x1, y0, y1, z0, z1, WORLD.Window))
 	p:SetAttribute("Outer", true)
 	NightLights.tag(p, "Window")
+end
+
+-- A room's own light: shadowless (the perf budget), always on, warm white, on an Attachment (no part).
+local ROOM_LIGHT_BRIGHTNESS = 1.1
+local ROOM_LIGHT_RANGE = 24
+local function roomLight(anchor: BasePart, at: Vector3)
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "RoomLight"
+	attachment.Position = anchor.CFrame:PointToObjectSpace(at)
+	attachment.Parent = anchor
+	local light = Instance.new("PointLight")
+	light.Color = WORLD.WallUpper
+	light.Brightness = ROOM_LIGHT_BRIGHTNESS
+	light.Range = ROOM_LIGHT_RANGE
+	light.Shadows = false
+	light.Parent = attachment
 end
 
 -- A SurfaceGui with a holder Frame filling it (for Parts.pawHeart, which draws into a GuiObject).
@@ -633,17 +645,730 @@ local function pawSign(parent: Instance, name: string, at: CFrame, diameter: num
 	return p
 end
 
+-- A navy plate with one or two lines on a part's face: a closed door's lock, the stair gate's.
+local function lockGui(p: BasePart, face: Enum.NormalId, lines: { string }, enabled: boolean): SurfaceGui
+	local gui = surface(p, "LockGui", face, 24, 60, 0)
+	gui.Enabled = enabled
+	navyPlate(gui, { Size = UDim2.fromScale(0.94, 0.32), Position = UDim2.fromScale(0.5, 0.34) })
+	for i, text in lines do
+		floatText(gui, text, {
+			Size = UDim2.fromScale(0.84, 0.12),
+			Position = UDim2.fromScale(0.08, 0.205 + (i - 1) * 0.14),
+		})
+	end
+	return gui
+end
+
 ------------------------------------------------------------------------------------------------------------------
--- Beds
+-- The doors (Server/World/Doors slides and locks them)
 ------------------------------------------------------------------------------------------------------------------
 
--- A functional ward bed in the main ward: BedSpot_<n> round the mattress Bed_<n> (Floor = 1 on both), its pillow
--- toward the glass partition (-z) and its foot spot in the back aisle (Logic/Building.BED_FOOT_Z).
-local function wardBed(parent: Instance, index: number, x: number, floorY: number)
+type DoorSpec = {
+	Key: string, -- Logic/Building.DOORS
+	Name: string,
+	Pair: boolean?, -- DoorL + DoorR (the front doors); else one Panel
+	Slide: number, -- a Panel slides this way along its wall (-1 / 1, in its own x)
+	Face: Enum.NormalId, -- the side its lock plate is on (where people come from)
+	Color: Color3,
+	Glass: boolean?,
+	Title: string?, -- a level-gated door's name on its plate
+}
+
+local DOOR_SPECS: { DoorSpec } = {
+	{
+		Key = "Front",
+		Name = "FrontDoor",
+		Pair = true,
+		Slide = 1,
+		Face = Enum.NormalId.Back,
+		Color = WORLD.Glass,
+		Glass = true,
+	},
+	{ Key = "AE", Name = "Door_AE", Slide = 1, Face = Enum.NormalId.Back, Color = AE_COLOR, Title = "🚑 A&E" },
+	{
+		Key = "XRay",
+		Name = "Door_XRay",
+		Slide = -1,
+		Face = Enum.NormalId.Front,
+		Color = IMAGING_COLOR,
+		Title = "🩻 X-ray",
+	},
+	{ Key = "BathRoom", Name = "Door_BathRoom", Slide = -1, Face = Enum.NormalId.Front, Color = HYDRO_COLOR },
+	{ Key = "WinterWing", Name = "Door_WinterWing", Slide = -1, Face = Enum.NormalId.Front, Color = ACCENT.Blue },
+	{ Key = "CozyWard", Name = "Door_CozyWard", Slide = -1, Face = Enum.NormalId.Front, Color = WARDS_COLOR },
+	{ Key = "Garden", Name = "Door_Garden", Slide = 1, Face = Enum.NormalId.Front, Color = WORLD.LeavesA },
+}
+
+-- The rooms the plot owns now (Plot.Rooms.Room_<RoomId>).
+local function ownedRooms(plotModel: Model): { [string]: boolean }
+	local owned: { [string]: boolean } = {}
+	local rooms = plotModel:FindFirstChild("Rooms")
+	if rooms then
+		for _, child in rooms:GetChildren() do
+			local id = string.match(child.Name, "^Room_(%w+)$")
+			if id then
+				owned[id] = true
+			end
+		end
+	end
+	return owned
+end
+
+local function buildDoor(model: Model, level: number, owned: { [string]: boolean }, spec: DoorSpec)
+	local d = B.DOORS[spec.Key]
+	if not d then
+		return
+	end
+	local doorModel = Instance.new("Model")
+	doorModel.Name = spec.Name
+	loose(doorModel, 1, 0)
+	doorModel:SetAttribute("Door", spec.Key)
+	if d.Opens then
+		doorModel:SetAttribute("Opens", d.Opens)
+	end
+	if d.Room then
+		doorModel:SetAttribute("Room", d.Room)
+	end
+	local alongX = d.X0 ~= nil and d.X1 ~= nil
+	local width: number, cx: number, cz: number
+	if alongX then
+		width, cx, cz = (d.X1 :: number) - (d.X0 :: number), ((d.X0 :: number) + (d.X1 :: number)) / 2, d.Z :: number
+	else
+		width, cx, cz = (d.Z1 :: number) - (d.Z0 :: number), d.X :: number, ((d.Z0 :: number) + (d.Z1 :: number)) / 2
+	end
+	-- The panels' own x runs along the wall (a wall along z: turned a quarter, so their +x is the world's -z).
+	local turn = if alongX then CFrame.identity else CFrame.Angles(0, math.rad(90), 0)
+	local frame = CFrame.new(cx, d.Height / 2, cz) * turn
+	local locked = Doors.Pure.locked(level, d.Opens, d.Room, d.Room ~= nil and owned[d.Room] == true)
+	local panels: { BasePart } = {}
+	if spec.Pair then
+		for i, name in { "DoorL", "DoorR" } do
+			local side = if i == 1 then -1 else 1
+			local p = part(
+				doorModel,
+				name,
+				Vector3.new(width / 2, d.Height, Pure.PANEL),
+				frame * CFrame.new(side * width / 4, 0, 0),
+				spec.Color
+			)
+			p:SetAttribute("Slide", Vector3.new(side * width / 2, 0, 0))
+			table.insert(panels, p)
+		end
+	else
+		local p = part(doorModel, "Panel", Vector3.new(width, d.Height, Pure.PANEL), frame, spec.Color)
+		p:SetAttribute("Slide", Vector3.new(spec.Slide * width, 0, 0))
+		table.insert(panels, p)
+	end
+	for _, p in panels do
+		p.CanCollide = locked -- an open door is walk-through: it only looks shut
+		p.CanTouch = false
+		p.CastShadow = false
+		if spec.Glass then
+			p.Material = Enum.Material.Glass
+			p.Transparency = Pure.GLASS
+			NightLights.tag(p, "Window")
+		end
+	end
+	local lines: { string }? = nil
+	if d.Room then
+		lines = Pure.roomLock(level, rawget(RoomsData :: any, d.Room))
+	elseif d.Opens and level < d.Opens then
+		lines = { spec.Title or "", Pure.levelLock(d.Opens) }
+	end
+	if lines then
+		lockGui(panels[1], spec.Face, lines, locked)
+	end
+	marker(doorModel, "Sensor", CFrame.new(cx, 0.5, cz) * turn)
+	doorModel:SetAttribute("State", if locked then "Locked" else "Shut")
+	CollectionService:AddTag(doorModel, Doors.TAG)
+	doorModel.Parent = model
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The ground storey
+------------------------------------------------------------------------------------------------------------------
+
+-- The outer walls, the façade (the name, the canopy, the stripe, the door's piers), the A&E canopy, the windows,
+-- the podium's roof and the ground's ceiling and tiled floor.
+local function buildShell(model: Model, style: Style, levelName: string)
+	local shell = piece(model, "Shell", 1, 0)
+	local hx, f, bk, w = B.HALF_X, B.FRONT, B.BACK, B.WALL
+	local top = Pure.wallTop(B, 0)
+	local doors = B.DOORS
+	local front, ae, garden = doors.Front, doors.AE, doors.Garden
+	local x0, x1 = front.X0 :: number, front.X1 :: number
+	local wy0, wy1 = Pure.WINDOW.Y0, Pure.WINDOW.Y1
+	local out = Pure.PROUD
+
+	-- The street face: studded walls either side of the front doors, the fascia over them with the name.
+	outerWall(shell, "WallFrontLeft", -hx, x0, 0, front.Height, f, f + w, style)
+	outerWall(shell, "WallFrontRight", x1, hx, 0, front.Height, f, f + w, style)
+	local fascia = outerWall(shell, "WallFascia", -hx, hx, front.Height, top, f, f + w, style)
+	local canopy = B.CANOPY
+	local under = canopy.Y - 0.25 - 0.15
+	local height = top - front.Height
+	local nameWidth = 20 -- studs, centred over the doors and under the canopy
+	floatText(surface(fascia, "NameGui", Enum.NormalId.Front, 24, 220, 0), levelName, {
+		Shadow = true,
+		Size = UDim2.fromScale(nameWidth / (2 * hx), (under - front.Height - 0.2) / height),
+		Position = UDim2.fromScale((hx - nameWidth / 2) / (2 * hx), (top - under) / height),
+	})
+	-- The door's warm frame, and the fascia stripe (a theme's roof band), proud of the façade.
+	for _, xs in { { x0 - 0.5, x0 }, { x1, x1 + 0.5 } } do
+		painted(paint(box(shell, "Pier", xs[1], xs[2], 0, front.Height, f - out, f + w + out, style.Trim)), "Trim")
+	end
+	painted(
+		paint(box(shell, "PierTop", x0 - 0.5, x1 + 0.5, front.Height, front.Height + 0.4, f - out, f, style.Trim)),
+		"Trim"
+	)
+	painted(
+		paint(box(shell, "BandFascia", -hx - 0.15, hx + 0.15, top - Pure.BAND, top, f - 0.15, f, style.Band)),
+		"Band"
+	)
+	-- The canopy over the front doors: soft and overhead.
+	soft(
+		box(
+			shell,
+			"RoofCanopy",
+			canopy.X0,
+			canopy.X1,
+			canopy.Y - 0.25,
+			canopy.Y + 0.25,
+			canopy.Z0,
+			canopy.Z1,
+			WORLD.Roof
+		)
+	)
+	painted(
+		paint(
+			box(
+				shell,
+				"TrimCanopy",
+				canopy.X0 - 0.15,
+				canopy.X1 + 0.15,
+				canopy.Y - 0.35,
+				canopy.Y + 0.35,
+				canopy.Z0 - 0.15,
+				canopy.Z0 + 0.15,
+				style.Trim
+			)
+		),
+		"Trim"
+	)
+	ribbon(shell, "WindowFront", -hx + 2, x0 - 3, wy0, wy1, f - out, f)
+	ribbon(shell, "WindowFront", x1 + 3, hx - 2, wy0, wy1, f - out, f)
+
+	-- The back, with the Garden door.
+	local g0, g1 = garden.X0 :: number, garden.X1 :: number
+	outerWall(shell, "WallBackLeft", -hx, g0, 0, top, bk - w, bk, style)
+	outerWall(shell, "WallBackRight", g1, hx, 0, top, bk - w, bk, style)
+	outerWall(shell, "WallLintelGarden", g0, g1, garden.Height, top, bk - w, bk, style)
+	ribbon(shell, "WindowBack", -hx + 2, g0 - 2, wy0, wy1, bk, bk + out)
+	ribbon(shell, "WindowBack", g1 + 2, hx - 2, wy0, wy1, bk, bk + out)
+
+	-- The -x side, with the A&E door, its red canopy and the letters over it (facing the ambulance bay).
+	local a0, a1 = ae.Z0 :: number, ae.Z1 :: number
+	outerWall(shell, "WallLeftFront", -hx, -hx + w, 0, top, f + w, a0, style)
+	outerWall(shell, "WallLeftBack", -hx, -hx + w, 0, top, a1, bk - w, style)
+	local lintelAE = outerWall(shell, "WallLintelAE", -hx, -hx + w, ae.Height, top, a0, a1, style)
+	floatText(surface(lintelAE, "AEGui", Enum.NormalId.Left, 30, 160, 0), "A&E", {
+		Shadow = true,
+		Size = UDim2.fromScale(0.9, 0.5),
+		Position = UDim2.fromScale(0.05, 0.3),
+	})
+	soft(box(shell, "CanopyAE", -hx - 2, -hx, ae.Height + 0.6, ae.Height + 1, a0 - 0.5, a1 + 0.5, AE_COLOR))
+	paint(
+		box(shell, "RoofEdgeAE", -hx - 2.2, -hx - 2, ae.Height + 0.4, ae.Height + 1.1, a0 - 0.5, a1 + 0.5, WORLD.Roof)
+	)
+	ribbon(shell, "WindowLeft", -hx - out, -hx, wy0, wy1, f + 2, a0 - 2)
+	ribbon(shell, "WindowLeft", -hx - out, -hx, wy0, wy1, a1 + 2, bk - 2)
+
+	-- The +x side.
+	outerWall(shell, "WallRight", hx - w, hx, 0, top, f + w, bk - w, style)
+	ribbon(shell, "WindowRight", hx, hx + out, wy0, wy1, f + 2, bk - 2)
+
+	-- The tiled floor (painted over the pad) and the ground's lights, and its light ceiling.
+	local floorPart = paint(
+		box(
+			shell,
+			"FloorGround",
+			-hx + 0.1,
+			hx - 0.1,
+			Pure.PAINT - 0.04,
+			Pure.PAINT,
+			f + 0.1,
+			bk - 0.1,
+			WORLD.FloorTile,
+			Enum.Material.CeramicTiles
+		)
+	)
+	for _, at in { Vector3.new(-16, top - 1, -14), Vector3.new(16, top - 1, -12), Vector3.new(0, top - 1, 8) } do
+		roomLight(floorPart, at)
+	end
+	local t = B.TOWER
+	local c = Pure.CEILING
+	box(shell, "Ceiling", -hx + w, hx - w, top, top + c, f + w, t.Z0 + w, INSIDE)
+	box(shell, "Ceiling", -hx + w, t.X0 + w, top, top + c, t.Z0 + w, bk - w, INSIDE)
+
+	-- The podium's dark roof round the tower (the tower's walls stand on its edge), and a low parapet on the street.
+	local roof = piece(model, "PodiumRoof", 1, 1)
+	box(roof, "RoofPodium", -hx - 0.2, hx + 0.2, top + c, B.GROUND, f - 0.2, t.Z0 + w, WORLD.Roof)
+	box(roof, "RoofPodium", -hx - 0.2, t.X0 + w, top + c, B.GROUND, t.Z0 + w, bk + 0.2, WORLD.Roof)
+	box(roof, "ParapetPodium", -hx - 0.2, hx + 0.2, B.GROUND, B.GROUND + 0.8, f - 0.2, f + w, WORLD.Roof)
+end
+
+-- The waiting room's chairs (WaitSeat_<n> on their seats) and plant, and the reception markers.
+local function buildWaiting(model: Model, style: Style)
+	local waiting = piece(model, "Waiting", 1, 0)
+	local s = Pure.SEAT
+	local backColor = Parts.darken(style.Accent, 0.15)
+	for index, seat in B.SEATS do
+		local c = Pure.chair(B, seat)
+		box(waiting, "Chair", c.Cushion.X0, c.Cushion.X1, 0, s.Height, c.Cushion.Z0, c.Cushion.Z1, style.Accent)
+		box(waiting, "ChairBack", c.Back.X0, c.Back.X1, 0, s.BackHeight, c.Back.Z0, c.Back.Z1, backColor)
+		local seatMarker = loose(
+			marker(
+				model,
+				"WaitSeat_" .. index,
+				CFrame.new(seat.X, s.Height + 0.5, seat.Z) * CFrame.Angles(0, math.rad(seat.Face), 0)
+			),
+			1,
+			0
+		)
+		seatMarker:SetAttribute("Seat", index)
+		seatMarker:SetAttribute("Face", seat.Face)
+	end
+	local p = B.PLANTER
+	Studs.apply(box(waiting, "Pot", p.X0, p.X1, 0, 1.6, p.Z0, p.Z1, WORLD.PlankAlt))
+	Studs.apply(box(waiting, "Leaves", p.X0 + 0.15, p.X1 - 0.15, 1.6, 4.2, p.Z0 + 0.15, p.Z1 - 0.15, WORLD.LeavesA))
+	local r = B.RECEPTION
+	loose(
+		marker(model, "ReceptionStop", CFrame.new(r.Stop.X, 0.5, r.Stop.Z) * CFrame.Angles(0, math.rad(180), 0)),
+		1,
+		0
+	)
+	loose(marker(model, "ReceptionStaff", CFrame.new(r.Staff.X, 0.5, r.Staff.Z)), 1, 0)
+end
+
+-- A station part in the Building (Station_<id>, tagged): its body with its icon badge (🔒 while closed).
+local function buildStation(model: Model, id: string, level: number, height: number)
+	local r = B.stationRect(id)
+	if not r then
+		return
+	end
+	local data = rawget(Stations :: any, id)
+	-- The ring is the station's own candy colour (kids match a plan step to it); the body is the same, capped like
+	-- every world colour.
+	local color = if data and typeof(data.Color) == "Color3" then data.Color else WORLD.Trim
+	local open = B.stationOpen(id, level)
+	local p = loose(box(model, "Station_" .. id, r.X0, r.X1, 0, height, r.Z0, r.Z1, tame(color)), 1, 0)
+	p:SetAttribute("StationId", id)
+	p:SetAttribute("Open", open)
+	iconBadge(
+		p,
+		"IconGui",
+		if open and data then data.Icon else "🔒",
+		if open then color else CLOSED_RING,
+		2.6,
+		height / 2 + 2.1
+	)
+	CollectionService:AddTag(p, HospitalBuilder.STATION_TAG)
+end
+
+-- The dispensary: the wall onto the lobby with its glass hatch over the counter (Station_Remedy), the wall onto
+-- corridor A with its open doorway and sign, and the bottle shelves.
+local function buildDispensary(model: Model, level: number)
+	local disp = piece(model, "Dispensary", 1, 0)
+	local r = B.ROOMS.Dispensary
+	local p, w = B.PARTITION, B.WALL
+	local top = Pure.wallTop(B, 0)
+	local hatch = B.HATCH
+	local x0, x1 = r.X0, r.X0 + p
+	partition(disp, "WallHatch", x0, x1, 0, top, B.FRONT + w, hatch.Z0)
+	partition(disp, "WallHatch", x0, x1, 0, top, hatch.Z1, r.Z1)
+	partition(disp, "HatchSill", x0, x1, 0, Pure.HATCH.Sill, hatch.Z0, hatch.Z1)
+	partition(disp, "HatchHeader", x0, x1, Pure.HATCH.Top, top, hatch.Z0, hatch.Z1)
+	glass(disp, "GlassHatch", x0 + 0.1, x1 - 0.1, Pure.HATCH.Sill, Pure.HATCH.Top, hatch.Z0, hatch.Z1)
+	local d = B.DOORS.Dispensary
+	local d0, d1 = d.X0 :: number, d.X1 :: number
+	partition(disp, "WallDispensary", x1, d0, 0, top, r.Z1 - p, r.Z1)
+	partition(disp, "WallDispensary", d1, r.X1 - w, 0, top, r.Z1 - p, r.Z1)
+	local lintel = partition(disp, "LintelDispensary", d0, d1, d.Height, top, r.Z1 - p, r.Z1)
+	local sign = surface(lintel, "SignGui", Enum.NormalId.Back, 24, 80, 0)
+	navyPlate(sign, { Size = UDim2.fromScale(0.94, 0.6), Position = UDim2.fromScale(0.5, 0.45) })
+	floatText(sign, "💊 Dispensary", { Size = UDim2.fromScale(0.84, 0.4), Position = UDim2.fromScale(0.08, 0.25) })
+	-- The shelves: the long one along the +x wall carries the coloured bottles (seen through the hatch).
+	local side, back = B.SHELVES[1], B.SHELVES[2]
+	local shelf =
+		box(disp, "ShelfBottles", side.X0, side.X1, 0, 7, side.Z0, side.Z1, WORLD.PlankAlt, Enum.Material.WoodPlanks)
+	box(disp, "Shelf", back.X0, back.X1, 0, 7, back.Z0, back.Z1, WORLD.PlankAlt, Enum.Material.WoodPlanks)
+	local gui = surface(shelf, "BottleGui", Enum.NormalId.Left, 16, 80)
+	local bottles = { ACCENT.Pink, ACCENT.Yellow, ACCENT.Cyan, ACCENT.Purple, ACCENT.Orange, ACCENT.Blue }
+	for row = 1, 3 do
+		for col = 1, 8 do
+			local bottle = band(
+				gui,
+				"Bottle",
+				UDim2.fromScale(0.06, 0.11),
+				UDim2.fromScale((col - 0.5) / 8, 0.12 + (row - 1) * 0.28),
+				bottles[(col + row - 2) % #bottles + 1]
+			)
+			Parts.rounded(bottle, UDim.new(0.35, 0))
+		end
+	end
+	buildStation(model, "Remedy", level, Pure.STATION.Counter)
+end
+
+-- One exam bay: ExamBay_<id> (Bed, Pillow, Curtain, Tray, Sign, DoctorSpot). `signAt` is its number sign's
+-- middle, on the corridor side of the wall over its mouth.
+local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
+	local open = B.bayOpen(bay, level)
+	local bayModel = Instance.new("Model")
+	bayModel.Name = "ExamBay_" .. bay.Id
+	loose(bayModel, 1, 0)
+	bayModel:SetAttribute("Bay", bay.Id)
+	bayModel:SetAttribute("Kind", bay.Kind)
+	bayModel:SetAttribute("Opens", bay.Opens)
+	bayModel:SetAttribute("Face", bay.Face)
+	bayModel:SetAttribute("Open", open)
+	-- The bay's own frame: its -z (the LookVector) toward the bed's foot, +z its head.
+	local frame = CFrame.new(bay.X, 0, bay.Z) * CFrame.Angles(0, math.rad(bay.Face), 0)
+	local width, length = B.BAY_BED.Width, B.BAY_BED.Length
+	local bed = part(
+		bayModel,
+		"Bed",
+		Vector3.new(width, Pure.COUCH, length),
+		frame * CFrame.new(0, Pure.COUCH / 2, 0),
+		COUCH_COLOR
+	)
+	bayModel.PrimaryPart = bed
+	soft(
+		part(
+			bayModel,
+			"Pillow",
+			Vector3.new(width - 1.2, 0.5, 1.3),
+			frame * CFrame.new(0, Pure.COUCH + 0.25, length / 2 - 0.85),
+			WORLD.Trim
+		)
+	).CastShadow =
+		false
+	-- The curtain, just inside the mouth: drawn back to one side while the bay is open, shut across it while closed.
+	-- Bays 1-6 bunch it on their -x side; bay X on the side away from its back wall.
+	local c = Pure.CURTAIN
+	local bunchSign = if bay.Kind == "XRay" then 1 else -1
+	local a0: number, a1: number
+	if open then
+		a0, a1 =
+			if bunchSign < 0 then -c.Half else c.Half - c.Bunch, if bunchSign < 0 then -c.Half + c.Bunch else c.Half
+	else
+		a0, a1 = if bay.Kind == "XRay" then -(width / 2) else -c.Half, c.Half
+	end
+	soft(
+		part(
+			bayModel,
+			"Curtain",
+			Vector3.new(a1 - a0, c.Height, c.Thick),
+			frame * CFrame.new((a0 + a1) / 2, 0.5 + c.Height / 2, -(length / 2 + c.Inset)),
+			CURTAIN_COLOR,
+			Enum.Material.Fabric
+		)
+	).CastShadow =
+		false
+	-- The tool tray: a shelf on the wall over the bed's head (soft: it never stops anyone).
+	soft(part(bayModel, "Tray", Vector3.new(2.4, 0.25, 0.5), frame * CFrame.new(0, 3.6, length / 2 - 0.25), WORLD.Trim)).CastShadow =
+		false
+	-- The number sign over the mouth (🔒 while closed).
+	local s = Pure.SIGN
+	local signPart = paint(
+		part(
+			bayModel,
+			"Sign",
+			Vector3.new(s.Width, s.Y1 - s.Y0, s.Out),
+			CFrame.new(signAt.X, (s.Y0 + s.Y1) / 2, signAt.Z),
+			Palette.Navy
+		)
+	)
+	local gui = surface(signPart, "SignGui", Enum.NormalId.Front, 30, 60, 0)
+	local text = if not open
+		then "🔒 Lv " .. tostring(bay.Opens)
+		elseif bay.Kind == "XRay" then "🩻 X-ray"
+		else bay.Id
+	floatText(gui, text, { Size = UDim2.fromScale(0.86, 0.72), Position = UDim2.fromScale(0.07, 0.14) })
+	-- Where the doctor stands, at the foot, looking at the bed.
+	local spot = B.doctorSpot(bay)
+	marker(bayModel, "DoctorSpot", CFrame.new(spot.X, 0.5, spot.Z) * CFrame.Angles(0, math.rad(bay.Face + 180), 0))
+	bayModel.Parent = model
+end
+
+-- The exam bays' row: the back wall onto corridor B, the side wall at bay 6, the header over the mouths (the signs
+-- hang on it), the dividers, and bays 1-6. (The Cozy Ward's W1 and W2 are PlotBuilder's.)
+local function buildBays(model: Model, level: number)
+	local bays = piece(model, "Bays", 1, 0)
+	local r = B.ROOMS.Bays
+	local p, w = B.PARTITION, B.WALL
+	local top = Pure.wallTop(B, 0)
+	partition(bays, "WallBays", r.X0 + w, r.X1, 0, top, r.Z1 - p, r.Z1)
+	partition(bays, "WallBaysSide", r.X1 - p, r.X1, 0, top, r.Z0, r.Z1 - p)
+	partition(bays, "BayHeader", r.X0 + w, r.X1 - p, Pure.DOOR, top, r.Z0, r.Z0 + p)
+	local half = B.DIVIDER / 2
+	for k = 1, 5 do
+		local x = r.X0 + w + k * B.BAY_WIDTH
+		partition(bays, "BayDivider", x - half, x + half, 0, Pure.DOOR, r.Z0 + p, r.Z1 - p)
+	end
+	for _, bay in B.BAYS do
+		if bay.Kind == "Exam" and not bay.Room then
+			buildBay(model, bay, level, Vector3.new(bay.X, 0, r.Z0 - Pure.SIGN.Out / 2))
+		end
+	end
+end
+
+-- The X-ray room: its walls (the door is a Door_XRay), bay X under the scanner arm, and the cast table.
+local function buildXRay(model: Model, level: number)
+	local xray = piece(model, "XRay", 1, 0)
+	local r = B.ROOMS.XRay
+	local p, w = B.PARTITION, B.WALL
+	local top = Pure.wallTop(B, 0)
+	local d = B.DOORS.XRay
+	local d0, d1 = d.X0 :: number, d.X1 :: number
+	partition(xray, "WallXRaySide", r.X0, r.X0 + p, 0, top, r.Z0, r.Z1)
+	partition(xray, "WallXRay", r.X0 + p, d0, 0, top, r.Z0, r.Z0 + p)
+	partition(xray, "WallXRay", d1, r.X1 - w, 0, top, r.Z0, r.Z0 + p)
+	partition(xray, "LintelXRay", d0, d1, d.Height, top, r.Z0, r.Z0 + p)
+	partition(xray, "WallXRayBack", r.X0 + p, r.X1 - w, 0, top, r.Z1 - p, r.Z1)
+	local bay = B.bay("X") :: any
+	buildBay(model, bay, level, Vector3.new((d0 + d1) / 2, 0, r.Z0 - Pure.SIGN.Out / 2))
+	-- The arm: a column from the ceiling and the scanner head over the bed, clear of a sitting creature (soft).
+	local x = Pure.XRAY
+	local cx = bay.X + 0.8 -- a little toward the head
+	soft(box(xray, "XRayColumn", cx - 0.4, cx + 0.4, x.HeadTop, top, bay.Z - 0.4, bay.Z + 0.4, WORLD.Trim)).CastShadow =
+		false
+	soft(
+		box(
+			xray,
+			"XRayHead",
+			cx - x.Depth / 2,
+			cx + x.Depth / 2,
+			x.Head,
+			x.HeadTop,
+			bay.Z - x.Width / 2,
+			bay.Z + x.Width / 2,
+			Palette.Navy
+		)
+	).CastShadow =
+		false
+	buildStation(model, "Cast", level, Pure.STATION.Counter)
+end
+
+-- The back rooms' walls: the long wall onto corridor B (three doorways, their doors are Door_<room>) and the walls
+-- between the rooms. Their insides are PlotBuilder's fit-outs.
+local function buildBackRooms(model: Model)
+	local backRooms = piece(model, "BackRooms", 1, 0)
+	local bath, winter, cozy = B.ROOMS.BathRoom, B.ROOMS.WinterWing, B.ROOMS.CozyWard
+	local p, w = B.PARTITION, B.WALL
+	local top = Pure.wallTop(B, 0)
+	local z0, z1 = bath.Z0, bath.Z0 + p
+	local at = bath.X0 + w
+	for _, key in { "BathRoom", "WinterWing", "CozyWard" } do
+		local d = B.DOORS[key]
+		local d0, d1 = d.X0 :: number, d.X1 :: number
+		partition(backRooms, "WallRooms", at, d0, 0, top, z0, z1)
+		partition(backRooms, "LintelRooms", d0, d1, d.Height, top, z0, z1)
+		at = d1
+	end
+	partition(backRooms, "WallRooms", at, cozy.X1, 0, top, z0, z1)
+	partition(backRooms, "WallRoom", bath.X1, bath.X1 + p, 0, top, z1, bath.Z1 - w)
+	partition(backRooms, "WallRoom", winter.X1, winter.X1 + p, 0, top, z1, winter.Z1 - w)
+	partition(backRooms, "WallRoom", cozy.X1 - p, cozy.X1, 0, top, z1, cozy.Z1 - w)
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The lift, the stairs and the floors
+------------------------------------------------------------------------------------------------------------------
+
+-- The two prompts every landing has, at a rider's chest height.
+local function liftPrompts(landing: BasePart)
+	if landing:FindFirstChild("PromptPoint") then
+		return
+	end
+	local point = Instance.new("Attachment")
+	point.Name = "PromptPoint"
+	point.Position = Vector3.new(0, 2.5, 0)
+	point.Parent = landing
+	local lift = Instance.new("ProximityPrompt")
+	lift.Name = "LiftPrompt"
+	lift.ActionText = "Lift"
+	lift.ObjectText = "🛗"
+	lift.HoldDuration = 0
+	lift.MaxActivationDistance = 8
+	lift.RequiresLineOfSight = false
+	CollectionService:AddTag(lift, HospitalBuilder.PROMPT_TAGS.Lift)
+	lift.Parent = point
+	local escort = Instance.new("ProximityPrompt")
+	escort.Name = "EscortPrompt"
+	escort.ActionText = "Ride with patient"
+	escort.ObjectText = "🛗"
+	escort.HoldDuration = 0
+	escort.MaxActivationDistance = 8
+	escort.RequiresLineOfSight = false
+	escort.KeyboardKeyCode = Enum.KeyCode.F -- beside the LiftPrompt's E
+	escort.GamepadKeyCode = Enum.KeyCode.ButtonY
+	escort.Enabled = false
+	CollectionService:AddTag(escort, HospitalBuilder.PROMPT_TAGS.Escort)
+	escort.Parent = point
+end
+
+-- A landing marker in front of the lift door (Logic/Building.LANDING, resting on the floor), turned toward the lift
+-- (the door is on the shaft's -x face): Server/Lift sets riders down side by side along its X, which runs along the
+-- door (+z), so a second rider steps out into the hall, never into a wall.
+local function landingMarker(parent: Instance, name: string, floor: number): BasePart
+	local l = B.LANDING
+	local landing = marker(
+		parent,
+		name,
+		CFrame.new(l.X, B.slabTop(floor) + 0.5, l.Z) * CFrame.Angles(0, math.rad(270), 0),
+		Vector3.new(l.Size, 1, l.Size)
+	)
+	landing:SetAttribute("Floor", floor)
+	liftPrompts(landing)
+	return landing
+end
+
+-- The glass lift (solid shaft) and the car in the plot's colour, studded, resting at the ground with its doors drawn
+-- on its -x face (open; UI/LiftPanel closes them, slides the car and opens them on each client). Before the first
+-- floor opens the car's doors are drawn shut with a 🔒 under them, and there is no Landing_0 (no prompt).
+local function buildLift(model: Model, style: Style, level: number, standing: number)
+	local lift = piece(model, "Lift", 1, 0)
+	local s = B.SHAFT
+	glass(lift, "Shaft", s.X0, s.X1, 0, Pure.shaftTop(B, standing, ROOF_FLOOR), s.Z0, s.Z1)
+	local car = soft(box(lift, "Car", s.X0 + 0.3, s.X1 - 0.3, 0, Pure.CAR, s.Z0 + 0.3, s.Z1 - 0.3, style.Accent))
+	Studs.apply(car)
+	car.CastShadow = false
+	local open = B.floors(level) >= 1
+	local doors = surface(car, "DoorsGui", Enum.NormalId.Left, 20, 200)
+	for i, name in { "DoorL", "DoorR" } do
+		local x = if open then (if i == 1 then -0.21 else 1.21) else (if i == 1 then 0.25 else 0.75)
+		local door = band(doors, name, UDim2.fromScale(0.5, 1), UDim2.fromScale(x, 0.5), style.Trim)
+		local rim = Instance.new("UIStroke")
+		rim.Color = Palette.Outline
+		rim.Thickness = 3
+		rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		rim.Parent = door
+	end
+	if not open then
+		local label = floatText(doors, Pure.levelLock(Pure.sinceOpen(B, 1)), {
+			Size = UDim2.fromScale(0.9, 0.12),
+			Position = UDim2.fromScale(0.05, 0.3),
+		})
+		label.ZIndex = 4
+	end
+	lift:SetAttribute("Ride", "") -- Server/Lift: "<from>,<to>,<seconds>,<serverTime>" for each ride (clients slide it)
+	lift:SetAttribute("Rider", 0) -- ... and who rode and when (Feel/HospitalFX dings others' rides)
+	lift:SetAttribute("RideAt", 0)
+	CollectionService:AddTag(lift, HospitalBuilder.LIFT_TAG)
+	if open then
+		loose(landingMarker(model, "Landing_0", 0), Pure.sinceOpen(B, 1), 0)
+	end
+end
+
+-- The dog-leg stairs (Logic/Building's well): each storey's two half-flights (Flight_<k>A up toward +x to Mid_<k>,
+-- Flight_<k>B back to the next floor), the wall between the lanes, each floor's rail along the well, and on the top
+-- floor the rails round its open half. Below the first open floor a shut gate stands at the foot.
+local function buildStairs(model: Model, style: Style, level: number, standing: number)
+	local stairs = piece(model, "Stairs", 1, 0)
+	local well, mid, laneA, laneB = B.STAIRWELL, B.STAIR_MID, B.LANE_A, B.LANE_B
+	local rail, half = Pure.RAIL, B.DIVIDER / 2
+	local between = laneA.Z1 -- the lanes' shared edge
+	for k = 0, standing - 1 do
+		local since = Pure.sinceStanding(B, k + 1)
+		for _, lane in { "A", "B" } do
+			local r = Pure.ramp(B, k, lane)
+			local fr = Pure.rampFrame(r, Pure.RAMP)
+			loose(
+				part(
+					stairs,
+					"Flight_" .. k .. lane,
+					Vector3.new(fr.Length, Pure.RAMP, r.Z1 - r.Z0),
+					CFrame.new(fr.X, fr.Y, fr.Z) * CFrame.Angles(0, 0, fr.Angle),
+					WORLD.FloorTile,
+					Enum.Material.CeramicTiles
+				),
+				since,
+				k
+			)
+		end
+		-- The mid landing (a solid block on the ground, so nothing hides under the stairs).
+		local midTop = (B.slabTop(k) + B.slabTop(k + 1)) / 2
+		loose(
+			box(
+				stairs,
+				"Mid_" .. k,
+				mid.X0,
+				mid.X1,
+				if k == 0 then 0 else midTop - Pure.SLAB,
+				midTop,
+				mid.Z0,
+				mid.Z1,
+				WORLD.FloorTile,
+				Enum.Material.CeramicTiles
+			),
+			since,
+			k
+		)
+		loose(
+			box(
+				stairs,
+				"StairWall",
+				laneA.X0,
+				laneA.X1,
+				B.slabTop(k),
+				Pure.wallTop(B, k),
+				between - half,
+				between + half,
+				INSIDE
+			),
+			since,
+			k
+		)
+	end
+	-- The ground: a wall closes the space under lane B's high end.
+	box(stairs, "StairSide", laneB.X0, laneB.X0 + rail.Thick, 0, B.GROUND - 1.2, between + half, laneB.Z1, INSIDE)
+	-- Each floor's rail along the well's front edge; on the top floor the rails round the hole over lane A.
+	for k = 0, standing do
+		local y = B.slabTop(k)
+		local since = if k == 0 then 1 else Pure.sinceStanding(B, k)
+		local function railBox(name: string, x0: number, x1: number, z0: number, z1: number)
+			loose(painted(box(stairs, name, x0, x1, y, y + rail.Height, z0, z1, style.Trim), "Trim"), since, k)
+		end
+		railBox("Rail", well.X0, well.X1, well.Z0, well.Z0 + rail.Thick)
+		if k == standing then
+			railBox("RailEnd", well.X0, well.X0 + rail.Thick, well.Z0 + rail.Thick, between - half)
+			railBox("RailMid", laneA.X0, laneA.X1, between - half, between + half)
+		end
+	end
+	-- Below the first open floor: a shut gate at lane A's foot.
+	if B.floors(level) < 1 then
+		local gate = loose(
+			box(stairs, "StairGate", well.X0, well.X0 + 0.4, 0, 5, well.Z0 + rail.Thick, between - half, style.Accent),
+			1,
+			0
+		)
+		lockGui(gate, Enum.NormalId.Left, { "⬆️ Upstairs", Pure.levelLock(Pure.sinceOpen(B, 1)) }, true)
+	end
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The wards
+------------------------------------------------------------------------------------------------------------------
+
+-- A functional ward bed: BedSpot_<k> round the mattress Bed_<k> (Floor and Ward on both), its pillow at the street
+-- wall (-z) and its foot spot in the aisle (Logic/Building.BED_FOOT_Z).
+local function wardBed(parent: Instance, index: number, x: number, k: number, ward: string, since: number)
 	local bed = Pure.BED
-	local color = DEPT.Wards
-	local spot = piece(parent, "BedSpot_" .. index, sinceBed(index), WARDS_FLOOR)
-	spot:SetAttribute("Floor", WARDS_FLOOR)
+	local color = wardColor(ward)
+	local floorY = B.slabTop(k)
+	local spot = piece(parent, "BedSpot_" .. index, since, k)
+	spot:SetAttribute("Floor", k)
+	spot:SetAttribute("Ward", ward)
 	local head = B.BED_Z0 + bed.HeadboardThick
 	box(spot, "Frame", x - bed.Width / 2, x + bed.Width / 2, floorY, floorY + bed.FrameHeight, head, B.BED_Z1, color)
 	Studs.apply(
@@ -659,7 +1384,7 @@ local function wardBed(parent: Instance, index: number, x: number, floorY: numbe
 			color
 		)
 	)
-	-- Bed_<n> is the mattress: Server/Patients lies patients on its top, pillow end along its +Z (turned to face -z
+	-- Bed_<k> is the mattress: Server/Patients lies patients on its top, pillow end along its +Z (turned to face -z
 	-- here) and their foot spot 1.6 past its -Z end.
 	local mattress = part(
 		spot,
@@ -669,7 +1394,8 @@ local function wardBed(parent: Instance, index: number, x: number, floorY: numbe
 			* CFrame.Angles(0, math.pi, 0),
 		WORLD.Trim
 	)
-	mattress:SetAttribute("Floor", WARDS_FLOOR)
+	mattress:SetAttribute("Floor", k)
+	mattress:SetAttribute("Ward", ward)
 end
 
 -- A made-up bed (never used): DressBed_<n> with a Base and a Headboard at the pillow end (`pillow` -1: toward -z,
@@ -712,7 +1438,7 @@ local function dressBed(
 		local length = baseZ1 - baseZ0
 		local sleep = Instance.new("Model")
 		sleep.Name = "Sleeper"
-		-- The head on the pillow (a creature colour; blocky like every creature now) ...
+		-- The head on the pillow (a creature colour; blocky like every creature) ...
 		local headZ = if pillow < 0 then baseZ0 + s.Depth / 2 + 0.3 else baseZ1 - s.Depth / 2 - 0.3
 		local headPart: Part
 		if s.Blocky then
@@ -756,368 +1482,84 @@ local function dressBed(
 	model.Parent = parent
 end
 
-------------------------------------------------------------------------------------------------------------------
--- The ground storey
-------------------------------------------------------------------------------------------------------------------
-
--- The street face, at every level: the fascia with the name, the frames, the display window, the studded walls
--- beside it and the main door, the stripe, the canopy over the Counter and the main door, and the waiting bench.
-local function buildPodium(model: Model, style: Style, standTop: number, name: string)
-	local podium = piece(model, "Podium", 1, 0)
-	local h, f, w = B.HALF, B.FRONT, B.WALL
-	local top = Pure.wallTop(B, 0)
-	local doors = B.DOORS
-	local fascia = outerWall(podium, "WallFascia", -h, h, Pure.DOOR, top, f, f + w, style)
-	-- The name floats on the fascia, over the reception window and under the canopy (art-direction §4.4: no board).
-	local canopy = B.CANOPY
-	local under = canopy.Y - 0.25 - 0.15
-	local nameGui = surface(fascia, "NameGui", Enum.NormalId.Front, 24, 220, 0)
-	local height = top - Pure.DOOR
-	local nameWidth = 18 -- studs, centred over the reception window and under the canopy (x ±12)
-	floatText(nameGui, name, {
-		Shadow = true,
-		Size = UDim2.fromScale(nameWidth / (2 * h), (under - Pure.DOOR - 0.2) / height),
-		Position = UDim2.fromScale((h - nameWidth / 2) / (2 * h), (top - under) / height),
-	})
-	-- Under the fascia, from -x to +x: a warm corner frame (-16..-15), the display window (-15..-9), a studded wall
-	-- (-9..-7), a warm frame (-7..-6.5), the reception window, a warm frame (6.5..7), the main door (7..11), a studded
-	-- wall (11..15) and the other corner frame (15..16). The studded walls are whole studs across; the frames are trim.
-	-- All of them stand Pure.PROUD in front of the façade's plane, so the Stand floor's front edge hides behind them.
-	local face = f - Pure.PROUD
-	local pier = doors.Main.X0 - doors.Reception.X1 -- the frames either side of the reception window
-	local corner = doors.Display.X0 + h -- the corner frames: as wide as the display window's offset from the corner
-	for _, x in
-		{
-			{ -h, doors.Display.X0 },
-			{ doors.Reception.X0 - pier, doors.Reception.X0 },
-			{ doors.Reception.X1, doors.Main.X0 },
-			{ h - corner, h },
-		}
-	do
-		local name0 = if x[1] == -h or x[2] == h then "PierCorner" else "Pier"
-		painted(box(podium, name0, x[1], x[2], 0, Pure.DOOR, face, f + w, style.Trim), "Trim")
-	end
-	outerWall(podium, "WallFrontLeft", doors.Display.X1, doors.Reception.X0 - pier, 0, Pure.DOOR, face, f + w, style)
-	outerWall(podium, "WallFrontRight", doors.Main.X1, h - corner, 0, Pure.DOOR, face, f + w, style)
-	glass(podium, "GlassDisplay", doors.Display.X0, doors.Display.X1, 0, Pure.DOOR, f + 0.1, f + w - 0.1)
-	-- The fascia stripe (a theme's roof band), just proud of the façade.
-	local stripe = painted(
-		box(podium, "BandFascia", -h - 0.15, h + 0.15, top - Pure.BAND, top, f - 0.15, f + 0.15, style.Band),
-		"Band"
-	)
-	paint(stripe)
-	-- The canopy over the Counter and the main door: soft and overhead, short of queue spot 1.
-	soft(
-		box(
-			podium,
-			"RoofCanopy",
-			canopy.X0,
-			canopy.X1,
-			canopy.Y - 0.25,
-			canopy.Y + 0.25,
-			canopy.Z0,
-			canopy.Z1,
-			WORLD.Roof
-		)
-	)
-	local edge = painted(
-		box(
-			podium,
-			"TrimCanopy",
-			canopy.X0 - 0.15,
-			canopy.X1 + 0.15,
-			canopy.Y - 0.35,
-			canopy.Y + 0.35,
-			canopy.Z0 - 0.15,
-			canopy.Z0 + 0.15,
-			style.Trim
-		),
-		"Trim"
-	)
-	paint(edge)
-	-- The waiting bench along the +x wall.
-	local bench = B.STAND.Bench
-	box(
-		podium,
-		"Bench",
-		bench.X0,
-		bench.X1,
-		standTop,
-		standTop + 1.5,
-		bench.Z0,
-		bench.Z1,
-		WORLD.Plank,
-		Enum.Material.WoodPlanks
-	)
-	-- The Stand room's floor stops at x ±STAND_HALF (its slot: Server/Patients' walkways are measured from it); the
-	-- side walls' inner faces are 0.4 further out. A plank strip each side carries the floor on to the wall, under
-	-- the bench and the Lv 1 made-up bed.
-	for _, side in { -1, 1 } do
-		local inner = side * Pure.STAND_HALF
-		local wall = side * (h - w)
-		box(
-			podium,
-			"FloorSide",
-			math.min(inner, wall),
-			math.max(inner, wall),
-			0,
-			standTop,
-			f + w,
-			Pure.STAND_BACK,
-			WORLD.FloorTile,
-			Enum.Material.CeramicTiles
-		)
-	end
-end
-
--- Lv 1: the podium's sides (a side door in each), its back, its dark flat roof and the made-up bed with a sleeper.
-local function buildPodiumShell(model: Model, style: Style, standTop: number)
-	local shell = piece(model, "PodiumShell", 1, 0)
-	local h, f, w = B.HALF, B.FRONT, B.WALL
-	local back = B.PODIUM_BACK
-	local top = Pure.wallTop(B, 0)
-	local door = B.DOORS.Side
-	for _, side in { -1, 1 } do
-		local x0 = if side < 0 then -h else h - w
-		local sideName = if side < 0 then "Left" else "Right"
-		for _, span in Pure.segments(f + w, back - w, { door }) do
-			outerWall(shell, "Wall" .. sideName, x0, x0 + w, 0, top, span.Z0, span.Z1, style)
-			ribbon(shell, sideName, span.Z0, span.Z1, 0)
+-- Floor k's beds: the functional ones (Logic/Building.wardBeds) as BedSpot_<k> (unless `keep` has them: those move
+-- across from the old Building), the rest made up (all of them on a floor that stands but isn't open), one with a
+-- sleeper, and curtains between them.
+local function buildWard(floorModel: Model, level: number, k: number, keep: { [number]: boolean })
+	local spots = B.wardBeds(level, k)
+	local open = #spots > 0
+	if not open then
+		-- Standing, not open yet: every spot made up.
+		for _, spot in B.WARD_BEDS[k] or {} do
+			table.insert(spots, { Index = #spots + 1, X = spot.X, Z = spot.Z, Floor = k, Functional = false })
 		end
-		outerWall(shell, "WallLintel" .. sideName, x0, x0 + w, Pure.DOOR, top, door.Z0, back - w, style)
+		for _, spot in B.DRESS_BEDS[k] or {} do
+			table.insert(spots, { Index = #spots + 1, X = spot.X, Z = spot.Z, Floor = k, Functional = false })
+		end
 	end
-	outerWall(shell, "WallBack", -h, h, 0, top, back - w, back, style)
-	ribbon(shell, "Back", -h, h, 0, back)
-	local roof = box(shell, "RoofPodium", -h - 0.2, h + 0.2, top, B.GROUND, f - 0.2, back + 0.2, WORLD.Roof)
-	roof:SetAttribute("Storey", 1)
-	paint(
-		box(
-			shell,
-			"FloorBack",
-			-h + w,
-			h - w,
-			Pure.PAINT - 0.04,
-			Pure.PAINT,
-			Pure.STAND_BACK,
-			back - w,
-			WORLD.FloorTile,
-			Enum.Material.CeramicTiles
-		)
-	)
-	-- The made-up bed along the -x wall, its pillow toward +z, clear of the side door, decor slot 1 and Remedy.
-	local d = B.LV1_DRESSING
-	local decor = B.STAND.Decor[1]
-	local rect = {
-		X0 = math.max(d.X0, -h + w),
-		X1 = d.X1,
-		Z0 = math.max(d.Z0, decor.Z + Pure.DECOR_HALF + 0.1),
-		Z1 = d.Z1,
-	}
+	local rows = B.WARD_BEDS[k]
+	local ward = if rows and rows[1] then rows[1].Ward else "Wards"
+	local color = wardColor(ward)
 	local dressing = Instance.new("Model")
 	dressing.Name = "Dressing"
-	local sleepers = Pure.sleepers(1, Config.Look.Sleepers.Lv1)
-	dressBed(dressing, 1, rect, standTop, 1, style.Accent, sleepers[1] == true)
-	dressing.Parent = shell
-end
-
--- The lift directory: a navy plate by the ground's lift door, one row per floor (top first).
-local function directory(wall: BasePart, floors: number)
-	local gui = surface(wall, "DirectoryGui", Enum.NormalId.Right, 30, 60, 0)
-	-- On the wall's inner (+x) face the gui runs from its back end (x scale 0) to its front end (1): the plate sits
-	-- at the front end, beside the lift-lobby door and the landing.
-	navyPlate(gui, { Size = UDim2.fromScale(0.42, 0.62), Position = UDim2.fromScale(0.74, 0.47) })
-	local rows = floors + 1
-	for i = 0, floors do
-		local k = floors - i
-		local label = if k == 0 then "G" elseif k >= ROOF_FLOOR then "R" else tostring(k)
-		local icon = if k == 0 then deptIcon("Reception", "🛎️") else deptIcon(deptOn(k), "🛗")
-		floatText(gui, icon .. " " .. label, {
-			Size = UDim2.fromScale(0.34, 0.5 / rows),
-			Position = UDim2.fromScale(0.57, 0.19 + i * 0.56 / rows),
-		})
-	end
-end
-
--- Lv 2+: the ground's sides and back, the A&E door with its red canopy, the lift-lobby and corridor doors.
-local function buildHall(model: Model, style: Style, floors: number)
-	local hall = piece(model, "Hall", sinceFloor(1), 0)
-	local h, f, w = B.HALF, B.FRONT, B.WALL
-	local back = B.BACK
-	local top = Pure.wallTop(B, 0)
-	local doors = B.DOORS
-	local s = B.SHAFT
-	-- -x: the A&E door, the shaft (the glass lift is the wall there), the lift-lobby door.
-	local left = Pure.segments(f + w, back - w, { doors.AE, { Z0 = s.Z0, Z1 = s.Z1 }, doors.LiftLobby })
-	for i, span in left do
-		local wall = outerWall(
-			hall,
-			if i == 1 then "WallLeftFront" else "WallLeftBack",
-			-h,
-			-h + w,
-			0,
-			top,
-			span.Z0,
-			span.Z1,
-			style
-		)
-		if i == #left then
-			directory(wall, floors)
+	local made = 0
+	for _, spot in spots do
+		if not spot.Functional then
+			made += 1
 		end
 	end
-	local lintelAE = outerWall(hall, "WallLintelAE", -h, -h + w, Pure.DOOR, top, doors.AE.Z0, doors.AE.Z1, style)
-	outerWall(hall, "WallLintelLobby", -h, -h + w, Pure.DOOR, top, doors.LiftLobby.Z0, doors.LiftLobby.Z1, style)
-	-- +x: the corridor door (the patients' back lane out to the walkway).
-	for i, span in Pure.segments(f + w, back - w, { doors.Corridor }) do
-		outerWall(hall, if i == 1 then "WallRightFront" else "WallRightBack", h - w, h, 0, top, span.Z0, span.Z1, style)
-		if i == 1 then
-			ribbon(hall, "Right", span.Z0, span.Z1, 0)
+	local sleepers = Pure.sleepers(made, if open then Config.Look.Sleepers.Ward else Config.Look.Sleepers.Lv1)
+	local y = B.slabTop(k)
+	local half = Pure.BED.Width / 2
+	local nth = 0
+	local xs: { number } = {}
+	for _, spot in spots do
+		table.insert(xs, spot.X)
+		if spot.Functional then
+			if not keep[spot.Index] then
+				wardBed(floorModel, spot.Index, spot.X, k, spot.Ward or ward, Pure.sinceOpen(B, k))
+			end
+		else
+			nth += 1
+			local r = { X0 = spot.X - half, X1 = spot.X + half, Z0 = B.BED_Z0, Z1 = B.BED_Z1 }
+			dressBed(dressing, spot.Index, r, y, -1, color, sleepers[nth] == true)
 		end
 	end
-	outerWall(hall, "WallLintelCorridor", h - w, h, Pure.DOOR, top, doors.Corridor.Z0, doors.Corridor.Z1, style)
-	outerWall(hall, "WallBack", -h, h, 0, top, back - w, back, style)
-	ribbon(hall, "Back", -h, h, 0, back)
-	local floorHall = paint(
-		box(
-			hall,
-			"FloorHall",
-			-h + w,
-			h - w,
-			Pure.PAINT - 0.04,
-			Pure.PAINT,
-			Pure.STAND_BACK,
-			back - w,
-			WORLD.FloorTile,
-			Enum.Material.CeramicTiles
-		)
-	)
-	roomLight(floorHall, Vector3.new(0, top - 1, (Pure.STAND_BACK + back - w) / 2))
-	-- A&E: a red canopy over its door, facing the ambulance bay, and the letters on the wall over it.
-	local ae = doors.AE
-	soft(box(hall, "CanopyAE", -h - 2, -h, Pure.DOOR + 0.6, Pure.DOOR + 1, ae.Z0 - 0.5, ae.Z1 + 0.5, DEPT.AE))
-	paint(
-		box(
-			hall,
-			"RoofEdgeAE",
-			-h - 2.2,
-			-h - 2,
-			Pure.DOOR + 0.4,
-			Pure.DOOR + 1.1,
-			ae.Z0 - 0.5,
-			ae.Z1 + 0.5,
-			WORLD.Roof
-		)
-	)
-	local letters = surface(lintelAE, "AEGui", Enum.NormalId.Left, 30, 160, 0)
-	floatText(letters, "A&E", {
-		Shadow = true,
-		Size = UDim2.fromScale(0.9, 0.5),
-		Position = UDim2.fromScale(0.05, 0.12),
-	})
-end
-
-------------------------------------------------------------------------------------------------------------------
--- The lift, the stairs and the floors
-------------------------------------------------------------------------------------------------------------------
-
--- The two prompts every landing has, at a rider's chest height.
-local function liftPrompts(landing: BasePart)
-	if landing:FindFirstChild("PromptPoint") then
-		return
-	end
-	local point = Instance.new("Attachment")
-	point.Name = "PromptPoint"
-	point.Position = Vector3.new(0, 2.5, 0)
-	point.Parent = landing
-	local lift = Instance.new("ProximityPrompt")
-	lift.Name = "LiftPrompt"
-	lift.ActionText = "Lift"
-	lift.ObjectText = "🛗"
-	lift.HoldDuration = 0
-	lift.MaxActivationDistance = 8
-	lift.RequiresLineOfSight = false
-	CollectionService:AddTag(lift, HospitalBuilder.PROMPT_TAGS.Lift)
-	lift.Parent = point
-	local escort = Instance.new("ProximityPrompt")
-	escort.Name = "EscortPrompt"
-	escort.ActionText = "Ride with patient"
-	escort.ObjectText = "🛗"
-	escort.HoldDuration = 0
-	escort.MaxActivationDistance = 8
-	escort.RequiresLineOfSight = false
-	escort.KeyboardKeyCode = Enum.KeyCode.F -- beside the LiftPrompt's E
-	escort.GamepadKeyCode = Enum.KeyCode.ButtonY
-	escort.Enabled = false
-	CollectionService:AddTag(escort, HospitalBuilder.PROMPT_TAGS.Escort)
-	escort.Parent = point
-end
-
--- A landing marker in front of the lift door (4 x 1 x 4, resting on the floor). It stays turned toward the lift:
--- Server/Lift sets riders down side by side along its X, and that keeps a second rider inside the building, off
--- the -x wall two studs away.
-local function landingMarker(parent: Instance, name: string, floor: number): BasePart
-	local l = B.LANDING
-	local y = B.slabTop(floor)
-	local landing = marker(parent, name, CFrame.new(l.X, y + 0.5, l.Z), Vector3.new(l.Size, 1, l.Size))
-	landing:SetAttribute("Floor", floor)
-	liftPrompts(landing)
-	return landing
-end
-
--- The glass lift at the street-facing -x corner: a solid glass shaft (it is the wall at that corner) and the car in
--- the plot's colour, studded, resting at the ground with its doors drawn on its +z side (open; UI/LiftPanel closes
--- them, slides the car and opens them on each client).
-local function buildLift(model: Model, style: Style, floors: number)
-	local lift = piece(model, "Lift", sinceFloor(1), 0)
-	local s = B.SHAFT
-	local shaftTop = Pure.shaftTop(B, floors, ROOF_FLOOR)
-	local shaft = glass(lift, "Shaft", s.X0, s.X1, 0, shaftTop, s.Z0, s.Z1)
-	shaft.CastShadow = false
-	local car = soft(box(lift, "Car", s.X0 + 0.3, s.X1 - 0.3, 0, Pure.CAR, s.Z0 + 0.3, s.Z1 - 0.3, style.Accent))
-	Studs.apply(car)
-	car.CastShadow = false
-	local doors = surface(car, "DoorsGui", Enum.NormalId.Back, 20, 200)
-	for i, name in { "DoorL", "DoorR" } do
-		local door =
-			band(doors, name, UDim2.fromScale(0.5, 1), UDim2.fromScale(if i == 1 then -0.21 else 1.21, 0.5), style.Trim)
-		local rim = Instance.new("UIStroke")
-		rim.Color = Palette.Outline
-		rim.Thickness = 3
-		rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		rim.Parent = door
-	end
-	lift:SetAttribute("Ride", "") -- Server/Lift: "<from>,<to>,<seconds>,<serverTime>" for each ride (clients slide it)
-	lift:SetAttribute("Rider", 0) -- ... and who rode and when (Feel/HospitalFX dings others' rides)
-	lift:SetAttribute("RideAt", 0)
-	CollectionService:AddTag(lift, HospitalBuilder.LIFT_TAG)
-end
-
--- One collidable wedge per storey (a WedgePart rises toward its +Z, so it is turned to rise along x).
-local function buildStairs(model: Model, floors: number)
-	local stairs = piece(model, "Stairs", sinceFloor(1), 0)
-	for k = 0, floors - 1 do
-		local fl = Pure.flight(B, k)
-		local rise, run = fl.YHigh - fl.YLow, math.abs(fl.XHigh - fl.XLow)
-		local turn = if fl.XHigh > fl.XLow then math.pi / 2 else -math.pi / 2
-		local flight = wedge(
-			stairs,
-			"Flight_" .. k,
-			Vector3.new(fl.Z1 - fl.Z0, rise, run),
-			CFrame.new((fl.XLow + fl.XHigh) / 2, fl.YLow + rise / 2, (fl.Z0 + fl.Z1) / 2) * CFrame.Angles(0, turn, 0),
-			WORLD.FloorTile
-		)
-		flight.Material = Enum.Material.CeramicTiles
-		flight:SetAttribute("Since", sinceFloor(k + 1))
-		flight:SetAttribute("Storey", k)
+	dressing.Parent = floorModel
+	-- Curtains between neighbouring beds (soft).
+	table.sort(xs)
+	local curtainH = 6.5 -- in a 10.4-clear storey
+	for i = 1, #xs - 1 do
+		local x = (xs[i] + xs[i + 1]) / 2
+		soft(
+			box(
+				floorModel,
+				"Curtain",
+				x - 0.1,
+				x + 0.1,
+				y + 0.6,
+				y + curtainH,
+				B.BED_Z0 + 0.4,
+				B.BED_Z1 - 0.4,
+				color,
+				Enum.Material.Fabric
+			)
+		).CastShadow =
+			false
 	end
 end
 
--- Floor_k: its slab, its landing, its rails and (indoors) its studded walls, front glass band, ribbon windows and
--- department dado; the roof deck (Floor_4) gets parapets instead.
-local function buildFloor(model: Model, style: Style, k: number, hasPharmacy: boolean)
-	local floorModel = piece(model, "Floor_" .. k, sinceFloor(k), k)
+-- Floor_k: its slab (tiles indoors, dark on the roof deck), its landing once open, and indoors its studded walls,
+-- its front glass band with the floor's icon, ribbon windows, a coloured dado, a room light and its beds; the roof
+-- deck gets parapets instead.
+local function buildFloor(model: Model, style: Style, level: number, k: number, keep: { [number]: boolean }): Model
+	local open = k <= B.floors(level)
+	local floorModel = piece(model, "Floor_" .. k, Pure.sinceStanding(B, k), k)
+	floorModel:SetAttribute("Floor", k)
+	floorModel:SetAttribute("Open", open)
 	local y = B.slabTop(k)
 	local deck = k >= ROOF_FLOOR
-	for _, r in Pure.slabRects(B, k) do
+	for _, r in Pure.slabRects(B) do
 		local slab = box(
 			floorModel,
 			r.Name,
@@ -1132,358 +1574,123 @@ local function buildFloor(model: Model, style: Style, k: number, hasPharmacy: bo
 		)
 		slab.CanCollide = true
 	end
-	landingMarker(floorModel, "Landing", k)
-	local rails = Pure.rails(B, k)
-	local railTop = y + Pure.RAIL.Height
-	if not (k == PHARMACY_FLOOR and hasPharmacy) then -- on F3 the Pharmacy's shelf is the long rail
-		local long = rails.Long
-		painted(box(floorModel, "Rail", long.X0, long.X1, y, railTop, long.Z0, long.Z1, style.Trim), "Trim")
+	if open then
+		loose(landingMarker(floorModel, "Landing", k), Pure.sinceOpen(B, k), k)
 	end
-	local e = rails.End
-	painted(box(floorModel, "RailEnd", e.X0, e.X1, y, railTop, e.Z0, e.Z1, style.Trim), "Trim")
-
-	local f = B.footprint(B.MAX_LEVEL, k)
-	local h, w = B.HALF, B.WALL
-	local s = B.SHAFT
-	local front = if f.Z0 < s.Z0 then -h else s.X1 -- F1's front runs the whole width; the tower's starts at the shaft
+	local t, w = B.TOWER, B.WALL
+	local base, top = Pure.wallBase(B, k), Pure.wallTop(B, k)
 	if deck then
 		local p = Pure.PARAPET
-		box(floorModel, "ParapetFront", front, h, y, y + p, f.Z0, f.Z0 + w, WORLD.Roof)
-		box(floorModel, "ParapetBack", -h, h, y, y + p, f.Z1 - w, f.Z1, WORLD.Roof)
-		box(floorModel, "ParapetLeft", -h, -h + w, y, y + p, s.Z1, f.Z1 - w, WORLD.Roof)
-		box(floorModel, "ParapetRight", h - w, h, y, y + p, f.Z0 + w, f.Z1 - w, WORLD.Roof)
-		return
+		box(floorModel, "ParapetFront", t.X0, t.X1, base, y + p, t.Z0, t.Z0 + w, WORLD.Roof)
+		box(floorModel, "ParapetBack", t.X0, t.X1, base, y + p, t.Z1 - w, t.Z1, WORLD.Roof)
+		box(floorModel, "ParapetLeft", t.X0, t.X0 + w, base, y + p, t.Z0 + w, t.Z1 - w, WORLD.Roof)
+		box(floorModel, "ParapetRight", t.X1 - w, t.X1, base, y + p, t.Z0 + w, t.Z1 - w, WORLD.Roof)
+		return floorModel
 	end
-	local top = Pure.wallTop(B, k)
 	-- The street face: a studded spandrel and the glass band over it, with the floor's icon floating on the glass.
-	outerWall(floorModel, "WallSpandrel", front, h, y, y + Pure.SPANDREL, f.Z0, f.Z0 + w, style)
-	local glassBand = glass(floorModel, "GlassBand", front, h, y + Pure.SPANDREL, top, f.Z0, f.Z0 + w)
-	local width = h - front
-	local iconGui = surface(glassBand, "IconGui", Enum.NormalId.Front, 20, 200, 0)
+	outerWall(floorModel, "WallSpandrel", t.X0, t.X1, base, y + Pure.SPANDREL, t.Z0, t.Z0 + w, style)
+	local glassBand = glass(floorModel, "GlassBand", t.X0, t.X1, y + Pure.SPANDREL, top, t.Z0, t.Z0 + w)
+	glassBand:SetAttribute("Outer", true)
+	local width = t.X1 - t.X0
 	local iconSize = math.min(0.7, 3.4 / (top - y - Pure.SPANDREL))
-	floatText(iconGui, deptIcon(deptOn(k), "🏥"), {
+	floatText(surface(glassBand, "IconGui", Enum.NormalId.Front, 20, 200, 0), floorIcon(k), {
 		Size = UDim2.fromScale(3.4 / width, iconSize),
 		Position = UDim2.fromScale(0.5 / width, (1 - iconSize) / 2),
 	})
 	-- The back and the sides, with a ribbon window on each.
-	outerWall(floorModel, "WallBack", -h, h, y, top, f.Z1 - w, f.Z1, style)
-	ribbon(floorModel, "Back", -h, h, y, f.Z1)
-	local longest: { Z0: number, Z1: number }? = nil
-	for i, span in Pure.segments(f.Z0 + w, f.Z1 - w, { { Z0 = s.Z0, Z1 = s.Z1 } }) do
-		outerWall(
+	outerWall(floorModel, "WallBack", t.X0, t.X1, base, top, t.Z1 - w, t.Z1, style)
+	outerWall(floorModel, "WallLeft", t.X0, t.X0 + w, base, top, t.Z0 + w, t.Z1 - w, style)
+	outerWall(floorModel, "WallRight", t.X1 - w, t.X1, base, top, t.Z0 + w, t.Z1 - w, style)
+	local out = Pure.PROUD
+	local wy0, wy1 = y + Pure.WINDOW.Y0 + 0.5, y + Pure.WINDOW.Y1 + 0.5
+	ribbon(floorModel, "WindowBack", t.X0 + 1.5, t.X1 - 1.5, wy0, wy1, t.Z1, t.Z1 + out)
+	ribbon(floorModel, "WindowLeft", t.X0 - out, t.X0, wy0, wy1, t.Z0 + 1.5, t.Z1 - 1.5)
+	ribbon(floorModel, "WindowRight", t.X1, t.X1 + out, wy0, wy1, t.Z0 + 1.5, t.Z1 - 1.5)
+	-- The ward's colour inside: a studded dado band along the -x wall.
+	local rows = B.WARD_BEDS[k]
+	local dado = soft(
+		box(
 			floorModel,
-			if i == 1 then "WallLeft" else "WallLeftBack",
-			-h,
-			-h + w,
+			"Dado",
+			t.X0 + w,
+			t.X0 + w + 0.2,
 			y,
-			top,
-			span.Z0,
-			span.Z1,
-			style
+			y + 3,
+			t.Z0 + w,
+			t.Z1 - w,
+			wardColor(if rows and rows[1] then rows[1].Ward else nil)
 		)
-		if not longest or span.Z1 - span.Z0 > longest.Z1 - longest.Z0 then
-			longest = span
-		end
-	end
-	if longest then
-		ribbon(floorModel, "Left", longest.Z0, longest.Z1, y)
-	end
-	outerWall(floorModel, "WallRight", h - w, h, y, top, f.Z0 + w, f.Z1 - w, style)
-	ribbon(floorModel, "Right", f.Z0 + w, f.Z1 - w, y)
-	-- The department's colour inside: a studded dado band along the +x wall.
-	local dept = deptOn(k)
-	local color = if dept then DEPT[dept] else nil
-	if color then
-		local dado = soft(
-			box(floorModel, "Dado", h - w - Pure.DADO.Thick, h - w, y, y + Pure.DADO.Height, f.Z0 + w, f.Z1 - w, color)
-		)
-		Studs.apply(dado)
-		dado.CastShadow = false
-	end
+	)
+	Studs.apply(dado)
+	dado.CastShadow = false
 	local slab = floorModel:FindFirstChild("Slab")
 	if slab and slab:IsA("BasePart") then
-		roomLight(slab, Vector3.new(0, top - 1, (f.Z0 + f.Z1) / 2))
+		roomLight(slab, Vector3.new((t.X0 + t.X1) / 2, top - 1, (t.Z0 + t.Z1) / 2))
 	end
+	if B.WARD_BEDS[k] then
+		buildWard(floorModel, level, k, keep)
+	end
+	return floorModel
 end
 
-------------------------------------------------------------------------------------------------------------------
--- The departments
-------------------------------------------------------------------------------------------------------------------
-
--- F1, the Wards: the main ward's three bed spots (functional from their level, made up before), the front ward's
--- four made-up beds (two with sleepers), curtains and the glass partition. `keep`: bed spots moving across.
-local function buildWards(model: Model, level: number, keep: { [number]: boolean })
-	local wards = piece(model, "Wards", sinceDept("Wards"), WARDS_FLOOR)
-	local y = B.slabTop(WARDS_FLOOR)
-	local color = DEPT.Wards
-	local dressing = Instance.new("Model")
-	dressing.Name = "Dressing"
-	dressing.Parent = wards
-	local functional = extraBeds(level)
-	local bedHalf = Pure.BED.Width / 2
-	for index, spot in B.WARD_BEDS do
-		if index <= functional then
-			if not keep[index] then
-				wardBed(wards, index, spot.X, y)
-			end
-		else
-			-- Not open yet: a made-up bed in the same spot, pillow at the partition.
-			local r = { X0 = spot.X - bedHalf, X1 = spot.X + bedHalf, Z0 = B.BED_Z0, Z1 = B.BED_Z1 }
-			dressBed(dressing, #B.FRONT_WARD.Xs + index, r, y, -1, color, false)
-		end
-	end
-	-- The front ward: heads at the street window, frames up to its z.
-	local front = B.FRONT_WARD
-	local sleepers = Pure.sleepers(#front.Xs, Config.Look.Sleepers.Ward)
-	for index, x in front.Xs do
-		local r = { X0 = x - bedHalf, X1 = x + bedHalf, Z0 = math.max(front.Z0, B.FRONT + B.WALL), Z1 = front.Z1 }
-		dressBed(dressing, index, r, y, -1, color, sleepers[index] == true)
-	end
-	-- Curtains between the main ward's beds, and between the front ward's outer pairs.
-	local curtainH = 6.5 -- in a 10.4-clear storey
-	local mainZ0, mainZ1 = B.BED_Z0 + 0.4, B.BED_Z1 - 0.4
-	for i = 1, #B.WARD_BEDS - 1 do
-		local x = (B.WARD_BEDS[i].X + B.WARD_BEDS[i + 1].X) / 2
-		soft(
-			box(wards, "Curtain", x - 0.1, x + 0.1, y + 0.6, y + curtainH, mainZ0, mainZ1, color, Enum.Material.Fabric)
-		)
-	end
-	local xs = front.Xs
-	for _, pair in { { xs[1], xs[2] }, { xs[#xs - 1], xs[#xs] } } do
-		local x = (pair[1] + pair[2]) / 2
-		soft(
-			box(
-				wards,
-				"Curtain",
-				x - 0.1,
-				x + 0.1,
-				y + 0.6,
-				y + curtainH,
-				B.FRONT + B.WALL + 0.5,
-				front.Z1 - 0.6,
-				color,
-				Enum.Material.Fabric
-			)
-		)
-	end
-	-- The glass partition: glass over the main ward's headboards, from the shaft to its doorway.
-	local z = B.PARTITION_Z
-	glass(
-		wards,
-		"GlassPartition",
-		B.SHAFT.X1,
-		B.DOORS.Partition.X0,
-		y + Pure.BED.HeadboardHeight,
-		Pure.wallTop(B, WARDS_FLOOR),
-		z - B.WALL / 2,
-		z + B.WALL / 2
+-- Lv 1-4: the top roof over the tower, its edge band, the lift's head and the paw-heart on its street edge. Returns
+-- where a theme prop stands, and the roof's front edge (icicles) and its width.
+local function buildRoofTop(model: Model, style: Style, standing: number): (CFrame, CFrame, number)
+	local roofTop = piece(model, "RoofTop", Pure.sinceStanding(B, standing), standing + 1)
+	local t, s = B.TOWER, B.SHAFT
+	local top = Pure.roofTop(B, standing)
+	box(roofTop, "RoofCap", t.X0 - 0.2, t.X1 + 0.2, top - Pure.SLAB, top, t.Z0 - 0.2, t.Z1 + 0.2, WORLD.Roof)
+	painted(
+		paint(box(roofTop, "BandRoof", t.X0 - 0.2, t.X1 + 0.2, top, top + 0.4, t.Z0 - 0.2, t.Z0 + 0.4, style.Band)),
+		"Band"
 	)
-end
-
--- F2, Hydro: the round hot tub (patients soak at its two TubSpots; the SoakPrompt waits at its landing side), a
--- towel shelf and a plant.
-local function buildHydro(model: Model)
-	local hydro = piece(model, "Hydro", sinceDept("Hydro"), HYDRO_FLOOR)
-	local t = Pure.TUB
-	local y = B.slabTop(HYDRO_FLOOR)
-	local tubModel = Instance.new("Model")
-	tubModel.Name = "HotTub"
-	local tub = cylinder(tubModel, "Tub", t.Rim, t.Diameter, CFrame.new(t.X, y + t.Rim / 2, t.Z), DEPT.Hydro)
-	paint(cylinder(tubModel, "Water", 0.1, t.Diameter - 1, CFrame.new(t.X, y + t.Rim + 0.05, t.Z), WORLD.Water))
-	for i, at in Pure.TUB_SPOTS do
-		local spot = marker(tubModel, "TubSpot_" .. i, CFrame.new(at.X, y + t.Rim + 0.5, at.Z))
-		spot:SetAttribute("Floor", HYDRO_FLOOR)
-	end
-	local point = Instance.new("Attachment")
-	point.Name = "SoakPoint"
-	point.CFrame = tub.CFrame:ToObjectSpace(CFrame.new(t.X - t.Diameter / 2, y + 2.6, t.Z))
-	point.Parent = tub
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "SoakPrompt"
-	prompt.ActionText = "🫧"
-	prompt.ObjectText = ""
-	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 10
-	prompt.RequiresLineOfSight = false
-	prompt.Enabled = false
-	CollectionService:AddTag(prompt, HospitalBuilder.PROMPT_TAGS.Soak)
-	prompt.Parent = point
-	tubModel.Parent = hydro
-	local h, w = B.HALF, B.WALL
-	local inner = h - w - Pure.DADO.Thick
-	box(hydro, "TowelShelf", inner - 0.7, inner, y, y + 3, 0, 4, WORLD.Plank, Enum.Material.WoodPlanks)
-	local plant = Pure.PLANTER
-	Studs.apply(
-		box(
-			hydro,
-			"Plant",
-			inner - plant - 0.1,
-			inner - 0.1,
-			y,
-			y + plant,
-			B.TOWER_FRONT + 0.8,
-			B.TOWER_FRONT + 0.8 + plant,
-			WORLD.LeavesA
-		)
-	)
-end
-
--- F3, the Pharmacy: the station Model by the station contract (Server/Stations finds it by its tag), the medicine
--- shelf along the atrium (it is that floor's rail) and a bench by the front glass.
-local function buildPharmacy(model: Model)
-	local pharmacy = piece(model, "Pharmacy", sinceDept("Pharmacy"), PHARMACY_FLOOR)
-	local p = Pure.PHARMACY
-	local y = B.slabTop(PHARMACY_FLOOR)
-	local data = rawget(Stations :: any, "Pharmacy")
-	local station = Instance.new("Model")
-	station.Name = "Station_Pharmacy"
-	local counter = box(
-		station,
-		"Counter",
-		p.X - p.Width / 2,
-		p.X + p.Width / 2,
-		y,
-		y + p.Height,
-		p.Z - p.Depth / 2,
-		p.Z + p.Depth / 2,
-		DEPT.Pharmacy
-	)
-	station.PrimaryPart = counter
-	Studs.apply(
-		box(
-			station,
-			"Top",
-			p.X - p.Width / 2 - 0.15,
-			p.X + p.Width / 2 + 0.15,
-			y + p.Height,
-			y + p.Height + 0.3,
-			p.Z - p.Depth / 2 - 0.15,
-			p.Z + p.Depth / 2 + 0.15,
-			WORLD.Trim
-		)
-	)
-	iconBadge(
-		counter,
-		"IconGui",
-		if data then data.Icon else "💊",
-		if data then data.Color else DEPT.Pharmacy,
-		2.6,
-		p.Height / 2 + 2.1
-	)
-	CollectionService:AddTag(station, HospitalBuilder.STATION_TAG)
-	station.Parent = pharmacy
-	-- The shelf stands where F3's long rail would: inside the open lane, along its edge.
-	local long = Pure.rails(B, PHARMACY_FLOOR).Long
-	local shelf = box(
-		pharmacy,
-		"Shelf",
-		long.X0,
-		long.X1,
-		y,
-		y + Pure.SHELF.Height,
-		long.Z0,
-		long.Z0 + Pure.SHELF.Thick,
-		WORLD.PlankAlt,
-		Enum.Material.WoodPlanks
-	)
-	local gui = surface(shelf, "ShelfGui", Enum.NormalId.Front, 16, 80)
-	local bottles = { ACCENT.Pink, ACCENT.Yellow, ACCENT.Cyan, ACCENT.Purple, ACCENT.Orange, ACCENT.Blue }
-	for col = 1, 12 do
-		local bottle = band(
-			gui,
-			"Bottle",
-			UDim2.fromScale(0.03, 0.22),
-			UDim2.fromScale((col - 0.5) / 12, 0.72),
-			bottles[(col - 1) % #bottles + 1]
-		)
-		Parts.rounded(bottle, UDim.new(0.35, 0))
-	end
-	floatText(gui, "💊 Pharmacy", {
-		Shadow = true,
-		Size = UDim2.fromScale(0.5, 0.36),
-		Position = UDim2.fromScale(0.25, 0.08),
-	})
-	local b = Pure.BENCH
-	box(pharmacy, "Bench", b.X0, b.X1, y, y + b.Height, b.Z0, b.Z1, WORLD.Plank, Enum.Material.WoodPlanks)
-end
-
--- Lv 3+: F1's roof in front of the tower, dark, with a parapet on its street edge.
-local function buildTerrace(model: Model)
-	local terrace = piece(model, "Terrace", sinceFloor(2), WARDS_FLOOR + 1)
-	local h, f, w = B.HALF, B.FRONT, B.WALL
-	local y = B.slabTop(WARDS_FLOOR + 1)
-	box(terrace, "RoofTerrace", -h, h, y - Pure.SLAB, y, f, B.TOWER_FRONT, WORLD.Roof)
-	box(terrace, "ParapetTerrace", -h, h, y, y + Pure.PARAPET, f, f + w, WORLD.Roof)
-end
-
--- Lv 2-4: the top roof (over the whole block at Lv 2, the tower from Lv 3), its edge band, the lift's head and
--- (Lv 3-4) the paw-heart on its street edge. Returns where a theme prop stands, and the front edge (icicles).
-local function buildRoofTop(model: Model, style: Style, level: number, floors: number): (CFrame, CFrame, number)
-	local storey = floors + 1
-	local roofTop = piece(model, "RoofTop", level, storey)
-	local h = B.HALF
-	local f = B.footprint(B.MAX_LEVEL, floors) -- the top floor's: the whole block at Lv 2, the tower from Lv 3
-	local top = Pure.roofTop(B, floors)
-	box(roofTop, "RoofCap", -h - 0.2, h + 0.2, top - Pure.SLAB, top, f.Z0 - 0.2, f.Z1 + 0.2, WORLD.Roof)
-	local s = B.SHAFT
-	local x0 = if f.Z0 < s.Z0 then -h - 0.2 else s.X1 -- the tower's front edge starts beside the lift's head
-	painted(paint(box(roofTop, "BandRoof", x0, h + 0.2, top, top + 0.4, f.Z0 - 0.2, f.Z0 + 0.4, style.Band)), "Band")
 	Studs.apply(box(roofTop, "LiftHead", s.X0, s.X1, top, top + Pure.LIFT_HEAD, s.Z0, s.Z1, style.Accent))
-	local spot = if floors <= WARDS_FLOOR then Pure.PROP.Block else Pure.PROP.Tower
-	if floors > WARDS_FLOOR then
-		-- The "big sign" (Data/Levels Lv 3): the paw-heart on the tower's roof edge, over the band, facing the street.
-		local d = 6 -- on the 27-stud tower face
-		pawSign(roofTop, "LogoSign", CFrame.new((s.X1 + h) / 2, top + 0.4 + d / 2, f.Z0 - 0.1), d, style)
-	end
-	return CFrame.new(spot.X, top, spot.Z), CFrame.new((x0 + h) / 2, top - Pure.SLAB, f.Z0 - 0.25), h - x0
+	local cx = (t.X0 + t.X1) / 2
+	pawSign(roofTop, "LogoSign", CFrame.new(cx, top + 0.4 + Pure.LOGO / 2, t.Z0 - 0.1), Pure.LOGO, style)
+	return CFrame.new(Pure.PROP.X, top, Pure.PROP.Z), CFrame.new(cx, top - Pure.SLAB, t.Z0 - 0.45), t.X1 - t.X0 + 0.4
 end
 
 -- Lv 5: the helipad (a ring and an H drawn on one flat invisible part), HeliSpot and the roof garden, and the lift
 -- tower's head with the neon paw-heart and the beacon. Returns where a theme prop stands, and the deck's front edge.
 local function buildRoofDeck(model: Model, style: Style): (CFrame, CFrame, number)
-	local roof = piece(model, "Roof", sinceDept("Roof"), ROOF_FLOOR)
+	local roof = piece(model, "Roof", Pure.sinceOpen(B, ROOF_FLOOR), ROOF_FLOOR)
 	local y = B.slabTop(ROOF_FLOOR)
-	local pad = Pure.PAD
-	local surfacePart = paint(
-		part(
-			roof,
-			"Helipad",
-			Vector3.new(pad.Diameter, 0.1, pad.Diameter),
-			CFrame.new(pad.X, y + 0.06, pad.Z),
-			WORLD.Roof
-		)
-	)
-	surfacePart.Transparency = 1
-	local gui = surface(surfacePart, "PadGui", Enum.NormalId.Top, 12, 300, 1)
+	local h = B.HELI
+	local pad =
+		paint(part(roof, "Helipad", Vector3.new(h.Size, 0.1, h.Size), CFrame.new(h.X, y + 0.06, h.Z), WORLD.Roof))
+	pad.Transparency = 1
+	local gui = surface(pad, "PadGui", Enum.NormalId.Top, 12, 300, 1)
 	disc(gui, "Ring", 1, Palette.Gold, 1)
 	disc(gui, "Inner", 0.84, WORLD.Road, 2)
 	local letter = floatText(gui, "H", { Size = UDim2.fromScale(0.44, 0.44), Position = UDim2.fromScale(0.28, 0.28) })
 	letter.ZIndex = 4
-	local heli = marker(roof, "HeliSpot", CFrame.new(pad.X, y + 0.5, pad.Z))
+	local heli = marker(roof, "HeliSpot", CFrame.new(h.X, y + 0.5, h.Z))
 	heli:SetAttribute("ArriveAt", 0) -- Server/Patients sets it; Feel/HospitalFX flies the helicopter in
 	local size = Pure.PLANTER
 	for i, at in Pure.PLANTERS do
-		local planter = box(
-			roof,
-			"Planter",
-			at.X - size / 2,
-			at.X + size / 2,
-			y,
-			y + size,
-			at.Z - size / 2,
-			at.Z + size / 2,
-			if i % 2 == 0 then WORLD.LeavesB else WORLD.LeavesA
+		local planter = soft(
+			box(
+				roof,
+				"Planter",
+				at.X - size / 2,
+				at.X + size / 2,
+				y,
+				y + size,
+				at.Z - size / 2,
+				at.Z + size / 2,
+				if i % 2 == 0 then WORLD.LeavesB else WORLD.LeavesA
+			)
 		)
 		Studs.apply(planter)
 	end
 	-- The lift tower's head, over the glass shaft: the neon paw-heart on its street face and the beacon on top.
-	local tower = piece(model, "Tower", sinceDept("Roof"), ROOF_FLOOR)
+	local tower = piece(model, "Tower", Pure.sinceOpen(B, ROOF_FLOOR), ROOF_FLOOR)
 	local s = B.SHAFT
 	local base = Pure.shaftTop(B, ROOF_FLOOR, ROOF_FLOOR)
 	Studs.apply(box(tower, "TowerHead", s.X0, s.X1, base, base + Pure.HEAD, s.Z0, s.Z1, style.Accent))
 	local cx = (s.X0 + s.X1) / 2
 	local logo = pawSign(tower, "LogoNeon", CFrame.new(cx, base + Pure.HEAD / 2, s.Z0 - 0.25), 4, style)
-	NightLights.light(logo, 24) -- the building's one light; the disc goes Neon after dark
+	NightLights.light(logo, 24) -- the building's one night light; the disc goes Neon after dark
 	local beacon = soft(
 		box(
 			tower,
@@ -1499,18 +1706,21 @@ local function buildRoofDeck(model: Model, style: Style): (CFrame, CFrame, numbe
 	)
 	beacon.CastShadow = false
 	NightLights.tag(beacon, "Lamp")
-	local spot = Pure.PROP.Tower
-	local h = B.HALF
-	return CFrame.new(spot.X, y, spot.Z), CFrame.new((s.X1 + h) / 2, y - Pure.SLAB, B.TOWER_FRONT - 0.25), h - s.X1
+	local t = B.TOWER
+	return CFrame.new(Pure.PROP.X, y, Pure.PROP.Z),
+		CFrame.new((t.X0 + t.X1) / 2, y - Pure.SLAB, t.Z0 - 0.25),
+		t.X1 - t.X0
 end
 
--- A&E: the ambulance bay on the front-left lawn and a toy Ambulance parked nose to the street: warm white, a red
--- stripe round it, the paw-heart on its side (never a cross), sirens that go Neon at night. The StretcherSpot by
--- its side door faces the line (Server/Patients pops an urgent patient out there).
+-- A&E (Lv 2+): the ambulance bay in the -x yard (Logic/Building.BAY_AMBULANCE) and a toy Ambulance parked nose to
+-- the street: warm white, a red stripe round it, the paw-heart on its side (never a cross), sirens that go Neon at
+-- night. The StretcherSpot is in line with the A&E door, facing it (Server/Patients sets an urgent patient there).
 local function buildAmbulanceBay(model: Model, style: Style)
-	local bay = piece(model, "AmbulanceBay", sinceDept("AE"), 0)
-	local at = CFrame.new(Pure.BAY.X, 0, Pure.BAY.Z)
-	paint(part(bay, "BayFloor", Vector3.new(7.4, 0.06, 13), at * CFrame.new(0, 0.04, 0), WORLD.Road))
+	local a = B.BAY_AMBULANCE
+	local bay = piece(model, "AmbulanceBay", AE_OPENS, 0)
+	local area = a.Area
+	paint(box(bay, "BayFloor", area.X0, area.X1, 0.01, 0.07, area.Z0, area.Z1, WORLD.Road))
+	local at = CFrame.new(a.X, 0, a.Z)
 	local van = Instance.new("Model")
 	van.Name = "Ambulance"
 	local lift = 0.7 -- the wheels' radius: the body sits on them
@@ -1535,9 +1745,10 @@ local function buildAmbulanceBay(model: Model, style: Style)
 			soft(part(van, "Axle", Vector3.new(5, lift * 2, lift * 2), at * CFrame.new(0, lift, z), Palette.Ink))
 		axle.Shape = Enum.PartType.Cylinder
 	end
-	marker(van, "StretcherSpot", at * CFrame.new(3.6, 0.5, 1.3) * CFrame.Angles(0, -math.pi / 2, 0))
 	van:SetAttribute("ArriveAt", 0) -- Server/Patients sets it; Feel/HospitalFX flashes and sirens
 	van.Parent = bay
+	local s = a.Stretcher
+	marker(bay, "StretcherSpot", CFrame.new(s.X, 0.5, s.Z) * CFrame.Angles(0, math.rad(270), 0))
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -1665,6 +1876,9 @@ end
 -- Putting it together
 ------------------------------------------------------------------------------------------------------------------
 
+-- The names a ClinicKit building must carry (the brother's builds), so the systems find what they need.
+local KIT_NEEDS = { "FrontDoor", "ReceptionStop", "WaitSeat_1", "ExamBay_1", "Station_Remedy" }
+
 local function kitBuilding(level: number, themeId: string): Model?
 	local kit = ServerStorage:FindFirstChild("ClinicKit")
 	local template = kit and kit:FindFirstChild("Building" .. level)
@@ -1674,95 +1888,70 @@ local function kitBuilding(level: number, themeId: string): Model?
 	local model = template:Clone()
 	scrubScripts(model, "ClinicKit.Building" .. level)
 	anchorAll(model)
-	local beds = 0
 	for _, descendant in model:GetDescendants() do
-		if descendant:IsA("BasePart") and string.match(descendant.Name, "^Bed_%d+$") then
-			beds += 1
-		elseif descendant:IsA("BasePart") and (descendant.Name == "Landing" or descendant.Name == "Landing_0") then
+		local name = descendant.Name
+		if descendant:IsA("BasePart") and (name == "Landing" or name == "Landing_0") then
 			liftPrompts(descendant) -- the brother's landings get the same prompts
-		elseif descendant.Name == "Station_Pharmacy" then
+		elseif string.match(name, "^Station_%w+$") and (descendant:IsA("BasePart") or descendant:IsA("Model")) then
 			CollectionService:AddTag(descendant, HospitalBuilder.STATION_TAG)
-		elseif descendant.Name == "Lift" and descendant:IsA("Model") then
+		elseif name == "Lift" and descendant:IsA("Model") then
 			CollectionService:AddTag(descendant, HospitalBuilder.LIFT_TAG)
+		elseif descendant:IsA("Model") and (name == "FrontDoor" or string.match(name, "^Door_%w+$")) then
+			CollectionService:AddTag(descendant, Doors.TAG)
 		end
 	end
-	if beds < extraBeds(level) then
-		warn("[HospitalBuilder] ClinicKit.Building" .. level .. " needs " .. extraBeds(level) .. " Bed_<n> Parts")
+	for _, name in KIT_NEEDS do
+		if not model:FindFirstChild(name, true) then
+			warn("[HospitalBuilder] ClinicKit.Building" .. level .. " has no " .. name)
+		end
 	end
-	local row = LevelsData[level]
-	if row and row.Floors > 0 and not model:FindFirstChild("Landing_0") then
+	if B.floors(level) > 0 and not model:FindFirstChild("Landing_0", true) then
 		warn("[HospitalBuilder] ClinicKit.Building" .. level .. " has no Landing_0: its lift won't work")
 	end
 	model:SetAttribute("Theme", themeId)
 	return model
 end
 
--- The Stand room's floor top (plot-local), where the podium's bench and the Lv 1 bed stand.
-local function standFloorTop(plotModel: Model): number
-	local rooms = plotModel:FindFirstChild("Rooms")
-	local stand = rooms and rooms:FindFirstChild("Room_Stand")
-	local floor = if stand and stand:IsA("Model") then stand.PrimaryPart or stand:FindFirstChild("Floor") else nil
-	if floor and floor:IsA("BasePart") then
-		local y = plotModel:GetPivot():PointToObjectSpace(floor.Position).Y + floor.Size.Y / 2
-		if y > -1 and y < 3 then
-			return y
-		end
-	end
-	return Pure.STAND_TOP
-end
-
--- Builds the hospital in plot-local space (the plot's ground-top centre at the origin, -Z to the street). Bed spots
--- whose index is in `keep` are left out: the old ones move across.
-local function placeholderBuilding(plotModel: Model, level: number, keep: { [number]: boolean }, themeId: string): Model
+-- Builds the clinic in plot-local space (the plot's ground-top centre at the origin, -Z to the street). Bed spots in
+-- `keep` ([floor][index]) are left out: the old ones move across.
+local function placeholderBuilding(
+	plotModel: Model,
+	level: number,
+	keep: { [number]: { [number]: boolean } },
+	themeId: string
+): Model
 	local model = Instance.new("Model")
 	local row = LevelsData[level]
 	local style = buildingStyle(plotAccent(plotModel), themeId)
-	local floors = if row then math.max(0, row.Floors) else 0
-	local standTop = standFloorTop(plotModel)
-	buildPodium(model, style, standTop, if row then row.Name else "")
+	local standing = Pure.standing(B, level)
+	local owned = ownedRooms(plotModel)
+	buildShell(model, style, if row then row.Name else "")
+	for _, spec in DOOR_SPECS do
+		buildDoor(model, level, owned, spec)
+	end
+	buildWaiting(model, style)
+	buildDispensary(model, level)
+	buildBays(model, level)
+	for _, id in { "Plaster", "Ice", "Bandage" } do
+		buildStation(model, id, level, Pure.STATION.Height) -- the supply alcove
+	end
+	buildXRay(model, level)
+	buildBackRooms(model)
+	buildLift(model, style, level, standing)
+	buildStairs(model, style, level, standing)
+	for k = 1, standing do
+		buildFloor(model, style, level, k, keep[k] or {})
+	end
 	local spot: CFrame, edge: CFrame, width: number, storey: number
-	if floors == 0 then
-		buildPodiumShell(model, style, standTop)
-		-- A theme's prop stands on the podium's roof; icicles hang from the canopy's edge.
-		local canopy = B.CANOPY
-		spot = CFrame.new(Pure.PROP.Podium.X, B.GROUND, Pure.PROP.Podium.Z)
-		edge = CFrame.new((canopy.X0 + canopy.X1) / 2, canopy.Y - 0.25, canopy.Z0 - 0.15)
-		width = canopy.X1 - canopy.X0
-		storey = 1
+	if standing >= ROOF_FLOOR then
+		spot, edge, width = buildRoofDeck(model, style)
+		storey = ROOF_FLOOR
 	else
-		local roofWalkable = floors >= ROOF_FLOOR
-		local hasPharmacy = hasDept(row, "Pharmacy") and PHARMACY_FLOOR <= floors
-		buildHall(model, style, floors)
-		local landing0 = landingMarker(model, "Landing_0", 0)
-		landing0:SetAttribute("Since", sinceFloor(1))
-		landing0:SetAttribute("Storey", 0)
-		buildLift(model, style, floors)
-		buildStairs(model, floors)
-		for k = 1, floors do
-			buildFloor(model, style, k, hasPharmacy)
-		end
-		if hasDept(row, "Wards") and WARDS_FLOOR <= floors then
-			buildWards(model, level, keep)
-		end
-		if hasDept(row, "Hydro") and HYDRO_FLOOR <= floors then
-			buildHydro(model)
-		end
-		if hasPharmacy then
-			buildPharmacy(model)
-		end
-		if hasDept(row, "AE") then
-			buildAmbulanceBay(model, style)
-		end
-		if floors > WARDS_FLOOR then
-			buildTerrace(model)
-		end
-		if roofWalkable then
-			spot, edge, width = buildRoofDeck(model, style)
-			storey = ROOF_FLOOR
-		else
-			spot, edge, width = buildRoofTop(model, style, level, floors)
-			storey = floors + 1
-		end
+		spot, edge, width = buildRoofTop(model, style, standing)
+		storey = standing + 1
+	end
+	if level >= AE_OPENS then
+		buildAmbulanceBay(model, style)
 	end
 	themeProp(model, style, level, storey, spot, edge, width)
 	model.WorldPivot = CFrame.identity
@@ -1779,21 +1968,27 @@ function HospitalBuilder.build(plotModel: Model, level: number, grewFrom: number
 	if model then
 		model:PivotTo(plotModel:GetPivot())
 	else
-		-- Keep the bed spots that stay (a patient may be resting on one): same index, same spot.
-		local keep: { [number]: boolean } = {}
+		-- Keep the ward bed spots that stay (a patient may be resting on one): same floor, same index, same spot.
+		local keep: { [number]: { [number]: boolean } } = {}
+		local moving: { { Spot: Instance, Floor: number } } = {}
 		if old then
-			for index = 1, extraBeds(lv) do
-				if old:FindFirstChild("BedSpot_" .. index, true) then
-					keep[index] = true
+			for k = 1, #B.SLAB_TOPS do
+				local oldFloor = old:FindFirstChild("Floor_" .. k)
+				for _, bed in B.wardBeds(lv, k) do
+					local spot = oldFloor and oldFloor:FindFirstChild("BedSpot_" .. bed.Index)
+					if bed.Functional and spot then
+						keep[k] = keep[k] or {}
+						keep[k][bed.Index] = true
+						table.insert(moving, { Spot = spot, Floor = k })
+					end
 				end
 			end
 		end
 		model = placeholderBuilding(plotModel, lv, keep, themeId)
-		local wards = (model :: Model):FindFirstChild("Wards")
-		for index in keep do
-			local spot = (old :: Instance):FindFirstChild("BedSpot_" .. index, true)
-			if spot and wards then
-				spot.Parent = wards
+		for _, entry in moving do
+			local floorModel = (model :: Model):FindFirstChild("Floor_" .. entry.Floor)
+			if floorModel then
+				entry.Spot.Parent = floorModel
 			end
 		end
 	end
@@ -1804,7 +1999,8 @@ function HospitalBuilder.build(plotModel: Model, level: number, grewFrom: number
 	local from = if type(grewFrom) == "number" then grewFrom else lv
 	building:SetAttribute("GrewFrom", from)
 	building:SetAttribute("GrewAt", if from < lv then Workspace:GetServerTimeNow() else 0)
-	building:SetAttribute("Floors", if LevelsData[lv] then LevelsData[lv].Floors else 0)
+	building:SetAttribute("Floors", B.floors(lv))
+	building:SetAttribute("Storeys", Pure.standing(B, lv))
 	building:SetAttribute("Theme", themeId)
 	-- The plot-local frame, for Feel/Cutaway (which falls back to the Building's pivot): never worth a failed build.
 	pcall(building.SetAttribute, building, "Origin", plotModel:GetPivot())

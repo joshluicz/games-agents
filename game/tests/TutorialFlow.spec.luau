@@ -1,10 +1,13 @@
 --!nocheck
 -- The tutorial's flow (look build plan §D T8, §B1, §B9; memory-20261117-002/-003). Everything here is loaded straight
 -- from the shipped source (the PURE blocks), so a spec can't pass on a stale copy:
---   · Server/Tutorial's remote rules (Skip, Replay with its cooldown, the one-time gift, the funnel);
+--   · Server/Tutorial's remote rules (Skip, Replay with its cooldown, the one-time gift, the funnel, the patients
+--     watch's attribute rules);
 --   · UI/Wayfinder.Pure (feet, the beam's ends and bends, the chevrons, the near-hide, the fade);
---   · Logic/Tutorial.card for every (step, treating), and UI/Tutorial.Pure's words per device (≤ 6 words, the Skip
---     line the one binding exception), the confirms, the nurse's lines and the finale's FREE "coming up" chip;
+--   · UI/Guide.Pure (the Real Clinic: who the doctor goes to next, and what for: Examine, Fetch, Treat);
+--   · Logic/Tutorial.card for every (step, playing, carrying), and UI/Tutorial.Pure's words per device: the 7 cards of
+--     the Real Clinic design §13 (≤ 4-word titles, ≤ 6-word subtitles, the Skip line the one binding exception), the
+--     confirms, the nurse's lines and the finale's FREE "coming up" chip;
 --   · UI/Celebrate's "Tutorial" kind;
 --   · uirules on every T8 UI file, Sounds' Chirp, and the budgets the source can show (one Highlight, one loop).
 -- Run from game/ with the rest:  lune run tests/run
@@ -42,10 +45,14 @@ end
 local Server = block("src/server/Tutorial.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure", { Logic = Logic })
 local Way = block("src/client/UI/Wayfinder.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure")
 local Card = block("src/client/UI/Tutorial.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure")
+local GuidePure = block("src/client/UI/Guide.luau", "-- PURE-BEGIN", "-- PURE-END", "Pure")
+local Visit = require("../src/shared/Logic/Visit")
+local Items = require("../src/shared/Data/Items")
+local Cases = require("../src/shared/Data/Cases")
 local Words = block("src/client/UI/Celebrate.luau", "-- BEGIN PURE", "-- END PURE", "Words")
 
-local WELCOME, PATIENT, MAKE, TREAT, REST, MORE, SHOP, BOOK, DONE =
-	Logic.WELCOME, Logic.PATIENT, Logic.MAKE, Logic.TREAT, Logic.REST, Logic.MORE, Logic.SHOP, Logic.BOOK, Logic.DONE
+local WELCOME, PATIENT, EXAMINE, TREAT, REST, MORE, SHOP, BOOK, DONE =
+	Logic.WELCOME, Logic.PATIENT, Logic.EXAMINE, Logic.TREAT, Logic.REST, Logic.MORE, Logic.SHOP, Logic.BOOK, Logic.DONE
 local COOLDOWN = Config.Tutorial.ReplayCooldown
 
 local function words(text: string): number
@@ -126,7 +133,7 @@ T.describe("The one-time gift (server rules)", function()
 	test("due only on entering SHOP, never twice", function()
 		expect({ Server.gift(SHOP, false) }).toEqual({ true, true })
 		expect({ Server.gift(SHOP, true) }).toEqual({ false, true })
-		for _, step in { WELCOME, PATIENT, MAKE, TREAT, REST, MORE, BOOK } do
+		for _, step in { WELCOME, PATIENT, EXAMINE, TREAT, REST, MORE, BOOK } do
 			expect({ Server.gift(step, false) }).toEqual({ false, false })
 		end
 	end)
@@ -154,12 +161,12 @@ T.describe("The one-time gift (server rules)", function()
 	end
 
 	test("a first run gets one gift; Skip and then Replay through the shop gets none", function()
-		local first = { { PATIENT }, { MAKE }, { TREAT }, { REST }, { MORE }, { SHOP }, { BOOK }, { DONE } }
+		local first = { { PATIENT }, { EXAMINE }, { TREAT }, { REST }, { MORE }, { SHOP }, { BOOK }, { DONE } }
 		expect({ run(first, false) }).toEqual({ 1, true })
-		local skipped = { { PATIENT }, { MAKE }, { DONE } }
+		local skipped = { { PATIENT }, { EXAMINE }, { DONE } }
 		local gifts, gifted = run(skipped, false)
 		expect(gifts).toBe(0)
-		local replayed = { { PATIENT, 1 }, { MAKE }, { TREAT }, { REST }, { MORE }, { SHOP }, { BOOK }, { DONE } }
+		local replayed = { { PATIENT, 1 }, { EXAMINE }, { TREAT }, { REST }, { MORE }, { SHOP }, { BOOK }, { DONE } }
 		expect((run(replayed, gifted))).toBe(0)
 		-- Even a save that somehow lost the flag gets nothing on a replay.
 		expect((run(replayed, false))).toBe(0)
@@ -167,23 +174,177 @@ T.describe("The one-time gift (server rules)", function()
 end)
 
 T.describe("The onboarding funnel (server rules)", function()
-	test("each card once, as the step moves onto it", function()
+	test("each stage once, as the step moves onto it: the card it shows, then the Shop as stage 8", function()
 		expect(Server.funnel(WELCOME, PATIENT)).toBe(1)
-		expect(Server.funnel(PATIENT, MAKE)).toBe(2)
-		expect(Server.funnel(MAKE, TREAT)).toBe(3)
-		expect(Server.funnel(TREAT, REST)).toBe(5)
-		expect(Server.funnel(REST, MORE)).toBe(6)
-		expect(Server.funnel(MORE, SHOP)).toBe(7)
-		expect(Server.funnel(SHOP, BOOK)).toBeNil() -- the same card
+		expect(Server.funnel(PATIENT, EXAMINE)).toBe(2)
+		expect(Server.funnel(EXAMINE, TREAT)).toBe(4)
+		expect(Server.funnel(PATIENT, TREAT)).toBe(4) -- examined before the arrival's beat
+		expect(Server.funnel(TREAT, REST)).toBe(6)
+		expect(Server.funnel(REST, MORE)).toBe(7)
+		expect(Server.funnel(TREAT, MORE)).toBe(7) -- paid out at once (Lv 1)
+		expect(Server.funnel(MORE, SHOP)).toBe(8)
+		expect(Server.funnel(SHOP, BOOK)).toBeNil() -- the same stage
+		for stage = 1, 8 do
+			expect(type(Logic.FUNNEL_NAMES[stage])).toBe("string")
+		end
 	end)
 
 	test("never on a replay, a Skip or the end (a later step would mark skipped ones done)", function()
 		expect(Server.funnel(DONE, PATIENT, true)).toBeNil()
-		expect(Server.funnel(MAKE, TREAT, true)).toBeNil()
+		expect(Server.funnel(EXAMINE, TREAT, true)).toBeNil()
 		for step = WELCOME, BOOK do
 			expect(Server.funnel(step, DONE)).toBeNil()
 		end
 	end)
+end)
+
+T.describe("The patients watch (server rules: steps 2 and 3 never hang on a hook)", function()
+	test("a patient sitting on its bay bed (a Bay, and past the walk there) is the arrival", function()
+		expect(Server.seated("1", "AtBay")).toBe(true)
+		expect(Server.seated("W1", "Planned")).toBe(true)
+		expect(Server.seated("2", nil)).toBe(true) -- no State yet: the Bay says it
+		expect(Server.seated("1", "ToBay")).toBe(false) -- still walking to it
+		expect(Server.seated("1", "Waiting")).toBe(false)
+		for _, junk in { "", nil, 1, false, {} } :: { any } do
+			expect(Server.seated(junk, "AtBay")).toBe(false)
+		end
+	end)
+
+	test("a patient with a case (its Case attribute, set only by the exam) is the exam done", function()
+		expect(Server.examined("Cough")).toBe(true)
+		for _, junk in { "", nil, 3, true } :: { any } do
+			expect(Server.examined(junk)).toBe(false)
+		end
+	end)
+
+	test("the hooks Patients and Cure call are all there (onMade kept for Stations, moving nothing)", function()
+		local text = source("src/server/Tutorial.luau")
+		for _, hook in { "onFrontArrived", "onExamined", "onMade", "onTreated", "onCured" } do
+			expect(string.find(text, "function Tutorial." .. hook .. "(", 1, true) ~= nil).toBeTruthy()
+		end
+		-- the watch listens to the plot's patients only while in steps 2-3, and lets go on every other step
+		expect(
+			string.find(text, "if step == Logic.PATIENT or step == Logic.EXAMINE then\n\t\twatch(player)", 1, true)
+				~= nil
+		).toBeTruthy()
+		expect(string.find(text, "unwatch(player)\n\tif step == Logic.WELCOME then", 1, true) ~= nil).toBeTruthy()
+	end)
+end)
+
+------------------------------------------------------------------------------------------------------------------
+-- The doctor's next beat (UI/Guide.Pure): what the Guide points at and the cards follow
+------------------------------------------------------------------------------------------------------------------
+
+T.describe("Guide.Pure: who the doctor goes to next", function()
+	local function row(id: number, bay: string, state: string?, since: number?, extra: any?): any
+		local r = { Id = id, Bay = bay, State = state, Since = since }
+		for k, v in extra or {} do
+			r[k] = v
+		end
+		return r
+	end
+
+	test("only bay patients waiting for the doctor count (not walking, not mid-session, not leaving)", function()
+		expect(GuidePure.needsDoctor(row(1, "1", "AtBay"))).toBe(true)
+		expect(GuidePure.needsDoctor(row(1, "1", "Planned"))).toBe(true)
+		for _, state in
+			{
+				"Arriving",
+				"Waiting",
+				"ToBay",
+				"Examining",
+				"Treating",
+				"Done",
+				"ToWard",
+				"Recovering",
+				"Leaving",
+				"Sad",
+			}
+		do
+			expect(GuidePure.needsDoctor(row(1, "1", state))).toBe(false)
+		end
+		expect(GuidePure.needsDoctor(row(1, "", "AtBay"))).toBe(false) -- not in a bay
+		expect(GuidePure.needsDoctor(row(1, "2", nil))).toBe(true) -- no State yet: in a bay counts
+		expect(GuidePure.needsDoctor(row(1, "2", "SomethingNew"))).toBe(true) -- a newer server never hides the guide
+	end)
+
+	test("the plan's missing steps from Plan and PlanDone", function()
+		expect(GuidePure.missing("Ice,Bandage", "10")).toEqual({ "Bandage" })
+		expect(GuidePure.missing("Ice,Bandage", "")).toEqual({ "Ice", "Bandage" })
+		expect(GuidePure.missing("Ice,Bandage", "11")).toEqual({})
+		expect(GuidePure.missing(nil, nil)).toEqual({})
+		expect(GuidePure.split("Cast, PainRelief")).toEqual({ "Cast", "PainRelief" })
+	end)
+
+	test("the front patient (Visit.front: longest waiting) before its exam: Examine", function()
+		local rows = {
+			row(1, "2", "AtBay", 50),
+			row(2, "1", "AtBay", 20),
+			row(3, "3", "Examining", 5), -- someone is examining it: not the front
+		}
+		local id, todo, item = GuidePure.next(rows, {}, Visit.front)
+		expect(id).toBe(2)
+		expect(todo).toBe("Examine")
+		expect(item).toBeNil()
+	end)
+
+	test("examined: Fetch its first missing step", function()
+		local rows = { row(1, "1", "Planned", 10, { Case = "Sprain", Plan = "Ice,Bandage", PlanDone = "10" }) }
+		local id, todo, item = GuidePure.next(rows, {}, Visit.front)
+		expect(id).toBe(1)
+		expect(todo).toBe("Fetch")
+		expect(item).toBe("Bandage")
+	end)
+
+	test("carrying something a waiting patient needs: Treat that one first, even if it isn't the front", function()
+		local rows = {
+			row(1, "1", "AtBay", 10), -- the front: not examined yet
+			row(2, "2", "Planned", 30, { Case = "CutKnee", Plan = "Plaster", PlanDone = "0" }),
+		}
+		local id, todo, item = GuidePure.next(rows, { "Plaster" }, Visit.front)
+		expect(id).toBe(2)
+		expect(todo).toBe("Treat")
+		expect(item).toBe("Plaster")
+		-- carrying something nobody needs: the front again
+		id, todo = GuidePure.next(rows, { "Ice" }, Visit.front)
+		expect(id).toBe(1)
+		expect(todo).toBe("Examine")
+	end)
+
+	test("the server's QueueIndex orders them (1 = the front); 0 = it doesn't need the doctor now", function()
+		local rows = {
+			row(1, "1", "AtBay", nil, { Rank = 2 }),
+			row(2, "2", "AtBay", nil, { Rank = 1 }),
+			row(3, "3", "Planned", nil, { Rank = 0, Case = "Cough", Plan = "CoughSyrup", PlanDone = "0" }), -- a nurse
+		}
+		expect((GuidePure.next(rows, {}, Visit.front))).toBe(2)
+		expect((GuidePure.next(rows, { "CoughSyrup" }, Visit.front))).toBe(2) -- not 3: it isn't waiting now
+		expect(GuidePure.needsDoctor(rows[3])).toBe(false)
+	end)
+
+	test("no Since from the server: the bays' order decides", function()
+		local rows = { row(1, "3", "AtBay"), row(2, "1", "AtBay"), row(3, "W1", "AtBay") }
+		expect((GuidePure.next(rows, {}, Visit.front))).toBe(2)
+		expect(GuidePure.bayOrder("1") < GuidePure.bayOrder("6")).toBeTruthy()
+		expect(GuidePure.bayOrder("6") < GuidePure.bayOrder("W1")).toBeTruthy()
+	end)
+
+	test("nobody waiting for the doctor: nothing", function()
+		expect((GuidePure.next({}, {}, Visit.front))).toBeNil()
+		expect((GuidePure.next({ row(1, "1", "Treating", 3) }, { "Plaster" }, Visit.front))).toBeNil()
+	end)
+
+	test(
+		"the Guide reads bays and stations from the Building and the Rooms, never QueueStart or the Counter",
+		function()
+			local text = source("src/client/UI/Guide.luau")
+			expect(string.find(text, "QueueStart", 1, true)).toBeNil()
+			expect(string.find(text, "FrontStation", 1, true)).toBeNil()
+			expect(string.find(text, "data.Ailments", 1, true)).toBeNil()
+			expect(string.find(text, 'for _, holder in { "Building", "Rooms" } do', 1, true) ~= nil).toBeTruthy()
+			expect(string.find(text, '"ExamBay_" .. bayId', 1, true) ~= nil).toBeTruthy()
+		end
+	)
 end)
 
 ------------------------------------------------------------------------------------------------------------------
@@ -374,41 +535,51 @@ end)
 ------------------------------------------------------------------------------------------------------------------
 
 T.describe("The cards (Logic/Tutorial.card)", function()
-	test("every (step, treating)", function()
+	test("every (step, playing, carrying)", function()
+		-- { nothing up, the step's own game up, carrying what it needs }
 		local want = {
-			[WELCOME] = { 1, 1 },
-			[PATIENT] = { 1, 1 },
-			[MAKE] = { 2, 2 },
-			[TREAT] = { 3, 4 },
-			[REST] = { 5, 5 },
-			[MORE] = { 6, 6 },
-			[SHOP] = { 7, 7 },
-			[BOOK] = { 7, 7 },
+			[WELCOME] = { 1, 1, 1 },
+			[PATIENT] = { 1, 1, 1 },
+			[EXAMINE] = { 2, 3, 2 },
+			[TREAT] = { 4, 5, 5 },
+			[REST] = { 6, 6, 6 },
+			[MORE] = { 7, 7, 7 },
+			[SHOP] = { 7, 7, 7 },
+			[BOOK] = { 7, 7, 7 },
 		}
 		for step = WELCOME, BOOK do
-			expect(Logic.card(step, false)).toBe(want[step][1])
+			expect(Logic.card(step, nil, false)).toBe(want[step][1])
 			expect(Logic.card(step, true)).toBe(want[step][2])
+			expect(Logic.card(step, nil, true)).toBe(want[step][3])
 			expect(Logic.card(step)).toBe(want[step][1])
 		end
-		expect(Logic.card(DONE, false)).toBeNil()
+		-- the session's Kind: an exam is card 3, a supply's game card 5, a dispensing card still card 4
+		expect(Logic.card(EXAMINE, "Exam")).toBe(3)
+		expect(Logic.card(TREAT, "Treat")).toBe(5)
+		expect(Logic.card(TREAT, "Dispense")).toBe(4)
+		expect(Logic.card(TREAT, "Dispense", true)).toBe(5)
 		expect(Logic.card(DONE, true)).toBeNil()
 		expect(Logic.card(0)).toBeNil()
 		expect(Card.CARDS).toBe(Logic.CARDS)
+		expect(Card.PIPS_CARD).toBe(7)
 	end)
 
-	test("the tab and the pips", function()
+	test("the tab and the pips (card 7: treat 3 more)", function()
 		expect(Card.tab(2, 7)).toBe("TUTORIAL 2/7")
-		expect(Card.pips(0, 2)).toBe("○○")
-		expect(Card.pips(1, 2)).toBe("●○")
-		expect(Card.pips(2, 2)).toBe("●●")
-		expect(Card.pips(5, 2)).toBe("●●")
+		expect(Card.pips(0, 3)).toBe("○○○")
+		expect(Card.pips(1, 3)).toBe("●○○")
+		expect(Card.pips(3, 3)).toBe("●●●")
+		expect(Card.pips(5, 3)).toBe("●●●")
 	end)
 
-	test("the bar fills on success and never by time (card 6 by its pips)", function()
+	test("the bar fills on success and never by time (card 7 by its pips)", function()
 		expect(Card.segments(1, false)).toEqual({ 0, 0, 0, 0, 0, 0, 0 })
 		expect(Card.segments(1, true)).toEqual({ 1, 0, 0, 0, 0, 0, 0 })
 		expect(Card.segments(4, false)).toEqual({ 1, 1, 1, 0, 0, 0, 0 })
-		expect(Card.segments(6, false, 1, 2)).toEqual({ 1, 1, 1, 1, 1, 0.5, 0 })
+		local third = Card.segments(7, false, 1, 3)
+		expect(third[6]).toBe(1)
+		expect(third[7]).toBeCloseTo(1 / 3, 6)
+		expect(Card.segments(6, false, 1, 3)).toEqual({ 1, 1, 1, 1, 1, 0, 0 }) -- only card 7 has pips
 		expect(Card.segments(7, true)).toEqual({ 1, 1, 1, 1, 1, 1, 1 })
 	end)
 
@@ -422,34 +593,66 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 		expect(Card.device(nil, true, true, true)).toBe("Keyboard")
 	end)
 
-	-- Every situation a card can meet, per device.
+	-- Every situation a card can meet, per device: every plan item (Data/Items), every place, every bay, every game.
+	local GAME_IDS = {
+		"Listen",
+		"Temp",
+		"Light",
+		"Look",
+		"XRay",
+		"Plaster",
+		"Ice",
+		"Bandage",
+		"Cast",
+		"Bath",
+		"Cocoa",
+		"Pick",
+		"Dose",
+		"Tap",
+	}
 	local function situations(): { any }
 		local out = {}
 		for _, deviceName in { "Keyboard", "Touch", "Pad" } do
-			for _, waiting in { false, true } do
-				for _, carrying in { false, true } do
-					for cures = 0, 2 do
-						for _, game in { "Pour", "Patch", "Scrub", "Cool", "Tap" } do
-							for _, item in { "Potion", "Plaster", "Warm Tonic" } do
-								table.insert(out, {
-									Device = deviceName,
-									Item = item,
-									Need = "🧪",
-									Waiting = waiting,
-									Carrying = carrying,
-									Cures = cures,
-									Total = Logic.MORE_CURES,
-									Cured = cures > 0,
-									Game = game,
-								})
+			for _, atBay in { false, true } do
+				for _, examined in { false, true } do
+					for _, carrying in { false, true } do
+						for _, itemId in Items.Order do
+							for _, where in { "Shelf", "Dispensary", "Room" } do
+								for _, bay in { "1", "6", "W2", "X" } do
+									table.insert(out, {
+										Device = deviceName,
+										Bay = bay,
+										AtBay = atBay,
+										Examined = examined,
+										Item = Items[itemId].Name,
+										Need = Items[itemId].Icon,
+										Where = where,
+										Carrying = carrying,
+										Glow = carrying, -- both ways
+										Cures = if carrying then 2 else 0,
+										Total = Logic.MORE_CURES,
+										Shop = examined and atBay,
+									})
+								end
 							end
 						end
 					end
 				end
 			end
 		end
+		for _, deviceName in { "Keyboard", "Touch", "Pad" } do
+			for _, gameId in GAME_IDS do
+				table.insert(out, { Device = deviceName, Game = gameId, Total = Logic.MORE_CURES })
+			end
+		end
 		return out
 	end
+
+	test("every game on the slim strip has words", function()
+		for _, gameId in GAME_IDS do
+			expect(Card.GAMES[gameId] ~= nil).toBeTruthy()
+		end
+	end)
 
 	test("the card words: a title of 4 words or fewer, a subtitle (with its key) of 6 or fewer", function()
 		for _, s in situations() do
@@ -460,39 +663,119 @@ T.describe("The cards (Logic/Tutorial.card)", function()
 				local titleWords = words(w.Title)
 				local subWords = words(w.Sub) + (if w.Key then 1 else 0)
 				if titleWords > 4 or subWords > 6 then
-					error(string.format("card %d (%s): %q / %q", cardNumber, s.Device, w.Title, w.Sub))
+					error(string.format("card %d (%s): %q / %q", cardNumber, s.Device or "?", w.Title, w.Sub))
 				end
 			end
 		end
 	end)
 
-	test("the plan's words (§B9) per device", function()
-		local function w(cardNumber, deviceName, extra)
-			local s = { Device = deviceName, Item = "Potion", Total = 2, Cures = 0 }
-			for k, v in extra or {} do
-				s[k] = v
+	test(
+		"the card titles match the design's §13 (welcome, examine, the glowing tool, the plan, Treat, done, 3 more)",
+		function()
+			local function w(cardNumber, deviceName, extra)
+				local s = { Device = deviceName, Bay = "1", Total = 3, Cures = 0 }
+				for k, v in extra or {} do
+					s[k] = v
+				end
+				return Card.words(cardNumber, s)
 			end
-			return Card.words(cardNumber, s)
+			-- (1) welcome, Doctor
+			expect(w(1, "Keyboard").Title).toBe("WELCOME, DOCTOR!")
+			expect(w(1, "Keyboard").Sub).toBe("🤧 A patient is coming!")
+			expect(w(1, "Keyboard", { AtBay = true }).Sub).toBe("🤧 A patient in bay 1!")
+			-- (2) a patient is in bay 1, tap Examine
+			expect(w(2, "Keyboard")).toEqual({
+				Title = "PATIENT IN BAY 1",
+				Sub = "Go to bay 1 · Examine",
+				Key = "Prompt",
+			})
+			expect(w(2, "Touch").Sub).toBe("Go to bay 1 · tap Examine")
+			expect(w(2, "Pad").Key).toBe("Prompt")
+			expect(w(2, "Keyboard", { Bay = "3" }).Title).toBe("PATIENT IN BAY 3")
+			-- (3) pick the glowing tool and play (the slim strip over the exam card)
+			expect(w(3, "Keyboard", { Glow = true })).toEqual({
+				Title = "PICK THE GLOWING TOOL",
+				Sub = "Tap the glowing tool, then play!",
+			})
+			expect(w(3, "Keyboard", { Glow = false }).Title).toBe("PICK THE RIGHT TOOL") -- a replay past the first exams
+			-- (4) the plan: get it from the shelf or the dispensary
+			expect(w(4, "Keyboard", { Item = "Plaster", Where = "Shelf" })).toEqual({
+				Title = "GET THE PLASTER",
+				Sub = "From the supply shelf · hold",
+				Key = "Prompt",
+			})
+			expect(w(4, "Keyboard", { Item = "Cough syrup", Where = "Dispensary" })).toEqual({
+				Title = "GET THE COUGH SYRUP",
+				Sub = "At the dispensary · hold",
+				Key = "Prompt",
+			})
+			expect(w(4, "Touch", { Item = "Ice pack", Where = "Shelf" }).Sub).toBe("From the shelf · hold 👆")
+			expect(w(4, "Touch", { Item = "Ear drops", Where = "Dispensary" }).Sub).toBe(
+				"Dispensary · hold 👆 Dispense"
+			)
+			expect(w(4, "Keyboard").Title).toBe("GET THE TREATMENT") -- the plan isn't on the patient yet
+			expect(w(4, "Keyboard", { Game = "Pick" }).Title).toBe("FIND THE BOTTLE!") -- the dispensing card is up
+			-- (5) tap Treat
+			expect(w(5, "Keyboard")).toEqual({
+				Title = "TREAT YOUR PATIENT",
+				Sub = "Back to bay 1 · Treat",
+				Key = "Prompt",
+			})
+			expect(w(5, "Touch").Sub).toBe("Back to bay 1 · tap Treat")
+			expect(w(5, "Keyboard", { Game = "Plaster" }).Title).toBe("PUT ON THE PLASTER!") -- its game, on the patient
+			-- (6) "You treated your first patient!"
+			expect(w(6, "Keyboard")).toEqual({ Title = "WELL DONE, DOCTOR!", Sub = "You treated your first patient!" })
+			-- (7) treat 3 more
+			expect(w(7, "Keyboard").Title).toBe("TREAT 3 MORE ○○○")
+			expect(w(7, "Keyboard", { Cures = 1 }).Title).toBe("TREAT 3 MORE ●○○")
+			expect(w(7, "Keyboard").Sub).toBe("🤕 New patient! Check its bubble")
+			expect(w(7, "Keyboard", { AtBay = true, Bay = "2" })).toEqual({
+				Title = "TREAT 3 MORE ○○○",
+				Sub = "Go to bay 2 · Examine",
+				Key = "Prompt",
+			})
+			expect(w(7, "Keyboard", { AtBay = true, Examined = true, Need = "🧴" }).Sub).toBe("It needs a 🧴!")
+			expect(w(7, "Keyboard", { AtBay = true, Examined = true, Carrying = true }).Sub).toBe(
+				"Back to bay 1 · Treat"
+			)
+			-- ... and card 7's last part, the Shop
+			expect(w(7, "Touch", { Shop = true }).Sub).toBe("Tap 🛒 · buy a ⚡")
+			expect(w(7, "Keyboard", { Shop = true }).Sub).toBe("Click 🛒 · buy a ⚡")
+			expect(w(7, "Pad", { Shop = true })).toEqual({
+				Title = "UPGRADE YOUR CLINIC",
+				Sub = "on 🛒",
+				Key = "Confirm",
+				KeyFirst = true,
+			})
 		end
-		expect(w(1, "Keyboard").Title).toBe("A SICK CREATURE!")
-		expect(w(1, "Keyboard").Sub).toBe("🤧 Look at its bubble")
-		expect(w(1, "Keyboard", { Waiting = true, Need = "🧪" }).Sub).toBe("It needs a 🧪!")
-		expect(w(2, "Keyboard")).toEqual({ Title = "MAKE A POTION", Sub = "Follow the arrows · hold", Key = "Prompt" })
-		expect(w(2, "Touch").Sub).toBe("Follow the arrows · hold 👆 Make")
-		expect(w(2, "Pad").Key).toBe("Prompt")
-		expect(w(3, "Keyboard").Title).toBe("GIVE IT THE POTION")
-		expect(w(3, "Touch").Sub).toBe("Go to the Counter · tap Treat")
-		expect(w(4, "Keyboard", { Game = "Pour" })).toEqual({ Title = "POUR IT IN!", Sub = "Hold… let go on ⭐" })
-		expect(w(5, "Keyboard").Title).toBe("RESTING…")
-		expect(w(5, "Keyboard", { Cured = true }).Title).toBe("CURED! 🎉")
-		expect(w(6, "Keyboard").Title).toBe("CURE 2 MORE ○○")
-		expect(w(6, "Keyboard", { Cures = 1 }).Title).toBe("CURE 2 MORE ●○")
-		expect(w(6, "Keyboard").Sub).toBe("🤕 New patient! Check its bubble")
-		expect(w(6, "Keyboard", { Waiting = true, Need = "🩹" }).Sub).toBe("It needs a 🩹!")
-		expect(w(6, "Keyboard", { Waiting = true, Carrying = true }).Key).toBe("Prompt")
-		expect(w(7, "Touch").Sub).toBe("Tap 🛒 · buy a ⚡")
-		expect(w(7, "Keyboard").Sub).toBe("Click 🛒 · buy a ⚡")
-		expect(w(7, "Pad")).toEqual({ Title = "UPGRADE YOUR CLINIC", Sub = "on 🛒", Key = "Confirm", KeyFirst = true })
+	)
+
+	test("no card says cure, and none is scary (design §2, §12)", function()
+		for _, s in situations() do
+			for cardNumber = 1, Logic.CARDS do
+				local w = Card.words(cardNumber, s)
+				for _, text in { w.Title, w.Sub } do
+					local lower = string.lower(text)
+					expect(string.find(lower, "%f[%a]cure")).toBeNil()
+					expect(string.find(lower, "needle", 1, true)).toBeNil()
+					expect(string.find(lower, "blood", 1, true)).toBeNil()
+				end
+			end
+		end
+		for _, line in Card.SAY do
+			expect(string.find(string.lower(line), "%f[%a]cure")).toBeNil()
+		end
+	end)
+
+	test("every Lv 1 case's first step reads as a whole title on card 4 (the tutorial's patients are Lv 1)", function()
+		for _, caseId in Cases.ORDER do
+			local case = Cases[caseId]
+			if case.Level == 1 and case.Room == nil then
+				local item = Items[case.Plan[1]]
+				local title = Card.words(4, { Device = "Keyboard", Item = item.Name, Where = "Shelf" }).Title
+				expect(title).toBe("GET THE " .. string.upper(item.Name))
+			end
+		end
 	end)
 
 	test("the word 'Spend' never appears; the pointer's label points at an upgrade (in-game cash)", function()
@@ -504,7 +787,7 @@ end)
 
 T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, phone words", function()
 	test("a rejoin at steps 2-6 with the gift already given is still a replay", function()
-		for _, step in { PATIENT, MAKE, TREAT, REST, MORE } do
+		for _, step in { PATIENT, EXAMINE, TREAT, REST, MORE } do
 			expect(Server.rejoinReplay(step, true)).toBe(true)
 			expect(Server.rejoinReplay(step, false)).toBe(false) -- a first run: the gift comes at SHOP
 			expect(Server.rejoinReplay(step, nil)).toBe(false)
@@ -516,7 +799,7 @@ T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, 
 		expect(Server.rejoinReplay(nil, true)).toBe(false)
 		expect(Server.rejoinReplay("2", true)).toBe(false)
 		-- and a replay rejoined that way logs no funnel step
-		expect(Server.funnel(MAKE, TREAT, Server.rejoinReplay(MAKE, true))).toBeNil()
+		expect(Server.funnel(EXAMINE, TREAT, Server.rejoinReplay(EXAMINE, true))).toBeNil()
 	end)
 
 	test("the Shop step moves on by itself only when there is nothing they can buy", function()
@@ -535,18 +818,31 @@ T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, 
 
 	test("a phone-width column gets the shortest touch words (they fit one line at 18 px)", function()
 		local function w(cardNumber, extra)
-			local s = { Device = "Touch", Item = "Potion", Total = 2, Cures = 0, Narrow = true }
+			local s = { Device = "Touch", Item = "Cough syrup", Bay = "1", Total = 3, Cures = 0, Narrow = true }
 			for k, v in extra or {} do
 				s[k] = v
 			end
 			return Card.words(cardNumber, s)
 		end
-		expect(w(2).Sub).toBe("Hold 👆 Make")
-		expect(w(3).Sub).toBe("Tap Treat at Counter")
-		expect(w(6).Sub).toBe("🤕 Check its bubble")
-		expect(w(6, { Waiting = true, Carrying = true }).Sub).toBe("Tap Treat at Counter")
+		expect(w(2).Sub).toBe("Tap Examine at bay 1")
+		expect(w(3, { Glow = true }).Sub).toBe("Tap the glowing tool!")
+		expect(w(4, { Where = "Dispensary" }).Sub).toBe("Hold 👆 Dispense")
+		expect(w(4, { Where = "Shelf" }).Sub).toBe("Hold 👆 at the shelf")
+		expect(w(5).Sub).toBe("Tap Treat at bay 1")
+		expect(w(6).Sub).toBe("First patient treated!")
+		expect(w(7).Sub).toBe("🤕 Check its bubble")
+		expect(w(7, { AtBay = true, Examined = true, Carrying = true }).Sub).toBe("Tap Treat at bay 1")
 		for cardNumber = 1, Logic.CARDS do
-			for _, extra in { {}, { Waiting = true, Need = "🧪" }, { Waiting = true, Carrying = true } } do
+			for _, extra in
+				{
+					{},
+					{ AtBay = true, Bay = "W2" },
+					{ AtBay = true, Examined = true, Need = "🧴", Where = "Dispensary" },
+					{ AtBay = true, Examined = true, Carrying = true, Bay = "W1", Where = "Shelf" },
+					{ Glow = false, Where = "Room" },
+					{ Shop = true },
+				}
+			do
 				local sub = w(cardNumber, extra).Sub
 				expect(sub ~= "").toBeTruthy()
 				if utf8.len(sub) > 22 then
@@ -555,9 +851,7 @@ T.describe("Review fixes: a rejoin mid-replay, a Shop step with nothing to buy, 
 			end
 		end
 		-- keyboard and pad keep the plan's words whatever the width
-		expect(Card.words(2, { Device = "Keyboard", Item = "Potion", Narrow = true }).Sub).toBe(
-			"Follow the arrows · hold"
-		)
+		expect(Card.words(2, { Device = "Keyboard", Bay = "1", Narrow = true }).Sub).toBe("Go to bay 1 · Examine")
 		-- and the subtitle wraps inside its column instead of running off the card
 		local client = source("src/client/UI/Tutorial.luau")
 		expect(string.find(client, "subCap.MaxSize", 1, true) ~= nil).toBeTruthy()

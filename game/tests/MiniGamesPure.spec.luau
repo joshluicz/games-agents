@@ -1,8 +1,8 @@
 --!strict
--- The mini-games client's pure helpers (build plan T2): the block between "PURE:BEGIN" and "PURE:END" in
--- src/client/UI/MiniGames.luau, loaded on its own (the rest of that file needs Roblox), plus how they meet the
--- frozen Logic/MiniGame. Run from game/ (it reads the sources by path). Config uses Vector3, so the plan's
--- Config.MiniGame numbers are copied here like tests/MiniGame.spec.luau does.
+-- The mini-games client's pure helpers (build plan T2; the Real Clinic's Task 7): the block between "PURE:BEGIN" and
+-- "PURE:END" in src/client/UI/MiniGames.luau, loaded on its own (the rest of that file needs Roblox), plus how they
+-- meet Logic/MiniGame. Run from game/ (it reads the sources by path). The older tests copy the plan's Config.MiniGame
+-- numbers (CFG below); the Real Clinic's load the real Config (tests/config.luau) so they can't pass on stale copies.
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
@@ -63,7 +63,7 @@ T.describe("MiniGames (client pure helpers)", function()
 		local s = Pure.session({
 			Session = 7,
 			PatientId = "DumplingFrog",
-			Items = { "Bubbles", "Potion" },
+			Items = { "Bubbles", "Ice" },
 			Games = { "Scrub", "Pour" },
 			Simple = false,
 			Combo = 2.7,
@@ -73,7 +73,7 @@ T.describe("MiniGames (client pure helpers)", function()
 		expect(s.Session).toBe(7)
 		expect(s.PatientId).toBe("DumplingFrog")
 		expect(s.Games).toEqual({ "Scrub", "Pour" })
-		expect(s.Items).toEqual({ "Bubbles", "Potion" })
+		expect(s.Items).toEqual({ "Bubbles", "Ice" })
 		expect(s.Simple).toBe(false)
 		expect(s.Combo).toBe(2)
 		expect(s.Timeout).toBe(24)
@@ -270,7 +270,7 @@ local function near(a: number, b: number): boolean
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- Progression v2 (build plan §B3 TreatSession / TreatOutcome, §C T8): auto games, the ease scaling, the Soak kind
+-- Progression v2 (build plan §B3 TreatSession / TreatOutcome, §C T8): auto games, the ease scaling
 -- and the triage card's states. Same pure block, plus the frozen Logic/MiniGame they must agree with.
 ------------------------------------------------------------------------------------------------------------------
 
@@ -280,7 +280,7 @@ local function payload(extra: { [string]: any }): { [string]: any }
 	local raw: { [string]: any } = {
 		Session = 3,
 		PatientId = "DumplingFrog",
-		Items = { "Plaster", "Potion" },
+		Items = { "Plaster", "Ice" },
 		Games = { "Patch", "Pour" },
 		Simple = false,
 		Combo = 0,
@@ -315,11 +315,10 @@ T.describe("MiniGames v2: the session's new fields", function()
 		expect(Pure.session(payload({ Ease = 0 / 0 })).Ease).toBe(1)
 		expect(Pure.session(payload({ Ease = "wide" })).Ease).toBe(1)
 	end)
-	test("Soak: the hot tub's one Scrub game with no items", function()
+	test("the hot tub's Soak kind is gone: an unknown Kind is a Treat", function()
 		local s = Pure.session({ Session = 9, Kind = "Soak", Items = {}, Games = { "Scrub" }, Combo = 1, Timeout = 18 })
-		expect(s.Kind).toBe("Soak")
+		expect(s.Kind).toBe("Treat")
 		expect(s.Games).toEqual({ "Scrub" })
-		expect(s.Items).toEqual({ "" })
 		expect(Pure.session(payload({ Kind = "Bath" })).Kind).toBe("Treat")
 	end)
 end)
@@ -398,12 +397,13 @@ end)
 
 T.describe("MiniGames v2: the triage card's states", function()
 	test("a card: one big button per known floor, in order, with its icon", function()
-		local card = Pure.triage({ Options = { "Wards", "Hydro" }, Seconds = 4 }, Departments)
+		-- The Real Clinic's floors: 🛏️ the Injury Ward and 😴 the Rest Ward (Logic/Hospital triage options).
+		local card = Pure.triage({ Options = { "Wards", "Rest" }, Seconds = 4 }, Departments)
 		expect(card.Seconds).toBe(4)
 		expect(#card.Options).toBe(2)
 		expect(card.Options[1].Dept).toBe("Wards")
 		expect(card.Options[1].Icon).toBe(Departments.Wards.Icon)
-		expect(card.Options[2].Icon).toBe(Departments.Hydro.Icon)
+		expect(card.Options[2].Icon).toBe(Departments.Rest.Icon)
 	end)
 	test("no card: junk, one floor, unknown floors, repeats, no time", function()
 		expect(Pure.triage(nil, Departments)).toBeNil()
@@ -436,6 +436,544 @@ T.describe("MiniGames v2: the triage card's states", function()
 		expect(Pure.triageResult(false, "", nil)).toBe("Quiet") -- rate-limited or too late
 		expect(Pure.TRIAGE_TEXT.Right.Text).toBe("Right floor!")
 		expect(Pure.TRIAGE_TEXT.Wrong.Text).toBe("Oops, not this floor!")
+	end)
+end)
+
+------------------------------------------------------------------------------------------------------------------
+-- The Real Clinic (build plan Task 7, contract C5; design §5, §7, §9): every GameId's look, the dispatch to the
+-- engines, the exam's tools and the dispensary's bottles, phone fit (Review Focus 5), the case reveal, and the
+-- windows each game is drawn and rated with. These read the real Config and Data.
+------------------------------------------------------------------------------------------------------------------
+
+local roblox = require("@lune/roblox")
+local Config = require("./config")
+local UiRules = require("./uirules")
+
+local function data(path: string): any
+	return luau.load(source(path), { debugName = path })()
+end
+
+local Items = data("src/shared/Data/Items.luau")
+local Tools = data("src/shared/Data/Tools.luau")
+local Cases = data("src/shared/Data/Cases.luau")
+local Visit = data("src/shared/Logic/Visit.luau")
+
+local MINI = source("src/client/UI/MiniGames.luau")
+local SOUNDS = source("src/client/Feel/Sounds.luau")
+local THEME = source("src/client/UI/Theme.luau")
+
+-- The code of a source without its comments (a rule never trips on its own explanation).
+local function codeOf(text: string): string
+	local out = {}
+	for line in string.gmatch(text .. "\n", "(.-)\r?\n") do
+		local body = line
+		local quote: string? = nil
+		local index = 1
+		while index <= #line do
+			local c = string.sub(line, index, index)
+			if quote then
+				if c == "\\" then
+					index += 1
+				elseif c == quote then
+					quote = nil
+				end
+			elseif c == '"' or c == "'" then
+				quote = c
+			elseif c == "-" and string.sub(line, index + 1, index + 1) == "-" then
+				body = string.sub(line, 1, index - 1)
+				break
+			end
+			index += 1
+		end
+		table.insert(out, body)
+	end
+	return table.concat(out, "\n")
+end
+
+-- Sounds.CUES has a cue of this name.
+local function isCue(name: string): boolean
+	local first = string.find(SOUNDS, "Sounds.CUES = table.freeze({", 1, true)
+	local last = string.find(SOUNDS, "} :: { [string]: Cue })", 1, true)
+	local cues = if first and last then string.sub(SOUNDS, first, last) else ""
+	return string.find(cues, "\n\t" .. name .. " = {", 1, true) ~= nil
+end
+
+-- Theme.Colors has a colour of this name.
+local function isThemeColor(name: string): boolean
+	local first = string.find(THEME, "Theme.Colors = table.freeze({", 1, true)
+	local last = first and string.find(THEME, "\n})", first, true)
+	local colors = if first and last then string.sub(THEME, first, last) else ""
+	return string.find(colors, "\n\t" .. name .. " = ", 1, true) ~= nil
+end
+
+local function overlaps(a: any, b: any): boolean
+	return a.X < b.X + b.W and b.X < a.X + a.W and a.Y < b.Y + b.H and b.Y < a.Y + a.H
+end
+
+local function checkTargets(rects: { any }, stage: any, n: number, where: string)
+	assert(#rects == n, where .. ": " .. #rects .. " targets for " .. n)
+	for i, r in rects do
+		assert(r.W >= Pure.TAP_MIN and r.H >= Pure.TAP_MIN, where .. ": target " .. i .. " is " .. r.W .. " px")
+		assert(r.X >= 0 and r.Y >= 0, where .. ": target " .. i .. " starts off the stage")
+		assert(r.X + r.W <= stage.X + 1e-6 and r.Y + r.H <= stage.Y + 1e-6, where .. ": target " .. i .. " leaves it")
+		for j = i + 1, #rects do
+			assert(not overlaps(r, rects[j]), where .. ": targets " .. i .. " and " .. j .. " overlap")
+		end
+	end
+end
+
+local CURE = "%f[%a][Cc][Uu][Rr][Ee]"
+
+T.describe("The Real Clinic: every game's look", function()
+	test("every GameId has a look: icon, short title and hint, a real sound, a Theme colour", function()
+		for _, id in MiniGame.GAME_IDS do
+			local look = Pure.LOOKS[id]
+			assert(type(look) == "table", "no look for " .. id)
+			for _, key in { "Icon", "Title", "Hint", "Sound", "Tint" } do
+				assert(type(look[key]) == "string" and look[key] ~= "", id .. " has no " .. key)
+			end
+			assert(utf8.len(look.Title) <= Pure.HINT_MAX, id .. ": the title is too long for a phone")
+			assert(utf8.len(look.Hint) <= Pure.HINT_MAX, id .. ": the hint is too long for a phone")
+			assert(isCue(look.Sound), id .. ": no Sounds cue " .. look.Sound)
+			assert(isThemeColor(look.Tint), id .. ": no Theme colour " .. look.Tint)
+		end
+	end)
+	test("each look carries its engine's skin", function()
+		for _, id in MiniGame.GAME_IDS do
+			local look, engine = Pure.LOOKS[id], MiniGame.ENGINE[id]
+			if engine == "Pour" then
+				assert(table.find({ "Bottle", "Cup", "Tube", "Pack" }, look.Vessel), id .. ": a Pour needs a Vessel")
+				assert(look.Liquid == "Bottle" or string.match(look.Liquid, "^#%x%x%x%x%x%x$"), id .. ": Liquid")
+			elseif engine == "Patch" then
+				assert(type(look.Mark) == "string" and look.Mark ~= "", id .. ": a Patch needs a Mark")
+				assert(look.Spot == "Sore" or look.Spot == "Glow", id .. ": Spot")
+			elseif engine == "Cool" then
+				assert(look.Style == "Ring" or look.Style == "Sweep", id .. ": a Cool needs a Style")
+				assert(type(look.Good) == "string" and type(look.Miss) == "string", id .. ": pips")
+				assert(type(look.Target) == "string", id .. ": Target")
+			end
+		end
+		-- The dispensary's cup is the chosen medicine's colour, poured from its own bottle (design §9).
+		expect(Pure.LOOKS.Dose.Vessel).toBe("Cup")
+		expect(Pure.LOOKS.Dose.Liquid).toBe("Bottle")
+		expect(Pure.LOOKS.Dose.Pourer).toBe("Bottle")
+		-- Design §7: the X-ray's scanner bar, the wraps' 3 and 4 beats, the stethoscope's glowing spots.
+		expect(Pure.LOOKS.XRay.Style).toBe("Sweep")
+		expect(Pure.LOOKS.Bandage.Style).toBe("Sweep")
+		expect(Pure.LOOKS.Cast.Style).toBe("Sweep")
+		expect(Pure.LOOKS.Listen.Spot).toBe("Glow")
+		expect(Config.MiniGame.Games.Cast.Blows).toBe(4)
+		expect(Config.MiniGame.Games.Look.Spots).toBe(2)
+	end)
+	test("a tool's game and a supply's game wear that tool's or supply's icon", function()
+		for _, id in Tools.ORDER do
+			expect(Pure.LOOKS[Tools[id].Game].Icon).toBe(Tools[id].Icon)
+		end
+		for _, id in Items.Order do
+			local item = Items[id]
+			if item.Kind == "Supply" then
+				expect(Pure.LOOKS[item.Game].Icon).toBe(item.Icon)
+			end
+		end
+	end)
+	test("the cards' words are short, and nothing says cure or anything scary", function()
+		for key, text in Pure.WORDS do
+			assert(utf8.len(text) <= Pure.HINT_MAX, "WORDS." .. key .. " is too long for a phone")
+		end
+		local scary = { CURE, "[Nn]eedle", "[Bb]lood", "[Ss]urgery", "[Hh]urt" }
+		local function clean(text: string, where: string)
+			for _, pattern in scary do
+				assert(not string.find(text, pattern), where .. ": " .. text)
+			end
+		end
+		for key, text in Pure.WORDS do
+			clean(text, "WORDS." .. key)
+		end
+		for id, look in Pure.LOOKS do
+			clean(look.Title, id)
+			clean(look.Hint, id)
+		end
+		-- Every string the file shows (comments aside: internal names like CureFX may be named there).
+		for literal in string.gmatch(codeOf(MINI), '"([^"\n]*)"') do
+			clean(literal, "MiniGames.luau")
+		end
+	end)
+	test("Sounds has the Real Clinic's cues, and lists them", function()
+		local first = string.find(SOUNDS, "Sounds.CLINIC_CUES = table.freeze({", 1, true)
+		assert(first, "Sounds.CLINIC_CUES is missing")
+		for _, name in { "Listen", "Beep", "Shine", "Scan", "Cold", "Wrap", "Found" } do
+			assert(isCue(name), "no cue " .. name)
+			assert(string.find(SOUNDS, '\t"' .. name .. '",', first, true), name .. " is not in CLINIC_CUES")
+		end
+		assert(isCue("Nope"), "a wrong pick's gentle Nope")
+		-- A dispensed medicine (Kind "Medicine") bubbles in your hands; the old crafted-medicine field is gone.
+		local code = codeOf(SOUNDS)
+		assert(string.find(code, 'item.Kind == "Medicine"', 1, true), "medicines are found by Kind")
+		expect(string.find(code, "item.Medicine", 1, true)).toBeNil()
+	end)
+	test("uirules hold on the mini-games file", function()
+		local violations = UiRules.check({ "src/client/UI/MiniGames.luau" })
+		assert(#violations == 0, "\n" .. UiRules.format(violations))
+	end)
+end)
+
+T.describe("The Real Clinic: the dispatch plays each engine for its ids", function()
+	test("every GameId plays its engine's routine; Simple and unknown games are one tap", function()
+		for _, id in MiniGame.GAME_IDS do
+			local engine = MiniGame.ENGINE[id]
+			assert(Pure.KNOWN[engine], "this client can't draw the " .. engine .. " engine")
+			expect(Pure.engine(id, MiniGame.ENGINE)).toBe(engine)
+			expect(Pure.dispatch(id, MiniGame.ENGINE, false)).toBe(engine)
+			expect(Pure.dispatch(id, MiniGame.ENGINE, true)).toBe("Tap")
+		end
+		-- An engine's own name still plays as itself (a session that still names one).
+		for _, engine in { "Pour", "Patch", "Scrub", "Cool", "Pick" } do
+			expect(Pure.dispatch(engine, MiniGame.ENGINE, false)).toBe(engine)
+		end
+		expect(Pure.dispatch("Juggle", MiniGame.ENGINE, false)).toBe("Tap")
+		expect(Pure.dispatch(nil, MiniGame.ENGINE, false)).toBe("Tap")
+		expect(Pure.engine("Listen", nil)).toBeNil() -- no engine map: only the engines' own names are known
+	end)
+	test("the routine table has a player for every route", function()
+		local first = string.find(MINI, "local PLAY: { [string]: (env: Env) -> number } = {", 1, true)
+		assert(first, "the PLAY table is missing")
+		local last = string.find(MINI, "\n}", first, true) :: number
+		local block = string.sub(MINI, first, last)
+		for route, fn in
+			{
+				Pour = "playPour",
+				Patch = "playPatch",
+				Scrub = "playScrub",
+				Cool = "playCool",
+				Pick = "playPickGame",
+				Tap = "playTap",
+			}
+		do
+			assert(
+				string.find(block, "\t" .. route .. " = " .. fn .. ",", 1, true),
+				"PLAY." .. route .. " is not " .. fn
+			)
+		end
+		assert(
+			string.find(MINI, "Pure.dispatch(gameId, MiniGame.ENGINE, session.Simple)", 1, true),
+			"playOne dispatches"
+		)
+	end)
+	test("Pick: wrong taps rate 0 Perfect, 1 Good, more OK (the real Config)", function()
+		expect(MiniGame.rate("Pick", 0, Config)).toBe("Perfect")
+		expect(MiniGame.rate("Pick", 1, Config)).toBe("Good")
+		expect(MiniGame.rate("Pick", 2, Config)).toBe("OK")
+		expect(MiniGame.rate("Pick", 3, Config)).toBe("OK")
+	end)
+	test("an exam's and a dispense's report never comes too early for the server", function()
+		local tool = Tools[Cases.Cough.Tool].Game
+		for _, games in { { "Pick", tool }, { "Pick", "XRay" }, { "Pick", "Dose" } } do
+			local minimum = MiniGame.minSeconds(games, false, Config)
+			for _, elapsed in { 0, 0.5, 1.4, 4 } do
+				local total = elapsed + Pure.holdBack(elapsed, minimum, 0.15)
+				local kept = MiniGame.accept({ "Perfect", "Good" }, games, total, false, Config)
+				expect(kept).toEqual({ "Perfect", "Good" })
+			end
+		end
+	end)
+end)
+
+T.describe("The Real Clinic: the session's new fields", function()
+	test("an Exam: its tools (no repeats, at most CHOICES_MAX), the answer, the glow, a symptom clue", function()
+		local s = Pure.session({
+			Session = 4,
+			Kind = "Exam",
+			Games = { "Pick", "Listen" },
+			Items = {},
+			Tools = { "Stethoscope", "Light", "Stethoscope", 7, "Magnifier", "Thermometer", "XRay" },
+			Answer = "Stethoscope",
+			Glow = true,
+			Symptom = "😷 cough cough",
+		})
+		expect(s.Kind).toBe("Exam")
+		expect(s.Tools).toEqual({ "Stethoscope", "Light", "Magnifier", "Thermometer" })
+		expect(s.Answer).toBe("Stethoscope")
+		expect(s.Glow).toBe(true)
+		expect(s.Symptom).toBe("😷 cough cough")
+		expect(s.Items).toEqual({ "", "" })
+		expect(s.Case).toBeNil()
+	end)
+	test("a Dispense: its options and the Expert flag", function()
+		local s = Pure.session({
+			Session = 5,
+			Kind = "Dispense",
+			Games = { "Pick", "Dose" },
+			Options = { "CoughSyrup", "EarDrops", "", "CoughSyrup" },
+			Expert = true,
+		})
+		expect(s.Kind).toBe("Dispense")
+		expect(s.Options).toEqual({ "CoughSyrup", "EarDrops" })
+		expect(s.Expert).toBe(true)
+		expect(s.Glow).toBe(false)
+	end)
+	test("junk new fields get safe values; an unknown kind is a Treat", function()
+		local s = Pure.session({
+			Session = 6,
+			Kind = "Surgery",
+			Games = { "Plaster" },
+			Tools = "Stethoscope",
+			Answer = 3,
+			Glow = "yes",
+			Options = { 1, 2 },
+			Case = "",
+			Symptom = string.rep("x", 200),
+			Expert = 1,
+		})
+		expect(s.Kind).toBe("Treat")
+		expect(s.Tools).toEqual({})
+		expect(s.Answer).toBeNil()
+		expect(s.Glow).toBe(false)
+		expect(s.Options).toEqual({})
+		expect(s.Case).toBeNil()
+		expect(s.Symptom).toBe("")
+		expect(s.Expert).toBe(false)
+		expect(Pure.session({ Session = 7, Kind = "Treat", Games = { "Ice" }, Case = "Sprain" }).Case).toBe("Sprain")
+	end)
+end)
+
+T.describe("The Real Clinic: the exam's tools and the dispensary's shelf", function()
+	test("choices: the answer is always there, no repeats, at most the max", function()
+		expect(Pure.choices({ "Stethoscope", "Light", "Magnifier" }, "Light")).toEqual({
+			"Stethoscope",
+			"Light",
+			"Magnifier",
+		})
+		expect(Pure.choices({ "Stethoscope", "Light" }, "XRay")).toEqual({ "Stethoscope", "Light", "XRay" })
+		expect(Pure.choices({ "A", "B", "C" }, "D", 3)).toEqual({ "A", "B", "D" }) -- full: it takes the last place
+		expect(Pure.choices({ "A", "A", "B" }, "B")).toEqual({ "A", "B" })
+		expect(Pure.choices({}, "A")).toEqual({ "A" })
+		expect(Pure.choices("junk", "A")).toEqual({ "A" })
+		expect(Pure.choices({ "A" }, nil)).toBeNil()
+		expect(Pure.choices({ "A" }, "")).toBeNil()
+		-- The server's exam card (Logic/Visit.examTools) always fits.
+		local card = Visit.examTools("XRay", Visit.unlocked(3, Tools), 0.42)
+		expect(Pure.choices(card, "XRay")).toEqual(card)
+		assert(Visit.EXAM_TOOLS <= Pure.CHOICES_MAX, "the exam card has more tools than a Pick shows")
+	end)
+	test("bottles: the shelf has Config.Dispensary.Bottles distinct medicines, the right one among them", function()
+		local pool = {}
+		for _, id in Items.Order do
+			if Items[id].Kind == "Medicine" then
+				table.insert(pool, { Id = id, Icon = Items[id].Icon })
+			end
+		end
+		local count = Config.Dispensary.Bottles
+		assert(count <= Pure.CHOICES_MAX, "more bottles than a Pick shows")
+		for _, entry in pool do
+			for _, values in { { 0.1, 0.7, 0.3 }, { 0.95, 0.05, 0.5 }, { 0.5 } } do
+				local shelf = Pure.bottles(entry.Id, pool, count, sequence(values))
+				expect(#shelf).toBe(count)
+				assert(table.find(shelf, entry.Id), "the right bottle is missing")
+				local seen = {}
+				for _, id in shelf do
+					assert(Items[id] and Items[id].Kind == "Medicine", id .. " is not a medicine")
+					assert(not seen[id], "two of " .. id)
+					seen[id] = true
+					-- Never a look-alike: the others don't share the right one's icon (the shelf has enough).
+					if id ~= entry.Id then
+						assert(Items[id].Icon ~= entry.Icon, entry.Id .. "'s shelf has a look-alike: " .. id)
+					end
+					assert(string.match(Items[id].Bottle, "^#%x%x%x%x%x%x$"), id .. " has no bottle colour")
+				end
+			end
+		end
+	end)
+	test("bottles: the same roll gives the same shelf; the right one moves about", function()
+		local pool = {}
+		for _, id in Items.Order do
+			if Items[id].Kind == "Medicine" then
+				table.insert(pool, { Id = id, Icon = Items[id].Icon })
+			end
+		end
+		local a = Pure.bottles("EarDrops", pool, 4, sequence({ 0.3, 0.8, 0.1 }))
+		local b = Pure.bottles("EarDrops", pool, 4, sequence({ 0.3, 0.8, 0.1 }))
+		expect(a).toEqual(b)
+		local places = {}
+		for _, start in { 0, 0.2, 0.4, 0.6, 0.8, 0.99 } do
+			places[table.find(Pure.bottles("EarDrops", pool, 4, sequence({ start })), "EarDrops") :: number] = true
+		end
+		local distinct = 0
+		for _ in places do
+			distinct += 1
+		end
+		assert(distinct >= 2, "the right bottle always stands in the same place")
+	end)
+	test("bottles: a small or junk shelf still gives the right one", function()
+		local alike = { { Id = "A", Icon = "🧴" }, { Id = "B", Icon = "🧴" } }
+		local shelf = Pure.bottles("A", alike, 4, sequence({ 0.5 }))
+		table.sort(shelf)
+		expect(shelf).toEqual({ "A", "B" }) -- a look-alike only when nothing else is left
+		expect(Pure.bottles("Z", {}, 4, sequence({ 0.5 }))).toEqual({ "Z" })
+		expect(Pure.bottles("Z", nil, 4, sequence({ 0.5 }))).toEqual({ "Z" })
+	end)
+	test('the reveal: "It\'s a cough!", with the right little word for every case', function()
+		expect(Pure.reveal("Cough")).toBe("It's a cough!")
+		expect(Pure.reveal("Earache")).toBe("It's an earache!")
+		expect(Pure.reveal("Itchy rash")).toBe("It's an itchy rash!")
+		expect(Pure.reveal("Sore muscles")).toBe("It's sore muscles!")
+		expect(Pure.reveal("Chills")).toBe("It's chills!")
+		expect(Pure.reveal("Broken arm")).toBe("It's a broken arm!")
+		expect(Pure.reveal(nil)).toBe("It's something!")
+		for _, id in Cases.ORDER do
+			local text = Pure.reveal(Cases[id].Name)
+			assert(string.find(text, string.lower(Cases[id].Name), 1, true), id .. ": " .. text)
+			assert(not string.find(text, CURE), id .. ": " .. text)
+		end
+	end)
+end)
+
+T.describe("The Real Clinic: the cards fit a phone (Review Focus 5)", function()
+	local PHONE = roblox.Vector2.new(568, 320)
+	test("the exam card's 3 tools and the dispensing card's 4 bottles fit 568 x 320, every target >= 44 px", function()
+		for _, n in { 3, 4 } do
+			local rects, stage, card = Pure.pickLayout(PHONE, n)
+			checkTargets(rects, stage, n, "568x320 n=" .. n)
+			-- The stage sits inside the card, and the card inside the screen under the top bar.
+			assert(stage.X <= card.X and stage.Y <= card.Y, "the stage is bigger than the card")
+			assert(card.X <= 568 and card.Y <= 320 - Pure.CARD.Topbar, "the card is bigger than the screen")
+		end
+		-- The medicine choice (up to Config.Dispensary.Options) uses the same layout.
+		assert(Config.Dispensary.Options <= Pure.CHOICES_MAX, "more medicines to choose from than a Pick shows")
+		local options, optionStage = Pure.pickLayout(PHONE, Config.Dispensary.Options)
+		checkTargets(options, optionStage, Config.Dispensary.Options, "568x320 options")
+	end)
+	test("1 to 4 targets fit every screen from a small phone to a big monitor, and never grow huge", function()
+		local screens = {
+			{ 568, 320 },
+			{ 640, 360 },
+			{ 667, 375 },
+			{ 812, 375 },
+			{ 320, 568 },
+			{ 375, 667 },
+			{ 1024, 768 },
+			{ 1280, 720 },
+			{ 1920, 1080 },
+			{ 2560, 1440 },
+		}
+		for _, size in screens do
+			for n = 1, Pure.CHOICES_MAX do
+				local rects, stage = Pure.pickLayout({ X = size[1], Y = size[2] }, n)
+				checkTargets(rects, stage, n, size[1] .. "x" .. size[2] .. " n=" .. n)
+				for _, r in rects do
+					assert(r.W <= Pure.CARD.PickMax, "a target past PickMax")
+				end
+			end
+		end
+	end)
+	test("pickRects: junk and empty stages give nothing; more than CHOICES_MAX is capped", function()
+		expect(Pure.pickRects(roblox.Vector2.new(300, 100), 0)).toEqual({})
+		expect(Pure.pickRects(roblox.Vector2.new(0, 0), 3)).toEqual({})
+		expect(Pure.pickRects(nil, 3)).toEqual({})
+		expect(Pure.pickRects({ X = 300, Y = 100 }, 0 / 0)).toEqual({})
+		expect(#Pure.pickRects({ X = 600, Y = 300 }, 9)).toBe(Pure.CHOICES_MAX)
+		-- Wide and short (a phone's stage): one row. Tall and narrow: rows.
+		local wide = Pure.pickRects({ X = 300, Y = 80 }, 4)
+		expect(wide[1].Y).toBe(wide[4].Y)
+		local tall = Pure.pickRects({ X = 120, Y = 300 }, 4)
+		assert(tall[4].Y > tall[1].Y, "a tall stage stacks its targets")
+	end)
+	test("Pure.CARD matches the card build() makes and the modules it copies", function()
+		local kit = source("src/client/UI/Kit.luau")
+		local modal = source("src/client/UI/Modal.luau")
+		local zones = source("src/shared/Logic/HudZones.luau")
+		expect(tonumber(string.match(kit, "\nKit%.HEADER = (%d+)"))).toBe(Pure.CARD.Header)
+		assert(
+			string.find(kit, "gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets", 1, true),
+			"Kit.screen's insets"
+		)
+		expect(tonumber(string.match(THEME, "\n\tPadPanel = (%d+)"))).toBe(Pure.CARD.Pad)
+		expect(tonumber(string.match(THEME, "\n\tGap = (%d+), %-%- lists"))).toBe(Pure.CARD.Gap)
+		expect(tonumber(string.match(THEME, "Step = table%.freeze%({ %d+, (%d+),"))).toBe(Pure.CARD.Gap)
+		expect(tonumber(string.match(zones, "\nHudZones%.TOPBAR = (%d+)"))).toBe(Pure.CARD.Topbar)
+		assert(
+			string.find(modal, "local top = if hasHeader then Kit.HEADER - pad + Theme.Space.Gap else 0", 1, true),
+			"Modal's body starts under the header as Pure.cardSize thinks"
+		)
+		for _, needle in
+			{
+				"MaxSize = Vector2.new(Pure.CARD.MaxX, Pure.CARD.MaxY)",
+				"Scale = Vector2.new(Pure.CARD.ShareX, Pure.CARD.ShareY)",
+				"AspectRatio = Pure.CARD.Aspect",
+				"local STATUS = Pure.CARD.Status",
+				"local HINT = Pure.CARD.Hint",
+				"local GAP = Theme.Space.Step[2]",
+				"Pure.pickRects(stage.AbsoluteSize, #buttons)",
+			}
+		do
+			assert(string.find(MINI, needle, 1, true), "MiniGames: " .. needle)
+		end
+	end)
+end)
+
+T.describe("The Real Clinic: every game draws and rates with its own row", function()
+	local mini = Config.MiniGame
+	test("each Games row is read as its engine's (Pure.rowEngine agrees with Logic/MiniGame.ENGINE)", function()
+		for _, id in MiniGame.GAME_IDS do
+			local row = mini.Games[id]
+			assert(type(row) == "table", "Config.MiniGame.Games has no " .. id)
+			local engine = MiniGame.ENGINE[id]
+			expect(Pure.rowEngine(id, row)).toBe(engine)
+		end
+		-- A row is known by its own fields (a Games row isn't named after its engine); a Pick row has none to widen.
+		expect(Pure.rowEngine("Mystery", { Window = 0.3 })).toBe("Cool")
+		expect(Pure.rowEngine("Mystery", { BandMin = 0.7 })).toBe("Pour")
+		expect(Pure.rowEngine("Mystery", { Spots = 2 })).toBe("Patch")
+		expect(Pure.rowEngine("Mystery", { Perfect = 6 })).toBe("Scrub")
+		expect(Pure.rowEngine("Mystery", { Good = 1 })).toBeNil()
+	end)
+	test("Steady Hands widens every game's row, the way the game is drawn and rated", function()
+		local eased = Pure.eased(mini, 1.3)
+		local temp, plainTemp = eased.Games.Temp, mini.Games.Temp
+		expect(near(temp.BandMax - temp.BandMin, (plainTemp.BandMax - plainTemp.BandMin) * 1.3)).toBeTruthy()
+		expect(near(eased.Games.Light.Window, mini.Games.Light.Window * 1.3)).toBeTruthy()
+		expect(near(eased.Games.Look.Seconds, mini.Games.Look.Seconds * 1.3)).toBeTruthy()
+		expect(near(eased.Games.Bath.Seconds, mini.Games.Bath.Seconds * 1.3)).toBeTruthy()
+		expect(eased.Games.Pick.Good).toBe(mini.Games.Pick.Good) -- nothing to widen in a Pick
+		expect(eased.Games.Cast.Blows).toBe(mini.Games.Cast.Blows) -- only windows, never the goal
+		-- A thermometer let go just past the plain band: Good plain, Perfect eased (rate reads the Games row).
+		local fill = plainTemp.BandMax + 0.02
+		expect(MiniGame.rate("Temp", fill, Config)).toBe("Good")
+		expect(MiniGame.rate("Temp", fill, { MiniGame = eased })).toBe("Perfect")
+		expect(mini.Games.Temp.BandMax).toBe(plainTemp.BandMax) -- the shipped table is never changed
+	end)
+	test("Expert Dispensing widens only the Dose band, by Config.Dispensary.ExpertBand", function()
+		local band = Config.Dispensary.ExpertBand
+		local wide = Pure.widened(mini, "Dose", band)
+		local dose, plain = wide.Games.Dose, mini.Games.Dose
+		expect(near(dose.BandMax - dose.BandMin, (plain.BandMax - plain.BandMin) * band)).toBeTruthy()
+		expect(near((dose.BandMax + dose.BandMin) / 2, (plain.BandMax + plain.BandMin) / 2)).toBeTruthy()
+		expect(dose.GoodSlack).toBe(plain.GoodSlack)
+		expect(wide.Games.Temp).toBe(mini.Games.Temp) -- every other game as it was
+		local fill = plain.BandMax + 0.03
+		expect(MiniGame.rate("Dose", fill, Config)).toBe("Good")
+		expect(MiniGame.rate("Dose", fill, { MiniGame = wide })).toBe("Perfect")
+		-- Junk, 1 or a game with no band changes nothing.
+		expect(Pure.widened(mini, "Dose", 1).Games.Dose).toBe(plain)
+		expect(Pure.widened(mini, "Dose", 0 / 0).Games.Dose).toBe(plain)
+		expect(Pure.widened(mini, "Pick", 2).Games.Pick).toBe(mini.Games.Pick)
+		expect(Pure.widened(mini, "Light", 2).Games.Light).toBe(mini.Games.Light)
+		-- Stacked on Steady Hands, still inside the cup.
+		local both = Pure.widened(Pure.eased(mini, Pure.EASE_MAX), "Dose", band).Games.Dose
+		assert(both.BandMin >= 0 and both.BandMax <= 1, "the band left the cup")
+	end)
+	test("Sweep: the bar is in the green zone exactly while a tap is good", function()
+		for _, id in { "XRay", "Bandage", "Cast" } do
+			local row = mini.Games[id]
+			local zone = Pure.sweepZone(row.PulseSeconds, row.Window)
+			for step = 0, 200 do
+				local t = row.PulseSeconds * step / 200
+				local inZone = math.abs(Pure.sweep(t, row.PulseSeconds) - 0.5) <= zone + 1e-9
+				expect(inZone).toBe(Pure.goodBlow(t, row.PulseSeconds, row.Window))
+			end
+		end
+		expect(Pure.sweep(-1, 1.2)).toBe(0)
+		expect(Pure.sweep(9, 1.2)).toBe(1)
+		expect(Pure.sweepZone(1, 5)).toBe(0.5)
 	end)
 end)
 

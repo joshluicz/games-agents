@@ -203,3 +203,22 @@ T.describe("Story.nightOnly", function()
 		expect(Story.nightOnly(Regulars.GrumpyTeapot)).toBe(false)
 	end)
 end)
+
+T.describe("the Real Clinic keeps the stories", function()
+	test("the same regulars, unlocks, rewards and five beats; only their case is new (design §11)", function()
+		local rows = {}
+		for _, id in Regulars.Order do
+			local regular = Regulars[id]
+			rows[id] = { regular.UnlockStars, regular.Reward, regular.RewardKind, #regular.Beats, regular.Wing }
+		end
+		expect(rows).toEqual({
+			ShySprout = { 0, "SproutMascot", "Decor", 5, "Starter" },
+			GrumpyTeapot = { 40, "LuckyKettle", "Decor", 5, "Starter" },
+			DizzyComet = { 120, "CometLantern", "Decor", 5, "Night" },
+		})
+		-- a finished story is still finished, and its reward still due if it's missing
+		local story = { GrumpyTeapot = { Beat = 5, LastBeatDay = 100 } }
+		expect(Story.finished(story.GrumpyTeapot, Regulars.GrumpyTeapot.Beats)).toBe(true)
+		expect(Story.unrewarded(Regulars, story, {}, {})).toEqual({ "GrumpyTeapot" })
+	end)
+end)

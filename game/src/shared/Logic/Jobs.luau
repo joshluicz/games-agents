@@ -13,9 +13,10 @@
 --       open at this level -> its role (after a rebirth a Porter makes or heals until Lv 2 again; nothing is lost)
 --   Jobs.department(jobId, stationId?, jobs, stations?): DeptId
 --       where a job works: its Data/Jobs Dept; a Maker's ("Station") is its station's department (stations =
---       Data/Departments.Stations; default Reception, the First-Aid Stand's)
+--       Data/Departments.Stations; a station not in the map, or none, -> Reception)
 --   Jobs.patientDepartment(wing, urgent, wings?): DeptId
---       a cured patient's department, for nurse XP: an urgent one (🚑/🚁) -> "AE", else its wing's (default Reception)
+--       a treated patient's department, for nurse XP: an urgent one (🚑/🚁) -> "AE", else its wing's (default
+--       Reception)
 --   Jobs.teams(specialties, departments): { [DeptId]: number }
 --       how many of the WORKING nurses' specialties match each department; "Any" counts for every one
 --   Jobs.teamEffects(counts, departments): TeamEffects
@@ -29,12 +30,16 @@ local Jobs = {}
 
 Jobs.REST = "Rest"
 Jobs.DEFAULT_DEPT = "Reception"
+-- The Real Clinic: the supply shelf and the dispensary are the Pharmacy's, the Cast Table the X-ray room's (Imaging),
+-- the Warm Bath the Bath Room's (Hydro)
 Jobs.STATIONS = table.freeze({
-	Remedy = "Reception",
-	Plaster = "Reception",
-	Bath = "Hydro",
+	Remedy = "Pharmacy",
+	Plaster = "Pharmacy",
+	Ice = "Pharmacy",
+	Bandage = "Pharmacy",
 	Cocoa = "Pharmacy",
-	Pharmacy = "Pharmacy",
+	Cast = "Imaging",
+	Bath = "Hydro",
 })
 Jobs.WINGS = table.freeze({
 	Starter = "Reception",

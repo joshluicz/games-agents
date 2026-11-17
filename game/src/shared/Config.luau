@@ -22,9 +22,8 @@ Config.FrostyMultiplier = 1.5
 -- Patients
 Config.PatienceSeconds = 60 -- how long a patient waits at the counter before leaving (no penalty)
 Config.ChairsPatienceBonus = 10 -- extra seconds of patience per Comfy Chairs level
-Config.MaxQueue = 3 -- patients at one clinic at once: the one being treated + 2 waiting (calmer for kids)
-Config.QueueSpacing = 7 -- studs between patients in the queue (creatures are player-sized)
-Config.QueueDepth = 14 -- studs the line runs straight back from the counter before it turns sideways (3 fit straight)
+Config.MaxQueue = 3 -- patients in the waiting room at once (those in a bay or a ward bed don't count; calmer for kids)
+Config.QueueSpacing = 7 -- the widest a creature may be, in studs (Logic/CreatureSize; the old line's spacing)
 Config.CreatureSize = 1.6 -- every creature's size multiplier (about a player's height)
 Config.CreatureSizeJitter = 0.08 -- each patient is up to 8% smaller or bigger than its species (Logic/CreatureSize)
 Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7); Lv 1. Data/Levels SpawnSeconds is per level
@@ -353,10 +352,6 @@ Config.AE = {
 Config.VIP = { EverySeconds = 300, Jitter = 0.2, CashMultiplier = 4, Stars = 3 } -- the air ambulance (R2 + Lv 5)
 Config.Triage = { Seconds = 4, RightBonus = 0.1 }
 Config.Escort = { CashBonus = 0.2, RecoverFactor = 0.5 }
--- The Real Clinic removes the hot tub and the Pharmacy's crafting (design §7, §8.3). These two rows stay only until
--- the code that still reads them is rewritten (Server/Patients, Stations, Boosts, PlotBuilder; UI/Guide).
-Config.Hydro = { Spots = 2, CashBonus = 0.25, RecoverFactor = 0.5 }
-Config.Pharmacy = { HoldSeconds = 3, Tier2Factor = 0.5 }
 Config.WardComfort = { RecoverPerLevel = 0.2, CashPerLevel = 0.05 }
 Config.AESpeed = { PatiencePerLevel = 0.15, SoonerPerLevel = 0.1 }
 Config.NightClinicPerLevel = 0.25 -- night cure cash +25% a Night Clinic level

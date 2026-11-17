@@ -201,13 +201,26 @@ T.describe("Hud (pure): Status words", function()
 end)
 
 T.describe("Hud (pure): the tracked goal", function()
-	test("the first goal under its target, as 'Cure 5 · 3/5'", function()
+	test("the first goal under its target, as 'Treat 5 · 3/5' (the kind keeps its saved id, Cure)", function()
 		local goals = { { Id = "Cure5", Progress = 3, Day = 1 }, { Id = "Make10", Progress = 0, Day = 1 } }
 		local goal = Pure.trackedGoal(goals, DailyGoals, Wings)
 		expect(goal.Id).toBe("Cure5")
-		expect(goal.Text).toBe("Cure 5 · 3/5")
+		expect(goal.Text).toBe("Treat 5 · 3/5")
 		expect(goal.Icon).toBe("🎯")
 		expect(goal.Ratio).toBeCloseTo(0.6)
+	end)
+
+	test("the goal card reads 'Treat 3 · 0/3' (Real Clinic §12: treat, never cure)", function()
+		local defs = { { Id = "Treat3", Kind = "Cure", Target = 3, Icon = "😊", Reward = { Cash = 1, Stars = 0 } } }
+		local goal = Pure.trackedGoal({ { Id = "Treat3", Progress = 0, Day = 1 } }, defs, Wings)
+		expect(goal.Text).toBe("Treat 3 · 0/3")
+		expect(Pure.goalName({ Kind = "CureWing", Target = 6, Wing = "Starter" }, Wings)).toBe(
+			"Treat 6 " .. Wings.Starter.Icon
+		)
+		for _, def in DailyGoals do
+			local text = Pure.trackedGoal({ { Id = def.Id, Progress = 0, Day = 1 } }, DailyGoals, Wings).Text
+			expect(string.find(string.lower(text), "%f[%a]cure")).toBeNil()
+		end
 	end)
 
 	test("a finished goal (waiting for its claim) is skipped; all done is nil", function()
@@ -230,7 +243,7 @@ T.describe("Hud (pure): the tracked goal", function()
 			expect(words <= 6).toBe(true)
 		end
 		local night = Pure.trackedGoal({ { Id = "Night3", Progress = 1, Day = 1 } }, DailyGoals, Wings)
-		expect(night.Text).toBe("Cure 3 🌙 · 1/3")
+		expect(night.Text).toBe("Treat 3 🌙 · 1/3")
 	end)
 end)
 

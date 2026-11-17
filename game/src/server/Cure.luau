@@ -1,17 +1,19 @@
 --!strict
--- The one place a cure lands (build plan §B5). Server only. Patients calls it once per cured patient, after the
--- patient has recovered; nothing else pays for a cure. OWNER: T7 (Progression v2).
+-- The one place a finished visit lands (build plan §B5; the code keeps its old name, "cure", internally: the Cured
+-- remote, the Cured save field and count, the leaderboard ids). Server only. Patients calls it once per patient whose
+-- plan is done, after any ward stay; nothing else pays for a visit. OWNER: T7 (Progression v2); the Real Clinic
+-- (Task 5) only drops the old hot tub's bonus flag.
 --   Cure.resolve(ctx: Types.CureCtx): Result?
 --
 -- In order (each step is guarded, so a broken system downstream never stops the payout before it):
---   1. Pay.reward                 cash and stars for this cure (the owner's Tip Jar counts: it's their clinic; so
---                                 do the recipe's length and the plot's Cheerer, ctx.Items and ctx.Cheer). Boosts
+--   1. Pay.reward                 cash and stars for this visit (the owner's Tip Jar counts: it's their clinic; so
+--                                 do the plan's length and the plot's Cheerer, ctx.Items and ctx.Cheer). Boosts
 --                                 (Server/Boosts): the helper's Cash and Tips boosts (they earn the cash) and the
 --                                 owner's Stars boost (they earn the stars), scoped to night and the patient's wing.
 --                                 Every factor multiplies once, in Logic/Pay, with one rounding at the end.
 --                                 Progression v2 (build plan §B8): ctx.Urgent ("AE" x3 + 2 ⭐ · "VIP" x4 + 3 ⭐), the
 --                                 owner's Night Clinic level (night cures), the Golden variant (x5, Pay), ctx.Extra
---                                 (Patients' escort / hot tub / triage / team / Ward Comfort factor) x the plot's
+--                                 (Patients' escort / triage / team / Ward Comfort factor) x the plot's
 --                                 banked Double Dose, and + the banked Star Burst stars: Abilities.consumeCure(ctx.Plot)
 --                                 is asked ONCE per cure (x1 and +0 when nothing is banked)
 --   2. Economy.addCash(helper)    the helper earns the cash (and their Cured count goes up, and this UTC week's
@@ -157,9 +159,9 @@ local function sanitize(ctx: any): Types.CureCtx?
 		Plot = if type(plot) == "table" and typeof(plot.Model) == "Instance" then plot else nil,
 		Dept = shortId(ctx.Dept),
 		Wing = shortId(ctx.Wing),
-		-- Already paid inside Extra; carried on so the Cured payload's 🛗 / 🛁 bonus lines show.
+		-- Already paid inside Extra; carried on so the Cured payload's 🛗 bonus line shows. (The old hot tub's bonus
+		-- flag is gone: the Bath Room's bath is a plan step now.)
 		Escorted = ctx.Escorted == true,
-		Soaked = ctx.Soaked == true,
 	}
 end
 
@@ -262,7 +264,6 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 			-- Progression v2: always sent ("" / false = no), so Feel/CureFX never looks the patient model up.
 			Urgent = if cure.Urgent == "AE" or cure.Urgent == "VIP" then cure.Urgent else "",
 			Escorted = cure.Escorted == true,
-			Soaked = cure.Soaked == true,
 		}
 	end
 	if helperHere then

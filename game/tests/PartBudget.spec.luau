@@ -1,6 +1,6 @@
 --!nocheck
 -- The parts budget (docs/plan/2026-11-16-perf-budget.md; look build plan §C3; Config.Look): one plot at any level, in
--- any branch theme, with every room, is at most Config.Look.PlotBudget (400) parts, not counting creatures, nurses
+-- any branch theme, with every room, is at most Config.Look.PlotBudget (640) parts, not counting creatures, nurses
 -- or decor. Moved here from Hospital.spec by the look overhaul's Foundation; the integrator owns it from there.
 -- It builds the REAL PlotBuilder (and through it TownBuilder, HospitalBuilder and World/*) under tests/worldmock
 -- and prints the count per level and per share, for the perf note's table.
@@ -56,17 +56,22 @@ T.describe("Part budget (the built plot)", function()
 		return total, building, rooms, total - building - rooms
 	end
 
-	test("the budgets are in Config.Look, and the shares leave room under the plot's budget", function()
-		local L = Config.Look
-		expect(L.PlotBudget).toBe(400)
-		expect(L.BuildingParts).toBe(160)
-		expect(L.RoomParts).toBe(90)
-		expect(L.PlotParts).toBe(115)
-		expect(L.BuildingParts + L.RoomParts + L.PlotParts <= L.PlotBudget - 35).toBe(true) -- at least 35 spare
-		expect(L.TownParts).toBe(600)
-		expect(L.SurfaceGuisPerBuilding).toBe(12)
-		expect(L.GlassPerBuilding).toBe(6)
-	end)
+	test(
+		"the budgets are in Config.Look (the Real Clinic, design §8.5), and the shares fit the plot's budget",
+		function()
+			local L = Config.Look
+			expect(L.PlotBudget).toBe(640)
+			expect(L.BuildingParts).toBe(420)
+			expect(L.RoomParts).toBe(90)
+			expect(L.PlotParts).toBe(130)
+			expect(L.BuildingParts + L.RoomParts + L.PlotParts <= L.PlotBudget).toBe(true)
+			expect(L.TownParts).toBe(600)
+			expect(L.SurfaceGuisPerBuilding).toBe(24)
+			expect(L.GlassPerBuilding).toBe(10)
+			-- six full plots and the town stay under 4,500 parts (design §8.5)
+			expect(6 * L.PlotBudget + L.TownParts <= 4500).toBe(true)
+		end
+	)
 
 	test(
 		"every level, every theme, every room: at most Config.Look.PlotBudget parts (no creatures, no decor)",

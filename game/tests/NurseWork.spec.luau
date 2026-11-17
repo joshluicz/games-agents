@@ -15,11 +15,13 @@ local expect, test = T.expect, T.test
 
 local Config = require("./config")
 local AbilitiesLogic = require("../src/shared/Logic/Abilities")
+local BuildingLogic = require("../src/shared/Logic/Building")
 local JobsLogic = require("../src/shared/Logic/Jobs")
 local NurseLogic = require("../src/shared/Logic/Nurse")
 local RebirthLogic = require("../src/shared/Logic/Rebirth")
 local RecipeLogic = require("../src/shared/Logic/Recipe")
 local Schema = require("../src/shared/Logic/Schema")
+local VisitLogic = require("../src/shared/Logic/Visit")
 local AbilitiesData = require("../src/shared/Data/Abilities")
 local DecorData = require("../src/shared/Data/Decor")
 local DeptData = require("../src/shared/Data/Departments")
@@ -49,8 +51,26 @@ local function pureBlock(name: string, env: { [string]: any }): any
 	return chunk()
 end
 
-local NP = pureBlock("Nurses.luau", { NurseLogic = NurseLogic })
+local NP = pureBlock("Nurses.luau", {
+	NurseLogic = NurseLogic,
+	JobsLogic = JobsLogic,
+	VisitLogic = VisitLogic,
+	BuildingLogic = BuildingLogic,
+})
 local AP = pureBlock("Abilities.luau", {})
+
+local function isSupply(id: string): boolean
+	return NP.isSupply(ItemsData, id)
+end
+
+-- A bay patient as Nurses.bays gives one (Nurses.Pure.rows over Patients.bayView, front first).
+local function bays(list: { any }, models: any?)
+	local view = {}
+	for index, row in list do
+		table.insert(view, { Bay = tostring(index), PatientId = index, Stage = row[1], Needs = row[2], Since = index })
+	end
+	return NP.rows(view, models or {})
+end
 
 local function known(id: string): boolean
 	return type(rawget(NursesData, id)) == "table"
@@ -130,9 +150,13 @@ T.describe("Nurses.Pure (v2)", function()
 		expect(effects.Cash).toBeCloseTo(1.2)
 		expect(NP.makeLine(effects.Make)).toBe("Bath=0.8")
 		expect(NP.teamLine(JobsLogic.teams({ "Reception" }, DeptData), DeptData)).toBe("")
+		-- the Pharmacy team works the supply shelf and the Cocoa Corner (never the dispensary: nurses don't dispense)
 		local pharmacy =
 			JobsLogic.teamEffects(JobsLogic.teams({ "Pharmacy", "Pharmacy", "Pharmacy" }, DeptData), DeptData)
-		expect(NP.makeLine(pharmacy.Make)).toBe("Cocoa=0.6,Pharmacy=0.6")
+		expect(NP.makeLine(pharmacy.Make)).toBe("Bandage=0.6,Cocoa=0.6,Ice=0.6,Plaster=0.6")
+		expect(pharmacy.Make.Remedy).toBeNil()
+		local hydro = JobsLogic.teamEffects(JobsLogic.teams({ "Hydro", "Hydro" }, DeptData), DeptData)
+		expect(NP.makeLine(hydro.Make)).toBe("Bath=0.8")
 		expect(NP.makeLine({})).toBe("")
 	end)
 
@@ -143,16 +167,20 @@ T.describe("Nurses.Pure (v2)", function()
 		end
 	end)
 
-	test("urgentNeeds: only waiting 🚑/🚁 patients in line, front first", function()
-		local needs = NP.urgentNeeds({
-			{ Urgent = "AE", State = "Waiting", Queue = 2, Missing = { "Cocoa" } },
-			{ Urgent = "", State = "Waiting", Queue = 1, Missing = { "Potion" } },
-			{ Urgent = "VIP", State = "Waiting", Queue = 1, Missing = { "Plaster", "Potion" } },
-			{ Urgent = "AE", State = "Treating", Queue = 1, Missing = { "Bubbles" } },
-			{ Urgent = "AE", State = "Waiting", Queue = 0, Missing = { "Bubbles" } },
+	test("urgentRow: only a 🚑/🚁 bay patient waiting for the doctor, the longest-waiting first", function()
+		local rows = bays({
+			{ "Treat", { "Cocoa" } },
+			{ "Exam", {} },
+			{ "Treat", { "Plaster", "CoughSyrup" } },
+			{ "Treat", { "Bubbles" } },
+		}, {
+			["1"] = { Urgent = "" },
+			["2"] = { Urgent = "AE", State = "Examining" }, -- in its exam: not waiting
+			["3"] = { Urgent = "VIP" },
+			["4"] = { Urgent = "AE" },
 		})
-		expect(needs).toEqual({ "Plaster", "Potion", "Cocoa" })
-		expect(NP.urgentNeeds({})).toEqual({})
+		expect(NP.urgentRow(rows).PatientId).toBe(3)
+		expect(NP.urgentRow({})).toBeNil()
 	end)
 
 	test("canTake: owned, not rebirth-only, not listed unless the Market takes it", function()
@@ -350,41 +378,55 @@ T.describe("Abilities.Pure", function()
 		expect(AP.ready(slots.Me, 10, 0)).toBe(false)
 	end)
 
-	test("the usefulness views: built from the line, the tray and the hands", function()
-		local patients = {
-			{ Queue = 2, State = "Waiting", Patience = 0.3 },
-			{ Queue = 1, State = "Treating", Patience = 0.1 }, -- being treated: not waiting
-			{ Queue = 3, State = "Waiting", Patience = 0.8 },
-			{ Queue = 0, State = "Recovering", Patience = 0.1 },
-		}
-		local view = AP.view(patients, { "Potion", "Plaster", "Potion" }, { "Potion" }, { "Plaster" }, 4, false, 0)
+	test("the usefulness views: built from the bays, the waiting room, the tray and the hands", function()
+		local rows = bays({
+			{ "Treat", { "Ice", "Plaster" } }, -- the front
+			{ "Treat", { "Ice", "CoughSyrup" } }, -- in a mini-game: not waiting for the doctor
+			{ "Exam", {} },
+		}, {
+			["1"] = { Patience = 0.3 },
+			["2"] = { State = "Treating", Patience = 0.1 },
+			["3"] = { Patience = 0.8 },
+		})
+		local view = AP.view(rows, { 0.9, 0.2 }, { "Ice" }, { "Plaster" }, 4, false, 0, isSupply)
 		expect(view.FrontPatience).toBeCloseTo(0.3)
-		expect(view.LowCount).toBe(1)
-		expect(view.Waiting).toBe(2)
-		expect(view.Missing).toBe(1)
+		expect(view.LowCount).toBe(2) -- the front, and one in a seat
+		expect(view.Waiting).toBe(2) -- the bay patients Miracle would finish
+		expect(view.Missing).toBe(2) -- the second Ice pack and the cough syrup
+		expect(view.Supplies).toBe(1) -- only the Ice pack can go in the tray
 		expect(view.TrayRoom).toBe(3)
 		expect(AbilitiesLogic.useful("RefillFront", view)).toBe(true)
 		expect(AbilitiesLogic.useful("PauseLine", view)).toBe(true)
-		expect(AbilitiesLogic.useful("RefillLine", view)).toBe(false)
+		expect(AbilitiesLogic.useful("RefillLine", view)).toBe(true)
 		expect(AbilitiesLogic.useful("CureLine", view)).toBe(true)
 		expect(AbilitiesLogic.useful("TrayItem", view)).toBe(true)
-		expect(AbilitiesLogic.useful("FastMake", view)).toBe(false)
-		local calm = AP.view({}, {}, {}, {}, 4, true, 0)
+		expect(AbilitiesLogic.useful("FastMake", view)).toBe(true)
+		expect(AP.targets(rows)).toEqual({ 1, 3 }) -- never the one in a mini-game
+		local calm = AP.view({}, {}, {}, {}, 4, true, 0, isSupply)
 		expect(calm.FrontPatience).toBeNil()
 		for _, kind in { "RefillFront", "PauseLine", "RefillLine", "CureLine", "TrayItem", "FastMake", "InstantMake" } do
 			expect(AbilitiesLogic.useful(kind, calm)).toBe(false) -- nothing fires on a quiet clinic
 		end
-		local rush = AP.view({}, { "Potion", "Cocoa", "Bubbles" }, {}, {}, 4, true, 0)
-		expect(AbilitiesLogic.useful("InstantMake", rush)).toBe(true)
-		rush.NearStation = false
-		expect(AbilitiesLogic.useful("InstantMake", rush)).toBe(false)
+		-- only medicines missing: Fresh Brew has nothing to do (the player dispenses them)
+		local meds = AP.view(bays({ { "Treat", { "CoughSyrup", "EarDrops" } } }), {}, {}, {}, 4, true, 0, isSupply)
+		expect(meds.Missing).toBe(2)
+		expect(AbilitiesLogic.useful("TrayItem", meds)).toBe(false)
+		expect(AbilitiesLogic.useful("InstantMake", meds)).toBe(true)
+		meds.NearStation = false
+		expect(AbilitiesLogic.useful("InstantMake", meds)).toBe(false)
 	end)
 
-	test("Fresh Brew: the missing items, capped by its value and the tray's room", function()
-		expect(AP.brew({ "Potion", "Plaster", "Cocoa" }, { "Potion" }, {}, 3, 3)).toEqual({ "Plaster", "Cocoa" })
-		expect(AP.brew({ "Potion", "Plaster", "Cocoa" }, {}, {}, 1, 3)).toEqual({ "Potion" })
-		expect(AP.brew({ "Potion", "Plaster" }, {}, {}, 3, 1)).toEqual({ "Potion" })
-		expect(AP.brew({ "Potion" }, {}, { "Potion" }, 3, 3)).toEqual({})
+	test("Fresh Brew: the missing supplies (never a medicine), capped by its value and the tray's room", function()
+		local brew = AP.brew
+		expect(brew({ "Ice", "Plaster", "Cocoa" }, { "Ice" }, {}, 3, 3, isSupply)).toEqual({ "Plaster", "Cocoa" })
+		expect(brew({ "Ice", "Plaster", "Cocoa" }, {}, {}, 1, 3, isSupply)).toEqual({ "Ice" })
+		expect(brew({ "Ice", "Plaster" }, {}, {}, 3, 1, isSupply)).toEqual({ "Ice" })
+		expect(brew({ "Ice" }, {}, { "Ice" }, 3, 3, isSupply)).toEqual({})
+		expect(brew({ "CoughSyrup", "Bandage", "PainRelief" }, {}, {}, 3, 3, isSupply)).toEqual({ "Bandage" })
+		expect(AP.needs(bays({ { "Treat", { "Cast", "PainRelief" } }, { "Exam", {} } }))).toEqual({
+			"Cast",
+			"PainRelief",
+		})
 	end)
 
 	test("station rush: the strongest running one wins, ended ones drop off", function()
@@ -521,10 +563,13 @@ local modules = {
 	Remotes = Remotes,
 	Signal = { new = mockSignal },
 	Types = {},
+	["Logic.Building"] = BuildingLogic,
 	["Logic.Jobs"] = JobsLogic,
 	["Logic.Nurse"] = NurseLogic,
 	["Logic.Rebirth"] = RebirthLogic,
 	["Logic.Recipe"] = RecipeLogic,
+	["Logic.Tutorial"] = require("../src/shared/Logic/Tutorial"),
+	["Logic.Visit"] = VisitLogic,
 	["Data.Decor"] = DecorData,
 	["Data.Departments"] = DeptData,
 	["Data.Items"] = ItemsData,
@@ -1080,5 +1125,7 @@ T.describe("Server/Nurses (mocked): XP", function()
 		expect(Nurses.cheer({})).toEqual({ Patience = 1, Tip = 1 })
 		expect(Nurses.claimPorter({})).toBeNil()
 		expect(Nurses.escort({}, "PuffPup", nil)).toBe(false)
+		expect(Nurses.bays({})).toEqual({})
+		expect(Nurses.addToTray({}, "Plaster")).toBe(false) -- no plot
 	end)
 end)

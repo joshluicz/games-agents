@@ -103,26 +103,20 @@ local function refreshPreviews(plot: Plot, data: Types.Data?)
 	end
 end
 
--- Where the owner stands on joining and respawning: in front of the Counter on the patients' side, beside the line
--- (not on it), facing the clinic, so the first view shows the Stand, its stations and the patients. Worked out from
--- the Counter, QueueStart and PatientSpawn markers, so a kit plot gets the same spot: HOME_OUT studs further out
--- than the front of the line, HOME_SIDE studs to the side the patients arrive from (the exit route is the other).
-local HOME_OUT = 4
-local HOME_SIDE = 6.5
+-- Where the owner stands on joining and respawning: on the forecourt just outside the front doors, facing the
+-- reception desk through them, so the first view is the clinic's front and the way in. Worked out from the Counter
+-- and PatientSpawn markers (the desk is in the lobby, the spawn at the gate), so a kit plot gets the same spot:
+-- HOME_OUT studs from the desk toward the gate. On the built plot that is about (3, -29), under the canopy's edge.
+local HOME_OUT = 14
 local HOME_HEIGHT = 3.5 -- the HumanoidRootPart above the ground
 
 local function homeCFrame(plot: Plot): CFrame
 	local pivot = plot.Model:GetPivot()
 	local counter = pivot:PointToObjectSpace(plot.Counter.Position)
-	local queue = pivot:PointToObjectSpace(plot.QueueStart.Position)
 	local arrive = pivot:PointToObjectSpace(plot.Spawn.Position)
-	local out = Vector3.new(queue.X - counter.X, 0, queue.Z - counter.Z)
+	local out = Vector3.new(arrive.X - counter.X, 0, arrive.Z - counter.Z)
 	out = if out.Magnitude > 0.1 then out.Unit else Vector3.new(0, 0, -1)
-	local side = Vector3.new(-out.Z, 0, out.X)
-	if side:Dot(Vector3.new(arrive.X - queue.X, 0, arrive.Z - queue.Z)) < 0 then
-		side = -side
-	end
-	local spot = Vector3.new(queue.X, HOME_HEIGHT, queue.Z) + out * HOME_OUT + side * HOME_SIDE
+	local spot = Vector3.new(counter.X, HOME_HEIGHT, counter.Z) + out * HOME_OUT
 	local look = Vector3.new(counter.X, HOME_HEIGHT, counter.Z)
 	return pivot * CFrame.lookAt(spot, look)
 end
@@ -537,7 +531,6 @@ function Plots.start()
 			Model = model,
 			Owner = nil,
 			Counter = findPart(model, "Counter"),
-			QueueStart = findPart(model, "QueueStart"),
 			Spawn = findPart(model, "PatientSpawn"),
 			Exit = findPart(model, "PatientExit"),
 		}

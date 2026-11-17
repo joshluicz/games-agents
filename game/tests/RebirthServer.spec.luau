@@ -1251,7 +1251,7 @@ local function roomModel(roomId: string): any
 end
 
 local plotModel = newInstance("Model", "Plot_1")
-for _, name in { "Counter", "QueueStart", "PatientSpawn", "PatientExit" } do
+for _, name in { "Counter", "PatientSpawn", "PatientExit" } do
 	child(plotModel, "Part", name)
 end
 for _, name in { "Rooms", "Decor", "Patients", "Slots" } do

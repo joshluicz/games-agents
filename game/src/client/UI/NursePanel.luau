@@ -349,7 +349,8 @@ function Pure.roster(nurses: any, rebirths: number, cfg: any, roster: any): Rost
 	}
 end
 
--- A team bonus in a few words: "+10% 💰" · "🚑 wait +25%" · "rest 25% faster" · "☕💊 20% faster".
+-- A team bonus in a few words: "+10% 💰" · "🚑 wait +25%" · "rest 25% faster" · "🛁 40% faster" · "📦 20% faster"
+-- (a team that speeds more than 2 stations shows 📦, the supplies, so the line stays short).
 function Pure.effectText(effect: any, stationIcons: { [string]: string }?): string
 	if type(effect) ~= "table" then
 		return ""
@@ -363,8 +364,12 @@ function Pure.effectText(effect: any, stationIcons: { [string]: string }?): stri
 		return "rest " .. percent .. "% faster"
 	elseif effect.Kind == "Make" then
 		local icons = ""
-		for _, stationId in (if type(effect.Stations) == "table" then effect.Stations else {}) do
+		local stations = if type(effect.Stations) == "table" then effect.Stations else {}
+		for _, stationId in stations do
 			icons ..= if stationIcons and stationIcons[stationId] then stationIcons[stationId] else ""
+		end
+		if #stations > 2 then
+			icons = "📦"
 		end
 		return (if icons ~= "" then icons .. " " else "") .. percent .. "% faster"
 	end

@@ -325,7 +325,7 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 	local perRow = math.ceil(count / 2)
 	local half = plotBuilderNumber("STREET_HALF_WIDTH") -- 18
 	local gap = plotBuilderNumber("PLOT_GAP") -- 8
-	local streetEnd = (perRow * (size + gap) + 40) / 2 -- 152: the street (and the Hall of Fame past x < -152)
+	local streetEnd = (perRow * (size + gap) + 40) / 2 -- 197: the street (and the Hall of Fame past x < -197)
 	local archInner = streetEnd - 5 - 0.8 -- the welcome arches' posts (1.6 wide) at x = ±(end - 5)
 	local curb = half - 0.8 -- the curbs' inner edge
 	local beltHalf = 3.4 -- NurseBelt: the bed (BELT_WIDTH 5 + 1.6) and the rollers, either side of the line
@@ -340,7 +340,7 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 		local westReach = if sx > ex then cloudReach else houseReach
 		expect(east + eastReach <= archInner - 2).toBe(true)
 		expect(west - westReach >= -archInner + 2).toBe(true)
-		expect(west - westReach > -streetEnd).toBe(true) -- the Hall of Fame garden (x < -152) stays clear
+		expect(west - westReach > -streetEnd).toBe(true) -- the Hall of Fame garden (x < -197) stays clear
 	end)
 
 	test("down the road's centre line, alone in its lane, clear of the spawn pad (memory-20261117-001 #3)", function()
@@ -356,7 +356,8 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 		for column = 1, perRow do
 			local x = (column - (perRow + 1) / 2) * (size + gap)
 			for _, side in { -1, 1 } do
-				local gateZ = side * (half + size / 2 - 39.6) -- the gate in the plot's front fence (z -39.6)
+				-- the gate in the plot's front fence (plot-local z = -(size / 2 - 0.4))
+				local gateZ = side * (half + 0.4)
 				expect(Belt.distanceToPath(Config, x, gateZ) <= B.HireDistance - 5).toBe(true)
 			end
 		end

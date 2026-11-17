@@ -384,12 +384,11 @@ T.describe("MiniGames on the template (§B8)", function()
 		expect(count(source("src/client/UI/MiniGames.luau"), "STUB")).toBe(0)
 		assert(string.find(body, "return v.Stage", 1, true), "stage() returns the stage")
 	end)
-	test("v2 keeps working: auto PERFECT, Ease, Soak and Triage are all still there", function()
+	test("v2 keeps working: auto PERFECT, Ease and Triage are all still there", function()
 		for _, needle in
 			{
 				"playAuto(",
 				"Pure.eased(ctx.Config.MiniGame, session.Ease)",
-				'session.Kind == "Soak"',
 				"runTriage(ctx, v, run, triage, answeredAt)",
 				"ctx.Remotes.Triage",
 			}

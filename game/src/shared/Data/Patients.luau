@@ -18,9 +18,13 @@
 --          "PinkPaws" "Beak" "OrangeFeet" "Syrup" "EyeRings" "Hem" "MothWings" "WingSpots" "Fluff" "Daisy"
 --          "Blush" "Dots" "GrumpyBrows" "Trail"
 -- Every creature gets big shiny eyes, brows, rosy cheeks and little arms; nothing scary, gross or sharp (Rated
--- Minimal). What a waiting patient acts out (and the props it wears) is Data/AilmentActing.
+-- Minimal). What a patient acts out (and the props it wears) is Data/CaseActing, by its case.
 -- Colours are candy pop (memory-20261116-007): a saturated body colour of its own per species, so no two look alike
 -- across a clinic, and a light or contrasting accent. Night patients glow in a rich version of their body colour.
+--
+-- The Real Clinic (design §15 #2): a species has no case of its own. Each visit rolls one from its Wing's case pool
+-- (Data/Cases.POOLS), cut to what that clinic can treat (Logic/Visit). The ids are the Patient Book's keys: never
+-- rename one.
 
 export type PatientId = string
 export type Look = {
@@ -35,17 +39,15 @@ export type Look = {
 }
 export type Patient = {
 	Name: string,
-	Ailment: string, -- AilmentId
-	Wing: string, -- WingId
+	Wing: string, -- WingId: its Book set, and the case pool its visits roll from (Data/Cases.POOLS)
 	Night: boolean?, -- only comes at night, glows softly
 	Look: Look,
 }
 
 local ENTRIES: { [PatientId]: Patient } = {
-	-- Starter wing: treatable at the First-Aid Stand
+	-- Starter wing (Meadow): the everyday cases, Lv 1 and up
 	DumplingFrog = {
 		Name = "Dumpling Frog",
-		Ailment = "Hiccups",
 		Wing = "Starter",
 		Look = {
 			Shape = "Ball",
@@ -60,7 +62,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	CloudSheep = {
 		Name = "Cloud Sheep",
-		Ailment = "Sneezes",
 		Wing = "Starter",
 		Look = {
 			Shape = "Blob",
@@ -75,7 +76,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	ToastPup = {
 		Name = "Toast Pup",
-		Ailment = "Bump",
 		Wing = "Starter",
 		Look = {
 			Shape = "Box",
@@ -90,7 +90,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	JellyBun = {
 		Name = "Jelly Bun",
-		Ailment = "Scrape",
 		Wing = "Starter",
 		Look = {
 			Shape = "Drop",
@@ -104,10 +103,9 @@ local ENTRIES: { [PatientId]: Patient } = {
 		},
 	},
 
-	-- Bath wing: needs the Bath Room
+	-- Bath wing (Bubble Pond): its visits are likeliest to bring the Bath Room's case, Sore muscles
 	SlimeCat = {
 		Name = "Slime Cat",
-		Ailment = "Sticky",
 		Wing = "Bath",
 		Look = {
 			Shape = "Drop",
@@ -122,7 +120,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	MossMole = {
 		Name = "Moss Mole",
-		Ailment = "Muddy",
 		Wing = "Bath",
 		Look = {
 			Shape = "Bean",
@@ -136,10 +133,9 @@ local ENTRIES: { [PatientId]: Patient } = {
 		},
 	},
 
-	-- Winter wing: needs the Winter Wing room
+	-- Winter wing (Snowy Hills): its visits are likeliest to bring the Winter Wing's case, Chills
 	SnowconePenguin = {
 		Name = "Snowcone Penguin",
-		Ailment = "Chills",
 		Wing = "Winter",
 		Look = {
 			Shape = "Bean",
@@ -154,7 +150,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	IcicleOwl = {
 		Name = "Icicle Owl",
-		Ailment = "FrozenNose",
 		Wing = "Winter",
 		Look = {
 			Shape = "Ball",
@@ -168,10 +163,10 @@ local ENTRIES: { [PatientId]: Patient } = {
 		},
 	},
 
-	-- Night patients: only at night, soft glow, pay 2x. Spooky-cute, never scary.
+	-- Night patients: only at night, soft glow, pay 2x. Spooky-cute, never scary. Their cases are Lv 1 ones, so every
+	-- clinic can treat them.
 	HiccupGhost = {
 		Name = "Hiccup Ghost",
-		Ailment = "Cough",
 		Wing = "Night",
 		Night = true,
 		Look = {
@@ -187,7 +182,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	MoonMoth = {
 		Name = "Moon Moth",
-		Ailment = "LostGlow",
 		Wing = "Night",
 		Night = true,
 		Look = {
@@ -201,11 +195,10 @@ local ENTRIES: { [PatientId]: Patient } = {
 			Bits = { "MothWings", "WingSpots", "Fluff" },
 		},
 	},
-	-- Progression v2 (build plan §B5; placeholder names and looks, OPEN #1). Sunny wing (from R1): with whatever
-	-- stations the clinic has. Sky wing (from R2): only by air ambulance.
+	-- Progression v2 (build plan §B5; placeholder names and looks, OPEN #1). Sunny wing (from R1): whatever the clinic
+	-- can treat of its pool. Sky wing (from R2): only by air ambulance, with a broken leg.
 	DaisyDoodle = {
 		Name = "Daisy Doodle",
-		Ailment = "Pollen",
 		Wing = "Sunny",
 		Look = {
 			Shape = "Blob",
@@ -220,7 +213,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	BuzzBun = {
 		Name = "Buzz Bun",
-		Ailment = "Pollen",
 		Wing = "Sunny",
 		Look = {
 			Shape = "Bean",
@@ -235,7 +227,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	ThistleTot = {
 		Name = "Thistle Tot",
-		Ailment = "Prickles",
 		Wing = "Sunny",
 		Look = {
 			Shape = "Ball",
@@ -250,7 +241,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	CactusCub = {
 		Name = "Cactus Cub",
-		Ailment = "Prickles",
 		Wing = "Sunny",
 		Look = {
 			Shape = "Box",
@@ -265,7 +255,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	CometKite = {
 		Name = "Comet Kite",
-		Ailment = "Airsick",
 		Wing = "Sky",
 		Look = {
 			Shape = "Drop",
@@ -280,7 +269,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	NimbusNarwhal = {
 		Name = "Nimbus Narwhal",
-		Ailment = "Airsick",
 		Wing = "Sky",
 		Look = {
 			Shape = "Bean",
@@ -295,7 +283,6 @@ local ENTRIES: { [PatientId]: Patient } = {
 	},
 	PuffinPilot = {
 		Name = "Puffin Pilot",
-		Ailment = "Airsick",
 		Wing = "Sky",
 		Look = {
 			Shape = "Ball",

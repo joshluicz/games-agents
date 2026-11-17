@@ -1,20 +1,24 @@
 --!strict
--- Hospital v2's rules: floors, departments, routing, triage, urgent recipes, arrival and rest times (Progression v2
--- build plan §B5/§B7; design §6). Pure: no Roblox services, no requires. `levels` is Shared/Data/Levels (an array,
--- Levels[level]); `cfg` Shared/Config.
+-- Hospital rules: floors, departments, where a patient who stays rests, the ward pick, urgent plans, arrival and
+-- rest times (Progression v2 build plan §B5/§B7; Real Clinic build plan, Task 4; design §6, §10 and §15 #3). Pure: no
+-- Roblox services, no requires. `levels` is Shared/Data/Levels (an array, Levels[level]); `cfg` Shared/Config.
 --
---   Hospital.floors(level, levels): number          walkable floors above the ground (Data/Levels Floors; 0 at Lv 1)
+--   Hospital.floors(level, levels): number          OPEN floors above the ground (Data/Levels Floors; 0 at Lv 1)
 --   Hospital.departments(level, levels): { DeptId } the departments open at that level (a copy of its row's list)
 --   Hospital.isOpen(dept, level, levels): boolean   that department is open at that level
---   Hospital.route(wing, urgent, level, levels): DeptId
---       where a treated patient recovers: "Hydro" for a Bath-wing patient once Hydro is open, else "Wards". (The
---       Stand's own ground bed still comes first when it's free: Patients' choice, not this one)
+--   Hospital.route(stay, urgent, level, levels): DeptId?
+--       where a treated patient rests before going home: its case's Stay ("Wards", the Injury Ward on F1, or "Rest",
+--       the Rest Ward on F2 and F3) once that department is open at the level; nil = it goes straight home. It agrees
+--       with Logic/Visit.stayWard (HospitalLogic.spec checks it). `urgent` doesn't change it
 --   Hospital.triageOptions(level, levels): { DeptId }?
---       the places a patient can be sent once two or more are open (Wards and Hydro from Lv 3), else nil
---   Hospital.urgentRecipe(recipe, items, cap, minItems?): { ItemId }?
---       an urgent (🚑/🚁) patient's recipe: the first max(cap, minItems) items (minItems default 2, Config.AE.MinItems);
---       a 1-item recipe is padded with the other First-Aid Stand item (🧪 <-> 🩹). nil when the plot can't make every
---       item (`items` = { [ItemId]: true }, what its stations make)
+--       the wards a staying patient can be sent to once both are open ("Injury Ward or Rest Ward?" from Lv 3), else
+--       nil
+--   Hospital.pad(item): ItemId                      what pads a one-step urgent plan: a 🧊 Ice pack (a plan that is
+--                                                   only an ice pack gets a 🩹 Plaster instead)
+--   Hospital.urgentRecipe(plan, items, cap, minItems?): { ItemId }?
+--       an urgent (🚑/🚁) patient's plan: its first max(cap, minItems) steps (minItems default 2, Config.AE.MinItems);
+--       a one-step plan is padded (Hospital.pad). nil when the plot can't make every step (`items` = { [ItemId]:
+--       true }, what its open stations make)
 --   Hospital.arrival(base, factors): number         base seconds x every factor (finite and > 0; others ignored),
 --                                                   never below 1 s
 --   Hospital.recover(base, factors): number         the same for rest seconds, never below 0.5 s
@@ -24,9 +28,10 @@
 
 local Hospital = {}
 
-Hospital.DESTINATIONS = table.freeze({ "Wards", "Hydro" }) -- where a treated patient can recover, in triage order
-Hospital.PAD = table.freeze({ Potion = "Plaster", Plaster = "Potion" }) -- the other First-Aid Stand item
-Hospital.MIN_ITEMS = 2 -- Config.AE.MinItems (Hospital.spec checks they match)
+Hospital.DESTINATIONS = table.freeze({ "Wards", "Rest" }) -- the wards a staying patient can rest in, in pick order
+Hospital.PAD = "Ice" -- the step that pads a one-step urgent plan
+Hospital.PAD_ICE = "Plaster" -- ... unless that one step is an ice pack already
+Hospital.MIN_ITEMS = 2 -- Config.AE.MinItems (HospitalLogic.spec checks they match)
 
 local function num(value: any, fallback: number): number
 	if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
@@ -65,11 +70,11 @@ function Hospital.isOpen(dept: string, level: any, levels: any): boolean
 	return table.find(Hospital.departments(level, levels), dept) ~= nil
 end
 
-function Hospital.route(wing: any, _urgent: any, level: any, levels: any): string
-	if wing == "Bath" and Hospital.isOpen("Hydro", level, levels) then
-		return "Hydro"
+function Hospital.route(stay: any, _urgent: any, level: any, levels: any): string?
+	if type(stay) == "string" and table.find(Hospital.DESTINATIONS, stay) and Hospital.isOpen(stay, level, levels) then
+		return stay
 	end
-	return "Wards"
+	return nil
 end
 
 function Hospital.triageOptions(level: any, levels: any): { string }?
@@ -82,8 +87,12 @@ function Hospital.triageOptions(level: any, levels: any): { string }?
 	return if #open >= 2 then open else nil
 end
 
+function Hospital.pad(item: any): string
+	return if item == Hospital.PAD then Hospital.PAD_ICE else Hospital.PAD
+end
+
 function Hospital.urgentRecipe(
-	recipe: { string },
+	plan: { string },
 	items: { [string]: boolean },
 	cap: number,
 	minItems: number?
@@ -91,17 +100,16 @@ function Hospital.urgentRecipe(
 	local need = math.max(1, math.floor(num(minItems, Hospital.MIN_ITEMS)))
 	local limit = math.clamp(math.max(math.floor(num(cap, 1)), need), 1, 3)
 	local out: { string } = {}
-	for index, item in recipe do
-		if index > limit then
-			break
+	if type(plan) == "table" then
+		for index, item in plan do
+			if index > limit then
+				break
+			end
+			table.insert(out, item)
 		end
-		table.insert(out, item)
 	end
 	if #out == 1 and #out < need then
-		local pad = Hospital.PAD[out[1]]
-		if pad then
-			table.insert(out, pad)
-		end
+		table.insert(out, Hospital.pad(out[1]))
 	end
 	if #out == 0 then
 		return nil

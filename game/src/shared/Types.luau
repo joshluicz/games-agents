@@ -350,7 +350,6 @@ export type CuredInfo = {
 	-- Progression v2 (Feel/CureFX's bonus lines; Server/Cure always sends them, "" / false = no):
 	Urgent: string?, -- "" | "AE" | "VIP": an ambulance (🚑 x3) or helicopter (🚁 x4) patient
 	Escorted: boolean?, -- it rode the lift with a Porter or a player (+20% 🛗)
-	Soaked: boolean?, -- it rested in the Hydro hot tub (+25% 🛁)
 }
 
 export type NextGoal = { Kind: string, Id: string, Icon: string }
@@ -391,7 +390,12 @@ export type TreatSession = {
 	Tools: { ToolId }?, -- Exam: the 3 tools on the card (Logic/Visit.examTools)
 	Answer: ToolId?, -- Exam: the right one (the server picked it; knowing it early wins nothing but the tip)
 	Glow: boolean?, -- Exam: the right tool glows (a player's first exams, and Simple mode: Logic/Visit.glow)
+	Symptom: string?, -- Exam: the patient's symptom bubble, the card's clue
 	Options: { ItemId }?, -- Dispense: the medicines to choose from
+	-- Dispense: Expert Dispensing (the clinic owner's Pharmacy2 unlock). The client draws and rates the Dose game
+	-- with its band Config.Dispensary.ExpertBand wider; Tuning.Dose is that same row as the server worked it out
+	Expert: boolean?,
+	Tuning: { [GameId]: { [string]: number } }?,
 	Case: CaseId?, -- Treat: the case being treated (it is known by then). Never sent with an Exam
 }
 -- TreatResult's third return value when ok
@@ -401,6 +405,7 @@ export type TreatOutcome = {
 	Combo: number,
 	Complete: boolean,
 	Case: CaseId?, -- Exam: the case the exam revealed ("🩺 It's a cough!")
+	Plan: { ItemId }?, -- Exam: that patient's own plan (cut to its clinic's level; an urgent one padded)
 	Item: ItemId?, -- Dispense: the medicine now in the player's hands (nil: the choice wasn't on offer)
 	-- Progression v2: pick a floor for this patient now (Lv 3+, no Receptionist); Seconds for a soft bar, no digits
 	Triage: { Options: { DeptId }, Seconds: number }?,
@@ -542,7 +547,6 @@ export type CureCtx = {
 	Dept: DeptId?, -- the department it recovered in (nurse XP specialty)
 	Wing: WingId?, -- for XP and the Book (already derivable; passed to save a lookup)
 	Escorted: boolean?, -- rode the lift with a Porter or a player (already in Extra; passed on to CuredInfo)
-	Soaked: boolean?, -- rested in a Hydro hot-tub spot (already in Extra; passed on to CuredInfo)
 }
 
 -- Team bonuses at a plot (Logic/Jobs.teamEffects, Server/Nurses.team): factors, 1 = none

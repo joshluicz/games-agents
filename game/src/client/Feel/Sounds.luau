@@ -9,18 +9,23 @@
 -- lands); your Carry growing (you made an item) plays "Make" and shrinking (you handed it over) plays "Give". The
 -- depth update's bus events: "MiniGameRated" (game, rating) plays RateOK / RateGood / RatePerfect, "TreatDone"
 -- (outcome, session) plays Tip when a tip landed and Combo when the combo climbs into a new step, and "NurseNews"
--- plays Hire, Equip, or a soft Sparkle for a nurse seen for the first time. CureFX, Celebrate, Toasts, Hud and the
--- mini-games fire the rest through the bus. Every cue has a cooldown, so two modules firing the same cue in the
--- same moment (MiniGames and this wiring, say) play it once.
+-- plays Hire, Equip, or a soft Sparkle for a nurse seen for the first time. CureFX (the treat effects), Celebrate,
+-- Toasts, Hud and the mini-games fire the rest through the bus. Every cue has a cooldown, so two modules firing the
+-- same cue in the same moment (MiniGames and this wiring, say) play it once.
 --
 -- Cue names other tasks may fire (build plan §B9): Pour, Patch, Scrub, Blow, RateOK, RateGood, RatePerfect, Combo,
 -- Tip, Hire, Equip, Arrival, Golden, LevelUp, Celebrate, Tick, Coin; and from before: Click, Pop, Make, Give, Chime,
 -- Sparkle, Fanfare, Heart, Thud, Hop, Splash, Whoosh, Nope, Night, Morning; plus Close and Toast.
 -- Progression v2 (its build plan §B9, Sounds.V2_CUES): Rebirth, Perk, Node, Ability, Siren, Heli, Ding, Sold, Bought,
 -- Restock, Triage, Splash, Brew, LevelNurse, plus Tag (🏷️ listed). Wired here: "NurseNews" Job plays Equip (the
--- Equipped news is gone), Level LevelNurse (softly), Sold and Gone Sold, Bought Bought, Listed Tag; a Pharmacy
--- medicine landing in your hands plays Brew instead of Make. Restock is only ever fired by a panel you have open.
+-- Equipped news is gone), Level LevelNurse (softly), Sold and Gone Sold, Bought Bought, Listed Tag; a medicine from
+-- the dispensary landing in your hands (Data/Items Kind "Medicine") plays Brew instead of Make. Restock is only ever
+-- fired by a panel you have open.
 -- Look overhaul (T8): Chirp, the tutorial guide nurse's line (UI/Tutorial). Sounds.LOOK_CUES lists it.
+-- The Real Clinic (build plan Task 7): each exam and treatment game's hit (UI/MiniGames, Pure.LOOKS Sound): Listen
+-- (a soft heartbeat, the stethoscope), Beep (the thermometer), Shine (the light), Scan (the X-ray), Cold (the ice
+-- pack), Wrap (a bandage or a cast going round) and Found (the right tool or bottle picked; a wrong one is the gentle
+-- Nope). Sounds.CLINIC_CUES lists them.
 --
 -- Built-in sounds only (Global Constraints). Roblox ships just 11 rbxasset://sounds files today (checked in the
 -- Studio and Player content folders on 2026-11-16): character moves, a splash, the settings-slider blip, an
@@ -187,6 +192,32 @@ Sounds.CUES = table.freeze({
 	},
 	LevelNurse = { Source = "Blip", Volume = 0.45, Pitch = 1, Notes = { 0, 4, 7, 12, 16 }, Gap = 0.06, Cooldown = 0.6 },
 	Tag = { Source = "Blip", Volume = 0.28, Pitch = 1.45, Notes = { 0, 4 }, Gap = 0.05, Cooldown = 0.3 }, -- 🏷️ listed
+	-- The Real Clinic (build plan Task 7): the exam tools' and the supplies' hits. Soft, short, never a scary sound.
+	Listen = { Source = "Land", Volume = 0.3, Pitch = 0.7, Notes = { 0, 2 }, Gap = 0.16, Cooldown = 0.12 }, -- lub-dub
+	Beep = { Source = "Blip", Volume = 0.2, Pitch = 2, Notes = { 0, 0 }, Gap = 0.1, Cooldown = 0.25, Length = 0.07 },
+	Shine = {
+		Source = "Blip",
+		Volume = 0.22,
+		Pitch = 1.6,
+		Notes = { 0, 7 },
+		Gap = 0.03,
+		Jitter = 0.02,
+		Cooldown = 0.1,
+		Length = 0.2,
+	},
+	Scan = { Source = "Wind", Volume = 0.22, Pitch = 2.8, Jitter = 0.03, Cooldown = 0.15, Length = 0.3 },
+	Cold = {
+		Source = "Blip",
+		Volume = 0.2,
+		Pitch = 2.4,
+		Notes = { 0, 5 },
+		Gap = 0.04,
+		Jitter = 0.03,
+		Cooldown = 0.12,
+		Length = 0.12,
+	},
+	Wrap = { Source = "Rustle", Volume = 0.3, Pitch = 1.5, Jitter = 0.06, Cooldown = 0.08 },
+	Found = { Source = "Blip", Volume = 0.4, Pitch = 1.2, Notes = { 0, 4, 7 }, Gap = 0.05, Cooldown = 0.2 },
 	-- Look overhaul (look build plan §B9, tutorial-ux §4): the tutorial's guide nurse says a line ("Hi, Doctor!"):
 	-- three quick, bright, rising-and-falling notes, softer than Heart, cut short so it never covers a Chime
 	Chirp = {
@@ -222,6 +253,18 @@ Sounds.V2_CUES = table.freeze({
 -- The cues the look overhaul adds (look build plan §D T8); tests/TutorialFlow checks each one is in CUES.
 Sounds.LOOK_CUES = table.freeze({
 	"Chirp",
+})
+
+-- The cues the Real Clinic adds (build plan Task 7); tests/MiniGamesPure checks each one is in CUES, and that every
+-- mini-game look's Sound is a cue.
+Sounds.CLINIC_CUES = table.freeze({
+	"Listen",
+	"Beep",
+	"Shine",
+	"Scan",
+	"Cold",
+	"Wrap",
+	"Found",
 })
 
 local MAX_LIVE = 18 -- sounds playing at once; more are skipped, never queued
@@ -423,8 +466,9 @@ local function carried(player: Player): { string }
 	return string.split(value, ",")
 end
 
--- True when `after` holds a Pharmacy medicine (Data/Items with Medicine) that `before` didn't: brewed, not made.
-local function brewed(items: any, before: { string }, after: { string }): boolean
+-- True when `after` holds a medicine (Data/Items Kind "Medicine", made at the dispensary) that `before` didn't:
+-- dispensed, not made.
+local function dispensed(items: any, before: { string }, after: { string }): boolean
 	if type(items) ~= "table" then
 		return false
 	end
@@ -437,7 +481,7 @@ local function brewed(items: any, before: { string }, after: { string }): boolea
 			had[id] -= 1
 		else
 			local item = rawget(items, id)
-			if type(item) == "table" and type(item.Medicine) == "table" then
+			if type(item) == "table" and item.Kind == "Medicine" then
 				return true
 			end
 		end
@@ -468,8 +512,8 @@ function Sounds.init(ctx: Types.Ctx)
 	player:GetAttributeChangedSignal("Carry"):Connect(function()
 		local now = carryCount(player)
 		local items = carried(player)
-		-- A Pharmacy craft swaps two ingredients for one medicine: it bubbles (Brew) rather than "made"/"gave".
-		if brewed(ctx.Data and (ctx.Data :: any).Items, holding, items) then
+		-- A medicine from the dispensary bubbles (Brew) rather than "made"/"gave".
+		if dispensed(ctx.Data and (ctx.Data :: any).Items, holding, items) then
 			Sounds.play("Brew")
 		elseif now > count then
 			Sounds.play("Make")

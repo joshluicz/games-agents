@@ -491,12 +491,6 @@ T.describe("Guide: station holds follow the plot (Progression v2)", function()
 		expect(Hold.seconds(2, "Potion", {}, 110, 3, 100, 0.3)).toBe(2) -- a junk factor never slows it
 		expect(Hold.seconds(2, nil, team, nil, nil, 100, 0.3)).toBe(2)
 	end)
-	test("pharmacy: its own hold, faster from R2", function()
-		expect(Hold.pharmacy(Config, 0)).toBe(Config.Pharmacy.HoldSeconds)
-		expect(Hold.pharmacy(Config, 1)).toBe(Config.Pharmacy.HoldSeconds)
-		expect(Hold.pharmacy(Config, 2)).toBe(Config.Pharmacy.HoldSeconds * Config.Pharmacy.Tier2Factor)
-		expect(Hold.pharmacy(nil, 5)).toBe(3)
-	end)
 end)
 
 T.describe("BookPanel: rebirth wings and the Golden sticker (Progression v2)", function()
@@ -524,22 +518,24 @@ T.describe("BookPanel: rebirth wings and the Golden sticker (Progression v2)", f
 end)
 
 T.describe("CureFX: bonus pops (Progression v2)", function()
-	test("Golden, 🚑 ×3, +20% 🛗 and +25% 🛁 from the payload, numbers from Config", function()
-		local lines = Bonus.lines({ Variant = "Golden", Urgent = "AE", Escorted = true, Soaked = true }, {}, Config)
-		local texts = {}
-		for _, line in lines do
-			table.insert(texts, line.Text)
+	test(
+		"Golden, 🚑 ×3 and +20% 🛗 from the payload (the hot tub's 🛁 line is gone), numbers from Config",
+		function()
+			local lines = Bonus.lines({ Variant = "Golden", Urgent = "AE", Escorted = true, Soaked = true }, {}, Config)
+			local texts = {}
+			for _, line in lines do
+				table.insert(texts, line.Text)
+			end
+			expect(texts).toEqual({
+				"🌟 Golden!",
+				"🚑 ×" .. Config.AE.CashMultiplier,
+				"+" .. math.floor(Config.Escort.CashBonus * 100 + 0.5) .. "% 🛗",
+			})
+			expect(texts[2]).toBe("🚑 ×3")
+			expect(texts[3]).toBe("+20% 🛗")
+			expect(texts[4]).toBeNil()
 		end
-		expect(texts).toEqual({
-			"🌟 Golden!",
-			"🚑 ×" .. Config.AE.CashMultiplier,
-			"+" .. math.floor(Config.Escort.CashBonus * 100 + 0.5) .. "% 🛗",
-			"+" .. math.floor(Config.Hydro.CashBonus * 100 + 0.5) .. "% 🛁",
-		})
-		expect(texts[2]).toBe("🚑 ×3")
-		expect(texts[3]).toBe("+20% 🛗")
-		expect(texts[4]).toBe("+25% 🛁")
-	end)
+	)
 	test("the helicopter's VIP, and facts read off the patient when the payload has none", function()
 		local lines = Bonus.lines({ Variant = "Sparkly" }, { Urgent = "VIP", Escorted = true }, Config)
 		expect(lines[1].Text).toBe("🚁 ×" .. Config.VIP.CashMultiplier)

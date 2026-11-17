@@ -3,7 +3,7 @@
 --   Daily.visitorFor(p): PatientId?   today's visitor for p's clinic: once per player per UTC day (see below)
 --   Daily.visitorStatus(p)            "Coming" | "Done" | "None": what p's HUD chip shows (State's Snapshot)
 --   Daily.onCure(p, ctx)              p is the helper: their goals move; ctx.Visitor marks the OWNER's visitor done
---   Daily.onMake(p, itemId)           Stations calls it after a treatment is made
+--   Daily.onMake(p, itemId)           Stations calls it after a supply is taken or a medicine dispensed
 --   Daily.today(): number             the current UTC day (Visits and anything else that needs "today")
 --   Daily.resetToday(p): boolean      the 🛠️ Admin panel only (Server/Admin): today starts over for p, as if they'd
 --                                     just come in: the goals handed out today go, today's goal is handed out again
@@ -21,15 +21,16 @@
 --
 -- No streaks and no penalties (design §5.5):
 --   · one new goal per UTC day, banked up to Config.MaxBankedGoals; a full bank just waits, nothing expires
---   · only goals the player can finish are handed out (a Bath goal needs the Bath Room)
+--   · only goals the player can finish are handed out (a Bath goal needs the Bath Room: Logic/Daily.treatableWings)
 --   · the mailbox gift is Config.MailboxGiftCash once per UTC day, the same however long you were away
 --
--- Today's Visitor is one day patient, the same for everyone (Logic/Daily.visitor over the evergreen day
--- patients). visitorFor only offers it to a clinic that can treat it, and holds it for VISITOR_HOLD_SECONDS while
--- it's out. Once cured it's done for the day: the owner's save keeps the day (Data.VisitorDay), so another
--- server or a rejoin can't hand it out again. A visitor handed out before UTC midnight and cured after it
--- counts for the day it came, so it never uses up the new day's visitor. If it leaves uncured, it comes back
--- after the hold: missing it is never a loss.
+-- Today's Visitor is one day patient, the same for everyone (Logic/Daily.visitor over Logic/Daily.visitorPool: the
+-- day patients whose wing needs no rebirths and no helicopter). visitorFor only offers it to a clinic that can treat
+-- its wing (Logic/Daily.treatableWings: a case of its wing's pool this clinic's level, rooms and open stations can
+-- treat, Logic/Visit.canTreat), and holds it for VISITOR_HOLD_SECONDS while it's out. Once treated it's done for the
+-- day: the owner's save keeps the day (Data.VisitorDay), so another server or a rejoin can't hand it out again. A
+-- visitor handed out before UTC midnight and treated after it counts for the day it came, so it never uses up the
+-- new day's visitor. If it leaves untreated, it comes back after the hold: missing it is never a loss.
 --
 -- Remotes (Remotes.serve: rate limit + pcall). Every argument is untrusted:
 --   ClaimGoal(index: number)   an integer 1..#goals whose goal reached its target -> cash + Clinic Stars
@@ -48,9 +49,11 @@ local DailyGoals = require(Shared.Data.DailyGoals)
 local Patients = require(Shared.Data.Patients)
 local Regulars = require(Shared.Data.Regulars)
 local Rooms = require(Shared.Data.Rooms)
-local Ailments = require(Shared.Data.Ailments)
+local Cases = require(Shared.Data.Cases)
 local Items = require(Shared.Data.Items)
 local Wings = require(Shared.Data.Wings)
+local Visit = require(Shared.Logic.Visit)
+local Building = require(Shared.Logic.Building)
 local PlayerData = require(script.Parent.PlayerData)
 local Economy = require(script.Parent.Economy)
 local Progress = require(script.Parent.Progress)
@@ -82,67 +85,42 @@ local function regularRow(id: string): Types.Regular?
 	return rawget(Regulars :: any, id)
 end
 
-local function stationFor(patientId: string): string?
-	local patient = patientRow(patientId)
-	local ailment = patient and rawget(Ailments :: any, patient.Ailment)
-	return ailment and ailment.Station
-end
-
-local function ownedStations(data: Types.Data): { [string]: boolean }
-	local stations: { [string]: boolean } = {}
+-- Is this station open at this clinic? The Building's (Logic/Building.STATIONS) by the hospital level; a bought
+-- room's (the Bath Room's 🛁, the Winter Wing's ☕) once that room is owned.
+local function stationOpen(data: Types.Data, stationId: string): boolean
+	if Building.stationOpen(stationId, data.Level) then
+		return true
+	end
 	for roomId, owned in data.Rooms do
 		local room = rawget(Rooms :: any, roomId)
-		if owned and room then
-			for _, stationId in room.Stations do
-				stations[stationId] = true
-			end
+		if owned == true and room and table.find(room.Stations, stationId) then
+			return true
 		end
 	end
-	return stations
+	return false
+end
+
+-- The wings whose patients this clinic can treat (Logic/Daily.treatableWings over the wings' case pools): a
+-- CureWing goal is only handed out for one of these, and Today's Visitor only comes when its wing is one.
+local function treatableWings(data: Types.Data): { [string]: boolean }
+	local function open(stationId: string): boolean
+		return stationOpen(data, stationId)
+	end
+	return DailyLogic.treatableWings(Cases.POOLS, Cases, function(caseId: string): boolean
+		return Visit.canTreat(rawget(Cases :: any, caseId), data.Level, data.Rooms, open, Items)
+	end)
 end
 
 local function canTreat(data: Types.Data, patientId: string): boolean
-	local station = stationFor(patientId)
-	return station ~= nil and ownedStations(data)[station] == true
+	local patient = patientRow(patientId)
+	return patient ~= nil and treatableWings(data)[patient.Wing] == true
 end
 
--- The wings whose patients this clinic can treat: a CureWing goal is only handed out for one of these.
-local function treatableWings(data: Types.Data): { [string]: boolean }
-	local stations = ownedStations(data)
-	local wings: { [string]: boolean } = {}
-	for _, patientId in Patients.Order do
-		local station = stationFor(patientId)
-		if station and stations[station] then
-			wings[(patientRow(patientId) :: Types.Patient).Wing] = true
-		end
-	end
-	return wings
-end
-
--- Today's Visitor comes from the day patients whose station is in a year-round room, so a seasonal wing never
--- leaves most clinics without a visitor. Progression v2 (Task 0, the lead): never from a wing that needs rebirths or
--- comes only by helicopter (Data/Wings Rebirths / Only), so the chip never promises a visitor who can't come.
+-- Today's Visitor comes from the day patients (Logic/Daily.visitorPool: patient -> wing). Progression v2: never from
+-- a wing that needs rebirths or comes only by helicopter (Data/Wings Rebirths / Only), so the chip never promises a
+-- visitor who can't come.
 local function buildVisitorPool(): { string }
-	local evergreen: { [string]: boolean } = {}
-	for _, roomId in Rooms.Order do
-		local room = Rooms[roomId]
-		if room.Season == nil then
-			for _, stationId in room.Stations do
-				evergreen[stationId] = true
-			end
-		end
-	end
-	local pool = {}
-	for _, patientId in Patients.Order do
-		local patient = patientRow(patientId) :: Types.Patient
-		local station = stationFor(patientId)
-		local wing = rawget(Wings :: any, patient.Wing)
-		local gated = type(wing) == "table" and (wing.Rebirths ~= nil or wing.Only ~= nil)
-		if not patient.Night and not gated and station and evergreen[station] then
-			table.insert(pool, patientId)
-		end
-	end
-	return pool
+	return DailyLogic.visitorPool(Patients, Wings)
 end
 
 -- The wing a cured patient belongs to (a regular's own wing, else its patient row's). nil if unknown.

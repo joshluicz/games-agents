@@ -41,6 +41,35 @@ describe("Leaderboard store names", function()
 		end
 	end)
 
+	test('the boards say "treated" (design §12) and keep their ids and store names, so the scores carry on', function()
+		local cured, week = Leaderboard.BOARDS.Cured, Leaderboard.BOARDS.Week
+		expect({ cured.Id, cured.Icon, cured.Title, cured.Caption }).toEqual({
+			"Cured",
+			"🏥",
+			"Most Patients Treated",
+			"Treated",
+		})
+		expect({ week.Id, week.Icon, week.Title, week.Caption, week.Weekly }).toEqual({
+			"Week",
+			"🏆",
+			"Treated This Week",
+			"Week",
+			true,
+		})
+		expect(Leaderboard.storeName("Cured", 2968, 1)).toBe("Board_Cured_v1")
+		for id, board in Leaderboard.BOARDS do
+			local words = 0
+			for _ in string.gmatch(board.Title, "%S+") do
+				words += 1
+			end
+			expect(words <= 3).toBe(true)
+			expect(string.find(board.Caption, "%s")).toBeNil() -- one word
+			if string.find(board.Title .. " " .. board.Caption, "%f[%a][Cc]ure") then
+				error(id .. " still says cure")
+			end
+		end
+	end)
+
 	test("isBoard knows the ids", function()
 		expect(Leaderboard.isBoard("Cured")).toBe(true)
 		expect(Leaderboard.isBoard("Week")).toBe(true)

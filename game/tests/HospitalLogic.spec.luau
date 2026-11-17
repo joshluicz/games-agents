@@ -1,55 +1,98 @@
 --!strict
--- Hospital v2's rules (Logic/Hospital; Progression v2 build plan §B5/§B7). Not "Hospital.spec": that name is T6's
--- (the world's spec, build plan §A).
+-- The hospital's rules (Logic/Hospital; Progression v2 build plan §B5/§B7; Real Clinic build plan, Task 4): floors and
+-- departments by level, where a patient who stays rests, the ward pick, the urgent plan and its 🧊 pad, arrival and
+-- rest times. Not "Hospital.spec": that name is the world's spec.
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
 
 local Hospital = require("../src/shared/Logic/Hospital")
+local Visit = require("../src/shared/Logic/Visit")
 local LevelsData = require("../src/shared/Data/Levels")
+local Cases = require("../src/shared/Data/Cases")
+local Items = require("../src/shared/Data/Items")
 local Config = require("./config")
 
-local STAND = { Potion = true, Plaster = true }
-local ALL = { Potion = true, Plaster = true, Bubbles = true, Cocoa = true }
+local LV1 = { Plaster = true, Ice = true, CoughSyrup = true, FeverMeds = true, EarDrops = true }
+local ALL: { [string]: boolean } = {}
+for _, itemId in Items.Order do
+	ALL[itemId] = true
+end
 
 T.describe("Hospital", function()
-	test("floors and departments by level", function()
+	test("floors and departments by level (Data/Levels)", function()
 		local floors = {}
 		for level = 1, 5 do
 			floors[level] = Hospital.floors(level, LevelsData)
 		end
 		expect(floors).toEqual({ 0, 1, 2, 3, 4 })
-		expect(Hospital.departments(1, LevelsData)).toEqual({ "Reception" })
-		expect(Hospital.departments(3, LevelsData)).toEqual({ "Reception", "AE", "Wards", "Hydro" })
+		expect(Hospital.departments(1, LevelsData)).toEqual({ "Reception", "Pharmacy" })
+		expect(Hospital.departments(3, LevelsData)).toEqual({
+			"Reception",
+			"Pharmacy",
+			"AE",
+			"Wards",
+			"Imaging",
+			"Rest",
+		})
 		expect(Hospital.isOpen("AE", 1, LevelsData)).toBe(false)
 		expect(Hospital.isOpen("AE", 2, LevelsData)).toBe(true)
+		expect(Hospital.isOpen("Rest", 2, LevelsData)).toBe(false)
+		expect(Hospital.isOpen("Rest", 3, LevelsData)).toBe(true)
 		expect(Hospital.isOpen("Roof", 5, LevelsData)).toBe(true)
 		expect(Hospital.floors(99, LevelsData)).toBe(4)
 	end)
 
-	test("route: a Bath-wing patient to Hydro once it's open, everyone else to the Wards", function()
-		expect(Hospital.route("Bath", nil, 2, LevelsData)).toBe("Wards")
-		expect(Hospital.route("Bath", nil, 3, LevelsData)).toBe("Hydro")
-		expect(Hospital.route("Starter", nil, 5, LevelsData)).toBe("Wards")
-		expect(Hospital.route("Bath", "AE", 4, LevelsData)).toBe("Hydro")
+	test("route: a staying case's own ward once it's open; nothing (home) otherwise", function()
+		expect(Hospital.route("Wards", nil, 1, LevelsData)).toBeNil()
+		expect(Hospital.route("Wards", nil, 2, LevelsData)).toBe("Wards")
+		expect(Hospital.route("Rest", nil, 2, LevelsData)).toBeNil()
+		expect(Hospital.route("Rest", "AE", 3, LevelsData)).toBe("Rest")
+		expect(Hospital.route(nil, nil, 5, LevelsData)).toBeNil()
+		expect(Hospital.route("Hydro", nil, 5, LevelsData)).toBeNil() -- the hot tub is gone: never a destination
+		expect(Hospital.route("Roof", nil, 5, LevelsData)).toBeNil()
 	end)
 
-	test("triageOptions: Wards and Hydro from Lv 3, nil before", function()
+	test("route agrees with Logic/Visit.stayWard for every case at every level", function()
+		for _, caseId in Cases.ORDER do
+			local case = Cases[caseId]
+			for level = 1, 5 do
+				expect(Hospital.route(case.Stay, nil, level, LevelsData)).toBe(Visit.stayWard(case, level))
+			end
+		end
+	end)
+
+	test("triageOptions: the Injury Ward or the Rest Ward from Lv 3, nil before", function()
+		expect(Hospital.DESTINATIONS).toEqual({ "Wards", "Rest" })
 		expect(Hospital.triageOptions(1, LevelsData)).toBeNil()
 		expect(Hospital.triageOptions(2, LevelsData)).toBeNil()
-		expect(Hospital.triageOptions(3, LevelsData)).toEqual({ "Wards", "Hydro" })
-		expect(Hospital.triageOptions(5, LevelsData)).toEqual({ "Wards", "Hydro" })
+		expect(Hospital.triageOptions(3, LevelsData)).toEqual({ "Wards", "Rest" })
+		expect(Hospital.triageOptions(5, LevelsData)).toEqual({ "Wards", "Rest" })
 	end)
 
-	test("urgentRecipe: at least 2 items; a 1-item recipe gets the other Stand item; nil when not makeable", function()
+	test("the urgent pad is an ice pack (a plaster for a plan that is only an ice pack)", function()
+		expect(Hospital.PAD).toBe("Ice")
+		expect(Hospital.pad("CoughSyrup")).toBe("Ice")
+		expect(Hospital.pad("Plaster")).toBe("Ice")
+		expect(Hospital.pad("Ice")).toBe("Plaster")
+		expect(Items[Hospital.PAD].Station).toBe("Ice")
+		expect(Items[Hospital.PAD_ICE].Station).toBe("Plaster")
+	end)
+
+	test("urgentRecipe: at least 2 steps, a one-step plan padded; nil when a step can't be made", function()
 		expect(Hospital.MIN_ITEMS).toBe(Config.AE.MinItems)
-		expect(Hospital.urgentRecipe({ "Potion" }, STAND, 2)).toEqual({ "Potion", "Plaster" })
-		expect(Hospital.urgentRecipe({ "Plaster" }, STAND, 2)).toEqual({ "Plaster", "Potion" })
-		expect(Hospital.urgentRecipe({ "Potion" }, STAND, 1)).toEqual({ "Potion", "Plaster" })
-		expect(Hospital.urgentRecipe({ "Bubbles", "Potion" }, STAND, 2)).toBeNil()
-		expect(Hospital.urgentRecipe({ "Bubbles", "Potion" }, ALL, 2)).toEqual({ "Bubbles", "Potion" })
-		expect(Hospital.urgentRecipe({ "Potion", "Cocoa", "Plaster" }, ALL, 3)).toEqual({ "Potion", "Cocoa", "Plaster" })
-		expect(Hospital.urgentRecipe({ "Potion", "Cocoa", "Plaster" }, ALL, 2)).toEqual({ "Potion", "Cocoa" })
+		expect(Hospital.urgentRecipe({ "CoughSyrup" }, LV1, 2)).toEqual({ "CoughSyrup", "Ice" })
+		expect(Hospital.urgentRecipe({ "Plaster" }, LV1, 1)).toEqual({ "Plaster", "Ice" })
+		expect(Hospital.urgentRecipe({ "Ice" }, LV1, 2)).toEqual({ "Ice", "Plaster" })
+		expect(Hospital.urgentRecipe({ "Ice", "Bandage" }, LV1, 2)).toBeNil() -- no bandages at Lv 1
+		expect(Hospital.urgentRecipe({ "Ice", "Bandage" }, ALL, 2)).toEqual({ "Ice", "Bandage" })
+		expect(Hospital.urgentRecipe({ "Cast", "PainRelief", "Bandage" }, ALL, 3)).toEqual({
+			"Cast",
+			"PainRelief",
+			"Bandage",
+		})
+		expect(Hospital.urgentRecipe({ "Cast", "PainRelief", "Bandage" }, ALL, 2)).toEqual({ "Cast", "PainRelief" })
+		expect(Hospital.urgentRecipe({ "CoughSyrup" }, { CoughSyrup = true }, 2)).toBeNil() -- the pad can't be made
 		expect(Hospital.urgentRecipe({}, ALL, 2)).toBeNil()
 	end)
 

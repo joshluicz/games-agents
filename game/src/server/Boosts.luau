@@ -1,5 +1,5 @@
 --!strict
--- Boosts (game/README.md "Boosts"): how much stronger a player's cures, treatments and patients are. Server only; the
+-- Boosts (game/README.md "Boosts"): how much stronger a player's treatments, pay and patients are. Server only; the
 -- rules are Logic/Boosts (Lune-tested). Everything is earned in play: nothing here is paid or random.
 --
 --   Boosts.multiplier(p, kind, scopes?): number   1 + percent/100 (kind "Cash" | "Stars" | "MakeSpeed" | "Patience" |
@@ -13,9 +13,10 @@
 --                                                 Minutes), up to Config.BoostMaxMinutes; never stacks
 --   Boosts.list(p): Types.BoostList               the Snapshot's Boosts: timed ones running, permanent percents, the
 --                                                 capped Branch percents and the Rebirth multipliers { Cash, Stars }
---   Boosts.makeSeconds(p, stationId): number      the hold time at that station: Faster Hands (the 💊 Pharmacy:
---                                                 Config.Pharmacy.HoldSeconds, x Tier2Factor from R2), then MakeSpeed
---   Boosts.cureScopes(cure): Scopes               the scopes a cure counts for: "Night", and its wing
+--   Boosts.makeSeconds(p, stationId): number      the hold time at that station: Faster Hands, then MakeSpeed (the
+--                                                 same at every station, the dispensary's Dispense hold included;
+--                                                 the Pharmacy's own crafting hold went with the Real Clinic)
+--   Boosts.cureScopes(cure): Scopes               the scopes a treated patient counts for: "Night", and its wing
 --   Boosts.hook(pending, flush)                   Server/Playtime: the active seconds counted but not saved yet,
 --                                                 and a way to save them (timed boosts tick with those seconds)
 --
@@ -148,20 +149,9 @@ function Boosts.list(player: Player): Types.BoostList
 	return out
 end
 
+-- Stations and the Snapshot's MakeSeconds (UI/Guide's ring) both come through here.
 function Boosts.makeSeconds(player: Player, stationId: string): number
 	local base = Prices.makeSeconds(Economy.level(player, "Speed"), Config)
-	if stationId == "Pharmacy" then
-		-- The 💊 Pharmacy has its own hold (§B8): Config.Pharmacy.HoldSeconds, x Tier2Factor from the maker's R2
-		-- (the Pharmacy2 unlock). Stations and the Snapshot's MakeSeconds (UI/Guide's ring) both come through here.
-		local data = PlayerData.get(player)
-		local count = if data
-				and type(data.Rebirth) == "table"
-				and type(data.Rebirth.Count) == "number"
-			then data.Rebirth.Count
-			else 0
-		base = Config.Pharmacy.HoldSeconds
-			* (if RebirthLogic.has(count, "Pharmacy2") then Config.Pharmacy.Tier2Factor else 1)
-	end
 	local percent = Boosts.percent(player, "MakeSpeed", { [stationId] = true })
 	return BoostsLogic.makeSeconds(base, percent, Config.BoostMinMakeSeconds)
 end

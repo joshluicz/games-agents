@@ -1,18 +1,19 @@
 --!nocheck
--- The plot and its rooms (look build plan §B6 "T4's side", §D T4): the REAL PlotBuilder and DecorBuilder built under
--- tests/worldmock, checked against the plan's contract.
+-- The plot and its rooms (the Real Clinic build plan, Task 2; contracts C1 and C2): the REAL PlotBuilder and
+-- DecorBuilder built under tests/worldmock, checked against Shared/Logic/Building.
 --   · the budget: every room together <= Config.Look.RoomParts and the plot's own share <= Config.Look.PlotParts at
---     Lv 5 with every room. The plot's trees, bushes and fences are World/Props' (T2): this spec counts each of them
---     at its CONTRACT maximum (tree 7, bush 1, fence 2 + floor(length / 14) + 1), so the share holds whatever Props
---     builds, and prints the measured share beside it
---   · the dark studded Pad and its Slate Edges, the Counter (studded top, our paw-heart, no cross), the floating sign
---   · the Stand's spots are Shared/Logic/Building's, and the Stand has no shell
---   · nothing of the plot's own on the Counter, the queue lane, the gate's mouth, the walkways or the building's
---     footprint; the trees and bushes off the room slots and the ambulance bay; the patients' ways to the room beds
---     and out through PatientExit stay open
---   · the queue lane: 6 mid-tone tiles, the numbers on their spot discs at PlotBuilder.queueSpot
---   · the annexes and the Garden; 3-part beds; studs on whole studs, in both studs modes
---   · the palette: no Texture or Decal, no big face at V >= 0.95 (the plot's own colour aside), no channel above 245
+--     Lv 5 with every room. The plot's trees, bushes and fences are World/Props' pieces: this spec counts each of
+--     them at its CONTRACT maximum (tree 7, bush 1, fence 2 + floor(length / 14) + 1), so the share holds whatever
+--     Props builds, and prints the measured share beside it
+--   · the 110 x 110 plot (pad 107), the Counter on Building.RECEPTION.Desk, PatientSpawn and PatientExit at the gate,
+--     no queue (no QueueStart, no QueueLane, no queueSpot), the floating sign
+--   · the plank path from the gate to the Stand's forecourt and on to the front doors; nothing of the plot's own in
+--     the building's footprint but the Counter; the patients' walks, the ambulance yard and the Garden door clear
+--   · the rooms are interior fit-outs: each inside its Building.ROOMS rect and its walls, off its door's span, no
+--     roof and no walls, CeramicTiles floors; the Cozy Ward's ExamBay_W1 / W2 to contract C2; Station_Bath and
+--     Station_Cocoa; the Winter Wing's 3-part bed; the Garden
+--   · studs on whole studs, in both studs modes; the palette: no Texture or Decal, no big face at V >= 0.95 (the
+--     plot's own colour aside), no channel above 245
 --   · placeRoom, setPreview and clearPlot as before
 --   · DecorBuilder: no decor gains a part, the world palette, studded tops
 -- Run from game/ with the rest:  lune run tests/run
@@ -29,9 +30,8 @@ local roblox = World.roblox
 local Vector3, CFrame, Enum = roblox.Vector3, roblox.CFrame, roblox.Enum
 
 local EPS = 0.01
-local PLOT_HALF = Config.Town.PlotSize / 2 -- 40: the plot's front edge is z -40, its front fence z -39.6
--- Server/Patients' walkways (makeNav: halfway between the Stand's slot edge, x ±15, and the side rooms', x ±20)
-local WALKWAY = 17.5
+local PLOT_HALF = Config.Town.PlotSize / 2 -- 55: the plot's front edge is z -55, its front fence z -54.6
+local GATE = 5.6 -- PlotBuilder: the gate posts' inner faces at x = ±5.6 (posts at ±6.2)
 
 -- "Plot_1.Scenery.Tree.Leaves" (the mock has no GetFullName).
 local function fullName(instance): string
@@ -111,6 +111,13 @@ end
 PlotBuilder.buildBuilding(plot, 5, nil, "Candy")
 local pivot = plot:GetPivot()
 
+-- Each bought room inside the Building: its Building.ROOMS rect and its door (Building.DOORS).
+local INTERIOR = {
+	BathRoom = { Rect = Building.ROOMS.BathRoom, Door = "BathRoom" },
+	WinterWing = { Rect = Building.ROOMS.WinterWing, Door = "WinterWing" },
+	Ward = { Rect = Building.ROOMS.CozyWard, Door = "CozyWard" },
+}
+
 local function localBox(part)
 	return world.box(part, pivot)
 end
@@ -175,6 +182,56 @@ local function overlaps(lo, hi, zone): boolean
 		and hi.Y > (zone.Y0 or -math.huge) + EPS
 end
 
+-- The segment a -> b (plot-local x, z) against a box grown by `margin`.
+local function crosses(a, b, lo, hi, margin: number): boolean
+	local x0, x1, z0, z1 = lo.X - margin, hi.X + margin, lo.Z - margin, hi.Z + margin
+	local dx, dz = b.X - a.X, b.Z - a.Z
+	local t0, t1 = 0, 1
+	for _, edge in { { -dx, a.X - x0 }, { dx, x1 - a.X }, { -dz, a.Z - z0 }, { dz, z1 - a.Z } } do
+		local p, q = edge[1], edge[2]
+		if math.abs(p) < 1e-9 then
+			if q < 0 then
+				return false
+			end
+		else
+			local t = q / p
+			if p < 0 then
+				t0 = math.max(t0, t)
+			else
+				t1 = math.min(t1, t)
+			end
+			if t0 > t1 then
+				return false
+			end
+		end
+	end
+	return true
+end
+
+-- Every solid part (CanCollide) of `root` at walking height that a walk a -> b would run into.
+local function blockers(parts, a, b, margin: number)
+	local hits = {}
+	for _, d in parts do
+		if d.CanCollide then
+			local lo, hi = localBox(d)
+			if hi.Y > 1 and lo.Y < 4 and crosses(a, b, lo, hi, margin) then
+				table.insert(hits, fullName(d))
+			end
+		end
+	end
+	return hits
+end
+
+local function point(p)
+	return Vector3.new(p.X, 0, p.Z)
+end
+
+-- The floor top of a placed room (plot-local).
+local function floorTop(room): number
+	local _, hi = localBox(room.Floor)
+	return hi.Y
+end
+
 ------------------------------------------------------------------------------------------------------------------
 T.describe("Plot and rooms: the parts budget (Lv 5, every room)", function()
 	test("every room together is within Config.Look.RoomParts", function()
@@ -237,39 +294,44 @@ T.describe("Plot and rooms: the parts budget (Lv 5, every room)", function()
 end)
 
 ------------------------------------------------------------------------------------------------------------------
-T.describe("Plot: the ground, the Counter and the sign", function()
-	test("the Pad is dark and studded on whole odd studs; four Slate Edges frame it to the plot's edge", function()
-		local ground = plot.Ground
-		expect(ground.ClassName).toBe("Model")
-		local pad = ground.Pad
-		expect(pad.Color).toBe(WORLD.Pad)
-		expect(pad:GetAttribute("Studded")).toBe(true)
-		expect(pad.Material).toBe(Enum.Material.Plastic)
-		expect(pad.TopSurface).toBe(Enum.SurfaceType.Studs) -- Surface mode: no CureStuds variant in this world
-		expect(pad.Size.X).toBe(pad.Size.Z)
-		expect(whole(pad.Size.X) and pad.Size.X % 2 == 1).toBe(true)
-		local _, _, v = Look.hsv(pad.Color)
-		expect(Look.round(v) <= 0.32).toBe(true)
-		local padLo, padHi = localBox(pad)
-		expect(near(padHi.Y, 0) and near(padLo.X, -pad.Size.X / 2)).toBe(true)
+T.describe("Plot: the ground, the Counter, the markers and the sign", function()
+	test(
+		"the plot is 110 x 110: a dark studded Pad 107 x 107 (whole odd studs), four Slate Edges to its edge",
+		function()
+			expect(Config.Town.PlotSize).toBe(110)
+			local ground = plot.Ground
+			expect(ground.ClassName).toBe("Model")
+			local pad = ground.Pad
+			expect(pad.Color).toBe(WORLD.Pad)
+			expect(pad:GetAttribute("Studded")).toBe(true)
+			expect(pad.Material).toBe(Enum.Material.Plastic)
+			expect(pad.TopSurface).toBe(Enum.SurfaceType.Studs) -- Surface mode: no CureStuds variant in this world
+			expect(pad.Size.X).toBe(107)
+			expect(pad.Size.Z).toBe(107)
+			local _, _, v = Look.hsv(pad.Color)
+			expect(Look.round(v) <= 0.32).toBe(true)
+			local padLo, padHi = localBox(pad)
+			expect(near(padHi.Y, 0) and near(padLo.X, -pad.Size.X / 2)).toBe(true)
 
-		local edges, lo, hi = 0, nil, nil
-		for _, child in ground:GetChildren() do
-			if child.Name == "Edge" then
-				edges += 1
-				expect(child.Material).toBe(Enum.Material.Slate)
-				expect(child.Color).toBe(WORLD.Edge)
-				expect(child:GetAttribute("Studded")).toBeNil()
-				local a, b = localBox(child)
-				lo = if lo then lo:Min(a) else a
-				hi = if hi then hi:Max(b) else b
+			local edges, lo, hi = 0, nil, nil
+			for _, child in ground:GetChildren() do
+				if child.Name == "Edge" then
+					edges += 1
+					expect(child.Material).toBe(Enum.Material.Slate)
+					expect(child.Color).toBe(WORLD.Edge)
+					expect(child:GetAttribute("Studded")).toBeNil()
+					local a, b = localBox(child)
+					lo = if lo then lo:Min(a) else a
+					hi = if hi then hi:Max(b) else b
+				end
 			end
+			expect(edges).toBe(4)
+			expect(
+				near(lo.X, -PLOT_HALF) and near(hi.X, PLOT_HALF) and near(lo.Z, -PLOT_HALF) and near(hi.Z, PLOT_HALF)
+			).toBe(true)
+			expect(hi.Y > 0 and hi.Y <= 0.2).toBe(true) -- a stone lip just proud of the pad
 		end
-		expect(edges).toBe(4)
-		local half = Config.Town.PlotSize / 2
-		expect(near(lo.X, -half) and near(hi.X, half) and near(lo.Z, -half) and near(hi.Z, half)).toBe(true)
-		expect(hi.Y > 0 and hi.Y <= 0.2).toBe(true) -- a stone lip just proud of the pad
-	end)
+	)
 
 	test("every plot's Ground is a Model named Ground (Patients' and Nurses' rays include it)", function()
 		for _, p in W.plots do
@@ -278,22 +340,76 @@ T.describe("Plot: the ground, the Counter and the sign", function()
 		end
 	end)
 
-	test("the Counter: the plot's colour, a studded warm-white top on whole studs, our paw-heart, no cross", function()
-		local accent = plot:GetAttribute("Accent")
-		expect(plot.Counter.Color).toBe(accent)
-		expect(plot.Counter.Material).toBe(Enum.Material.SmoothPlastic)
-		expect(plot.Counter.CanCollide).toBe(true)
-		local top = plot.Scenery.CounterTop
-		expect(top:GetAttribute("Studded")).toBe(true)
-		expect(top.Color).toBe(WORLD.Trim)
-		expect(whole(top.Size.X) and whole(top.Size.Z)).toBe(true)
-		local gui = plot.Counter.DeskGui
-		expect(gui.Face).toBe(Enum.NormalId.Front)
-		expect(gui.MaxDistance > 0).toBe(true)
-		expect(gui:FindFirstChild("PawHeart", true) ~= nil).toBe(true)
-		-- the desk faces the street: its Front face's normal is the plot's -z
-		local front = pivot:VectorToObjectSpace(plot.Counter.CFrame.LookVector)
-		expect(front.Z).toBeCloseTo(-1, 3)
+	test(
+		"the Counter sits on Building.RECEPTION.Desk: the plot's colour, a studded top, our paw-heart, no cross",
+		function()
+			local desk = Building.RECEPTION.Desk
+			for _, p in W.plots do
+				local counter = p.Counter
+				expect(counter.Parent).toBe(p) -- at the plot's top level: Plots and Patients find it by name
+				local lo, hi = world.box(counter, p:GetPivot())
+				if lo.X < desk.X0 - EPS or hi.X > desk.X1 + EPS or lo.Z < desk.Z0 - EPS or hi.Z > desk.Z1 + EPS then
+					error(string.format("the Counter is x %.2f..%.2f, z %.2f..%.2f", lo.X, hi.X, lo.Z, hi.Z))
+				end
+				expect(near(lo.Y, 0)).toBe(true) -- it stands on the lobby's floor
+			end
+			local accent = plot:GetAttribute("Accent")
+			expect(plot.Counter.Color).toBe(accent)
+			expect(plot.Counter.Material).toBe(Enum.Material.SmoothPlastic)
+			expect(plot.Counter.CanCollide).toBe(true)
+			local top = plot.Scenery.CounterTop
+			expect(top:GetAttribute("Studded")).toBe(true)
+			expect(top.Color).toBe(WORLD.Trim)
+			expect(top.CanCollide).toBe(false)
+			expect(whole(top.Size.X) and whole(top.Size.Z)).toBe(true)
+			local gui = plot.Counter.DeskGui
+			expect(gui.Face).toBe(Enum.NormalId.Front)
+			expect(gui.MaxDistance > 0).toBe(true)
+			expect(gui:FindFirstChild("PawHeart", true) ~= nil).toBe(true)
+			-- the desk's mark faces the front doors: its Front face's normal is the plot's -z
+			local front = pivot:VectorToObjectSpace(plot.Counter.CFrame.LookVector)
+			expect(front.Z).toBeCloseTo(-1, 3)
+		end
+	)
+
+	test("PatientSpawn (facing in) and PatientExit (facing the street) stand in the gate's mouth", function()
+		for _, p in W.plots do
+			local plotPivot = p:GetPivot()
+			for name, facing in { PatientSpawn = 1, PatientExit = -1 } do
+				local m = p:FindFirstChild(name)
+				expect(m ~= nil and m:IsA("BasePart")).toBe(true)
+				expect(m.Transparency).toBe(1)
+				local at = plotPivot:PointToObjectSpace(m.Position)
+				if math.abs(at.X) > GATE - 1 or at.Z > -PLOT_HALF + 4 or at.Z < -PLOT_HALF + 1 then
+					error(string.format("%s at (%.2f, %.2f) is not in the gate", name, at.X, at.Z))
+				end
+				expect(near(at.Y - m.Size.Y / 2, 0)).toBe(true) -- it rests on the ground
+				local look = plotPivot:VectorToObjectSpace(m.CFrame.LookVector)
+				expect(look.Z).toBeCloseTo(facing, 3)
+			end
+		end
+	end)
+
+	test("no queue: no QueueStart, no QueueLane on any plot, and no PlotBuilder.queueSpot", function()
+		expect(PlotBuilder.queueSpot).toBeNil()
+		for _, p in W.plots do
+			for _, d in p:GetDescendants() do
+				if d.Name == "QueueStart" or d.Name == "QueueLane" or d.Name == "LaneTile" or d.Name == "LaneSpot" then
+					error(fullName(d) .. " is a piece of the old queue")
+				end
+			end
+		end
+	end)
+
+	test("the MascotSpot rests on the Stand's forecourt beside the front doors, off their span", function()
+		local mascot = plot.MascotSpot
+		local lo, hi = localBox(mascot)
+		local forecourt = plot.Rooms.Room_Stand.Floor
+		local fLo, fHi = localBox(forecourt)
+		expect(near(lo.Y, fHi.Y)).toBe(true)
+		expect(lo.X >= fLo.X - EPS and hi.X <= fHi.X + EPS and lo.Z >= fLo.Z - EPS and hi.Z <= fHi.Z + EPS).toBe(true)
+		local doors = Building.DOORS.Front
+		expect(hi.X <= doors.X0 + EPS or lo.X >= doors.X1 - EPS).toBe(true)
 	end)
 
 	test("the sign floats: its four labels are there, with no board behind them", function()
@@ -319,9 +435,10 @@ T.describe("Plot: the ground, the Counter and the sign", function()
 		for _, d in gui:GetDescendants() do
 			expect(d.ClassName == "Frame" or d.Name == "Board").toBe(false)
 		end
-		-- the letters clear the 3-stud fence in front of them; two studded posts in the plot's colour hold them
-		local lo = localBox(sign)
+		-- the letters clear the 3-stud fence in front of them, just behind it; two studded posts in the plot's colour
+		local lo, hi = localBox(sign)
 		expect(lo.Y >= 3.5).toBe(true)
+		expect(lo.Z > -PLOT_HALF + 0.4 and hi.Z < -PLOT_HALF + 2).toBe(true)
 		local posts = 0
 		for _, child in plot.Scenery:GetChildren() do
 			if child.Name == "SignPost" then
@@ -358,89 +475,10 @@ T.describe("Plot: the ground, the Counter and the sign", function()
 end)
 
 ------------------------------------------------------------------------------------------------------------------
-T.describe("Plot: the Stand at Shared/Logic/Building's spots", function()
-	local stand = plot.Rooms.Room_Stand
+T.describe("Plot: the path, the slots and the clearances", function()
+	local doors = Building.DOORS.Front
 
-	local function spotOf(part)
-		return pivot:PointToObjectSpace(part.Position)
-	end
-
-	test("Remedy, Plaster, Bed_1, both decor slots and the MascotSpot", function()
-		local s = Building.STAND
-		for name, spot in { Station_Remedy = s.Remedy, Station_Plaster = s.Plaster, Bed_1 = s.Bed } do
-			local at = spotOf(stand[name])
-			if not (near(at.X, spot.X) and near(at.Z, spot.Z)) then
-				error(string.format("%s at (%.2f, %.2f), not (%.2f, %.2f)", name, at.X, at.Z, spot.X, spot.Z))
-			end
-		end
-		for index, spot in s.Decor do
-			local at = spotOf(stand["DecorSlot_" .. index])
-			expect(near(at.X, spot.X) and near(at.Z, spot.Z)).toBe(true)
-		end
-		local mascot = spotOf(plot.MascotSpot)
-		expect(near(mascot.X, s.Mascot.X) and near(mascot.Z, s.Mascot.Z)).toBe(true)
-		expect(near(localBox(plot.MascotSpot).Y, 0)).toBe(true) -- it rests on the pad
-	end)
-
-	test("decor slot 2 stands on the front pad; slot 1 on the Stand's floor", function()
-		local floorTop = select(2, localBox(stand.Floor)).Y
-		expect(near(localBox(stand.DecorSlot_2).Y, 0)).toBe(true)
-		expect(near(localBox(stand.DecorSlot_1).Y, floorTop)).toBe(true)
-		-- each slot's spot lies on what the slot stands on
-		local spots = {}
-		for _, child in stand:GetChildren() do
-			if child.Name == "DecorSpot" then
-				table.insert(spots, (localBox(child)).Y)
-			end
-		end
-		table.sort(spots)
-		expect(#spots).toBe(2)
-		expect(near(spots[1], 0) and near(spots[2], floorTop)).toBe(true)
-	end)
-
-	test("the Stand has no shell: nothing above the stations, and no wall, roof, awning or plaque", function()
-		for _, d in stand:GetDescendants() do
-			if d:IsA("BasePart") then
-				local _, hi = localBox(d)
-				if hi.Y > 5.5 then
-					error(d.Name .. " reaches y " .. hi.Y)
-				end
-				for _, word in { "Wall", "Roof", "Awning", "Plaque", "Post" } do
-					expect(string.find(d.Name, word, 1, true)).toBeNil()
-				end
-			end
-		end
-	end)
-
-	test("Remedy's table ends short of the lift shaft's face; the tops are studded on whole studs", function()
-		local tops = 0
-		for _, d in stand:GetChildren() do
-			if d.Name == "Top" or d.Name == "Station_Remedy" then
-				local lo = localBox(d)
-				expect(lo.X >= Building.SHAFT.X1 - EPS).toBe(true)
-			end
-			if d.Name == "Top" then
-				tops += 1
-				expect(d:GetAttribute("Studded")).toBe(true)
-				expect(whole(d.Size.X) and whole(d.Size.Z)).toBe(true)
-			end
-		end
-		expect(tops).toBe(2)
-	end)
-end)
-
-------------------------------------------------------------------------------------------------------------------
-T.describe("Plot: clearances", function()
-	local laneLo, laneHi
-	for _, d in plot.QueueLane:GetDescendants() do
-		if d:IsA("BasePart") then
-			local a, b = localBox(d)
-			laneLo = if laneLo then laneLo:Min(a) else a
-			laneHi = if laneHi then laneHi:Max(b) else b
-		end
-	end
-
-	-- Parts that can be in the way: the plot's own (Ground and invisible markers aside).
+	-- Parts that can be in the way: the plot's own and its rooms' (Ground and invisible markers aside).
 	local function solidish()
 		local out = {}
 		for _, d in plotParts(plot) do
@@ -451,11 +489,52 @@ T.describe("Plot: clearances", function()
 		return out
 	end
 
-	test("nothing of the plot's own in the building's footprint but the Stand", function()
+	test("the plank path runs from the gate to the Stand's forecourt, whose tiles run on to the front doors", function()
+		local path = plot.Scenery.Path
+		expect(path.Material).toBe(Enum.Material.WoodPlanks)
+		local lo, hi = localBox(path)
+		local forecourt = plot.Rooms.Room_Stand.Floor
+		local fLo, fHi = localBox(forecourt)
+		expect(lo.Z <= -plot.Ground.Pad.Size.Z / 2 + EPS).toBe(true) -- from the pad's front edge, in the gate
+		expect(near(hi.Z, fLo.Z)).toBe(true) -- straight onto the forecourt ...
+		expect(near(fHi.Z, Building.FRONT)).toBe(true) -- ... which runs to the façade
+		expect(forecourt.Material).toBe(Enum.Material.CeramicTiles)
+		for _, box in { { lo, hi }, { fLo, fHi } } do
+			expect(box[1].X <= doors.X0 + EPS and box[2].X >= doors.X1 - EPS).toBe(true) -- as wide as the doors
+		end
+		expect(lo.X >= -GATE - EPS and hi.X <= GATE + EPS).toBe(true) -- and no wider than the gate
+		expect(hi.Y <= 0.25).toBe(true) -- flat: creatures walk on it
+	end)
+
+	test(
+		"the slots: the Bath Room, Winter Wing and Cozy Ward inside the Building's ground floor, the Garden behind",
+		function()
+			local function rectOf(slotId)
+				local lo, hi = localBox(plot.Slots["RoomSlot_" .. slotId])
+				return lo, hi
+			end
+			for roomId, info in INTERIOR do
+				local lo, hi = rectOf(RoomsData[roomId].Slot)
+				local r = info.Rect
+				if lo.X < r.X0 - EPS or hi.X > r.X1 + EPS or lo.Z < r.Z0 - EPS or hi.Z > r.Z1 + EPS then
+					error(roomId .. "'s slot isn't inside Building.ROOMS")
+				end
+			end
+			local gLo, gHi = rectOf(RoomsData.Garden.Slot)
+			expect(gLo.Z >= Building.BACK - EPS).toBe(true)
+			local garden = Building.DOORS.Garden
+			expect(gLo.X <= garden.X0 and gHi.X >= garden.X1).toBe(true) -- behind the Garden door
+			expect(gHi.Z <= PLOT_HALF - 4).toBe(true) -- with room to walk round it inside the fence
+			local sLo, sHi = rectOf(RoomsData.Stand.Slot)
+			expect(near(sHi.Z, Building.FRONT) and sLo.Z < Building.FRONT).toBe(true) -- the forecourt, in front
+		end
+	)
+
+	test("nothing of the plot's own in the building's footprint but the Counter", function()
 		local foot = Building.footprint(5, 0)
 		local zone = { X0 = foot.X0, X1 = foot.X1, Z0 = foot.Z0, Z1 = foot.Z1 }
 		for _, d in solidish() do
-			if not d:FindFirstAncestor("Room_Stand") then
+			if not d:FindFirstAncestor("Rooms") and d.Name ~= "Counter" and d.Name ~= "CounterTop" then
 				local lo, hi = localBox(d)
 				if overlaps(lo, hi, zone) then
 					error(fullName(d) .. " is in the building's footprint")
@@ -464,121 +543,61 @@ T.describe("Plot: clearances", function()
 		end
 	end)
 
-	test("nothing stands on the Counter, the queue lane or the gate's mouth (where creatures stand)", function()
-		local zones = {
-			Counter = {
-				X0 = -6.5,
-				X1 = 6.5,
-				Z0 = -16,
-				Z1 = -13,
-				Y0 = 0.5,
-				Allow = { Counter = true, CounterTop = true },
-			},
-			Lane = {
-				X0 = laneLo.X,
-				X1 = laneHi.X,
-				Z0 = laneLo.Z,
-				Z1 = math.min(laneHi.Z, -16),
-				Y0 = 0.5,
-				Y1 = 5.5,
-			},
-			Gate = { X0 = -5.5, X1 = 5.5, Z0 = -PLOT_HALF, Z1 = -PLOT_HALF + 2, Y0 = 0.5, Y1 = 5.5 },
+	test("nothing stands on the way in (the gate's mouth, the path, the doors' span) where creatures walk", function()
+		local zone = {
+			X0 = doors.X0 - 0.5,
+			X1 = doors.X1 + 0.5,
+			Z0 = -PLOT_HALF,
+			Z1 = Building.FRONT,
+			Y0 = 0.5,
+			Y1 = 7,
 		}
-		for name, zone in zones do
-			for _, d in solidish() do
-				if not inside(d, "QueueLane") and not (zone.Allow and zone.Allow[d.Name]) then
-					local lo, hi = localBox(d)
-					if overlaps(lo, hi, zone) then
-						error(fullName(d) .. " is on the " .. name)
-					end
-				end
+		for _, d in solidish() do
+			local lo, hi = localBox(d)
+			if overlaps(lo, hi, zone) and d.Name ~= "GateArch" and d.Name ~= "GateLamp" then
+				error(fullName(d) .. " is on the way in")
 			end
 		end
 	end)
 
-	test("the walkways (x = ±17.5) are clear from the line to the back of the block", function()
-		for _, side in { -1, 1 } do
-			local x = side * WALKWAY
-			local zone = { X0 = x - 1, X1 = x + 1, Z0 = -18, Z1 = 14, Y0 = 0.7, Y1 = 7 }
-			for _, d in solidish() do
-				if d.CanCollide then
-					local lo, hi = localBox(d)
-					if overlaps(lo, hi, zone) then
-						error(fullName(d) .. " is on the walkway at x " .. x)
-					end
-				end
+	test("the patients' walks: the gate to the front doors and back, clear of everything solid", function()
+		local _, outside = Building.doorPoints("Front")
+		local spawn = pivot:PointToObjectSpace(plot.PatientSpawn.Position)
+		local exit = pivot:PointToObjectSpace(plot.PatientExit.Position)
+		local parts = plotParts(plot)
+		for _, leg in { { spawn, point(outside) }, { point(outside), exit } } do
+			local hits = blockers(parts, Vector3.new(leg[1].X, 0, leg[1].Z), leg[2], 0.5)
+			if #hits > 0 then
+				error("a walk through the gate crosses " .. table.concat(hits, ", "))
 			end
 		end
 	end)
 
-	-- The segment a -> b (plot-local x, z) against a box grown by `margin`, at walking height.
-	local function crosses(a, b, lo, hi, margin: number): boolean
-		local x0, x1, z0, z1 = lo.X - margin, hi.X + margin, lo.Z - margin, hi.Z + margin
-		local dx, dz = b.X - a.X, b.Z - a.Z
-		local t0, t1 = 0, 1
-		for _, edge in { { -dx, a.X - x0 }, { dx, x1 - a.X }, { -dz, a.Z - z0 }, { dz, z1 - a.Z } } do
-			local p, q = edge[1], edge[2]
-			if math.abs(p) < 1e-9 then
-				if q < 0 then
-					return false
-				end
-			else
-				local t = q / p
-				if p < 0 then
-					t0 = math.max(t0, t)
-				else
-					t1 = math.min(t1, t)
-				end
-				if t0 > t1 then
-					return false
-				end
+	test("the ambulance yard (Building.BAY_AMBULANCE) and the A&E door are clear of the plot's own", function()
+		local bay = Building.BAY_AMBULANCE
+		local zone = { X0 = bay.Area.X0, X1 = bay.Area.X1, Z0 = bay.Area.Z0, Z1 = bay.Area.Z1, Y0 = 0.3 }
+		for _, d in solidish() do
+			local lo, hi = localBox(d)
+			if overlaps(lo, hi, zone) then
+				error(fullName(d) .. " is in the ambulance yard")
 			end
 		end
-		return true
-	end
-
-	test("patients' ways to every room bed stay open (Patients' bedRoute: the walkway, then straight in)", function()
-		local laneZ = pivot:PointToObjectSpace(plot.QueueStart.Position).Z
-		local beds = 0
-		for _, room in plot.Rooms:GetChildren() do
-			if room.Name ~= "Room_Stand" then
-				for _, bed in room:GetChildren() do
-					if string.match(bed.Name, "^Bed_%d+$") then
-						beds += 1
-						-- Patients.bedFoot: on the floor just past the foot of the mattress
-						local foot =
-							pivot:PointToObjectSpace((bed.CFrame * CFrame.new(0, 0, -bed.Size.Z / 2 - 1.6)).Position)
-						local x = if foot.X < 0 then -WALKWAY else WALKWAY
-						local route = { Vector3.new(x, 0, laneZ), Vector3.new(x, 0, foot.Z), foot }
-						for _, other in plot.Rooms:GetDescendants() do
-							if other:IsA("BasePart") and other.CanCollide and other.Name ~= "Floor" then
-								local lo, hi = localBox(other)
-								if hi.Y > 1 and lo.Y < 4 then
-									for i = 1, #route - 1 do
-										if crosses(route[i], route[i + 1], lo, hi, 0.5) then
-											error(room.Name .. "." .. bed.Name .. ": its way crosses " .. other.Name)
-										end
-									end
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-		expect(beds).toBe(3) -- the Cozy Ward's 2 and the Winter Wing's 1
+		local _, outside = Building.doorPoints("AE")
+		local hits = blockers(plotParts(plot), point(bay.Stretcher), point(outside), 0.5)
+		expect(#hits).toBe(0)
 	end)
 
-	test("the trees and bushes stay off the room slots and the ambulance bay (as built at Lv 5)", function()
+	test("the trees and bushes stay off the building, the room slots and the ambulance yard", function()
 		local zones = {}
 		for _, slot in plot.Slots:GetChildren() do
 			local lo, hi = localBox(slot)
 			zones[slot.Name] = { X0 = lo.X, X1 = hi.X, Z0 = lo.Z, Z1 = hi.Z }
 		end
-		local bay = plot.Building:FindFirstChild("BayFloor", true)
-		expect(bay ~= nil).toBe(true)
-		local bayLo, bayHi = localBox(bay)
-		zones.AmbulanceBay = { X0 = bayLo.X, X1 = bayHi.X, Z0 = bayLo.Z, Z1 = bayHi.Z }
+		local foot = Building.footprint(5, 0)
+		zones.Building = { X0 = foot.X0 - 1, X1 = foot.X1 + 1, Z0 = foot.Z0 - 1, Z1 = foot.Z1 + 1 }
+		local canopy = Building.CANOPY
+		zones.Canopy = { X0 = canopy.X0, X1 = canopy.X1, Z0 = canopy.Z0, Z1 = canopy.Z1 }
+		zones.AmbulanceBay = Building.BAY_AMBULANCE.Area
 		local checked = 0
 		for _, piece in piecesOn(plot) do
 			if piece.Kind == "tree" or piece.Kind == "bush" then
@@ -596,189 +615,228 @@ T.describe("Plot: clearances", function()
 		expect(checked > 0).toBe(true)
 	end)
 
-	test("the patients' ways along the line and out through PatientExit stay open (Patients' exitRoute)", function()
-		local laneZ = pivot:PointToObjectSpace(plot.QueueStart.Position).Z
-		local exit = pivot:PointToObjectSpace(plot.PatientExit.Position)
-		local counter = plot.Counter
-		local sideStep = math.abs(pivot:PointToObjectSpace(counter.Position).X) + counter.Size.X / 2 + 1.6
-		local legs = {
-			{ Vector3.new(-WALKWAY, 0, laneZ), Vector3.new(WALKWAY, 0, laneZ) }, -- from the line to either walkway
-			{ Vector3.new(WALKWAY, 0, laneZ), Vector3.new(exit.X, 0, exit.Z) }, -- down the right walkway and out
-			{ Vector3.new(sideStep, 0, laneZ), Vector3.new(exit.X, 0, exit.Z) }, -- round the Counter and out
-		}
-		for _, d in plotParts(plot) do
-			if d.CanCollide and not inside(d, "Ground") then
-				local lo, hi = localBox(d)
-				if hi.Y > 1 and lo.Y < 4 then
-					for _, leg in legs do
-						if crosses(leg[1], leg[2], lo, hi, 0.5) then
-							error(fullName(d) .. " is in the patients' way")
-						end
-					end
-				end
-			end
+	test("the Garden door opens onto the Garden's open front: nothing solid in the way", function()
+		local inner, outside = Building.doorPoints("Garden")
+		expect(inner ~= nil).toBe(true)
+		local garden = plot.Rooms.Room_Garden
+		local _, gHi = localBox(garden.Floor)
+		local far = Vector3.new(outside.X, 0, gHi.Z - 4)
+		local hits = blockers(world.parts(garden), point(outside), far, 0.5)
+		if #hits > 0 then
+			error("the way into the Garden crosses " .. table.concat(hits, ", "))
 		end
 	end)
 end)
 
 ------------------------------------------------------------------------------------------------------------------
-T.describe("Plot: the queue lane", function()
-	local lane = plot.QueueLane
-	local accent = plot:GetAttribute("Accent")
-
-	test("6 tiles in the two mid-tones, an edge in the plot's colour each side, nothing else but the spots", function()
-		local tiles, edges, spots, other = 0, 0, 0, 0
-		for _, d in lane:GetChildren() do
-			if d.Name == "LaneTile" then
-				tiles += 1
-				expect(d.Color == WORLD.Pavement or d.Color == WORLD.PavementAlt).toBe(true)
-			elseif d.Name == "LaneEdge" then
-				edges += 1
-				expect(d.Color).toBe(accent)
-			elseif d.Name == "LaneSpot" then
-				spots += 1
-			else
-				other += 1
-			end
-			expect(d.CanCollide).toBe(false)
-			expect(d.CanQuery).toBe(false)
-		end
-		expect(tiles).toBe(6)
-		expect(edges).toBe(2)
-		expect(spots).toBe(Config.MaxQueue)
-		expect(other).toBe(0)
-	end)
-
-	test("each place in line has its disc at PlotBuilder.queueSpot, its number floating on it, upright", function()
-		local discs = {}
-		for _, d in lane:GetChildren() do
-			if d.Name == "LaneSpot" then
-				table.insert(discs, d)
-			end
-		end
-		for index = 1, Config.MaxQueue do
-			local spot =
-				pivot:PointToObjectSpace(PlotBuilder.queueSpot(plot.QueueStart, plot.PatientSpawn, index).Position)
-			local found = nil
-			for _, disc in discs do
-				local at = pivot:PointToObjectSpace(disc.Position)
-				if near(at.X, spot.X) and near(at.Z, spot.Z) then
-					found = disc
-				end
-			end
-			expect(found ~= nil).toBe(true)
-			expect(found.Color).toBe(accent)
-			local gui = found.NumberGui
-			expect(gui.Face).toBe(Enum.NormalId.Right)
-			expect(gui.Number.Text).toBe(tostring(index))
-			expect(gui.Number.BackgroundTransparency).toBe(1)
-			-- the face the number is on looks up, and the number's top points at the Counter (+z on the plot)
-			local faceOut = pivot:VectorToObjectSpace(found.CFrame.RightVector)
-			local numberUp = pivot:VectorToObjectSpace(found.CFrame.UpVector)
-			expect(faceOut.Y).toBeCloseTo(1, 3)
-			expect(numberUp.Z).toBeCloseTo(1, 3)
-		end
-	end)
-
-	test("the lane runs from just in front of the Counter to inside the gate", function()
-		local lo, hi
-		for _, d in lane:GetChildren() do
-			local a, b = localBox(d)
-			lo = if lo then lo:Min(a) else a
-			hi = if hi then hi:Max(b) else b
-		end
-		expect(hi.Z <= -15.7 and hi.Z >= -16.5).toBe(true) -- the Counter's face is at z -15.7
-		expect(lo.Z >= -PLOT_HALF + 0.4).toBe(true) -- inside the front fence (z = -39.6)
-		expect(hi.Y <= 0.4).toBe(true) -- flat paint: creatures stand on it
-	end)
-end)
-
-------------------------------------------------------------------------------------------------------------------
-T.describe("Rooms: the annexes, the Garden and the beds", function()
-	local ROOM_COLOUR = { BathRoom = ACCENT.Cyan, Ward = ACCENT.Purple, WinterWing = ACCENT.Blue }
-
+T.describe("Rooms: interior fit-outs inside the Building", function()
 	test(
-		"Bath Room, Cozy Ward and Winter Wing: 3 studded walls in the room colour, a dark roof, an open front",
+		"each fit-out lies inside its Building.ROOMS rect and inside its walls (not in any wall or partition)",
 		function()
-			for roomId, colour in ROOM_COLOUR do
-				local room = plot.Rooms["Room_" .. roomId]
-				local floor = room.Floor
-				expect(floor.Material).toBe(Enum.Material.CeramicTiles)
-				expect(floor.Color).toBe(WORLD.FloorTile)
-				local roomPivot = floor.CFrame
-				local walls, snow = 0, 0
-				for _, d in room:GetChildren() do
-					if d.Name == "BackWall" or d.Name == "SideWall" then
-						walls += 1
-						expect(d.Color).toBe(colour)
-						expect(d:GetAttribute("Studded")).toBe(true)
-						expect(d.CanCollide).toBe(true)
-						expect(whole(d.Size.X) and whole(d.Size.Z)).toBe(true)
-						local lining = d.LiningGui
-						expect(lining.UpperWall.BackgroundColor3).toBe(WORLD.WallUpper)
-						-- the open front: no wall reaches the room's front half
-						local lo = world.box(d, roomPivot)
-						expect(lo.Z >= -EPS).toBe(true)
-					elseif d.Name == "Snow" then
-						snow += 1
-					end
+			local walls = {}
+			for _, o in Building.obstacles(5, 0) do
+				if string.match(o.Name, "Wall$") then
+					table.insert(walls, o)
 				end
-				expect(walls).toBe(3)
-				expect(snow).toBe(if roomId == "WinterWing" then 1 else 0)
-				local roof = room.Roof
-				expect(roof.Color).toBe(WORLD.Roof)
-				expect(world.box(roof, roomPivot).Z >= -0.6).toBe(true)
-				local name = roof.NameGui.Text
-				expect(string.find(name.Text, RoomsData[roomId].Name, 1, true) ~= nil).toBe(true)
-				expect(name.BackgroundTransparency).toBe(1)
-				expect(roof.NameGui:FindFirstChild("Board")).toBeNil()
-				expect(room.Trim.Color).toBe(WORLD.Trim)
-				-- the candy shell's pieces (a station's own TubStripe is its colour clue, and stays)
-				for _, word in { "Awning", "Plaque", "StripesGui", "FloorStripe", "WallBand", "Pillow", "Blanket" } do
-					for _, d in room:GetDescendants() do
-						expect(string.find(d.Name, word, 1, true)).toBeNil()
+			end
+			for roomId, info in INTERIOR do
+				local room = plot.Rooms["Room_" .. roomId]
+				local r = info.Rect
+				for _, d in world.parts(room) do
+					local lo, hi = localBox(d)
+					if lo.X < r.X0 - EPS or hi.X > r.X1 + EPS or lo.Z < r.Z0 - EPS or hi.Z > r.Z1 + EPS then
+						error(string.format("%s.%s reaches outside its room", room.Name, d.Name))
+					end
+					for _, wall in walls do
+						if overlaps(lo, hi, wall) then
+							error(string.format("%s.%s is in %s", room.Name, d.Name, wall.Name))
+						end
 					end
 				end
 			end
 		end
 	)
 
-	test("the Garden: a studded lawn, studded hedges and an arbor with its name", function()
-		local garden = plot.Rooms.Room_Garden
-		expect(garden.Floor.Color).toBe(WORLD.GrassA)
-		expect(garden.Floor:GetAttribute("Studded")).toBe(true)
-		local hedges, posts = 0, 0
-		for _, d in garden:GetChildren() do
-			if d.Name == "BackHedge" or d.Name == "SideHedge" then
-				hedges += 1
-				expect(d:GetAttribute("Studded")).toBe(true)
-			elseif d.Name == "ArborPost" then
-				posts += 1
-			end
-		end
-		expect(hedges).toBe(3)
-		expect(posts).toBe(2)
-		expect(string.find(garden.ArborBeam.NameGui.Text.Text, "Sunny Garden", 1, true) ~= nil).toBe(true)
-	end)
-
-	test("overhead pieces (roofs, trim, snow, the arbor's beam) are ray-ignored: no creature lands on them", function()
-		local overhead = 0
-		for _, d in plot.Rooms:GetDescendants() do
-			if d:IsA("BasePart") then
-				local lo = localBox(d)
-				if lo.Y > 6 then
-					overhead += 1
-					expect(d.CanQuery).toBe(false)
-					expect(d.CanCollide).toBe(false)
+	test("no solid fit-out part stands on a Building obstacle but its own bay's bed (Building.obstacles)", function()
+		for roomId in INTERIOR do
+			local room = plot.Rooms["Room_" .. roomId]
+			for _, d in world.parts(room) do
+				local lo, hi = localBox(d)
+				if d.CanCollide and d.Name ~= "Floor" and hi.Y > 0.5 then
+					for _, o in Building.obstacles(5, 0) do
+						-- a bay's bed is Building's obstacle Bed_<id>: that one is the fit-out's own
+						local ownBed = o.Name == "Bed_" .. tostring(d.Parent:GetAttribute("Bay"))
+						if overlaps(lo, hi, o) and not ownBed then
+							error(string.format("%s.%s stands on the Building's %s", room.Name, d.Name, o.Name))
+						end
+					end
 				end
 			end
 		end
-		expect(overhead >= 3 * 2 + 1).toBe(true) -- 3 roofs and trims, the snow, the beam
 	end)
 
-	test("every bed is 3 parts: a Frame, a studded Headboard and the warm-white mattress Bed_<n>", function()
+	test("each fit-out stays off its door's span (2 studs into the room from the wall), its floor aside", function()
+		for roomId, info in INTERIOR do
+			local room = plot.Rooms["Room_" .. roomId]
+			local door = Building.DOORS[info.Door]
+			expect(door.Room).toBe(roomId) -- the door that opens when the room is owned
+			local top = floorTop(room)
+			local zone = { X0 = door.X0, X1 = door.X1, Z0 = door.Z, Z1 = door.Z + 2.4, Y0 = top + 0.2 }
+			for _, d in world.parts(room) do
+				local lo, hi = localBox(d)
+				if d.Name ~= "Floor" and overlaps(lo, hi, zone) then
+					error(string.format("%s.%s stands in its doorway", room.Name, d.Name))
+				end
+			end
+		end
+	end)
+
+	test("no room has a roof or walls: nothing tall, nothing named like a shell", function()
+		for _, room in plot.Rooms:GetChildren() do
+			local top = floorTop(room)
+			for _, d in world.parts(room) do
+				for _, word in { "Wall", "Roof", "Awning", "Plaque", "Trim", "Snow" } do
+					if string.find(d.Name, word, 1, true) then
+						error(room.Name .. "." .. d.Name .. " is a piece of a shell")
+					end
+				end
+				local _, hi = localBox(d)
+				if room.Name ~= "Room_Garden" and hi.Y > top + 7 then
+					error(string.format("%s.%s reaches y %.2f", room.Name, d.Name, hi.Y))
+				end
+			end
+		end
+	end)
+
+	test("room floors are CeramicTiles on the slot (the Garden's is a studded lawn), ROOM_FLOOR thin", function()
 		for _, room in plot.Rooms:GetChildren() do
 			local roomId = room:GetAttribute("RoomId")
+			local floor = room.Floor
+			expect(room.PrimaryPart).toBe(floor)
+			local slot = plot.Slots["RoomSlot_" .. RoomsData[roomId].Slot]
+			expect((floor.Position - slot.Position).Magnitude < EPS).toBe(true)
+			local lo, hi = localBox(floor)
+			expect(near(lo.Y, 0) and hi.Y <= 0.3).toBe(true) -- on the Building's ground floor (slab top 0) or the pad
+			if roomId == "Garden" then
+				expect(floor.Color).toBe(WORLD.GrassA)
+				expect(floor:GetAttribute("Studded")).toBe(true)
+			else
+				expect(floor.Material).toBe(Enum.Material.CeramicTiles)
+				expect(floor.Color).toBe(WORLD.FloorTile)
+			end
+		end
+	end)
+
+	test("the Cozy Ward: ExamBay_W1 and ExamBay_W2 to contract C2, on Building's bays", function()
+		local ward = plot.Rooms.Room_Ward
+		local top = floorTop(ward)
+		local found = 0
+		for _, bay in Building.BAYS do
+			if bay.Room == "Ward" then
+				found += 1
+				local m = ward:FindFirstChild("ExamBay_" .. bay.Id)
+				expect(m ~= nil and m.ClassName == "Model").toBe(true)
+				expect(m:GetAttribute("Bay")).toBe(bay.Id)
+				expect(m:GetAttribute("Kind")).toBe(bay.Kind)
+				expect(m:GetAttribute("Opens")).toBe(bay.Opens)
+				expect(m:GetAttribute("Face")).toBe(bay.Face)
+				expect(m:GetAttribute("Open")).toBe(true)
+				for _, name in { "Bed", "DoctorSpot", "Curtain", "Tray", "Sign" } do
+					local child = m:FindFirstChild(name)
+					if not (child and child:IsA("BasePart")) then
+						error("ExamBay_" .. bay.Id .. " has no " .. name)
+					end
+				end
+				-- the bed: inside Building.bayBed, the patient sits on its top
+				local rect = Building.bayBed(bay)
+				for _, d in world.parts(m) do
+					if d.Name == "Bed" or d.Name == "Frame" or d.Name == "Headboard" then
+						local lo, hi = localBox(d)
+						if
+							lo.X < rect.X0 - EPS
+							or hi.X > rect.X1 + EPS
+							or lo.Z < rect.Z0 - EPS
+							or hi.Z > rect.Z1 + EPS
+						then
+							error("ExamBay_" .. bay.Id .. "." .. d.Name .. " is off Building.bayBed")
+						end
+					end
+				end
+				local _, bedHi = localBox(m.Bed)
+				expect(bedHi.Y - top >= 1.2 and bedHi.Y - top <= 2.5).toBe(true)
+				expect(m.Bed.CanCollide).toBe(true)
+				-- the DoctorSpot: at Building.doctorSpot, on the floor, facing the bed
+				local spot = Building.doctorSpot(bay)
+				local at = pivot:PointToObjectSpace(m.DoctorSpot.Position)
+				expect(near(at.X, spot.X) and near(at.Z, spot.Z)).toBe(true)
+				expect(near(localBox(m.DoctorSpot).Y, top)).toBe(true)
+				expect(m.DoctorSpot.Transparency).toBe(1)
+				local look = pivot:VectorToObjectSpace(m.DoctorSpot.CFrame.LookVector)
+				local bed = pivot:PointToObjectSpace(m.Bed.Position)
+				expect(look.X * (bed.X - at.X) + look.Z * (bed.Z - at.Z) > 0).toBe(true)
+				-- the Bed's LookVector points at its foot, where the DoctorSpot is (as the Building's couches)
+				local bedLook = pivot:VectorToObjectSpace(m.Bed.CFrame.LookVector)
+				expect(bedLook.X * (at.X - bed.X) + bedLook.Z * (at.Z - bed.Z) > 0).toBe(true)
+				-- the curtain is soft (patients and the doctor pass it), the sign shows the bay's id
+				expect(m.Curtain.CanCollide).toBe(false)
+				expect(m.Sign.SignGui.Text.Text).toBe(RoomsData.Ward.Icon .. " " .. found) -- "🛏️ 1": bed 1
+			end
+		end
+		expect(found).toBe(2)
+		-- its beds aren't recovery beds: nothing in the ward is named Bed_<n>
+		for _, d in ward:GetDescendants() do
+			expect(string.match(d.Name, "^Bed_%d+$")).toBeNil()
+		end
+	end)
+
+	test("the patients' ways in each room: from its door to each bay's DoctorSpot and to each bed's foot", function()
+		for roomId, info in INTERIOR do
+			local room = plot.Rooms["Room_" .. roomId]
+			local inner = Building.doorPoints(info.Door)
+			local targets = {}
+			for _, d in room:GetDescendants() do
+				if d.Name == "DoctorSpot" then
+					table.insert(targets, pivot:PointToObjectSpace(d.Position))
+				elseif string.match(d.Name, "^Bed_%d+$") then
+					-- Patients.bedFoot: on the floor just past the foot of the mattress
+					table.insert(
+						targets,
+						pivot:PointToObjectSpace((d.CFrame * CFrame.new(0, 0, -d.Size.Z / 2 - 1.6)).Position)
+					)
+				end
+			end
+			for _, target in targets do
+				local hits = blockers(world.parts(room), point(inner), Vector3.new(target.X, 0, target.Z), 0.3)
+				if #hits > 0 then
+					error(roomId .. ": the way in crosses " .. table.concat(hits, ", "))
+				end
+			end
+		end
+	end)
+
+	test("the rooms' stations: Station_Bath and Station_Cocoa, open; no room builds the Building's stations", function()
+		local bath = plot.Rooms.Room_BathRoom.Station_Bath
+		local cocoa = plot.Rooms.Room_WinterWing.Station_Cocoa
+		for id, station in { Bath = bath, Cocoa = cocoa } do
+			expect(station:GetAttribute("Open")).toBe(true)
+			expect(station:GetAttribute("StationId")).toBe(id)
+			expect(station.IconGui ~= nil).toBe(true)
+		end
+		expect(bath.Color).toBe(WORLD.Trim)
+		expect(cocoa.Color).toBe(ACCENT.Orange)
+		for _, room in plot.Rooms:GetChildren() do
+			for _, d in room:GetDescendants() do
+				local id = string.match(d.Name, "^Station_(%w+)$")
+				if id and Building.STATIONS[id] then
+					error(room.Name .. " builds the Building's " .. d.Name)
+				end
+			end
+		end
+	end)
+
+	test("recovery beds are 3 parts (Frame, studded Headboard, the mattress Bed_<n>): the Winter Wing's one", function()
+		local total = 0
+		for _, room in plot.Rooms:GetChildren() do
 			local beds, frames, heads = 0, 0, 0
 			for _, d in room:GetChildren() do
 				if string.match(d.Name, "^Bed_%d+$") then
@@ -793,24 +851,67 @@ T.describe("Rooms: the annexes, the Garden and the beds", function()
 					expect(whole(d.Size.X) and whole(d.Size.Z)).toBe(true)
 				end
 			end
-			expect(beds).toBe(RoomsData[roomId].Beds)
 			expect(frames).toBe(beds)
 			expect(heads).toBe(beds)
+			total += beds
+		end
+		expect(total).toBe(1)
+		expect(plot.Rooms.Room_WinterWing:FindFirstChild("Bed_1") ~= nil).toBe(true)
+	end)
+
+	test("decor slots: Data/Rooms' count in every room, on its floor, inside it", function()
+		for _, room in plot.Rooms:GetChildren() do
+			local roomId = room:GetAttribute("RoomId")
+			local top = floorTop(room)
+			local fLo, fHi = localBox(room.Floor)
+			for n = 1, RoomsData[roomId].DecorSlots do
+				local slot = room:FindFirstChild("DecorSlot_" .. n)
+				expect(slot ~= nil).toBe(true)
+				local lo, hi = localBox(slot)
+				expect(near(lo.Y, top)).toBe(true)
+				expect(lo.X >= fLo.X - EPS and hi.X <= fHi.X + EPS and lo.Z >= fLo.Z - EPS and hi.Z <= fHi.Z + EPS).toBe(
+					true
+				)
+			end
+			expect(room:FindFirstChild("DecorSlot_" .. RoomsData[roomId].DecorSlots + 1)).toBeNil()
 		end
 	end)
 
-	test("stations wear the world's twin of their colour; their icons keep the UI's", function()
-		local remedy = plot.Rooms.Room_Stand.Station_Remedy
-		expect(remedy.Color).toBe(ACCENT.Purple)
-		expect(remedy.IconGui ~= nil).toBe(true)
-		expect(plot.Rooms.Room_BathRoom.Station_Bath.Color).toBe(WORLD.Trim)
-		expect(plot.Rooms.Room_WinterWing.Station_Cocoa.Color).toBe(ACCENT.Orange)
-	end)
+	test(
+		"the Garden: a studded lawn, studded hedges and an arbor with its name; overhead parts are ray-ignored",
+		function()
+			local garden = plot.Rooms.Room_Garden
+			local hedges, posts = 0, 0
+			for _, d in garden:GetChildren() do
+				if d.Name == "BackHedge" or d.Name == "SideHedge" then
+					hedges += 1
+					expect(d:GetAttribute("Studded")).toBe(true)
+				elseif d.Name == "ArborPost" then
+					posts += 1
+				end
+			end
+			expect(hedges).toBe(3)
+			expect(posts).toBe(2)
+			expect(string.find(garden.ArborBeam.NameGui.Text.Text, "Sunny Garden", 1, true) ~= nil).toBe(true)
+			local overhead = 0
+			for _, d in plot.Rooms:GetDescendants() do
+				if d:IsA("BasePart") then
+					local lo = localBox(d)
+					if lo.Y > 6 then
+						overhead += 1
+						expect(d.CanQuery).toBe(false)
+						expect(d.CanCollide).toBe(false)
+					end
+				end
+			end
+			expect(overhead >= 1).toBe(true)
+		end
+	)
 end)
 
 ------------------------------------------------------------------------------------------------------------------
 T.describe("Plot and rooms: the look's rules", function()
-	test("studded parts sit on whole studs (X and Z), the Props pieces aside (T2's)", function()
+	test("studded parts sit on whole studs (X and Z), the Props pieces aside", function()
 		local _, propsParts = piecesOn(plot)
 		local studded = 0
 		for _, d in plotParts(plot) do
@@ -821,7 +922,7 @@ T.describe("Plot and rooms: the look's rules", function()
 				end
 			end
 		end
-		expect(studded > 15).toBe(true)
+		expect(studded > 10).toBe(true)
 	end)
 
 	test(
@@ -846,12 +947,12 @@ T.describe("Plot and rooms: the look's rules", function()
 		end
 	)
 
-	test("Variant mode: the Pad, the annex walls and the tops are CureStuds on every face", function()
+	test("Variant mode: the Pad, the CounterTop and the headboards are CureStuds on every face", function()
 		local V = build(true)
 		local p = V.plots[1]
-		V.PlotBuilder.placeRoom(p, "BathRoom")
+		V.PlotBuilder.placeRoom(p, "Ward")
 		local name = Config.Look.StudsVariant
-		for _, part in { p.Ground.Pad, p.Scenery.CounterTop, p.Rooms.Room_BathRoom.BackWall } do
+		for _, part in { p.Ground.Pad, p.Scenery.CounterTop, p.Rooms.Room_Ward.ExamBay_W1.Headboard } do
 			expect(part.MaterialVariant).toBe(name)
 			expect(part.Material).toBe(Enum.Material.Plastic)
 			expect(part.TopSurface).toBe(Enum.SurfaceType.Smooth)

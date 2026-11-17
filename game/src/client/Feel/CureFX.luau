@@ -8,9 +8,12 @@
 --   A set done     a SET COMPLETE banner when a Book wing's set reward lands in your Decor.Owned.
 --   Decor placed   a puff of sparkles and confetti, and a soft thud where it lands (when your Decor.Placed changes).
 --   A heart        a 💖 floats off your clinic sign when someone leaves you a heart.
--- Mini-games (bus events from UI/MiniGames): "TreatStart" remembers where the patient is; "MiniGameRated" puts a
--- sparkle over it for a Good and a bigger burst for a Perfect (an OK gets nothing extra: it still cures); "TreatDone"
--- with a tip pops "💰 +n" (and the 🔥 combo) over the patient and flies the coins into 💰.
+-- Mini-games (bus events from UI/MiniGames): "TreatStart" remembers where the patient is (or the dispensary, for a
+-- Dispense card); "MiniGameRated" puts a sparkle over it for a Good and a bigger burst for a Perfect (an OK gets
+-- nothing extra: it still treats); "TreatDone" with a tip pops "💰 +n" (and the 🔥 combo) over the patient and flies
+-- the coins into 💰, and an exam's revealed case (TreatOutcome.Case) floats its icon up over the patient.
+-- The Cured remote, the module's name and the "cure pop" in the code are internal names (the Real Clinic's §12: the
+-- game's words say treat; nothing here shows the word).
 --
 -- Candy pop (memory-20261116-007): saturated colours, chunky outlined text, banners with the reward's icon on
 -- turning rays. Still kind to kids on phones: nothing flashes or strobes, no camera shake, and every motion honours
@@ -20,9 +23,8 @@
 --
 -- Progression v2 (build plan §C T8): the cure pop grows a line per bonus that paid: "🌟 Golden!" (a Golden patient,
 -- with gold sparkles and the Golden chime), "🚑 ×3" / "🚁 ×4" (an ambulance or helicopter patient), "+20% 🛗" (you
--- or a Porter rode it up to its bed) and "+25% 🛁" (it soaked in the hot tub). The numbers come from Config, the facts
--- from the Cured payload (Urgent, Escorted, Soaked) or, until the server sends those, the patient model's own
--- attributes. The rules are the pure BONUS block (tests/Juice).
+-- or a Porter rode it up to its bed). The numbers come from Config, the facts from the Cured payload (Urgent,
+-- Escorted) or, when the server sends none, the patient model's own attributes. The rules are the pure BONUS block (tests/Juice).
 --
 -- Bus events fired: "Sound" (Chime, Sparkle, Fanfare, Pop, Thud, Heart, Golden): Feel/Sounds plays them;
 -- "Celebrate" (Room).
@@ -85,9 +87,9 @@ local function section(cfg: any, key: string): any
 	return if type(value) == "table" then value else {}
 end
 
--- The bonus lines for one cure, in order: Golden, the urgent multiplier, the escort and the hot tub. `info` is the
--- Cured payload; `attrs` the patient model's attributes ({ Urgent, Escorted, Soaked }) for any fact the payload
--- doesn't carry; `cfg` is Config (AE/VIP CashMultiplier, Escort.CashBonus, Hydro.CashBonus). Kind picks the colour.
+-- The bonus lines for one visit, in order: Golden, the urgent multiplier and the escort. `info` is the
+-- Cured payload; `attrs` the patient model's attributes ({ Urgent, Escorted }) for any fact the payload
+-- doesn't carry; `cfg` is Config (AE/VIP CashMultiplier, Escort.CashBonus). Kind picks the colour.
 function Bonus.lines(info: any, attrs: any, cfg: any): { BonusLine }
 	local out: { BonusLine } = {}
 	if type(info) ~= "table" then
@@ -121,9 +123,6 @@ function Bonus.lines(info: any, attrs: any, cfg: any): { BonusLine }
 	if fact("Escorted") == true then
 		percent("Escort", "CashBonus", "🛗", "Escort")
 	end
-	if fact("Soaked") == true then
-		percent("Hydro", "CashBonus", "🛁", "Soak")
-	end
 	return out
 end
 -- END BONUS
@@ -133,7 +132,6 @@ local BONUS_COLORS: { [string]: Color3 } = {
 	AE = Theme.Colors.Danger,
 	VIP = Theme.Colors.Purple,
 	Escort = Theme.Colors.Secondary,
-	Soak = Theme.Colors.Cyan,
 }
 -- Confetti: one emitter per colour, so every burst is a mix of the candy set.
 local CONFETTI = { Theme.Colors.Pink, Theme.Colors.Cash, Theme.Colors.Cyan, Theme.Colors.Good, Theme.Colors.Purple }
@@ -227,7 +225,6 @@ local function patientFacts(position: Vector3, patientId: string): { [string]: a
 				return {
 					Urgent = best:GetAttribute("Urgent"),
 					Escorted = best:GetAttribute("Escorted"),
-					Soaked = best:GetAttribute("Soaked"),
 				}
 			end
 		end
@@ -649,13 +646,9 @@ local function onCured(info: any)
 		table.insert(lines, { Text = "⭐ +" .. stars .. helped, Color = Theme.Colors.Star })
 	end
 
-	-- Progression v2: a line for each bonus that paid (Golden, 🚑/🚁, 🛗, 🛁), for whoever saw the money.
+	-- Progression v2: a line for each bonus that paid (Golden, 🚑/🚁, 🛗), for whoever saw the money.
 	if (iHelped or ownClinic) and position then
-		local facts = if info.Urgent == nil
-				or info.Escorted == nil
-				or info.Soaked == nil
-			then patientFacts(position, patientId)
-			else {}
+		local facts = if info.Urgent == nil or info.Escorted == nil then patientFacts(position, patientId) else {}
 		for index, line in Bonus.lines(info, facts, ctx.Config) do
 			if index > 3 then
 				break
@@ -951,6 +944,13 @@ local function onTreatDone(outcome: any, session: any)
 		moneyPop(position + Vector3.new(0, 1, 0), lines)
 		task.delay(0.2, Hud.fly, position + Vector3.new(0, 3, 0), "💰", "Cash", Kit.Juice.coins(tip))
 	end
+	-- An exam revealed the case (TreatOutcome.Case): its icon floats up over the patient with a twinkle (the exam
+	-- card says the words, "🩺 It's a cough!").
+	local cases = rawget(ctx.Data :: any, "Cases")
+	local case = if type(outcome.Case) == "string" and type(cases) == "table" then rawget(cases, outcome.Case) else nil
+	if position and type(case) == "table" and type(case.Icon) == "string" then
+		floaters(position + Vector3.new(0, 1.5, 0), { case.Icon, "✨" })
+	end
 	if id and outcome.Complete == true then
 		sessionAt[id] = nil
 	end
@@ -967,7 +967,7 @@ end
 
 function CureFX.init(context: Types.Ctx)
 	ctx = context
-	ctx.Remotes.Cured.OnClientEvent:Connect(guarded("cure effect", onCured))
+	ctx.Remotes.Cured.OnClientEvent:Connect(guarded("treated effect", onCured))
 	ctx.on("TreatStart", guarded("TreatStart", onTreatStart))
 	ctx.on("MiniGameRated", guarded("MiniGameRated", onRated))
 	ctx.on("TreatDone", guarded("TreatDone", onTreatDone))

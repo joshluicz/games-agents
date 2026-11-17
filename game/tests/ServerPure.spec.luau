@@ -48,51 +48,51 @@ local Config = {
 	},
 }
 
-local P = loadPure("src/server/Patients.luau", { Recipe = Recipe, Hospital = Hospital })
+local Tools = require("../src/shared/Data/Tools")
+local P = loadPure("src/server/Patients.luau", {
+	Recipe = Recipe,
+	Hospital = Hospital,
+	Visit = require("../src/shared/Logic/Visit"),
+	Cases = require("../src/shared/Data/Cases"),
+	Items = Items,
+	Tools = Tools,
+})
 local Tr = loadPure("src/server/Treatment.luau", { MiniGame = MiniGame })
 local S = loadPure("src/server/Stations.luau", {})
 
 T.describe("Patients (pure)", function()
 	test("plan: the helper's own items first, then the nurse tray", function()
-		local recipe = { "Bubbles", "Potion" }
-		local carry, tray = P.plan(recipe, { false, false }, { "Potion" }, { "Bubbles", "Potion" })
+		local plan = { "Bubbles", "PainRelief" }
+		local carry, tray = P.plan(plan, { false, false }, { "PainRelief" }, { "Bubbles", "PainRelief" })
 		expect(carry).toEqual({ 2 })
 		expect(tray).toEqual({ 1 })
 	end)
 
 	test("plan: each item fills one slot; done slots are skipped", function()
-		local recipe = { "Potion", "Plaster", "Potion" }
-		local carry, tray = P.plan(recipe, { true, false, false }, { "Potion", "Potion" }, {})
-		expect(carry).toEqual({ 3 })
+		local plan = { "Cast", "PainRelief", "Bandage" }
+		local carry, tray = P.plan(plan, { true, false, false }, { "PainRelief", "PainRelief" }, {})
+		expect(carry).toEqual({ 2 })
 		expect(tray).toEqual({})
-		local carry2, tray2 = P.plan(recipe, { false, false, false }, { "Potion" }, { "Potion", "Plaster" })
+		local carry2, tray2 = P.plan(plan, { false, false, false }, { "Cast" }, { "Bandage", "Cast" })
 		expect(carry2).toEqual({ 1 })
-		expect(tray2).toEqual({ 2, 3 })
+		expect(tray2).toEqual({ 3 })
 	end)
 
 	test("plan: nothing fits -> two empty lists", function()
-		local carry, tray = P.plan({ "Cocoa", "Potion" }, { false, false }, { "Plaster" }, { "Bubbles" })
+		local carry, tray = P.plan({ "Cocoa", "FeverMeds" }, { false, false }, { "Plaster" }, { "Bubbles" })
 		expect(#carry + #tray).toBe(0)
-		local carry2, tray2 = P.plan({ "Potion" }, { true }, { "Potion" }, { "Potion" })
+		local carry2, tray2 = P.plan({ "CoughSyrup" }, { true }, { "CoughSyrup" }, { "CoughSyrup" })
 		expect(#carry2 + #tray2).toBe(0) -- complete: nothing more is taken
 	end)
 
-	test("plan: what each side spends (one game each), and no medicine without Data/Items", function()
-		local carry, tray, carryUsed, trayUsed = P.plan(
-			{ "Bubbles", "Potion" },
+	test("plan: an item only fills its own step (no crafted medicines any more)", function()
+		local carry = P.plan(
+			{ "Lozenges", "CoughSyrup" },
 			{ false, false },
-			{ "Potion", "Cocoa" },
-			{ "Bubbles" }
+			{ "Potion", "WarmTonic", "CoughSyrup" },
+			{}
 		)
 		expect(carry).toEqual({ 2 })
-		expect(tray).toEqual({ 1 })
-		expect(carryUsed).toEqual({ "Potion" })
-		expect(trayUsed).toEqual({ "Bubbles" })
-		local none = P.plan({ "Cocoa", "Potion" }, { false, false }, { "WarmTonic" }, {})
-		expect(none).toEqual({}) -- without the medicines table a medicine is just an unknown item
-		local both, _, used = P.plan({ "Cocoa", "Potion" }, { false, false }, { "WarmTonic" }, {}, Items)
-		expect(both).toEqual({ 1, 2 })
-		expect(used).toEqual({ "WarmTonic" })
 	end)
 
 	test("firstMissing", function()
@@ -101,23 +101,11 @@ T.describe("Patients (pure)", function()
 		expect(P.firstMissing({ "A" }, { true })).toBe(nil)
 	end)
 
-	test("recipeFor: cut to the level cap, never empty, item 1 is the station's", function()
-		local full = { "Potion", "Plaster", "Potion" }
-		expect(P.recipeFor(full, "Potion", 1)).toEqual({ "Potion" })
-		expect(P.recipeFor(full, "Potion", 2)).toEqual({ "Potion", "Plaster" })
-		expect(P.recipeFor(full, "Potion", 3)).toEqual(full)
-		expect(P.recipeFor(nil, "Plaster", 3)).toEqual({ "Plaster" })
-		expect(P.recipeFor({}, "Plaster", 3)).toEqual({ "Plaster" })
-		expect(P.recipeFor({ 7, "Potion" }, "Potion", 3)).toEqual({ "Potion" })
-		expect(P.recipeFor({ "Cocoa", "Potion" }, "Bubbles", 3)).toEqual({ "Bubbles" }) -- broken data: the safe one
-		expect(P.recipeFor(full, "Potion", 0 / 0)).toEqual({ "Potion" })
-	end)
-
-	test("needs: missing items, not counting the ones mid-mini-game", function()
-		local recipe = { "Bubbles", "Potion" }
-		expect(P.needs(recipe, { false, false }, nil)).toEqual({ "Bubbles", "Potion" })
-		expect(P.needs(recipe, { false, false }, { 1 })).toEqual({ "Potion" })
-		expect(P.needs(recipe, { true, false }, { 2 })).toEqual({})
+	test("needs: missing steps, not counting the ones mid-game", function()
+		local plan = { "Ice", "Bandage" }
+		expect(P.needs(plan, { false, false }, nil)).toEqual({ "Ice", "Bandage" })
+		expect(P.needs(plan, { false, false }, { 1 })).toEqual({ "Bandage" })
+		expect(P.needs(plan, { true, false }, { 2 })).toEqual({})
 	end)
 
 	test("refill: each item adds a share of the max, clamped", function()
@@ -201,10 +189,12 @@ T.describe("Treatment (pure)", function()
 		expect(Tr.sessionId(nil)).toBe(nil)
 	end)
 
-	test("games: one per item, in order", function()
-		expect(Tr.games({ "Bubbles", "Potion" })).toEqual({ "Scrub", "Pour" })
-		expect(Tr.games({ "Cocoa", "Plaster" })).toEqual({ "Cool", "Patch" })
-		expect(Tr.games({ "Mystery" })).toEqual({ "Pour" })
+	test("games: one per supply (its Data/Items Game), in order; none for a medicine or an unknown item", function()
+		expect(Tr.games({ "Bubbles", "Ice" }, Items)).toEqual({ "Bath", "Ice" })
+		expect(Tr.games({ "Cocoa", "Plaster" }, Items)).toEqual({ "Cocoa", "Plaster" })
+		expect(Tr.games({ "CoughSyrup" }, Items)).toBe(nil) -- handed over with no session
+		expect(Tr.games({ "Mystery" }, Items)).toBe(nil)
+		expect(Tr.games({}, Items)).toBe(nil)
 	end)
 
 	test("all", function()
@@ -248,10 +238,12 @@ T.describe("Treatment (pure)", function()
 		expect(Tr.ease("1.3")).toBe(1)
 	end)
 
-	test("medicines are one Pour game each; the Soak is one Scrub", function()
-		expect(Tr.games({ "WarmTonic", "Plaster" })).toEqual({ "Pour", "Patch" })
-		expect(Tr.games({ "SoapyPatch" })).toEqual({ "Pour" })
-		expect(Tr.soakGames()).toEqual({ "Scrub" })
+	test("an exam picks the tool, then plays its game; a dispense picks the bottle, then measures the dose", function()
+		expect(Tr.examGames("Stethoscope", Tools)).toEqual({ "Pick", "Listen" })
+		expect(Tr.examGames("XRay", Tools)).toEqual({ "Pick", "XRay" })
+		expect(Tr.examGames("Spoon", Tools)).toBe(nil)
+		expect(Tr.dispenseGames()).toEqual({ "Pick", "Dose" })
+		expect(Tr.games({ "PainRelief", "Plaster" }, Items)).toBe(nil) -- a medicine never plays in a Treat
 	end)
 
 	test("triageAsk: two or more distinct string options and a Right among them", function()

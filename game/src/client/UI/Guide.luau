@@ -1,24 +1,31 @@
 --!strict
--- Guide (build plan Task 6; look overhaul T8): the two client helpers that live in the world instead of on the HUD.
+-- Guide (build plan Task 6; look overhaul T8; the Real Clinic, Task 8): the two client helpers that live in the world
+-- instead of on the HUD.
 --   init(ctx)
+--   Guide.visit(plot, data, carried): Visit   what the doctor should do next at that clinic (below; UI/Tutorial
+--                                             reads it for its words)
 --
--- 1. The first-cures guide. Until you've cured Config.Tutorial.ArrowsUntilCures patients (3; after a tutorial Skip
---    too, memory-20261117-003), it points where to go next, drawn by UI/Wayfinder (look build plan §B9): the floor
---    beam from your hips, the floor chevrons, the one glowing Highlight, the candy pin and, on touch, the hand by the
---    prompt. Its old overhead arc is gone. What it points at:
---      the front patient waits and you don't carry its treatment  -> the matching Station_* (its icon, its colour,
---                                                                   the hold hand)
---      you carry the right item (any item in the plot's FrontNeeds) -> the Counter (the patient's ailment icon, the
---                                                                   tap hand)
+-- 1. The first-patients guide. Until you've treated Config.Tutorial.ArrowsUntilCures patients (3; after a tutorial
+--    Skip too, memory-20261117-003), it points where to go next, drawn by UI/Wayfinder (look build plan §B9): the
+--    floor beam from your hips, the floor chevrons, the one glowing Highlight, the candy pin and, on touch, the hand by
+--    the prompt. What it points at (the Real Clinic visit, design §5):
+--      you carry something a bay patient still needs          -> that patient's ExamBay_<id> (the beam ends at its
+--                                                                DoctorSpot; the item's icon, the tap hand: Treat)
+--      else the FRONT bay patient (the one who has waited      -> its bay (🩺, the tap hand: Examine)
+--      longest for the doctor, Logic/Visit.front) isn't
+--      examined yet
+--      else its first missing plan step                        -> that step's Station_<id> (the supply shelf, the
+--                                                                dispensary's Station_Remedy, the Bath Room...; its
+--                                                                icon, its colour, the hold hand)
 --    Only on your own plot. Everything is client-only, survives respawn (Wayfinder.attach on CharacterAdded), and goes
 --    for good once you reach the goal (Wayfinder.destroy: nothing loops after that). It looks again every
---    STEP_SECONDS while it shows (you walk, the patient hops); with nothing to show it rests until something it reads
---    changes (your plot, what you carry, your cures, the snapshot, the plot's FrontStation/FrontNeeds, Reduce Motion
---    or the calm toggle) or IDLE_SECONDS pass. A player in the first-session tutorial keeps it through the tutorial's
---    step 6 (Snapshot.Tutorial) instead, and UI/Tutorial steers it. A Replay (the tutorial running again) brings it
---    back, even for a player who is long past 3 cures.
---      Guide.setSteer(fn?)   fn(plot) returns nil (the usual target: station, then Counter), false (nothing now), or
---                            a Steer (point there):
+--    STEP_SECONDS while it shows (you walk, the patient moves); with nothing to show it rests until something it reads
+--    changes (your plot, what you carry, your treated count, the snapshot, a patient arriving, leaving or changing
+--    State / Bay / Case / PlanDone, Reduce Motion or the calm toggle) or IDLE_SECONDS pass. A player in the
+--    first-session tutorial keeps it through the tutorial's step 6 (Snapshot.Tutorial) instead, and UI/Tutorial
+--    steers it. A Replay (the tutorial running again) brings it back, even for a player who is long past 3.
+--      Guide.setSteer(fn?)   fn(plot) returns nil (the usual target, above), false (nothing now), or a Steer (point
+--                            there):
 --      Steer = { Part: BasePart, Target: Instance?, Icon: string, Color: Color3, Height: number?, Beam: boolean?,
 --                Glow: boolean?, Hand: ("Hold" | "Tap")?, Base: Vector3? }
 --        Part    the pin's anchor (Height = the world Y of the pin's foot, default just above the part)
@@ -31,18 +38,19 @@
 --    makes the ring honest. Prompts are found by the `StationPrompt` tag (Stations.PROMPT_TAG; Stations tags every
 --    one it makes), so nothing here listens to every part added to the town.
 --    Progression v2 (build plan §B8 Stations): each prompt's hold also follows ITS plot's attributes, the way the
---    server times it: the team bonus TeamMake ("Bath=0.8,Cocoa=0.8") for that station, and an ability rush while
+--    server times it: the team bonus TeamMake ("Plaster=0.8,Cocoa=0.8") for that station, and an ability rush while
 --    MakeRushUntil is ahead (x MakeRushFactor: Busy Paws 0.5, Time Bubble 0 = the shortest hold,
 --    Config.BoostMinMakeSeconds), back to normal by itself when the rush ends (one timer per plot, no polling). The
---    💊 Pharmacy holds for the Snapshot's MakeSeconds.Pharmacy (Server/Boosts: Config.Pharmacy.HoldSeconds, x
---    Tier2Factor from R2, then MakeSpeed) instead of Faster Hands' time; before the first snapshot, its base hold
---    (Hold.pharmacy). The pure rules are the HOLD block, tests/Juice.
+--    dispensary (a Dispense station: Station_Remedy) keeps the server's own hold unless the Snapshot names one for it
+--    (MakeSeconds.Remedy): Faster Hands is for supplies. The pure rules are the HOLD block (tests/Juice).
 --
--- Reading patients (all set by the server's Patients module, read-only here): the plot's FrontStation attribute
--- (the StationId of the front patient's first missing item while it waits, "" otherwise) and FrontNeeds (every
--- item it still needs, comma-joined), and on each patient Model in
--- Plot_<n>.Patients: PatientId, Ailment, QueueIndex (1 = front) and State ("Waiting" = can be treated). Without
--- them it falls back to the model's name as the PatientId and the patient standing nearest QueueStart.
+-- Reading patients (all set by the server's Patients module, read-only here), on each patient Model in
+-- Plot_<n>.Patients: Bay (the exam bay it sits in, "" or nil before), State ("AtBay" and "Planned" wait for the
+-- doctor; "Examining" and "Treating" have a session open), Case (set only by the exam), Plan (its ItemIds,
+-- comma-joined) and PlanDone ("10": a "1" per step given), and QueueIndex (the server's front order among the bay
+-- patients who need the doctor: 1 = the front, 0 = not now; a Since attribute, when a server sends one, wins; with
+-- neither, the bays' order). Bays are `ExamBay_<id>` Models (with a DoctorSpot) in the plot's Building or Rooms;
+-- stations are `Station_<id>` parts there.
 
 local CollectionService = game:GetService("CollectionService")
 local GuiService = game:GetService("GuiService")
@@ -53,6 +61,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Prices = require(Shared:WaitForChild("Logic"):WaitForChild("Prices"))
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
+local Visit = require(Shared:WaitForChild("Logic"):WaitForChild("Visit"))
 local Theme = require(script.Parent.Theme)
 local Wayfinder = require(script.Parent.Wayfinder)
 
@@ -78,7 +87,8 @@ end
 local DEFAULT_UNTIL_CURED = 3 -- Config.Tutorial.ArrowsUntilCures when it's missing
 local STEP_SECONDS = 0.2
 local IDLE_SECONDS = 1 -- with nothing to show, look again after this at the latest
-local FRONT_STUDS = 8 -- fallback: a patient this close to QueueStart counts as the front one
+-- The patient attributes the guide reads (a change wakes it).
+local PATIENT_ATTRIBUTES = { "State", "Bay", "Case", "Plan", "PlanDone", "QueueIndex" }
 
 local function splitCarry(raw: any): { string }
 	local items = {}
@@ -125,15 +135,6 @@ function Hold.teamMake(raw: any): { [string]: number }
 	return out
 end
 
--- The 💊 Pharmacy's own base hold (Config.Pharmacy: HoldSeconds, x Tier2Factor from R2), not Faster Hands'.
-function Hold.pharmacy(cfg: any, rebirths: any): number
-	local pharmacy = if type(cfg) == "table" and type(cfg.Pharmacy) == "table" then cfg.Pharmacy else {}
-	local base = finiteNumber(pharmacy.HoldSeconds) or 3
-	local tier2 = finiteNumber(pharmacy.Tier2Factor) or 1
-	local count = finiteNumber(rebirths) or 0
-	return if count >= 2 and tier2 > 0 and tier2 <= 1 then base * tier2 else base
-end
-
 -- A station's hold at a plot: `base` (your own: Snapshot.MakeSeconds) x the plot's team factor for that station x
 -- an ability rush while it runs (MakeRushUntil > now: x MakeRushFactor, Busy Paws 0.5; 0 = Time Bubble, the
 -- shortest hold), never below `floor` (Config.BoostMinMakeSeconds), never above `base`.
@@ -164,7 +165,6 @@ local function startHoldTimes(ctx: Types.Ctx)
 	-- Playtime branch: the server's own number per station (Snapshot.MakeSeconds: Faster Hands and every MakeSpeed
 	-- boost), so the ring matches what Stations times. Without it, Faster Hands alone as before.
 	local perStation: { [string]: number } = {}
-	local rebirths = 0
 	local floor = if type(ctx.Config.BoostMinMakeSeconds) == "number" then ctx.Config.BoostMinMakeSeconds else 0.3
 	local prompts: { [ProximityPrompt]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 	local plotOf: { [ProximityPrompt]: Instance } = setmetatable({}, { __mode = "k" }) :: any
@@ -183,15 +183,16 @@ local function startHoldTimes(ctx: Types.Ctx)
 		return nil
 	end
 
+	local stations = (ctx.Data :: any).Stations
 	local function apply(prompt: ProximityPrompt)
 		local stationId = prompt:GetAttribute("StationId")
 		local id = if type(stationId) == "string" then stationId else nil
-		-- The 💊 Pharmacy: the Snapshot's own number (Server/Boosts.makeSeconds: its hold, x Tier2Factor from R2,
-		-- then MakeSpeed), else its base hold before the first snapshot.
-		local base = if id == "Pharmacy"
-			then perStation.Pharmacy or Hold.pharmacy(ctx.Config, rebirths)
-			elseif id then perStation[id] or seconds
-			else seconds
+		-- The dispensary (Dispense): the server's own hold, unless the Snapshot names one for it.
+		local station = if id and type(stations) == "table" then rawget(stations, id) else nil
+		if type(station) == "table" and station.Dispense == true and not (id and perStation[id]) then
+			return
+		end
+		local base = if id then perStation[id] or seconds else seconds
 		local plot = plotOf[prompt]
 		local wanted = base
 		if plot then
@@ -280,8 +281,6 @@ local function startHoldTimes(ctx: Types.Ctx)
 			end
 		end
 		perStation = fromServer
-		local rebirth = (state :: any).Rebirth
-		rebirths = if type(rebirth) == "table" and type(rebirth.Count) == "number" then rebirth.Count else 0
 		for prompt in prompts do
 			apply(prompt)
 		end
@@ -298,65 +297,229 @@ end
 -- The arrow
 ------------------------------------------------------------------------------------------------------------------
 
--- The patient at the front of the line who is waiting to be treated (QueueIndex 1, State "Waiting"), or, for
--- models without those attributes, the one standing nearest QueueStart.
-local function frontPatient(plot: Instance): Model?
-	local folder = plot:FindFirstChild("Patients")
-	if not folder then
-		return nil
+-- PURE-BEGIN
+-- Reading a patient's visit from its attributes (no Roblox types): the HOLD block's neighbour, kept pure so the
+-- rules read plainly. Each row is { Id: number, Bay: string, State: string?, Since: number?, Rank: number?, Plan:
+-- string?, PlanDone: string?, Case: string? } (the patient's attributes, Rank = its QueueIndex: the server's front
+-- order, 1 = the front, 0 = it doesn't need the doctor now; Id is the caller's own index).
+local Pure = {}
+
+-- Bay patients waiting for the doctor. A State the guide doesn't know (or none) counts as waiting, so a newer
+-- server never hides the guide; "Examining"/"Treating" (a session is open) and every walking or leaving state don't.
+Pure.WAITS = { AtBay = true, Planned = true } :: { [string]: boolean }
+Pure.MOVES = {
+	Arriving = true,
+	Waiting = true, -- the waiting room
+	ToBay = true,
+	Examining = true,
+	Treating = true,
+	Done = true,
+	ToWard = true,
+	Recovering = true,
+	Leaving = true,
+	Sad = true,
+} :: { [string]: boolean }
+
+function Pure.needsDoctor(row: any): boolean
+	if type(row) ~= "table" or type(row.Bay) ~= "string" or row.Bay == "" then
+		return false
 	end
-	local queueStart = plot:FindFirstChild("QueueStart")
-	local best: Model? = nil
-	local bestDistance = math.huge
-	for _, child in folder:GetChildren() do
-		if child:IsA("Model") then
-			local queueIndex = child:GetAttribute("QueueIndex")
-			local state = child:GetAttribute("State")
-			local busy = type(state) == "string" and state ~= "Waiting"
-			if type(queueIndex) == "number" then
-				if queueIndex == 1 and not busy then
-					return child
-				end
-			elseif not busy and queueStart and queueStart:IsA("BasePart") then
-				local distance = (child:GetPivot().Position - queueStart.Position).Magnitude
-				if distance < FRONT_STUDS and distance < bestDistance then
-					best, bestDistance = child, distance
+	if type(row.Rank) == "number" and row.Rank <= 0 then
+		return false -- the server says it doesn't need the doctor now (QueueIndex 0: a nurse is on it, say)
+	end
+	local state = row.State
+	if type(state) ~= "string" or Pure.WAITS[state] then
+		return true
+	end
+	return not Pure.MOVES[state]
+end
+
+-- "Plaster,Ice" -> { "Plaster", "Ice" }; anything else -> {}.
+function Pure.split(text: any): { string }
+	local out: { string } = {}
+	if type(text) == "string" then
+		for id in string.gmatch(text, "[^,%s]+") do
+			table.insert(out, id)
+		end
+	end
+	return out
+end
+
+-- The plan steps still to give, in order ("1" in PlanDone = given).
+function Pure.missing(plan: any, planDone: any): { string }
+	local out: { string } = {}
+	local done = if type(planDone) == "string" then planDone else ""
+	for index, itemId in Pure.split(plan) do
+		if string.sub(done, index, index) ~= "1" then
+			table.insert(out, itemId)
+		end
+	end
+	return out
+end
+
+-- Examined: its case is known (Case), or it already has a plan.
+function Pure.examined(row: any): boolean
+	return type(row) == "table"
+		and ((type(row.Case) == "string" and row.Case ~= "") or (type(row.Plan) == "string" and row.Plan ~= ""))
+end
+
+-- A bay id's sort key, so ties (or a server without Since) go by the bays' order: "1".."6", then "W1", "X".
+function Pure.bayOrder(bay: any): number
+	local n = if type(bay) == "string" then tonumber(bay) else nil
+	if n then
+		return n
+	end
+	return 100 + (if type(bay) == "string" then string.byte(bay, 1) or 0 else 0)
+end
+
+-- Who the doctor goes to next, and why: (rowId, "Treat" | "Examine" | "Fetch", itemId?).
+--   · "Treat": you carry an item a waiting, examined patient still needs (the longest-waiting such one); itemId =
+--     that item.
+--   · Else the front patient (Logic/Visit.front: the longest-waiting one that needs the doctor): "Examine" before
+--     its exam, else "Fetch" its first missing step (itemId).
+-- nil when nobody needs the doctor. `front` is Logic/Visit.front.
+function Pure.next(rows: { any }, carried: { string }, front: (rows: { any }) -> number?): (number?, string?, string?)
+	local function since(row: any): number
+		local value = row.Since
+		if type(value) == "number" and value == value then
+			return value
+		end
+		local rank = row.Rank
+		if type(rank) == "number" and rank > 0 then
+			return 1e9 + rank -- the server's own front order (QueueIndex: 1 = the front)
+		end
+		return 1e12 + Pure.bayOrder(row.Bay) -- neither: after anyone who has one, in the bays' order
+	end
+	local waiting = {}
+	local carrying = {}
+	local carryItem: { [number]: string } = {}
+	for _, row in rows do
+		if Pure.needsDoctor(row) then
+			table.insert(waiting, { Id = row.Id, Since = since(row), NeedsDoctor = true })
+			if Pure.examined(row) then
+				for _, itemId in Pure.missing(row.Plan, row.PlanDone) do
+					if table.find(carried, itemId) then
+						table.insert(carrying, { Id = row.Id, Since = since(row), NeedsDoctor = true })
+						carryItem[row.Id] = itemId
+						break
+					end
 				end
 			end
 		end
 	end
-	return best
-end
-
-local function ailmentOf(data: any, patient: Model): string?
-	local ailment = patient:GetAttribute("Ailment")
-	if type(ailment) == "string" and rawget(data.Ailments, ailment) then
-		return ailment
+	local treat = front(carrying)
+	if treat then
+		return treat, "Treat", carryItem[treat]
 	end
-	local id = patient:GetAttribute("PatientId")
-	local patientId = if type(id) == "string" then id else patient.Name
-	local entry = rawget(data.Patients, patientId) or rawget(data.Regulars, patientId)
-	return if type(entry) == "table" then entry.Ailment else nil
-end
-
-local function stationPart(plot: Instance, stationId: string): BasePart?
-	local rooms = plot:FindFirstChild("Rooms")
-	if not rooms then
-		return nil
+	local id = front(waiting)
+	if not id then
+		return nil, nil, nil
 	end
-	for _, room in rooms:GetChildren() do
-		local found = room:FindFirstChild("Station_" .. stationId, true)
-		if found and found:IsA("BasePart") then
-			return found
-		elseif found and found:IsA("Model") then -- a kit station built as a Model
-			local main = found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)
-			if main then
-				return main
+	for _, row in rows do
+		if row.Id == id then
+			if not Pure.examined(row) then
+				return id, "Examine", nil
 			end
+			local missing = Pure.missing(row.Plan, row.PlanDone)
+			return id, "Fetch", missing[1]
+		end
+	end
+	return nil, nil, nil
+end
+-- PURE-END
+Guide.Pure = Pure
+
+export type Visit = {
+	Patient: Model?, -- the bay patient to go to; nil = nobody needs the doctor
+	Bay: string?, -- its bay id ("1")
+	BayModel: Instance?, -- ExamBay_<Bay>
+	Spot: Instance?, -- its DoctorSpot (where the doctor stands; the BayPrompt)
+	Do: ("Treat" | "Examine" | "Fetch")?,
+	Item: string?, -- Treat: the carried item it needs; Fetch: its first missing step
+	Station: string?, -- Fetch: the StationId of that step
+	Case: string?, -- its case, once examined
+}
+
+local function findIn(plot: Instance, name: string): Instance?
+	for _, holder in { "Building", "Rooms" } do
+		local folder = plot:FindFirstChild(holder)
+		local found = folder and folder:FindFirstChild(name, true)
+		if found then
+			return found
 		end
 	end
 	return nil
 end
+
+local function stationPart(plot: Instance, stationId: string): BasePart?
+	local found = findIn(plot, "Station_" .. stationId)
+	if found and found:IsA("BasePart") then
+		return found
+	elseif found and found:IsA("Model") then -- a kit station built as a Model
+		local main = found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)
+		if main then
+			return main
+		end
+	end
+	return nil
+end
+
+-- What the doctor should do next at `plot` (see Pure.next): read off the patient models.
+function Guide.visit(plot: Instance, data: any, carried: { string }): Visit
+	local folder = plot:FindFirstChild("Patients")
+	local models: { Model } = {}
+	local rows = {}
+	if folder then
+		for _, child in folder:GetChildren() do
+			if child:IsA("Model") then
+				table.insert(models, child)
+				local row = { Id = #models }
+				for _, name in PATIENT_ATTRIBUTES do
+					row[name] = child:GetAttribute(name)
+				end
+				row.Since = child:GetAttribute("Since")
+				row.Rank = child:GetAttribute("QueueIndex")
+				table.insert(rows, row)
+			end
+		end
+	end
+	local id, todo, itemId = Pure.next(rows, carried, Visit.front)
+	local patient = if id then models[id] else nil
+	if not patient then
+		return {}
+	end
+	local bay = patient:GetAttribute("Bay")
+	local bayId = if type(bay) == "string" and bay ~= "" then bay else nil
+	local bayModel = if bayId then findIn(plot, "ExamBay_" .. bayId) else nil
+	local spot = if bayModel then bayModel:FindFirstChild("DoctorSpot", true) else nil
+	local item = if itemId
+			and type(data) == "table"
+			and type(data.Items) == "table"
+		then rawget(data.Items, itemId)
+		else nil
+	local case = patient:GetAttribute("Case")
+	return {
+		Patient = patient,
+		Bay = bayId,
+		BayModel = bayModel,
+		Spot = spot,
+		Do = todo :: any,
+		Item = itemId,
+		Station = if todo == "Fetch" and type(item) == "table" then item.Station else nil,
+		Case = if type(case) == "string" and case ~= "" then case else nil,
+	}
+end
+
+-- Where the beam ends for a bay: on the floor under its DoctorSpot (nil: Wayfinder works it out).
+local function spotBase(spot: Instance?): Vector3?
+	if spot and spot:IsA("BasePart") then
+		return Vector3.new(spot.Position.X, spot.Position.Y - spot.Size.Y / 2, spot.Position.Z)
+	elseif spot and spot:IsA("Attachment") then
+		return spot.WorldPosition
+	end
+	return nil
+end
+Guide.spotBase = spotBase
 
 -- A station's glowing target (a kit Model station glows whole) and its part (the pin's anchor).
 local function stationTarget(plot: Instance, stationId: string): (Instance?, BasePart?)
@@ -467,47 +630,26 @@ local function startGuide(ctx: Types.Ctx)
 					return
 				end
 			end
-			-- What the front patient needs. Patients publishes it on the plot (FrontStation, "" when nobody waits);
-			-- the patient models are the fallback.
-			local patient = frontPatient(plot)
-			local ailmentId = patient and ailmentOf(data, patient)
-			local ailment = ailmentId and rawget(data.Ailments, ailmentId)
-			local frontStation = plot:GetAttribute("FrontStation")
-			local stationId: string? = if type(frontStation) == "string"
-				then (if frontStation ~= "" then frontStation else nil)
-				else ailment and ailment.Station
-			local station = stationId and rawget(data.Stations, stationId)
-			if not stationId or not station then
-				hide()
-				return
-			end
-			-- Carrying any item the front patient still needs (FrontNeeds: a later recipe item counts too, Treat takes
-			-- it) means the Counter is next.
-			local carried = splitCarry(player:GetAttribute("Carry"))
-			local carrying = table.find(carried, station.Item) ~= nil
-			local frontNeeds = plot:GetAttribute("FrontNeeds")
-			if not carrying and type(frontNeeds) == "string" then
-				for itemId in string.gmatch(frontNeeds, "[^,]+") do
-					if table.find(carried, itemId) then
-						carrying = true
-						break
-					end
-				end
-			end
-			if carrying then
-				local counter = plot:FindFirstChild("Counter")
-				if counter and counter:IsA("BasePart") then
+			-- The visit's next beat (Guide.visit): a bay to Examine or Treat at, or the station of the front patient's
+			-- first missing step.
+			local visit = Guide.visit(plot, data, splitCarry(player:GetAttribute("Carry")))
+			if visit.Do == "Examine" or visit.Do == "Treat" then
+				local target = visit.BayModel or visit.Patient
+				if target then
+					local item = if visit.Item then rawget(data.Items, visit.Item) else nil
 					show({
-						Target = counter,
-						Icon = if ailment then ailment.Icon else "😊",
+						Target = target,
+						Base = spotBase(visit.Spot),
+						Icon = if visit.Do == "Examine" then "🩺" elseif item then item.Icon else "😊",
 						Color = Theme.Colors.Collect,
 						Hand = "Tap",
 					})
 					return
 				end
-			else
-				local target = stationTarget(plot, stationId)
-				if target then
+			elseif visit.Do == "Fetch" and visit.Station then
+				local station = rawget(data.Stations, visit.Station)
+				local target = if station then stationTarget(plot, visit.Station) else nil
+				if station and target then
 					show({ Target = target, Icon = station.Icon, Color = station.Color, Hand = "Hold" })
 					return
 				end
@@ -553,10 +695,27 @@ local function startGuide(ctx: Types.Ctx)
 					connection:Disconnect()
 				end
 				table.clear(plotConnections)
-				if plot then
-					for _, name in { "FrontStation", "FrontNeeds" } do
-						table.insert(plotConnections, plot:GetAttributeChangedSignal(name):Connect(wake))
+				local folder = if plot then plot:FindFirstChild("Patients") else nil
+				if folder then
+					-- A patient arriving, leaving or moving on (its State, Bay, Case, Plan, PlanDone) wakes it.
+					local function follow(child: Instance)
+						for _, name in PATIENT_ATTRIBUTES do
+							table.insert(plotConnections, child:GetAttributeChangedSignal(name):Connect(wake))
+						end
 					end
+					table.insert(
+						plotConnections,
+						folder.ChildAdded:Connect(function(child: Instance)
+							follow(child)
+							wake()
+						end)
+					)
+					table.insert(plotConnections, folder.ChildRemoved:Connect(wake))
+					for _, child in folder:GetChildren() do
+						follow(child)
+					end
+				else
+					watchedPlot = nil -- no Patients folder yet: look again next time
 				end
 			end
 		end

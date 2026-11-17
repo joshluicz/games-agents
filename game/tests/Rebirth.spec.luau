@@ -13,6 +13,7 @@ local Themes = require("../src/shared/Data/Themes")
 local TreeData = require("../src/shared/Data/Tree")
 local Nurses = require("../src/shared/Data/Nurses")
 local Decor = require("../src/shared/Data/Decor")
+local Levels = require("../src/shared/Data/Levels")
 local Config = require("./config")
 
 local CONTENT = { Perks = Perks, Themes = Themes, Nurses = Nurses, Decor = Decor }
@@ -84,11 +85,12 @@ T.describe("Rebirth cost and checks", function()
 		expect(Rebirth.cost(-3, Config)).toBe(50000)
 	end)
 
-	test("canRebirth: a Mega Hospital, then the cash", function()
+	test("canRebirth: a 🏙️ City Hospital (Lv 5), then the cash", function()
 		local data = richSave()
 		expect({ Rebirth.canRebirth(data, Config) }).toEqual({ true, "" })
 		data.Level = 4
 		expect({ Rebirth.canRebirth(data, Config) }).toEqual({ false, "Need 🏙️ Lv 5" })
+		expect({ Levels[5].Icon, Levels[5].Name }).toEqual({ "🏙️", "City Hospital" }) -- the level the message names
 		data.Level = 5
 		data.Cash = 49999
 		expect({ Rebirth.canRebirth(data, Config) }).toEqual({ false, "Need 💰50,000" })
@@ -338,6 +340,14 @@ T.describe("Rebirth unlocks, themes and effects", function()
 		expect(Rebirth.has(2, "Golden")).toBe(false)
 		expect(Rebirth.has(9, "Golden")).toBe(true)
 		expect(Rebirth.has(9, "Nope")).toBe(false)
+		-- the Real Clinic: the Pharmacy2 id stays, and it's shown as Expert Dispensing (a wider dose band)
+		expect({ Rebirth.UNLOCKS.Pharmacy2.Icon, Rebirth.UNLOCKS.Pharmacy2.Text }).toEqual({
+			"💊",
+			"Expert Dispensing",
+		})
+		expect(Config.Dispensary.ExpertBand).toBe(1.5)
+		expect(Rebirth.has(2, "Pharmacy2")).toBe(true)
+		expect(Rebirth.has(1, "Pharmacy2")).toBe(false)
 		for id, info in Rebirth.UNLOCKS do
 			expect(table.find(Rebirth.unlocks(info.Rebirths), id) ~= nil).toBe(true)
 			local words = 0

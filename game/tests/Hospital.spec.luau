@@ -1,13 +1,13 @@
 --!nocheck
--- The hospital world (look build plan §B6, §D T3; Progression v2 build plan §B4 for the names): the building's layout
--- (HospitalBuilder.Pure, which PlotBuilder.Pure re-exports, against Shared/Logic/Building), the lift's rules
--- (Server/Lift and UI/LiftPanel pure blocks), the 💊 Pharmacy's craft check and the hold factors (Server/Stations),
--- and the cutaway's rules (Feel/Cutaway).
--- The pure blocks are loaded straight from the shipped source. The last part builds the REAL PlotBuilder (and through
--- it HospitalBuilder, TownBuilder and World/*) under tests/worldmock (Lune's roblox datatypes; no Roblox services),
--- so the contract's names, the budgets, the straight walks upstairs and the clearances are checked on what ships.
--- It prints the building's measured part count per level (the perf note's table). The plot's 400 is
--- tests/PartBudget.spec. Run from game/ with the rest:  lune run tests/run
+-- The clinic building (the Real Clinic build plan, Task 1; contracts C1 and C2; design §8): HospitalBuilder's own
+-- numbers (its PURE block, which PlotBuilder.Pure re-exports, against Shared/Logic/Building), the doors' rules
+-- (World/Doors' PURE block), the lift's rules (Server/Lift and UI/LiftPanel pure blocks), the stations' hold factors
+-- (Server/Stations) and the cutaway's rules (Feel/Cutaway).
+-- The pure blocks are loaded straight from the shipped source. The last part builds the REAL HospitalBuilder (and
+-- World/*) under tests/worldmock (Lune's roblox datatypes; no Roblox services) on a bare plot Model that is moved and
+-- turned like a town plot, at every level and theme, so the contract's markers, the budgets, the closed doors and
+-- "everything solid is in Logic/Building.obstacles" are checked on what ships. It prints the building's measured part
+-- count per level. The whole plot's budget is tests/PartBudget.spec. Run from game/ with the rest:  lune run tests/run
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
@@ -19,9 +19,8 @@ local expect, test = T.expect, T.test
 local Config = require("./config")
 local LevelsData = require("../src/shared/Data/Levels")
 local Departments = require("../src/shared/Data/Departments")
-local Items = require("../src/shared/Data/Items")
+local RoomsData = require("../src/shared/Data/Rooms")
 local Themes = require("../src/shared/Data/Themes")
-local Recipe = require("../src/shared/Logic/Recipe")
 local Rebirth = require("../src/shared/Logic/Rebirth")
 local B = require("../src/shared/Logic/Building")
 local Look = require("./look")
@@ -43,14 +42,9 @@ local function loadPure(path: string): any
 	return luau.load(string.sub(text, from, to - 1) .. "\nreturn Pure\n", { debugName = path .. " (pure)" })()
 end
 
-local H = loadPure("src/server/HospitalBuilder.luau")
-local Lift = loadPure("src/server/Lift.luau")
-local Panel = loadPure("src/client/UI/LiftPanel.luau")
-local Stations = loadPure("src/server/Stations.luau")
-local Cut = loadPure("src/client/Feel/Cutaway.luau")
-
 local ROOF = Departments.Roof.Floor
 local LANDING = { X = B.LANDING.X, Z = B.LANDING.Z }
+local LEVELS = { 1, 2, 3, 4, 5 }
 
 local function rect(x0, x1, z0, z1)
 	return { X0 = x0, X1 = x1, Z0 = z0, Z1 = z1 }
@@ -61,8 +55,8 @@ local function overlaps(a, b): boolean
 	return a.X0 < b.X1 - e and b.X0 < a.X1 - e and a.Z0 < b.Z1 - e and b.Z0 < a.Z1 - e
 end
 
-local function inside(inner, outer): boolean
-	local e = 0.01
+local function inside(inner, outer, slack: number?): boolean
+	local e = slack or 0.01
 	return inner.X0 >= outer.X0 - e
 		and inner.X1 <= outer.X1 + e
 		and inner.Z0 >= outer.Z0 - e
@@ -70,12 +64,28 @@ local function inside(inner, outer): boolean
 end
 
 local function area(r): number
-	return (r.X1 - r.X0) * (r.Z1 - r.Z0)
+	return math.max(0, r.X1 - r.X0) * math.max(0, r.Z1 - r.Z0)
+end
+
+local function cut(a, b)
+	return rect(math.max(a.X0, b.X0), math.min(a.X1, b.X1), math.max(a.Z0, b.Z0), math.min(a.Z1, b.Z1))
+end
+
+local function grow(r, by: number)
+	return rect(r.X0 - by, r.X1 + by, r.Z0 - by, r.Z1 + by)
 end
 
 local function landingRect()
 	local h = B.LANDING.Size / 2
 	return rect(LANDING.X - h, LANDING.X + h, LANDING.Z - h, LANDING.Z + h)
+end
+
+local function words(text: string): number
+	local n = 0
+	for _ in string.gmatch(text, "%S+") do
+		n += 1
+	end
+	return n
 end
 
 -- Whether the segment a -> b passes through r shrunk by `shrink` a side (Liang-Barsky; as Logic/Building.reach).
@@ -111,20 +121,42 @@ local function crosses(a, b, r, shrink: number): boolean
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The layout in numbers (HospitalBuilder.Pure on Logic/Building)
+-- The building's own numbers (HospitalBuilder.Pure on Logic/Building)
 ------------------------------------------------------------------------------------------------------------------
 
-T.describe("Hospital (layout)", function()
-	test("each floor's slab: its footprint less the shaft and one open lane, in pieces that never overlap", function()
-		for k = 1, 4 do
-			local rects = H.slabRects(B, k)
-			local f = B.footprint(5, k)
-			local hole = H.lane(B, H.holeLane(k))
+T.describe("Hospital (numbers)", function()
+	local H = loadPure("src/server/HospitalBuilder.luau")
+
+	test("floors that stand: F1 from Lv 1 (shut), the tower to three storeys, the roof deck at Lv 5", function()
+		local standing, opened = {}, {}
+		for _, level in LEVELS do
+			table.insert(standing, H.standing(B, level))
+			table.insert(opened, B.floors(level))
+			expect(B.floors(level)).toBe(LevelsData[level].Floors)
+		end
+		expect(standing).toEqual({ 1, 1, 2, 3, 4 })
+		expect(opened).toEqual({ 0, 1, 2, 3, 4 })
+		expect({ H.sinceStanding(B, 1), H.sinceStanding(B, 2), H.sinceStanding(B, 3), H.sinceStanding(B, 4) }).toEqual({
+			1,
+			3,
+			4,
+			5,
+		})
+		expect({ H.sinceOpen(B, 1), H.sinceOpen(B, 2), H.sinceOpen(B, 3), H.sinceOpen(B, 4) }).toEqual({ 2, 3, 4, 5 })
+		expect(ROOF).toBe(#B.SLAB_TOPS)
+	end)
+
+	test(
+		"an upper floor's slab: the tower inside its walls, less the shaft and the stairwell, never overlapping",
+		function()
+			local rects = H.slabRects(B)
+			local t, w = B.TOWER, B.WALL
+			local inner = rect(t.X0 + w, t.X1 - w, t.Z0 + w, t.Z1 - w)
 			local total, named = 0, 0
 			for i, r in rects do
-				expect(inside(r, f)).toBe(true)
+				expect(inside(r, inner)).toBe(true)
 				expect(overlaps(r, B.SHAFT)).toBe(false)
-				expect(overlaps(r, hole)).toBe(false)
+				expect(overlaps(r, B.STAIRWELL)).toBe(false)
 				for j, other in rects do
 					if i < j then
 						expect(overlaps(r, other)).toBe(false)
@@ -137,192 +169,148 @@ T.describe("Hospital (layout)", function()
 				end
 			end
 			expect(named).toBe(1)
-			local shaft = if inside(B.SHAFT, f) then area(B.SHAFT) else 0
-			expect(total).toBeCloseTo(area(f) - shaft - area(hole), 5)
+			expect(total).toBeCloseTo(area(inner) - area(cut(B.SHAFT, inner)) - area(cut(B.STAIRWELL, inner)), 5)
+			-- the stairs' landing is floor: some piece covers it whole
+			local covered = false
+			for _, r in rects do
+				covered = covered or inside(B.STAIR_LANDING, r)
+			end
+			expect(covered).toBe(true)
+		end
+	)
+
+	test("each half-flight: never steeper than 1 in 2, floor -> mid landing -> next floor, inside the well", function()
+		local well = B.STAIRWELL
+		for k = 0, 3 do
+			local y0, y1 = B.slabTop(k), B.slabTop(k + 1)
+			local mid = (y0 + y1) / 2
+			local a, b = H.ramp(B, k, "A"), H.ramp(B, k, "B")
+			-- lane A: from the landing's edge on the floor up toward +x to the mid landing
+			expect({ a.XL, a.YL, a.XR, a.YR }).toEqual({ B.LANE_A.X0, y0, B.LANE_A.X1, mid })
+			expect({ a.Z0, a.Z1 }).toEqual({ B.LANE_A.Z0, B.LANE_A.Z1 })
+			-- lane B: from the mid landing back to the next floor (a small step short of its landing)
+			expect({ b.XR, b.YR }).toEqual({ B.LANE_B.X1, mid })
+			expect(b.XL - B.LANE_B.X0 <= 0.3).toBe(true)
+			expect(y1 - b.YL <= 0.15 and y1 - b.YL >= 0).toBe(true)
+			expect({ b.Z0, b.Z1 }).toEqual({ B.LANE_B.Z0, B.LANE_B.Z1 })
+			for _, r in { a, b } do
+				expect(math.abs(r.YR - r.YL) / math.abs(r.XR - r.XL) <= 0.5 + 1e-9).toBe(true)
+				-- the tilted slab stays inside the well, and its frame puts its top on the walking line
+				local bx = H.rampBox(r, H.RAMP)
+				expect(bx.X0 >= well.X0 - 1e-6 and bx.X1 <= well.X1 + 1e-6).toBe(true)
+				local fr = H.rampFrame(r, H.RAMP)
+				local c, s = math.cos(fr.Angle), math.sin(fr.Angle)
+				local topX = fr.X + fr.Length / 2 * c - H.RAMP / 2 * s
+				local topY = fr.Y + fr.Length / 2 * s + H.RAMP / 2 * c
+				expect(topX).toBeCloseTo(r.XR, 4)
+				expect(topY).toBeCloseTo(r.YR, 4)
+			end
+			-- the same lane one storey up passes a whole storey over it: headroom on every step
+			if k < 3 then
+				local above = H.ramp(B, k + 1, "A")
+				expect(above.YL - a.YL - H.RAMP >= 10).toBe(true)
+			end
 		end
 	end)
 
-	test("the open lanes alternate (F1 and F3 lane A, F2 and the roof lane B)", function()
-		expect({ H.holeLane(1), H.holeLane(2), H.holeLane(3), H.holeLane(4) }).toEqual({ "A", "B", "A", "B" })
-		expect(H.lane(B, "A")).toEqual(rect(-12, 12, 7, 10))
-		-- lane B stops at the back wall's inner face (no flight or rail in the wall's outer plane)
-		expect(H.lane(B, "B")).toEqual(rect(-12, 12, 10, B.BACK - B.WALL))
-		expect(H.lane(B, "B").Z1).toBe(12.4)
+	test("the ward beds: each mattress puts its foot spot on Logic/Building.BED_FOOT_Z, inside the bed spot", function()
+		local bed = H.BED
+		local z = H.mattressZ(B)
+		expect(z + bed.MattressLength / 2 + bed.FootStep).toBeCloseTo(B.BED_FOOT_Z, 5)
+		expect(z - bed.MattressLength / 2 >= B.BED_Z0 + bed.HeadboardThick - 0.01).toBe(true)
+		expect(z + bed.MattressLength / 2 <= B.BED_Z1).toBe(true)
+		expect(bed.Width).toBeCloseTo(B.BED_HALF * 2, 5)
+		expect(bed.Headboard <= bed.Width and bed.Headboard % 1 == 0).toBe(true)
 	end)
 
-	test(
-		"each flight: one storey up at 45 degrees or less, its top meeting the next one's foot, with headroom",
-		function()
-			local a = B.ATRIUM
-			for k = 0, 3 do
-				local fl = H.flight(B, k)
-				expect(fl.YLow).toBe(B.slabTop(k))
-				expect(fl.YHigh).toBe(B.slabTop(k + 1))
-				local run = math.abs(fl.XHigh - fl.XLow)
-				expect(math.deg(math.atan2(fl.YHigh - fl.YLow, run)) <= 45).toBe(true)
-				expect((fl.YHigh - fl.YLow) / run <= 0.5 + 1e-9).toBe(true) -- the wide hospital's shallower flights
-				expect(run).toBe(a.X1 - a.X0) -- the whole lane
-				-- the floor it arrives on leaves its lane open ...
-				for _, r in H.slabRects(B, k + 1) do
-					expect(overlaps(r, rect(a.X0, a.X1, fl.Z0, fl.Z1))).toBe(false)
-				end
-				-- ... and the floor it starts from (above the ground) holds it up: its lane is covered there
-				if k >= 1 then
-					local covered = 0
-					for _, r in H.slabRects(B, k) do
-						local x0, x1 = math.max(r.X0, a.X0), math.min(r.X1, a.X1)
-						local z0, z1 = math.max(r.Z0, fl.Z0), math.min(r.Z1, fl.Z1)
-						if x1 > x0 and z1 > z0 then
-							covered += (x1 - x0) * (z1 - z0)
-						end
+	test("the lift and the roofs: the shaft up under the top roof, past the car at the roof deck", function()
+		expect(H.shaftTop(B, 1, ROOF)).toBeCloseTo(23 - H.SLAB, 5)
+		expect(H.shaftTop(B, 2, ROOF)).toBeCloseTo(34 - H.SLAB, 5)
+		expect(H.shaftTop(B, 3, ROOF)).toBeCloseTo(45 - H.SLAB, 5)
+		expect(H.shaftTop(B, 4, ROOF)).toBeCloseTo(45 + H.CAR + H.CLEAR, 5)
+		expect(H.CAR < B.STOREY - H.SLAB).toBe(true)
+		expect(H.CAR >= 6.5 + 1).toBe(true) -- the biggest creature (6.5 tall) rides inside with a stud to spare
+		expect(H.roofTop(B, 1)).toBe(23)
+		expect(H.wallTop(B, 0)).toBeCloseTo(11.4, 5)
+		expect(H.wallTop(B, 3)).toBeCloseTo(44.4, 5)
+		expect(H.wallBase(B, 0)).toBe(0)
+		expect(H.wallBase(B, 2)).toBeCloseTo(22.4, 5)
+		expect(H.SLAB <= B.SLAB_MAX).toBe(true)
+		expect(H.DOOR).toBe(B.DOORS.Front.Height)
+		-- the X-ray scanner hangs clear of a 6.5-stud creature sitting on the couch, under the ceiling
+		expect(H.XRAY.Head >= H.COUCH + 6.5 + 0.5).toBe(true)
+		expect(H.XRAY.HeadTop < H.wallTop(B, 0)).toBe(true)
+	end)
+
+	test("walls leave their doorways open", function()
+		local ae = B.DOORS.AE
+		expect(H.segments(-23.4, 19.4, { ae })).toEqual({ { Z0 = -23.4, Z1 = ae.Z0 }, { Z0 = ae.Z1, Z1 = 19.4 } })
+		expect(H.segments(0, 5, {})).toEqual({ { Z0 = 0, Z1 = 5 } })
+		expect(H.segments(0, 10, { { Z0 = 6, Z1 = 8 }, { Z0 = 1, Z1 = 2 } })).toEqual({
+			{ Z0 = 0, Z1 = 1 },
+			{ Z0 = 2, Z1 = 6 },
+			{ Z0 = 8, Z1 = 10 },
+		})
+	end)
+
+	test("a waiting-room chair fills its seat's rect, its back behind the sitter", function()
+		for _, seat in B.SEATS do
+			local c = H.chair(B, seat)
+			local r = B.seatRect(seat)
+			expect(inside(c.Cushion, r)).toBe(true)
+			expect(inside(c.Back, r)).toBe(true)
+			expect(overlaps(c.Cushion, c.Back)).toBe(false)
+			expect(area(c.Cushion) + area(c.Back)).toBeCloseTo(area(r), 5)
+			local dx, dz = B.facing(seat.Face)
+			local bx, bz = (c.Back.X0 + c.Back.X1) / 2 - seat.X, (c.Back.Z0 + c.Back.Z1) / 2 - seat.Z
+			expect(bx * dx + bz * dz < 0).toBe(true)
+		end
+		expect(H.SEAT.Height < H.SEAT.BackHeight).toBe(true)
+	end)
+
+	test("a closed door's words: short, the level it opens at or the room's price", function()
+		expect(H.levelLock(2)).toBe("🔒 Opens at Lv 2")
+		local bath = { Icon = "🛁", Name = "Bath Room", Price = 150 }
+		expect(H.roomLock(1, bath)).toEqual({ "🛁 Bath Room", "💰 150 to open" })
+		local garden = { Icon = "🌻", Name = "Sunny Garden", Price = 800, Level = 3 }
+		expect(H.roomLock(2, garden)).toEqual({ "🌻 Sunny Garden", "🔒 Opens at Lv 3" })
+		expect(H.roomLock(3, garden)).toEqual({ "🌻 Sunny Garden", "💰 800 to open" })
+		expect(H.roomLock(1, nil)).toEqual({ "Room", "💰 0 to open" })
+		-- the real rooms behind the building's doors
+		for _, door in B.DOORS do
+			if door.Room then
+				for _, level in LEVELS do
+					for _, line in H.roomLock(level, RoomsData[door.Room]) do
+						expect(words(line) <= 6).toBe(true)
+						expect(string.find(string.lower(line), "cure")).toBeNil()
 					end
-					expect(covered).toBeCloseTo((a.X1 - a.X0) * (fl.Z1 - fl.Z0), 5)
 				end
-				if k < 3 then
-					local nextFlight = H.flight(B, k + 1)
-					expect(nextFlight.XLow).toBe(fl.XHigh)
-					expect(nextFlight.Lane ~= fl.Lane).toBe(true)
-				end
-				-- standing at the top of a flight, the slab over it is a full storey up (a 5-stud rider fits)
-				expect(B.slabTop(k + 2) - H.SLAB - fl.YHigh >= 5 or k + 2 > 4).toBe(true)
 			end
 		end
-	)
-
-	test(
-		"the rails stand inside the open lane: one along the room's edge, one at the drop over the flight's foot",
-		function()
-			for k = 1, 4 do
-				local hole = H.lane(B, H.holeLane(k))
-				local rails = H.rails(B, k)
-				expect(inside(rails.Long, hole)).toBe(true)
-				expect(inside(rails.End, hole)).toBe(true)
-				expect(rails.Long.Z0).toBe(hole.Z0) -- the edge toward the landing
-				local foot = H.flight(B, k - 1).XLow
-				expect(math.abs((rails.End.X0 + rails.End.X1) / 2 - foot) < 0.5).toBe(true)
-				expect(overlaps(rails.Long, rails.End)).toBe(false)
-			end
-		end
-	)
-
-	test(
-		"the main ward's beds: the mattress puts each foot spot on Logic/Building.BED_FOOT_Z, inside the bed spot",
-		function()
-			local bed = H.BED
-			local z = H.mattressZ(B)
-			expect(z + bed.MattressLength / 2 + bed.FootStep).toBeCloseTo(B.BED_FOOT_Z, 5)
-			expect(z - bed.MattressLength / 2 >= B.BED_Z0 + bed.HeadboardThick - 0.01).toBe(true) -- clear of the headboard
-			expect(z + bed.MattressLength / 2 <= B.BED_Z1).toBe(true)
-			expect(bed.Width).toBeCloseTo(B.BED_HALF * 2, 5)
-			expect(bed.Headboard <= bed.Width and bed.Headboard % 1 == 0).toBe(true) -- whole studs across
-			expect(bed.HeadboardHeight + 0.01 < H.DOOR).toBe(true)
-		end
-	)
-
-	test("the hot tub: in the tower, off the shaft, the landing and the atrium; both spots in its water", function()
-		local t = H.TUB
-		local r = t.Diameter / 2
-		local tub = rect(t.X - r, t.X + r, t.Z - r, t.Z + r)
-		expect(inside(tub, rect(-B.HALF + B.WALL, B.HALF - B.WALL, B.TOWER_FRONT + B.WALL, B.ATRIUM.Z0))).toBe(true)
-		expect(overlaps(tub, B.SHAFT)).toBe(false)
-		expect(overlaps(tub, landingRect())).toBe(false)
-		expect(#H.TUB_SPOTS).toBe(2)
-		for _, spot in H.TUB_SPOTS do
-			local d = math.sqrt((spot.X - t.X) ^ 2 + (spot.Z - t.Z) ^ 2)
-			expect(d < r - 1).toBe(true)
-		end
-		local a, b = H.TUB_SPOTS[1], H.TUB_SPOTS[2]
-		expect(math.sqrt((a.X - b.X) ^ 2 + (a.Z - b.Z) ^ 2) >= 3).toBe(true) -- two soakers side by side
-		-- the F2 -> 3 flight stands behind the tub (lane A), so the way round to the room's +x half is in front of
-		-- it: a player (2 studs wide) walks between its rim and the front wall
-		expect(H.flight(B, 2).Z0).toBe(B.ATRIUM.Z0)
-		expect(H.TUB_PASS >= 2.2).toBe(true)
-		expect(tub.Z0 - (B.TOWER_FRONT + B.WALL) >= H.TUB_PASS - 1e-9).toBe(true)
 	end)
 
-	test("a soaker's approach (Patients.shortOf from the landing) is outside the tub, a straight walk away", function()
-		local t = H.TUB
-		local r = t.Diameter / 2
-		for _, spot in H.TUB_SPOTS do
-			local x, z = H.tubApproach(spot.X, spot.Z, LANDING.X, LANDING.Z)
-			expect(math.sqrt((x - t.X) ^ 2 + (z - t.Z) ^ 2) >= r + 1).toBe(true)
-			expect(B.reach(LANDING, { X = x, Z = z }, 5, 2)).toBe(true)
-			-- and the walk there never comes within the tub (its closest point to the tub's centre is the approach)
-			local dx, dz = x - LANDING.X, z - LANDING.Z
-			local along = ((t.X - LANDING.X) * dx + (t.Z - LANDING.Z) * dz) / (dx * dx + dz * dz)
-			expect(along >= 1).toBe(true)
-		end
-		-- Patients.shortOf: 3 short, never past the start
-		expect({ H.tubApproach(0, 0, 10, 0) }).toEqual({ 3, 0 })
-		expect({ H.tubApproach(0, 0, 1, 0) }).toEqual({ 1, 0 })
-		expect({ H.tubApproach(2, 2, 2, 2) }).toEqual({ 2, 2 })
-	end)
-
-	test("the Pharmacy, its bench, the helipad, the planters and the roof prop each have their own place", function()
-		local p = H.PHARMACY
-		local station = rect(p.X - p.Width / 2, p.X + p.Width / 2, p.Z - p.Depth / 2, p.Z + p.Depth / 2)
-		local tower = rect(-B.HALF + B.WALL, B.HALF - B.WALL, B.TOWER_FRONT + B.WALL, B.BACK - B.WALL)
-		local shelf = rect(B.ATRIUM.X0, B.ATRIUM.X1, B.ATRIUM.Z0, B.ATRIUM.Z0 + H.SHELF.Thick)
-		local bench = rect(H.BENCH.X0, H.BENCH.X1, H.BENCH.Z0, H.BENCH.Z1)
-		for _, r in { station, bench } do
-			expect(inside(r, tower)).toBe(true)
-			for _, other in { B.SHAFT, landingRect(), B.ATRIUM, shelf } do
-				expect(overlaps(r, other)).toBe(false)
-			end
-		end
-		expect(overlaps(station, bench)).toBe(false)
-		-- the station is held from its street side, on the open floor
-		expect(station.Z0 - 1.5 > tower.Z0).toBe(true)
-		local pad = H.PAD
-		local padRect =
-			rect(pad.X - pad.Diameter / 2, pad.X + pad.Diameter / 2, pad.Z - pad.Diameter / 2, pad.Z + pad.Diameter / 2)
-		expect(pad.Diameter >= 6.5).toBe(true)
-		expect(inside(padRect, tower)).toBe(true)
-		for _, other in { B.SHAFT, landingRect(), B.ATRIUM } do
-			expect(overlaps(padRect, other)).toBe(false)
-		end
+	test("the roof deck: the helipad, the planters and a theme's prop each have their own place", function()
+		local t, w = B.TOWER, B.WALL
+		local deck = rect(t.X0 + w, t.X1 - w, t.Z0 + w, t.Z1 - w)
+		local h = B.HELI
+		local pad = rect(h.X - h.Size / 2, h.X + h.Size / 2, h.Z - h.Size / 2, h.Z + h.Size / 2)
 		local s = H.PLANTER / 2
 		local spots = {}
 		for _, at in H.PLANTERS do
 			table.insert(spots, rect(at.X - s, at.X + s, at.Z - s, at.Z + s))
 		end
-		local prop = H.PROP.Tower
-		table.insert(spots, rect(prop.X - 1.5, prop.X + 1.5, prop.Z - 1.5, prop.Z + 1.5))
+		table.insert(spots, rect(H.PROP.X - 1.5, H.PROP.X + 1.5, H.PROP.Z - 1.5, H.PROP.Z + 1.5))
 		for i, r in spots do
-			expect(inside(r, tower)).toBe(true)
-			expect(overlaps(r, padRect)).toBe(false)
-			expect(overlaps(r, B.ATRIUM)).toBe(false)
+			expect(inside(r, deck)).toBe(true)
+			for _, other in { pad, B.SHAFT, B.STAIRWELL, landingRect() } do
+				expect(overlaps(r, other)).toBe(false)
+			end
 			for j, other in spots do
 				if i < j then
 					expect(overlaps(r, other)).toBe(false)
 				end
 			end
 		end
-	end)
-
-	test(
-		"the shaft: up under the top roof at Lv 2-4, past the car at the roof at Lv 5; the car fits a storey",
-		function()
-			expect(H.shaftTop(B, 1, ROOF)).toBeCloseTo(23 - H.SLAB, 5)
-			expect(H.shaftTop(B, 2, ROOF)).toBeCloseTo(34 - H.SLAB, 5)
-			expect(H.shaftTop(B, 3, ROOF)).toBeCloseTo(45 - H.SLAB, 5)
-			expect(H.shaftTop(B, 4, ROOF)).toBeCloseTo(45 + H.CAR + H.CLEAR, 5)
-			expect(H.CAR < B.STOREY - H.SLAB).toBe(true)
-			expect(H.CAR >= 6.5 + 1).toBe(true) -- the biggest creature (6.5 tall) rides inside with a stud to spare
-			expect(H.roofTop(B, 1)).toBe(23)
-			expect(H.wallTop(B, 0)).toBeCloseTo(11.4, 5)
-			expect(H.wallTop(B, 3)).toBeCloseTo(44.4, 5)
-			expect(H.SLAB <= B.SLAB_MAX).toBe(true)
-		end
-	)
-
-	test("walls leave their doorways open", function()
-		expect(H.segments(-12.4, 12.4, { B.DOORS.LiftLobby, B.DOORS.AE, { Z0 = -3, Z1 = 2 } })).toEqual({
-			{ Z0 = -12.4, Z1 = -7 },
-			{ Z0 = 6, Z1 = 12.4 },
-		})
-		expect(H.segments(-12.4, 2.4, { B.DOORS.Side })).toEqual({ { Z0 = -12.4, Z1 = -1 } })
-		expect(H.segments(0, 5, {})).toEqual({ { Z0 = 0, Z1 = 5 } })
 	end)
 
 	test("sleepers spread out; a theme's colour is capped at 240 a channel", function()
@@ -340,10 +328,53 @@ T.describe("Hospital (layout)", function()
 end)
 
 ------------------------------------------------------------------------------------------------------------------
--- The lift's rules (unchanged by the overhaul) and the stations
+-- The doors' rules (World/Doors)
+------------------------------------------------------------------------------------------------------------------
+
+T.describe("Hospital (doors)", function()
+	local D = loadPure("src/server/World/Doors.luau")
+
+	test("locked: under its level, or its room not owned; anything else is free", function()
+		expect(D.locked(1, 2, nil, false)).toBe(true)
+		expect(D.locked(2, 2, nil, false)).toBe(false)
+		expect(D.locked(5, nil, nil, false)).toBe(false)
+		expect(D.locked(5, nil, "BathRoom", false)).toBe(true)
+		expect(D.locked(1, nil, "BathRoom", true)).toBe(false)
+		expect(D.locked(nil, 2, nil, false)).toBe(true) -- no level reads as Lv 1
+		expect(D.locked(0 / 0, 2, nil, false)).toBe(true)
+		expect(D.locked(3, nil, "", false)).toBe(false)
+	end)
+
+	test("near: within the radius across and the height up or down; the floor upstairs never counts", function()
+		local r, h = D.RADIUS, D.HEIGHT
+		expect(r).toBe(8)
+		expect(D.near({}, 0, 0, 0, r, h)).toBe(false)
+		expect(D.near({ { X = 7.9, Y = 3, Z = 0 } }, 0, 0.5, 0, r, h)).toBe(true)
+		expect(D.near({ { X = 6, Y = 3, Z = 6 } }, 0, 0.5, 0, r, h)).toBe(false) -- 8.5 away
+		expect(D.near({ { X = 1, Y = 14, Z = 0 } }, 0, 0.5, 0, r, h)).toBe(false) -- F1, over the door
+		expect(D.near({ { X = 50, Y = 0, Z = 0 }, { X = 0, Y = 0, Z = -3 } }, 0, 0.5, 0, r, h)).toBe(true)
+	end)
+
+	test(
+		"state: locked wins, else open while someone is near; checked a few times a second, never per frame",
+		function()
+			expect(D.state(true, true)).toBe("Locked")
+			expect(D.state(false, true)).toBe("Open")
+			expect(D.state(false, false)).toBe("Shut")
+			expect(D.CHECK_SECONDS >= 0.2).toBe(true)
+			expect(D.SLIDE_SECONDS > 0 and D.SLIDE_SECONDS < 1).toBe(true)
+		end
+	)
+end)
+
+------------------------------------------------------------------------------------------------------------------
+-- The lift's rules and the stations
 ------------------------------------------------------------------------------------------------------------------
 
 T.describe("Hospital (lift rules)", function()
+	local Lift = loadPure("src/server/Lift.luau")
+	local Panel = loadPure("src/client/UI/LiftPanel.luau")
+
 	test("which floors exist per level (Data/Levels Floors)", function()
 		local got = {}
 		for level = 1, 5 do
@@ -352,7 +383,7 @@ T.describe("Hospital (lift rules)", function()
 		expect(got).toEqual({ { 0 }, { 0, 1 }, { 0, 1, 2 }, { 0, 1, 2, 3 }, { 0, 1, 2, 3, 4 } })
 		expect(Lift.exists(4, LevelsData[5].Floors)).toBe(true)
 		expect(Lift.exists(5, LevelsData[5].Floors)).toBe(false)
-		expect(Lift.exists(1, LevelsData[1].Floors)).toBe(false)
+		expect(Lift.exists(1, LevelsData[1].Floors)).toBe(false) -- F1 stands at Lv 1, but it is shut
 		expect(Lift.exists(-1, 4)).toBe(false)
 		expect(Lift.exists(1.5, 4)).toBe(false)
 		expect(Lift.exists(0 / 0, 4)).toBe(false)
@@ -386,33 +417,39 @@ T.describe("Hospital (lift rules)", function()
 			table.insert(landings, { Floor = k, X = LANDING.X, Y = B.slabTop(k), Z = LANDING.Z })
 		end
 		local reach = Config.Lift.CarDistance + Lift.REACH_SLACK
-		-- A rider's root stands ~3 over the floor.
-		expect(Lift.nearest(landings, LANDING.X + 1, 0 + 3, LANDING.Z, reach).Floor).toBe(0)
-		expect(Lift.nearest(landings, LANDING.X + 1, B.slabTop(2) + 3, LANDING.Z, reach).Floor).toBe(2)
+		expect(Lift.nearest(landings, LANDING.X - 1, 0 + 3, LANDING.Z, reach).Floor).toBe(0)
+		expect(Lift.nearest(landings, LANDING.X - 1, B.slabTop(2) + 3, LANDING.Z, reach).Floor).toBe(2)
 		expect(Lift.nearest(landings, LANDING.X, B.slabTop(4) + 3, LANDING.Z, reach).Floor).toBe(4)
-		expect(Lift.nearest(landings, LANDING.X + reach + 1, 3, LANDING.Z, reach)).toBeNil() -- from the street
+		expect(Lift.nearest(landings, LANDING.X - reach - 1, 3, LANDING.Z, reach)).toBeNil()
 		expect(Lift.nearest(landings, LANDING.X, -5, LANDING.Z, reach)).toBeNil()
-		-- Between two floors (a jump off a slab): never counted as a storey it isn't on.
 		expect(Lift.ABOVE < B.STOREY).toBe(true)
 	end)
 
-	test("riders are set down side by side", function()
+	test("riders are set down side by side, along the lift's door, on open floor on every floor", function()
 		expect({ Lift.spread(1), Lift.spread(2), Lift.spread(3), Lift.spread(4) }).toEqual({ 0, 2.8, -2.8, 5.6 })
-		-- UI/LiftPanel steps patients and porters out where Server/Lift sets them down
 		for index = 1, 6 do
 			expect(Panel.spread(index)).toBe(Lift.spread(index))
 		end
-		-- inside the car they stand side by side, never past its walls
 		expect(Panel.inCar(1, 2)).toBe(0)
 		expect(Panel.inCar(2, 2) > 0 and Panel.inCar(3, 2) < 0).toBe(true)
 		for index = 1, 6 do
 			expect(math.abs(Panel.inCar(index, 2)) <= 2).toBe(true)
 		end
 		expect(Panel.inCar(4, -1)).toBe(0)
-		-- The landing stays turned toward the lift, so the side-by-side spread runs along +x: the second rider (an
-		-- escort) lands inside the building, never past the -x wall 2 studs from the landing's centre.
-		expect(LANDING.X + Lift.spread(2) < B.HALF - B.WALL).toBe(true)
-		expect(LANDING.X + Lift.spread(2) > -B.HALF + B.WALL).toBe(true)
+		-- The landing faces the lift (its door is on the shaft's -x face), so its X runs along +z: a rider and the
+		-- escort (riders 1 and 2) step out on open floor, clear of the shaft and every wall, on every floor.
+		for k = 0, 4 do
+			local obstacles = B.obstacles(5, k)
+			for index = 1, 2 do
+				local z = LANDING.Z + Lift.spread(index)
+				local spot = rect(LANDING.X - 1, LANDING.X + 1, z - 1, z + 1)
+				for _, o in obstacles do
+					if overlaps(spot, o) then
+						error(string.format("floor %d: rider %d steps out into %s", k, index, o.Name))
+					end
+				end
+			end
+		end
 	end)
 
 	test("the ride attributes: Server/Lift writes what UI/LiftPanel reads", function()
@@ -434,57 +471,31 @@ T.describe("Hospital (lift rules)", function()
 		for _, button in Panel.buttons(LevelsData[5].Floors, 0, Departments) do
 			table.insert(texts, button.Text)
 		end
-		expect(texts).toEqual({ "🚁 R", "💊 3", "🛁 2", "🛏️ 1", "🛎️ G" })
+		-- F3 (the staff room) has no department of its own, so it shows the lift
+		expect(texts).toEqual({ "🚁 R", "🛗 3", "😴 2", "🛏️ 1", "🛎️ G" })
 		local lv2 = Panel.buttons(LevelsData[2].Floors, 1, Departments)
 		expect(#lv2).toBe(2)
 		expect(lv2[1].Here).toBe(true)
 		expect(lv2[2].Here).toBe(false)
 		for _, button in Panel.buttons(4, nil, Departments) do
-			local words = 0
-			for _ in string.gmatch(button.Text, "%S+") do
-				words += 1
-			end
-			expect(words <= 6).toBe(true)
+			expect(words(button.Text) <= 6).toBe(true)
 		end
 	end)
 end)
 
 T.describe("Hospital (stations)", function()
-	local function has(count, id)
-		return Rebirth.has(count, id)
-	end
+	local Stations = loadPure("src/server/Stations.luau")
 
 	test("hold factors: team x ability rush, never under Config.BoostMinMakeSeconds, never longer", function()
 		local floor = Config.BoostMinMakeSeconds
 		expect(Stations.holdSeconds(2, 1, 1, floor)).toBe(2)
-		expect(Stations.holdSeconds(2, 0.6, 1, floor)).toBeCloseTo(1.2, 5) -- a Hydro/Pharmacy team of 3 (40%)
+		expect(Stations.holdSeconds(2, 0.6, 1, floor)).toBeCloseTo(1.2, 5) -- a team of 3 (40%)
 		expect(Stations.holdSeconds(2, 0.6, 0.5, floor)).toBeCloseTo(0.6, 5) -- + Busy Paws
 		expect(Stations.holdSeconds(2, 1, 0, floor)).toBe(floor) -- Time Bubble: the shortest hold
 		expect(Stations.holdSeconds(0.2, 1, 1, floor)).toBe(0.2) -- already under the floor: unchanged
 		expect(Stations.holdSeconds(2, 1.5, 3, floor)).toBe(2) -- never slower than base
 		expect(Stations.holdSeconds(2, 0 / 0, -1, floor)).toBe(2) -- junk factors change nothing
 		expect(Stations.holdSeconds(-1, 1, 1, floor)).toBe(floor)
-	end)
-
-	test("the Pharmacy's tier follows the owner's branches (Pharmacy2 at R2)", function()
-		expect(Stations.pharmacyTier(0, has)).toBe(1)
-		expect(Stations.pharmacyTier(1, has)).toBe(1)
-		expect(Stations.pharmacyTier(2, has)).toBe(2)
-		expect(Stations.pharmacyTier("x", has)).toBe(1)
-	end)
-
-	test("the craft check: two carried ingredients make one medicine (tier 2 from R2)", function()
-		local made, taken = Stations.pharmacy({ "Potion", "Cocoa" }, Items, 1, Recipe.craft)
-		expect(made).toBe("WarmTonic")
-		expect(taken).toEqual({ "Potion", "Cocoa" })
-		made, taken = Stations.pharmacy({ "Cocoa", "Bubbles", "Plaster" }, Items, 1, Recipe.craft)
-		expect(made).toBe("SoapyPatch")
-		expect(taken).toEqual({ "Bubbles", "Plaster" })
-		expect((Stations.pharmacy({ "Potion", "Plaster" }, Items, 1, Recipe.craft))).toBeNil() -- SuperSyrup is tier 2
-		expect((Stations.pharmacy({ "Potion", "Plaster" }, Items, 2, Recipe.craft))).toBe("SuperSyrup")
-		expect((Stations.pharmacy({ "Potion" }, Items, 2, Recipe.craft))).toBeNil()
-		expect((Stations.pharmacy({ "Potion", "Potion" }, Items, 2, Recipe.craft))).toBeNil()
-		expect((Stations.pharmacy({}, Items, 2, Recipe.craft))).toBeNil()
 	end)
 end)
 
@@ -493,6 +504,8 @@ end)
 ------------------------------------------------------------------------------------------------------------------
 
 T.describe("Hospital (cutaway)", function()
+	local Cut = loadPure("src/client/Feel/Cutaway.luau")
+
 	test("floorOf: the highest slab at or just under the feet; only the building's own floors count", function()
 		local tops = B.SLAB_TOPS
 		local got = {}
@@ -503,7 +516,7 @@ T.describe("Hospital (cutaway)", function()
 		expect(Cut.tops(tops, 2)).toEqual({ 12, 23 })
 		expect(Cut.tops(tops, 0)).toEqual({})
 		expect(Cut.tops(tops, 9)).toEqual({ 12, 23, 34, 45 })
-		expect(Cut.floorOf(34, Cut.tops(tops, 2))).toBe(2) -- on a Lv 3 roof: still the top floor
+		expect(Cut.floorOf(34, Cut.tops(tops, 2))).toBe(2)
 	end)
 
 	test("hide: on the ground nothing changes; above, everything over you hides and your outer walls fade", function()
@@ -516,52 +529,70 @@ T.describe("Hospital (cutaway)", function()
 		expect(Cut.hide(1, 1, true)).toBe(Cut.FADE)
 		expect(Cut.hide(1, 1, false)).toBe(0)
 		expect(Cut.hide(2, 1, true)).toBe(0)
-		expect(Cut.hide(2, 0, false)).toBe(0)
-		expect(Cut.hide(4, 4, true)).toBe(Cut.FADE)
-		-- the camera's Popper ignores a part at 0.25 total transparency or more (hospital doc §3.7)
 		expect(Cut.FADE >= 0.25).toBe(true)
 		expect(Cut.CHECKS_PER_SECOND).toBe(4)
 		expect(Cut.IDLE_SECONDS >= 1).toBe(true)
 	end)
 
-	test("feet: R15 stands HipHeight under its root; R6 on 2-stud legs; the footprint counts a doorway in", function()
+	test("feet: R15 stands HipHeight under its root; the footprint counts a doorway in, not the yard", function()
 		expect(Cut.feet(14, 1, 2)).toBe(11)
 		expect(Cut.feet(14, 1, 0)).toBe(11)
-		local podium = B.footprint(1, 0)
-		expect(Cut.inside(0, 0, podium, 0)).toBe(true)
-		expect(Cut.inside(-B.HALF - 0.3, 0, podium, Cut.MARGIN)).toBe(true)
-		expect(Cut.inside(-17.5, 0, podium, Cut.MARGIN)).toBe(false) -- the walkway (Patients: x = ±17.5) is outside
-		expect(Cut.inside(0, 5, podium, Cut.MARGIN)).toBe(false)
+		local block = B.footprint(1, 0)
+		expect(Cut.inside(0, 0, block, 0)).toBe(true)
+		expect(Cut.inside(-B.HALF_X - 0.3, 0, block, Cut.MARGIN)).toBe(true) -- in the A&E doorway
+		expect(Cut.inside(-B.HALF_X - 1.5, 0, block, Cut.MARGIN)).toBe(false) -- the -x yard
+		expect(Cut.inside(0, B.BACK + 1.5, block, Cut.MARGIN)).toBe(false)
 	end)
 end)
 
 ------------------------------------------------------------------------------------------------------------------
--- The real PlotBuilder under tests/worldmock (Lune's roblox datatypes; Instances are plain tables)
+-- The real HospitalBuilder under tests/worldmock (Lune's roblox datatypes; Instances are plain tables)
 ------------------------------------------------------------------------------------------------------------------
 
-local world = require("./worldmock").new()
-local loadModule = world.load
-local Vector3, CFrame = roblox.Vector3, roblox.CFrame
-local Palette = loadModule("src/shared/Palette.luau")
-local WORLD = Palette.World
-
 T.describe("Hospital (the built world)", function()
-	local PlotBuilder = loadModule("src/server/PlotBuilder.luau")
-	local plot = PlotBuilder.buildTown()[1]
-	for _, roomId in { "BathRoom", "Ward", "WinterWing", "Garden" } do
-		PlotBuilder.placeRoom(plot, roomId)
-	end
+	local world = require("./worldmock").new()
+	local CFrame, Vector3 = roblox.CFrame, roblox.Vector3
+	local Enum = roblox.Enum
+	local Palette = world.load("src/shared/Palette.luau")
+	local WORLD = Palette.World
+	local HospitalBuilder = world.load("src/server/HospitalBuilder.luau")
+	local H = HospitalBuilder.Pure
+
+	-- A bare plot, moved and turned round like the plots across the street, so the plot-local maths is tested.
+	local plot = world.new("Model")
+	plot.Name = "Plot_1"
+	plot.WorldPivot = CFrame.new(118, 0.5, 80) * CFrame.Angles(0, math.pi, 0)
+	plot:SetAttribute("Accent", Palette.PlotColors[1])
+	plot:SetAttribute("PlotIndex", 1)
+	local roomsFolder = world.new("Folder")
+	roomsFolder.Name = "Rooms"
+	roomsFolder.Parent = plot
+	plot.Parent = world.Workspace
 	local pivot = plot:GetPivot()
 	local accent = plot:GetAttribute("Accent")
 
-	local function build(level: number, theme: string?)
-		return PlotBuilder.buildBuilding(plot, level, nil, theme or "Candy")
+	local function own(list: { string })
+		roomsFolder:ClearAllChildren()
+		for _, id in list do
+			local room = world.new("Model")
+			room.Name = "Room_" .. id
+			room.Parent = roomsFolder
+		end
+	end
+
+	local function build(level: number, theme: string?, grewFrom: number?)
+		return HospitalBuilder.build(plot, level, grewFrom, theme or "Candy")
 	end
 
 	-- A part's box in plot-local studs, as a rect plus its y range.
 	local function boxOf(p)
 		local lo, hi = world.box(p, pivot)
 		return rect(lo.X, hi.X, lo.Z, hi.Z), lo.Y, hi.Y
+	end
+
+	-- A part's frame in plot-local space.
+	local function frameOf(p)
+		return pivot:ToObjectSpace(p.CFrame)
 	end
 
 	local function storeyOf(p, building): number?
@@ -580,6 +611,36 @@ T.describe("Hospital (the built world)", function()
 		return p.CanCollide ~= false
 	end
 
+	-- "Plot_1.Building.Shell.WallFascia" (the mock has no GetFullName).
+	local function fullName(p): string
+		local names = {}
+		local node = p
+		while node and node ~= plot.Parent do
+			table.insert(names, 1, node.Name)
+			node = node.Parent
+		end
+		return table.concat(names, ".")
+	end
+
+	local function seeThrough(p): boolean
+		return p.Transparency > 0 and p.Transparency < 1
+	end
+
+	-- The texts of every TextLabel under `root`.
+	local function texts(root): string
+		local out = {}
+		for _, d in root:GetDescendants() do
+			if d.ClassName == "TextLabel" and d.Name == "Text" then
+				table.insert(out, d.Text)
+			end
+		end
+		return table.concat(out, " | ")
+	end
+
+	local function near(a: number, b: number, digits: number?): boolean
+		return math.abs(a - b) < (10 ^ -(digits or 3))
+	end
+
 	-- The building's solid parts at walking height on floor k (feet to head), with their boxes.
 	local function solidsOn(building, k: number)
 		local out = {}
@@ -595,111 +656,276 @@ T.describe("Hospital (the built world)", function()
 		return out
 	end
 
-	-- "Plot_1.Building.Podium.WallFascia" (the mock has no GetFullName).
-	local function fullName(p): string
-		local names = {}
-		local node = p
-		while node and node ~= plot.Parent do
-			table.insert(names, 1, node.Name)
-			node = node.Parent
+	test("the contract's markers at every level: doors, seats, bays, stations, floors, the lift, the stairs", function()
+		own({})
+		for _, level in LEVELS do
+			local building = build(level, "Candy", level - 1)
+			local floors, standing = B.floors(level), H.standing(B, level)
+			expect(building.Name).toBe("Building")
+			expect(building:GetAttribute("Level")).toBe(level)
+			expect(building:GetAttribute("Floors")).toBe(LevelsData[level].Floors)
+			expect(building:GetAttribute("Storeys")).toBe(standing)
+			expect(building:GetAttribute("Theme")).toBe("Candy")
+			expect(building:GetAttribute("GrewFrom")).toBe(level - 1)
+			expect(building:GetAttribute("Origin")).toEqual(pivot)
+			expect(plot:GetAttribute("Level")).toBe(level)
+			for _, child in building:GetChildren() do
+				if child:GetAttribute("Since") == nil or child:GetAttribute("Storey") == nil then
+					error(string.format("Lv %d: %s has no Since or Storey", level, child.Name))
+				end
+				expect(child:GetAttribute("Since") <= level).toBe(true)
+			end
+			-- the front doors
+			local front = building.FrontDoor
+			expect(front.ClassName).toBe("Model")
+			expect(front.DoorL:IsA("BasePart") and front.DoorR:IsA("BasePart") and front.Sensor:IsA("BasePart")).toBe(
+				true
+			)
+			expect(front:HasTag("ClinicDoor")).toBe(true)
+			expect(building.ReceptionStop:IsA("BasePart")).toBe(true)
+			-- the waiting room's 6 seats
+			for n = 1, 6 do
+				local seat = building:FindFirstChild("WaitSeat_" .. n)
+				expect(seat:IsA("BasePart") and seat.Transparency == 1 and seat.CanCollide == false).toBe(true)
+			end
+			expect(building:FindFirstChild("WaitSeat_7")).toBeNil()
+			-- the bays: 1-6 and X here; the Cozy Ward's W1 and W2 are PlotBuilder's
+			local openBays = 0
+			for _, bay in B.BAYS do
+				local model = building:FindFirstChild("ExamBay_" .. bay.Id)
+				if bay.Room then
+					expect(model).toBeNil()
+				else
+					expect(model.ClassName).toBe("Model")
+					for _, name in { "Bed", "DoctorSpot", "Curtain", "Tray", "Sign" } do
+						if not (model:FindFirstChild(name) and model[name]:IsA("BasePart")) then
+							error(string.format("Lv %d: ExamBay_%s has no %s", level, bay.Id, name))
+						end
+					end
+					expect(model:GetAttribute("Bay")).toBe(bay.Id)
+					expect(model:GetAttribute("Kind")).toBe(bay.Kind)
+					expect(model:GetAttribute("Opens")).toBe(bay.Opens)
+					expect(model:GetAttribute("Open")).toBe(level >= bay.Opens)
+					if bay.Kind == "Exam" and level >= bay.Opens then
+						openBays += 1
+					end
+				end
+			end
+			expect(openBays).toBe(LevelsData[level].Bays)
+			-- the stations
+			for id in B.STATIONS do
+				local p = building:FindFirstChild("Station_" .. id)
+				expect(p:IsA("BasePart")).toBe(true)
+				expect(p:GetAttribute("Open")).toBe(B.stationOpen(id, level))
+				expect(p:GetAttribute("StationId")).toBe(id)
+				expect(p:HasTag("BuildingStation")).toBe(true)
+				expect(p.IconGui ~= nil).toBe(true)
+			end
+			-- the floors upstairs: every one that stands, a landing on the open ones
+			for k = 1, standing do
+				local floorModel = building:FindFirstChild("Floor_" .. k)
+				expect(floorModel.Slab.CanCollide).toBe(true)
+				expect(floorModel:GetAttribute("Since")).toBe(H.sinceStanding(B, k))
+				if k <= floors then
+					local point = floorModel.Landing.PromptPoint
+					expect(floorModel.Landing:GetAttribute("Floor")).toBe(k)
+					expect(point.LiftPrompt.ActionText).toBe("Lift")
+					expect(point.LiftPrompt:HasTag("LiftPrompt")).toBe(true)
+					expect(point.EscortPrompt.Enabled).toBe(false)
+					expect(point.EscortPrompt:HasTag("EscortPrompt")).toBe(true)
+				else
+					expect(floorModel:FindFirstChild("Landing")).toBeNil()
+				end
+			end
+			expect(building:FindFirstChild("Floor_" .. (standing + 1))).toBeNil()
+			-- the lift stands from Lv 1; its ground landing (and prompt) only once a floor opens
+			expect(building.Lift.Shaft.CanCollide).toBe(true)
+			expect(building.Lift.Car.CanCollide).toBe(false)
+			expect(building.Lift.Car.DoorsGui.DoorL ~= nil and building.Lift.Car.DoorsGui.DoorR ~= nil).toBe(true)
+			expect(building.Lift:HasTag("HospitalLift")).toBe(true)
+			expect(building.Lift:GetAttribute("Ride")).toBe("")
+			if floors >= 1 then
+				expect(building.Landing_0:GetAttribute("Floor")).toBe(0)
+				expect(building.Landing_0.PromptPoint.LiftPrompt.ActionText).toBe("Lift")
+			else
+				expect(building:FindFirstChild("Landing_0")).toBeNil()
+			end
+			-- the stairs: two half-flights a storey that stands, none above
+			for k = 0, standing - 1 do
+				expect(building.Stairs:FindFirstChild("Flight_" .. k .. "A").CanCollide).toBe(true)
+				expect(building.Stairs:FindFirstChild("Flight_" .. k .. "B").CanCollide).toBe(true)
+			end
+			expect(building.Stairs:FindFirstChild("Flight_" .. standing .. "A")).toBeNil()
+			-- A&E from Lv 2, the roof deck at Lv 5
+			if level >= Departments.AE.Opens then
+				expect(building.AmbulanceBay.Ambulance:GetAttribute("ArriveAt")).toBe(0)
+				expect(building.AmbulanceBay.StretcherSpot ~= nil).toBe(true)
+				expect(building.AmbulanceBay:GetAttribute("Since")).toBe(Departments.AE.Opens)
+			else
+				expect(building:FindFirstChild("AmbulanceBay")).toBeNil()
+			end
+			expect(building:FindFirstChild("Roof") ~= nil).toBe(level >= 5)
+			expect(building:FindFirstChild("Tower") ~= nil).toBe(level >= 5)
+			expect(building:FindFirstChild("RoofTop") ~= nil).toBe(level < 5)
+			if level >= 5 then
+				expect(building.Roof.HeliSpot:GetAttribute("ArriveAt")).toBe(0)
+			end
+			-- the ward beds: Floor_<n>.BedSpot_<k>.Bed_<k> with Floor and Ward, as many as Data/Levels.Beds
+			local beds = 0
+			for k = 1, math.min(3, standing) do
+				local floorModel = building:FindFirstChild("Floor_" .. k)
+				for _, bed in B.wardBeds(level, k) do
+					if bed.Functional then
+						local spot = floorModel:FindFirstChild("BedSpot_" .. bed.Index)
+						expect(spot:GetAttribute("Floor")).toBe(k)
+						expect(spot:GetAttribute("Ward")).toBe(bed.Ward)
+						local mattress = spot:FindFirstChild("Bed_" .. bed.Index)
+						expect(mattress:GetAttribute("Floor")).toBe(k)
+						expect(mattress:GetAttribute("Ward")).toBe(bed.Ward)
+						beds += 1
+					end
+				end
+			end
+			expect(beds).toBe(LevelsData[level].Beds)
 		end
-		return table.concat(names, ".")
-	end
+		-- the bandages open with the Medical Centre, the X-ray room's cast table and bay with the Hospital
+		expect(build(1).Station_Bandage:GetAttribute("Open")).toBe(false)
+		expect(build(2).Station_Bandage:GetAttribute("Open")).toBe(true)
+		expect(build(2).Station_Cast:GetAttribute("Open")).toBe(false)
+		local lv3 = build(3)
+		expect(lv3.Station_Cast:GetAttribute("Open")).toBe(true)
+		expect(lv3.ExamBay_X:GetAttribute("Open")).toBe(true)
+	end)
 
-	local function seeThrough(p): boolean
-		return p.Transparency > 0 and p.Transparency < 1
-	end
+	test("the markers stand where Logic/Building says, facing its way", function()
+		own({})
+		local function at(p, x: number, y: number, z: number)
+			local f = frameOf(p)
+			if not (near(f.Position.X, x) and near(f.Position.Y, y) and near(f.Position.Z, z)) then
+				error(string.format("%s at %s, not (%.2f, %.2f, %.2f)", fullName(p), tostring(f.Position), x, y, z))
+			end
+		end
+		local function facing(p, face: number)
+			local dx, dz = B.facing(face)
+			local look = frameOf(p).LookVector
+			if not (near(look.X, dx) and near(look.Z, dz)) then
+				error(string.format("%s looks %s, not Face %d", fullName(p), tostring(look), face))
+			end
+		end
+		for _, level in { 1, 3, 5 } do
+			local building = build(level)
+			for n, seat in B.SEATS do
+				local p = building:FindFirstChild("WaitSeat_" .. n)
+				at(p, seat.X, H.SEAT.Height + 0.5, seat.Z) -- resting on the seat
+				facing(p, seat.Face)
+			end
+			for _, bay in B.BAYS do
+				local model = building:FindFirstChild("ExamBay_" .. bay.Id)
+				if model then
+					at(model.Bed, bay.X, H.COUCH / 2, bay.Z)
+					facing(model.Bed, bay.Face) -- toward the foot
+					local r, lo, hi = boxOf(model.Bed)
+					expect(inside(r, B.bayBed(bay), 0.01) and inside(B.bayBed(bay), r, 0.01)).toBe(true)
+					expect(lo).toBeCloseTo(0, 3)
+					expect(hi).toBeCloseTo(H.COUCH, 3)
+					local spot = B.doctorSpot(bay)
+					at(model.DoctorSpot, spot.X, 0.5, spot.Z)
+					facing(model.DoctorSpot, (bay.Face + 180) % 360) -- at the bed
+				end
+			end
+			for id in B.STATIONS do
+				local r, lo = boxOf(building:FindFirstChild("Station_" .. id))
+				expect(inside(r, B.stationRect(id), 0.01) and inside(B.stationRect(id), r, 0.01)).toBe(true)
+				expect(lo).toBeCloseTo(0, 3)
+			end
+			at(building.ReceptionStop, B.RECEPTION.Stop.X, 0.5, B.RECEPTION.Stop.Z)
+			facing(building.ReceptionStop, 180) -- at the desk
+			at(building.ReceptionStaff, B.RECEPTION.Staff.X, 0.5, B.RECEPTION.Staff.Z)
+			local front = B.DOORS.Front
+			at(building.FrontDoor.Sensor, (front.X0 + front.X1) / 2, 0.5, front.Z)
+			for k = 0, B.floors(level) do
+				local landing = if k == 0 then building.Landing_0 else building:FindFirstChild("Floor_" .. k).Landing
+				if landing then
+					at(landing, LANDING.X, B.slabTop(k) + 0.5, LANDING.Z)
+					facing(landing, 270) -- into the lift (its door is on the shaft's -x face)
+				end
+			end
+			if building:FindFirstChild("AmbulanceBay") then
+				local s = B.BAY_AMBULANCE.Stretcher
+				at(building.AmbulanceBay.StretcherSpot, s.X, 0.5, s.Z)
+				facing(building.AmbulanceBay.StretcherSpot, 270) -- at the A&E door
+				local van = boxOf(building.AmbulanceBay.Ambulance.Body)
+				expect(inside(van, B.BAY_AMBULANCE.Area)).toBe(true)
+			end
+			if level >= 5 then
+				at(building.Roof.HeliSpot, B.HELI.X, B.slabTop(4) + 0.5, B.HELI.Z)
+			end
+		end
+	end)
 
 	test(
-		"the contract's names: floors, landings with both prompts, the lift, stairs, departments, attributes",
+		"big from Lv 1: the ground's outer walls are Logic/Building's 64 x 44 footprint; upstairs the tower",
 		function()
-			for level = 1, 5 do
-				local building = PlotBuilder.buildBuilding(plot, level, level - 1, "Candy")
-				local floors = LevelsData[level].Floors
-				expect(building.Name).toBe("Building")
-				expect(building:GetAttribute("Floors")).toBe(floors)
-				expect(building:GetAttribute("Theme")).toBe("Candy")
-				expect(building:GetAttribute("Level")).toBe(level)
-				expect(building:GetAttribute("GrewFrom")).toBe(level - 1)
-				expect(plot:GetAttribute("Theme")).toBe("Candy")
-				expect(plot:GetAttribute("Level")).toBe(level)
-				expect(building:GetAttribute("Origin")).toEqual(pivot)
-				expect(building.Podium ~= nil).toBe(true)
-				for _, child in building:GetChildren() do
-					expect(child:GetAttribute("Since") ~= nil).toBe(true)
-					expect(child:GetAttribute("Storey") ~= nil).toBe(true)
-				end
-				if floors > 0 then
-					expect(building.Landing_0:GetAttribute("Floor")).toBe(0)
-					expect(building.Landing_0.PromptPoint.LiftPrompt.ActionText).toBe("Lift")
-					for k = 1, floors do
-						local floorModel = building:FindFirstChild("Floor_" .. k)
-						expect(floorModel.Slab.CanCollide).toBe(true)
-						expect(floorModel.Landing:GetAttribute("Floor")).toBe(k)
-						local point = floorModel.Landing.PromptPoint
-						expect(point.LiftPrompt.ActionText).toBe("Lift")
-						expect(point.LiftPrompt.ObjectText).toBe("🛗")
-						expect(point.EscortPrompt.Enabled).toBe(false)
-						expect(point.LiftPrompt:HasTag("LiftPrompt")).toBe(true)
-						expect(point.EscortPrompt:HasTag("EscortPrompt")).toBe(true)
+			own({})
+			for _, level in LEVELS do
+				local building = build(level)
+				local function bounds(root)
+					local out
+					for _, p in root:GetChildren() do
+						if p:IsA("BasePart") and p:GetAttribute("Outer") == true and string.match(p.Name, "^Wall") then
+							local r = boxOf(p)
+							out = if out
+								then rect(
+									math.min(out.X0, r.X0),
+									math.max(out.X1, r.X1),
+									math.min(out.Z0, r.Z0),
+									math.max(out.Z1, r.Z1)
+								)
+								else r
+						end
 					end
-					expect(building:FindFirstChild("Floor_" .. (floors + 1))).toBeNil()
-					expect(building.Lift.Car.CanCollide).toBe(false)
-					expect(building.Lift.Car.DoorsGui.DoorL ~= nil and building.Lift.Car.DoorsGui.DoorR ~= nil).toBe(
-						true
-					)
-					expect(building.Lift.Shaft.CanCollide).toBe(true) -- solid now: it is the wall at its corner
-					expect(building.Lift:HasTag("HospitalLift")).toBe(true)
-					expect(building.Lift:GetAttribute("Ride")).toBe("")
-					expect(building.Stairs:FindFirstChild("Flight_" .. (floors - 1)).CanCollide).toBe(true)
-					expect(building.Stairs:FindFirstChild("Flight_" .. floors)).toBeNil()
-					expect(building.AmbulanceBay.Ambulance:GetAttribute("ArriveAt")).toBe(0)
-					expect(building.AmbulanceBay.Ambulance.StretcherSpot ~= nil).toBe(true)
-					for i = 1, LevelsData[level].Beds - 1 do
-						local spot = building.Wards:FindFirstChild("BedSpot_" .. i)
-						expect(spot:GetAttribute("Floor")).toBe(1)
-						expect(spot:FindFirstChild("Bed_" .. i):GetAttribute("Floor")).toBe(1)
-					end
-					expect(building.Wards:FindFirstChild("BedSpot_" .. LevelsData[level].Beds)).toBeNil()
-				else
-					expect(building:FindFirstChild("Landing_0")).toBeNil()
-					expect(building:FindFirstChild("Lift")).toBeNil()
-					expect(building.PodiumShell ~= nil).toBe(true)
+					return out
 				end
-				expect(building:FindFirstChild("Hydro") ~= nil).toBe(level >= 3)
-				expect(building:FindFirstChild("Pharmacy") ~= nil).toBe(level >= 4)
-				expect(building:FindFirstChild("Roof") ~= nil).toBe(level >= 5)
-				expect(building:FindFirstChild("Tower") ~= nil).toBe(level >= 5)
-				expect(building:FindFirstChild("Terrace") ~= nil).toBe(level >= 3)
+				local ground, f = bounds(building.Shell), B.footprint(level, 0)
+				expect(inside(ground, f) and inside(f, ground)).toBe(true)
+				expect({ f.X1 - f.X0, f.Z1 - f.Z0 }).toEqual({ 64, 44 })
+				for k = 1, math.min(3, H.standing(B, level)) do
+					local storey = bounds(building:FindFirstChild("Floor_" .. k))
+					expect(inside(storey, B.TOWER) and inside(B.TOWER, storey)).toBe(true)
+				end
 			end
-			local building = plot.Building
-			expect(building.Hydro.HotTub.TubSpot_2:GetAttribute("Floor")).toBe(2)
-			expect(building.Hydro.HotTub.Tub.SoakPoint.SoakPrompt.Enabled).toBe(false)
-			expect(building.Hydro.HotTub.Tub.SoakPoint.SoakPrompt:HasTag("SoakPrompt")).toBe(true)
-			expect(building.Pharmacy.Station_Pharmacy.PrimaryPart ~= nil).toBe(true)
-			expect(building.Pharmacy.Station_Pharmacy:HasTag("BuildingStation")).toBe(true)
-			expect(building.Roof.HeliSpot:GetAttribute("ArriveAt")).toBe(0)
-			expect(plot.MascotSpot ~= nil).toBe(true)
-			expect(plot.Sign.SignGui.BranchBadge.Visible).toBe(false)
 		end
 	)
 
 	test(
 		"budgets at every level and theme: parts, SurfaceGuis, see-through parts; no Texture, Decal, cross or Highlight",
 		function()
+			own({ "BathRoom", "Ward", "WinterWing", "Garden" })
 			local lines = {}
 			local worst = 0
 			for _, theme in Themes.Order do
-				for level = 1, 5 do
+				for _, level in LEVELS do
 					local building = build(level, theme)
-					local parts, guis, glass = 0, 0, 0
+					-- every theme carries the whole contract: the front doors, 6 seats, 7 bays and the 5 stations
+					local seats, bays, stations = 0, 0, 0
+					for _, child in building:GetChildren() do
+						if string.match(child.Name, "^WaitSeat_%d+$") then
+							seats += 1
+						elseif string.match(child.Name, "^ExamBay_") then
+							bays += 1
+						elseif string.match(child.Name, "^Station_") then
+							stations += 1
+						end
+					end
+					expect({ seats, bays, stations }).toEqual({ 6, 7, 5 })
+					expect(building:FindFirstChild("FrontDoor") ~= nil).toBe(true)
+					local parts, guis, glassParts = 0, 0, 0
 					for _, d in building:GetDescendants() do
 						if d:IsA("BasePart") then
 							parts += 1
 							if seeThrough(d) then
-								glass += 1
+								glassParts += 1
 							end
-							expect(string.find(string.lower(d.Name), "cross") == nil).toBe(true)
 						elseif d.ClassName == "SurfaceGui" then
 							guis += 1
 							expect(type(d.MaxDistance) == "number" and d.MaxDistance > 0).toBe(true)
@@ -708,7 +934,8 @@ T.describe("Hospital (the built world)", function()
 						elseif d:IsA("Light") then
 							expect(d.Shadows).toBe(false)
 						end
-						expect(string.find(string.lower(d.Name), "cross") == nil).toBe(true)
+						expect(string.find(string.lower(d.Name), "cross")).toBeNil()
+						expect(string.find(string.lower(d.Name), "lego")).toBeNil()
 					end
 					if parts > Config.Look.BuildingParts then
 						error(
@@ -724,8 +951,8 @@ T.describe("Hospital (the built world)", function()
 					if guis > Config.Look.SurfaceGuisPerBuilding then
 						error(string.format("Lv %d %s: %d SurfaceGuis", level, theme, guis))
 					end
-					if glass > Config.Look.GlassPerBuilding then
-						error(string.format("Lv %d %s: %d see-through parts", level, theme, glass))
+					if glassParts > Config.Look.GlassPerBuilding then
+						error(string.format("Lv %d %s: %d see-through parts", level, theme, glassParts))
 					end
 					worst = math.max(worst, parts)
 					if theme == Themes.Default or level == 5 then
@@ -737,7 +964,7 @@ T.describe("Hospital (the built world)", function()
 								theme,
 								parts,
 								guis,
-								glass
+								glassParts
 							)
 						)
 					end
@@ -754,11 +981,29 @@ T.describe("Hospital (the built world)", function()
 		end
 	)
 
-	test(
-		"slabs: on Logic/Building's tops, at most 0.6 thick, F1's underside >= 10.4; each landing rests on its Slab",
-		function()
-			local building = build(5)
-			for k = 1, 4 do
+	test("floors, slabs and flights are ceramic tiles (never wood); slabs on Logic/Building's tops", function()
+		own({})
+		for _, level in LEVELS do
+			local building = build(level)
+			for _, p in world.parts(building) do
+				local name = p.Name
+				local walkable = string.match(name, "^Floor")
+					or string.match(name, "^Slab")
+					or string.match(name, "^Flight_")
+					or string.match(name, "^Mid_")
+				if walkable then
+					local deck = p:FindFirstAncestor("Floor_4") ~= nil
+					local want = if deck then Enum.Material.SmoothPlastic else Enum.Material.CeramicTiles
+					if p.Material ~= want then
+						error(string.format("Lv %d: %s is %s", level, fullName(p), tostring(p.Material)))
+					end
+					if deck then
+						expect(p.Color).toEqual(WORLD.Roof)
+					end
+				end
+				expect(p.Material ~= Enum.Material.WoodPlanks or string.match(name, "^Shelf") ~= nil).toBe(true)
+			end
+			for k = 1, H.standing(B, level) do
 				local floorModel = building:FindFirstChild("Floor_" .. k)
 				local slabs = 0
 				for _, p in floorModel:GetChildren() do
@@ -771,21 +1016,268 @@ T.describe("Hospital (the built world)", function()
 						expect(p.CanCollide).toBe(true)
 					end
 				end
-				expect(slabs).toBe(#H.slabRects(B, k))
-				local landing, lo = boxOf(floorModel.Landing)
-				local slab = boxOf(floorModel.Slab)
-				expect(lo).toBeCloseTo(B.slabTop(k), 4)
-				expect(inside(landing, slab)).toBe(true)
+				expect(slabs).toBe(#H.slabRects(B))
+				local landing = floorModel:FindFirstChild("Landing")
+				if landing then
+					local r, lo = boxOf(landing)
+					expect(lo).toBeCloseTo(B.slabTop(k), 4)
+					expect(inside(r, boxOf(floorModel.Slab))).toBe(true)
+				end
 			end
-			local _, lo0 = boxOf(building.Landing_0)
-			expect(lo0).toBeCloseTo(0, 4)
+			local floorGround = building.Shell.FloorGround
+			expect(floorGround.Material).toBe(Enum.Material.CeramicTiles)
+			expect(floorGround.CanCollide).toBe(false) -- painted on the pad: markers and patients stand at 0
+		end
+	end)
+
+	test("everything solid at walking height is inside Logic/Building.obstacles (reach tells the truth)", function()
+		own({}) -- every bought room's door shut: those (and only those) are solid outside obstacles
+		local bad = {}
+		for _, level in LEVELS do
+			local building = build(level)
+			for k = 0, B.floors(level) do
+				local obstacles = B.obstacles(level, k)
+				local f = B.footprint(level, k)
+				local y = B.slabTop(k)
+				for _, p in world.parts(building) do
+					local door = p.Parent and p.Parent:GetAttribute("Room")
+					if solid(p) and not door then
+						local r, lo, hi = boxOf(p)
+						if hi > y + 0.7 and lo < y + H.DOOR - 0.1 and inside(r, f) then
+							local step = 0.25
+							local x = r.X0 + 0.05
+							local covered = true
+							while covered and x <= r.X1 - 0.05 + 1e-9 do
+								local z = r.Z0 + 0.05
+								while covered and z <= r.Z1 - 0.05 + 1e-9 do
+									local found = false
+									for _, o in obstacles do
+										if
+											x >= o.X0 - 0.06
+											and x <= o.X1 + 0.06
+											and z >= o.Z0 - 0.06
+											and z <= o.Z1 + 0.06
+										then
+											found = true
+											break
+										end
+									end
+									covered = found
+									z += step
+								end
+								x += step
+							end
+							if not covered then
+								table.insert(bad, string.format("Lv %d floor %d: %s", level, k, fullName(p)))
+							end
+						end
+					end
+				end
+			end
+		end
+		expect(bad).toEqual({})
+	end)
+
+	test("closed doors are shut, solid and say why; open ones are walk-through and slide into their wall", function()
+		local function door(building, name)
+			local model = building:FindFirstChild(name)
+			local panels = {}
+			for _, child in model:GetChildren() do
+				if child:IsA("BasePart") and child:GetAttribute("Slide") ~= nil then
+					table.insert(panels, child)
+				end
+			end
+			return model, panels
+		end
+		local function lockOf(panels)
+			for _, p in panels do
+				local gui = p:FindFirstChild("LockGui")
+				if gui then
+					return gui
+				end
+			end
+			return nil
+		end
+		-- Lv 1, nothing bought: every door but the front is shut, and says what opens it
+		own({})
+		local building = build(1)
+		local expected = {
+			Door_AE = "Lv 2",
+			Door_XRay = "Lv 3",
+			Door_BathRoom = "💰 150",
+			Door_WinterWing = "💰 500",
+			Door_CozyWard = "💰 300",
+			Door_Garden = "Lv 3",
+		}
+		for name, words in expected do
+			local model, panels = door(building, name)
+			expect(model:GetAttribute("State")).toBe("Locked")
+			expect(model:HasTag("ClinicDoor")).toBe(true)
+			for _, p in panels do
+				expect(p.CanCollide).toBe(true)
+			end
+			local gui = lockOf(panels)
+			expect(gui ~= nil and gui.Enabled == true and gui.MaxDistance > 0).toBe(true)
+			if not string.find(texts(gui), words, 1, true) then
+				error(string.format("%s says %q, not %q", name, texts(gui), words))
+			end
+		end
+		local _, frontPanels = door(building, "FrontDoor")
+		expect(building.FrontDoor:GetAttribute("State")).toBe("Shut")
+		expect(#frontPanels).toBe(2)
+		for _, p in frontPanels do
+			expect(p.CanCollide).toBe(false)
+			expect(lockOf({ p })).toBeNil()
+		end
+		-- the stairs are gated and the lift's doors are drawn shut below the first open floor
+		expect(string.find(texts(building.Stairs.StairGate), "Lv 2", 1, true) ~= nil).toBe(true)
+		expect(building.Stairs.StairGate.CanCollide).toBe(true)
+		expect(string.find(texts(building.Lift.Car.DoorsGui), "Lv 2", 1, true) ~= nil).toBe(true)
+		-- Lv 3 with the Bath Room bought: A&E and X-ray open (no plate), the Bath Room's door unlocked, the others not
+		own({ "BathRoom" })
+		building = build(3)
+		for _, name in { "Door_AE", "Door_XRay", "Door_BathRoom" } do
+			local model, panels = door(building, name)
+			expect(model:GetAttribute("State")).toBe("Shut")
+			for _, p in panels do
+				expect(p.CanCollide).toBe(false)
+			end
+			local gui = lockOf(panels)
+			expect(gui == nil or gui.Enabled == false).toBe(true)
+		end
+		local garden, gardenPanels = door(building, "Door_Garden")
+		expect(garden:GetAttribute("State")).toBe("Locked")
+		expect(string.find(texts(lockOf(gardenPanels)), "💰 800", 1, true) ~= nil).toBe(true)
+		expect(building.Stairs:FindFirstChild("StairGate")).toBeNil()
+		expect(string.find(texts(building.Lift.Car.DoorsGui), "🔒", 1, true)).toBeNil()
+		-- every panel slides into the wall beside its doorway: its open place is inside an obstacle (a wall)
+		local walls = B.obstacles(5, 0)
+		for _, name in
+			{ "FrontDoor", "Door_AE", "Door_XRay", "Door_BathRoom", "Door_WinterWing", "Door_CozyWard", "Door_Garden" }
+		do
+			local model, panels = door(building, name)
+			expect(model.Sensor ~= nil).toBe(true)
+			for _, p in panels do
+				local cf = pivot:ToObjectSpace(p.CFrame * CFrame.new(p:GetAttribute("Slide")))
+				local s = p.Size / 2
+				local lo, hi
+				for _, sx in { -1, 1 } do
+					for _, sz in { -1, 1 } do
+						local c = cf * Vector3.new(sx * s.X, 0, sz * s.Z)
+						lo = if lo then lo:Min(c) else c
+						hi = if hi then hi:Max(c) else c
+					end
+				end
+				local open = rect(lo.X, hi.X, lo.Z, hi.Z)
+				local hidden = false
+				for _, o in walls do
+					hidden = hidden or (string.match(o.Name, "Wall$") ~= nil and inside(open, o, 0.02))
+				end
+				if not hidden then
+					error(string.format("%s.%s slides out to %s", name, p.Name, T.show(open)))
+				end
+			end
+		end
+	end)
+
+	test("exam bays: an open bay's curtain is drawn back, a closed one's drawn across with a 🔒 sign", function()
+		own({})
+		for _, level in LEVELS do
+			local building = build(level)
+			for _, bay in B.BAYS do
+				local model = building:FindFirstChild("ExamBay_" .. bay.Id)
+				if model then
+					local open = level >= bay.Opens
+					local curtain = model.Curtain
+					local width = math.max(curtain.Size.X, curtain.Size.Z)
+					if open then
+						expect(width <= 1.1).toBe(true)
+					else
+						expect(width >= 5).toBe(true)
+					end
+					local said = texts(model.Sign)
+					if open then
+						expect(said).toBe(if bay.Kind == "XRay" then "🩻 X-ray" else bay.Id)
+					else
+						expect(said).toBe("🔒 Lv " .. bay.Opens)
+					end
+					for _, name in { "Pillow", "Curtain", "Tray", "Sign", "DoctorSpot" } do
+						expect(model[name].CanCollide).toBe(false)
+					end
+					expect(model.Bed.CanCollide).toBe(true)
+					-- the sign hangs over the mouth on the corridor side, the curtain and tray inside the bay
+					local sign, signLo = boxOf(model.Sign)
+					expect(signLo >= H.DOOR).toBe(true)
+					expect(sign.Z1 <= B.ROOMS.CorridorA.Z1 + 1e-3).toBe(true)
+					local room = if bay.Kind == "XRay" then B.ROOMS.XRay else B.ROOMS.Bays
+					expect(inside(boxOf(curtain), room)).toBe(true)
+					expect(inside(boxOf(model.Tray), B.bayBed(bay))).toBe(true)
+					if bay.Kind == "Exam" then
+						local half = B.BAY_WIDTH / 2
+						expect(inside(boxOf(curtain), rect(bay.X - half, bay.X + half, -100, 100))).toBe(true)
+					end
+				end
+			end
+		end
+		-- the X-ray arm hangs over bay X's bed, clear of a sitting creature, and never stops anyone
+		local building = build(3)
+		local bay = B.bay("X")
+		local headRect, headLo = boxOf(building.XRay.XRayHead)
+		expect(overlaps(headRect, B.bayBed(bay))).toBe(true)
+		expect(headLo >= H.COUCH + 6.5).toBe(true)
+		expect(building.XRay.XRayHead.CanCollide).toBe(false)
+		expect(building.XRay.XRayColumn.CanCollide).toBe(false)
+	end)
+
+	test(
+		"the dog-leg stairs: each flight where Pure.ramp says, rails on every floor, the top floor railed round",
+		function()
+			own({})
+			for _, level in { 2, 5 } do
+				local building = build(level)
+				local standing = H.standing(B, level)
+				for k = 0, standing - 1 do
+					for _, lane in { "A", "B" } do
+						local p = building.Stairs:FindFirstChild("Flight_" .. k .. lane)
+						local r, lo, hi = boxOf(p)
+						local want = H.rampBox(H.ramp(B, k, lane), H.RAMP)
+						expect(r.X0).toBeCloseTo(want.X0, 3)
+						expect(r.X1).toBeCloseTo(want.X1, 3)
+						expect(lo).toBeCloseTo(want.Y0, 3)
+						expect(hi).toBeCloseTo(want.Y1, 3)
+						local laneRect = if lane == "A" then B.LANE_A else B.LANE_B
+						expect(r.Z0).toBeCloseTo(laneRect.Z0, 3)
+						expect(r.Z1).toBeCloseTo(laneRect.Z1, 3)
+						expect(p:GetAttribute("Storey")).toBe(k)
+					end
+					local _, _, midTop = boxOf(building.Stairs:FindFirstChild("Mid_" .. k))
+					expect(midTop).toBeCloseTo((B.slabTop(k) + B.slabTop(k + 1)) / 2, 3)
+				end
+				expect(building.Stairs:FindFirstChild("Flight_" .. standing .. "A")).toBeNil()
+				local rails, ends = {}, 0
+				for _, p in building.Stairs:GetChildren() do
+					local r = boxOf(p)
+					expect(inside(r, B.STAIRWELL)).toBe(true)
+					if p.Name == "Rail" then
+						rails[p:GetAttribute("Storey")] = true
+					elseif p.Name == "RailEnd" or p.Name == "RailMid" then
+						ends += 1
+						expect(p:GetAttribute("Storey")).toBe(standing)
+					end
+				end
+				for k = 0, standing do
+					expect(rails[k]).toBe(true)
+				end
+				expect(ends).toBe(2)
+			end
 		end
 	)
 
 	test(
 		"every part has a Storey; outer walls are studded, the plot's colour and solid; roofs are World.Roof",
 		function()
-			for level = 1, 5 do
+			own({})
+			for _, level in LEVELS do
 				local building = build(level)
 				local walls = 0
 				for _, p in world.parts(building) do
@@ -797,334 +1289,26 @@ T.describe("Hospital (the built world)", function()
 					if string.match(p.Name, "^Wall") and p:GetAttribute("Outer") == true then
 						walls += 1
 						expect(p:GetAttribute("Studded")).toBe(true)
-						expect(p.Material).toBe(roblox.Enum.Material.Plastic)
+						expect(p.Material).toBe(Enum.Material.Plastic)
 						expect(p.Color).toEqual(accent)
 						expect(p.CanCollide).toBe(true)
 					end
 					if string.match(p.Name, "^Roof") or string.match(p.Name, "^Parapet") then
 						expect(p.Color).toEqual(WORLD.Roof)
 					end
-					-- no bleached world colour (art-direction §4.1: warm whites cap at 240)
-					if p.Transparency < 1 then
-						expect(Look.maxChannel(p.Color) <= 245).toBe(true)
+					if p.Transparency < 1 and Look.maxChannel(p.Color) > 245 then
+						error(string.format("Lv %d: %s is too bright", level, fullName(p)))
 					end
 				end
-				expect(walls >= 5).toBe(true)
+				expect(walls >= 10).toBe(true)
 			end
-		end
-	)
-
-	test(
-		"the Lv 1 podium: studded walls, the fascia's name, the stripe, a dark roof, the canopy, 2 beds, no lift",
-		function()
-			local building = build(1)
-			local podium = building.Podium
-			expect(podium.WallFascia.NameGui.Text.Text).toBe(LevelsData[1].Name)
-			expect(podium.WallFascia.NameGui:FindFirstChild("Plate")).toBeNil() -- floating letters, no board
-			expect(podium.BandFascia:GetAttribute("Paint")).toBe("Band")
-			expect(podium.RoofCanopy.CanCollide).toBe(false)
-			local canopy, lo, hi = boxOf(podium.RoofCanopy)
-			expect(inside(canopy, rect(B.CANOPY.X0, B.CANOPY.X1, B.CANOPY.Z0, B.CANOPY.Z1))).toBe(true)
-			expect((lo + hi) / 2).toBeCloseTo(B.CANOPY.Y, 4)
-			local _, roofLo, roofHi = boxOf(building.PodiumShell.RoofPodium)
-			expect(roofHi).toBeCloseTo(B.GROUND, 4)
-			expect(roofLo >= 10.4 - 1e-6).toBe(true)
-			expect(building.PodiumShell.RoofPodium:GetAttribute("Storey")).toBe(1)
-			-- the made-up bed with its sleeper, clear of the side door and decor slot 1
-			local bed = building.PodiumShell.Dressing.DressBed_1
-			local r = boxOf(bed.Base)
-			expect(inside(r, B.LV1_DRESSING)).toBe(true)
-			expect(r.Z0 >= B.STAND.Decor[1].Z + H.DECOR_HALF).toBe(true)
-			expect(bed.Sleeper.Head.CanCollide).toBe(false)
-			expect(bed.Sleeper.Head.SleepGui.MaxDistance).toBe(60)
-		end
-	)
-
-	test("the wards look full: Lv 1 shows 2 beds, the Wards floor Config.Look.WardFloorBeds (7) at Lv 2-5", function()
-		local function count(level)
-			local building = build(level)
-			local beds, dressing, sleepers = 0, 0, 0
-			for _, holder in { plot.Rooms.Room_Stand, building } do -- the Stand's Bed_1 and the building's
-				for _, d in holder:GetDescendants() do
-					if d:IsA("BasePart") and string.match(d.Name, "^Bed_%d+$") then
-						beds += 1
-					elseif d.Name == "Sleeper" then
-						sleepers += 1
-					elseif string.match(d.Name, "^DressBed_%d+$") then
-						dressing += 1
-					end
-				end
-			end
-			return beds, dressing, sleepers, building
-		end
-		local beds, dressing, sleepers = count(1)
-		expect(beds + dressing).toBe(Config.Look.Lv1Beds)
-		expect(sleepers).toBe(Config.Look.Sleepers.Lv1)
-		for level = 2, 5 do
-			local _, made, asleep, building = count(level)
-			local onFloor = made
-			for _, d in building.Wards:GetDescendants() do
-				if d:IsA("BasePart") and string.match(d.Name, "^Bed_%d+$") then
-					onFloor += 1
-				end
-			end
-			expect(onFloor).toBe(Config.Look.WardFloorBeds)
-			expect(asleep).toBe(Config.Look.Sleepers.Ward)
-			-- every bed on the Wards floor stands on F1
-			for _, d in building.Wards:GetDescendants() do
-				if d:IsA("BasePart") and (d.Name == "Base" or string.match(d.Name, "^Bed_")) then
-					local _, lo = boxOf(d)
-					expect(lo >= B.slabTop(1) - 0.01).toBe(true)
-				end
-			end
-		end
-	end)
-
-	test("made-up beds and sleepers never carry a bed's name, and sleepers never move or collide", function()
-		for level = 1, 5 do
-			local building = build(level)
-			for _, d in building:GetDescendants() do
-				local made = d:FindFirstAncestor("Dressing")
-				if made then
-					expect(string.match(d.Name, "^Bed_%d+$")).toBeNil()
-					expect(string.match(d.Name, "^BedSpot_")).toBeNil()
-				end
-				if d:IsA("BasePart") and d:FindFirstAncestor("Sleeper") then
-					expect(d.CanCollide).toBe(false)
-					expect(d.CanQuery).toBe(false)
-					expect(d.CastShadow).toBe(false)
-					expect(d:HasTag("CreatureMotion")).toBe(false)
-				end
-			end
-		end
-	end)
-
-	test("upstairs: each functional bed's foot is a straight walk from Floor_1.Landing, past nothing solid", function()
-		for level = 2, 5 do
-			local building = build(level)
-			local solids = solidsOn(building, 1)
-			local beds = 0
-			for _, bed in building.Wards:GetDescendants() do
-				if bed:IsA("BasePart") and string.match(bed.Name, "^Bed_%d+$") then
-					beds += 1
-					-- Server/Patients.bedFoot: 1.6 past the mattress's -Z end
-					local foot =
-						pivot:PointToObjectSpace((bed.CFrame * CFrame.new(0, 0, -bed.Size.Z / 2 - 1.6)).Position)
-					expect(foot.Z).toBeCloseTo(B.BED_FOOT_Z, 3)
-					expect(inside(rect(foot.X, foot.X, foot.Z, foot.Z), boxOf(building.Floor_1.Slab))).toBe(true)
-					for _, s in solids do
-						if crosses(LANDING, { X = foot.X, Z = foot.Z }, s.Rect, B.SKIM) then
-							error(
-								string.format(
-									"Lv %d: %s's foot: the walk crosses %s",
-									level,
-									bed.Name,
-									fullName(s.Part)
-								)
-							)
-						end
-					end
-				end
-			end
-			expect(beds).toBe(LevelsData[level].Beds - 1)
-		end
-	end)
-
-	test("Hydro: each soaker's approach is a straight walk from Floor_2.Landing, outside the tub", function()
-		for level = 3, 5 do
-			local building = build(level)
-			local solids = solidsOn(building, 2)
-			for i = 1, 2 do
-				local spot = pivot:PointToObjectSpace(building.Hydro.HotTub:FindFirstChild("TubSpot_" .. i).Position)
-				local x, z = H.tubApproach(spot.X, spot.Z, LANDING.X, LANDING.Z)
-				for _, s in solids do
-					if crosses(LANDING, { X = x, Z = z }, s.Rect, 0) then
-						error(string.format("Lv %d: TubSpot_%d's approach crosses %s", level, i, fullName(s.Part)))
-					end
-				end
-			end
-		end
-	end)
-
-	test(
-		"everything solid on the ground and the Wards floor is inside Logic/Building.obstacles (reach tells the truth)",
-		function()
-			local bad = {}
-			for level = 1, 5 do
-				local building = build(level)
-				for k = 0, math.min(1, LevelsData[level].Floors) do
-					local obstacles = B.obstacles(level, k)
-					local f = B.footprint(level, k)
-					local y = B.slabTop(k)
-					for _, p in world.parts(building) do
-						if solid(p) then
-							local r, lo, hi = boxOf(p)
-							-- at walking height on this floor, inside the footprint (the canopies, bay and lintels are not)
-							if hi > y + 0.7 and lo < y + H.DOOR - 0.1 and inside(r, f) then
-								local step = 0.25
-								local x = r.X0 + 0.05
-								local covered = true
-								while covered and x <= r.X1 - 0.05 + 1e-9 do
-									local z = r.Z0 + 0.05
-									while covered and z <= r.Z1 - 0.05 + 1e-9 do
-										local found = false
-										for _, o in obstacles do
-											if
-												x >= o.X0 - 0.06
-												and x <= o.X1 + 0.06
-												and z >= o.Z0 - 0.06
-												and z <= o.Z1 + 0.06
-											then
-												found = true
-												break
-											end
-										end
-										covered = found
-										z += step
-									end
-									x += step
-								end
-								if not covered then
-									table.insert(bad, string.format("Lv %d floor %d: %s", level, k, fullName(p)))
-								end
-							end
-						end
-					end
-				end
-			end
-			expect(bad).toEqual({})
-		end
-	)
-
-	test(
-		"no coplanar faces: the stairs and rails stay inside the back wall; the street face hides the Stand floor's edge",
-		function()
-			for level = 1, 5 do
-				local building = build(level)
-				for _, p in world.parts(building) do
-					local r = boxOf(p)
-					if p:FindFirstAncestor("Stairs") or string.match(p.Name, "^Rail") then
-						if r.Z1 > B.BACK - B.WALL + 1e-4 then
-							error(
-								string.format("Lv %d: %s reaches into the back wall (z %.2f)", level, fullName(p), r.Z1)
-							)
-						end
-					end
-				end
-				-- under the fascia, everything but the inset display glass stands proud of z = FRONT, where the Stand
-				-- room's plank floor ends
-				for _, p in building.Podium:GetChildren() do
-					if p:IsA("BasePart") and (string.match(p.Name, "^WallFront") or string.match(p.Name, "^Pier")) then
-						local r = boxOf(p)
-						expect(r.Z0 <= B.FRONT - H.PROUD + 1e-4).toBe(true)
-						expect(r.Z1).toBeCloseTo(B.FRONT + B.WALL, 3)
-					end
-				end
-				expect(boxOf(building.Podium.GlassDisplay).Z0 > B.FRONT).toBe(true)
-			end
-		end
-	)
-
-	test("the Stand's floor is carried on to both side walls (FloorSide), at every level", function()
-		for level = 1, 5 do
-			local building = build(level)
-			local sides = {}
-			for _, p in building.Podium:GetChildren() do
-				if p.Name == "FloorSide" then
-					local r, lo, hi = boxOf(p)
-					table.insert(sides, r)
-					expect(lo).toBeCloseTo(0, 3)
-					expect(hi).toBeCloseTo(H.STAND_TOP, 3)
-					expect(r.Z0).toBeCloseTo(B.FRONT + B.WALL, 3)
-					expect(r.Z1).toBeCloseTo(H.STAND_BACK, 3)
-					expect(p.CanCollide).toBe(true)
-				end
-			end
-			table.sort(sides, function(a, b)
-				return a.X0 < b.X0
-			end)
-			expect(#sides).toBe(2)
-			local inner = B.HALF - B.WALL
-			expect(sides[1].X0).toBeCloseTo(-inner, 3)
-			expect(sides[1].X1).toBeCloseTo(-H.STAND_HALF, 3)
-			expect(sides[2].X0).toBeCloseTo(H.STAND_HALF, 3)
-			expect(sides[2].X1).toBeCloseTo(inner, 3)
-			-- what stands on the floor by the walls is carried: the bench, and at Lv 1 the made-up bed
-			expect(B.STAND.Bench.X1 <= inner + 1e-9).toBe(true)
-			expect(B.LV1_DRESSING.X0 >= -inner - 1e-9).toBe(true)
-		end
-	end)
-
-	test("stairs: each flight's wedge runs from its floor's top up to the next, in its own lane", function()
-		local building = build(5)
-		for k = 0, 3 do
-			local flight = building.Stairs:FindFirstChild("Flight_" .. k)
-			local fl = H.flight(B, k)
-			local s = flight.Size
-			local high = pivot:PointToObjectSpace((flight.CFrame * CFrame.new(0, s.Y / 2, s.Z / 2)).Position)
-			local low = pivot:PointToObjectSpace((flight.CFrame * CFrame.new(0, -s.Y / 2, -s.Z / 2)).Position)
-			expect(high.X).toBeCloseTo(fl.XHigh, 3)
-			expect(high.Y).toBeCloseTo(fl.YHigh, 3)
-			expect(low.X).toBeCloseTo(fl.XLow, 3)
-			expect(low.Y).toBeCloseTo(fl.YLow, 3)
-			expect(high.Z).toBeCloseTo((fl.Z0 + fl.Z1) / 2, 3)
-			expect(flight:GetAttribute("Storey")).toBe(k)
-		end
-	end)
-
-	test(
-		"roomy (Joshua, 2026-11-17: 'cramped'): 2.5+ studs between the Wards' bed frames, headroom over a sitting creature",
-		function()
-			for level = 2, 5 do
-				local building = build(level)
-				-- every bed frame on the Wards floor (a functional bed's Frame, a made-up bed's Base), by ward row
-				local rows = {}
-				for _, d in building.Wards:GetDescendants() do
-					if d:IsA("BasePart") and (d.Name == "Frame" or d.Name == "Base") then
-						local r = boxOf(d)
-						local row = if r.Z1 <= B.PARTITION_Z then "front" else "main"
-						rows[row] = rows[row] or {}
-						table.insert(rows[row], r)
-					end
-				end
-				for name, frames in rows do
-					table.sort(frames, function(a, b)
-						return a.X0 < b.X0
-					end)
-					for i = 2, #frames do
-						local gap = frames[i].X0 - frames[i - 1].X1
-						if gap < 2.5 then
-							error(string.format("Lv %d %s ward: %.2f studs between two bed frames", level, name, gap))
-						end
-					end
-				end
-				expect(#rows.front).toBe(#B.FRONT_WARD.Xs)
-				expect(#rows.main).toBe(#B.WARD_BEDS)
-				-- a 6.5-stud creature sitting on a mattress keeps 1.5+ studs under the ceiling (the roof at Lv 2)
-				local ceiling = B.slabTop(2) - H.SLAB
-				for _, d in building.Wards:GetDescendants() do
-					if d:IsA("BasePart") and string.match(d.Name, "^Bed_%d+$") then
-						local _, _, top = boxOf(d)
-						expect(ceiling - (top + 6.5) >= 1.5).toBe(true)
-					end
-				end
-				-- the lift car: the biggest creature stands inside with a stud over its head
-				expect(building.Lift.Car.Size.Y >= 6.5 + 1).toBe(true)
-			end
-			-- the stairs: no flight steeper than 1 in 2, and a landing of 3+ studs at each lane end inside the walls
-			local building = build(5)
-			for k = 0, 3 do
-				local s = building.Stairs:FindFirstChild("Flight_" .. k).Size
-				expect(s.Y / s.Z <= 0.5 + 1e-6).toBe(true)
-			end
-			expect(B.ATRIUM.X0 - (-B.HALF + B.WALL) >= 3).toBe(true)
-			expect(B.HALF - B.WALL - B.ATRIUM.X1 >= 3).toBe(true)
 		end
 	)
 
 	test(
 		"night: the glass and ribbon windows are Windows, the neon paw-heart and the beacon Lamps, one light",
 		function()
+			own({})
 			local building = build(5)
 			local lights = 0
 			for _, d in building:GetDescendants() do
@@ -1137,50 +1321,132 @@ T.describe("Hospital (the built world)", function()
 			end
 			expect(building.Tower.LogoNeon:GetAttribute("NightKind")).toBe("Lamp")
 			expect(building.Tower.Beacon:GetAttribute("NightKind")).toBe("Lamp")
-			expect(lights).toBe(1) -- the one night light (room lights are counted in the next test)
-			expect(building.Tower.LogoNeon.LogoGui.Mark.PawHeart ~= nil).toBe(true) -- our mark, never a cross
+			expect(lights).toBe(1)
+			expect(building.Tower.LogoNeon.LogoGui.Mark.PawHeart ~= nil).toBe(true)
+			for _, p in { building.FrontDoor.DoorL, building.FrontDoor.DoorR, building.Lift.Shaft } do
+				expect(p:GetAttribute("NightKind")).toBe("Window")
+			end
 		end
 	)
+
+	test("room lights: shadowless, on Attachments: three on the ground and one in each indoor storey", function()
+		own({})
+		local building = build(5)
+		local rooms = {}
+		for _, d in building:GetDescendants() do
+			if d:IsA("Attachment") and d.Name == "RoomLight" then
+				local light = d:FindFirstChildWhichIsA("PointLight")
+				expect(light ~= nil and light.Shadows == false).toBe(true)
+				local owner = d.Parent and d.Parent.Parent
+				table.insert(rooms, owner and owner.Name or "?")
+			end
+		end
+		table.sort(rooms)
+		expect(table.concat(rooms, ",")).toBe("Floor_1,Floor_2,Floor_3,Shell,Shell,Shell")
+	end)
 
 	test(
-		"room lights: one shadowless light in the hall and in each indoor storey, on an Attachment (no part)",
+		"the wards look full: 4 beds a floor, one sleeper on each open floor, made-up beds never named Bed_",
 		function()
-			local building = build(5)
-			local rooms = {}
-			for _, d in building:GetDescendants() do
-				if d:IsA("Attachment") and d.Name == "RoomLight" then
-					local light = d:FindFirstChildWhichIsA("PointLight")
-					expect(light ~= nil).toBe(true)
-					expect(light.Shadows).toBe(false)
-					local owner = d.Parent and d.Parent.Parent
-					table.insert(rooms, owner and owner.Name or "?")
+			own({})
+			for _, level in LEVELS do
+				local building = build(level)
+				for k = 1, math.min(3, H.standing(B, level)) do
+					local floorModel = building:FindFirstChild("Floor_" .. k)
+					local beds, sleepers = 0, 0
+					for _, d in floorModel:GetDescendants() do
+						if d:IsA("BasePart") and string.match(d.Name, "^Bed_%d+$") then
+							beds += 1
+						elseif string.match(d.Name, "^DressBed_%d+$") then
+							beds += 1
+						elseif d.Name == "Sleeper" then
+							sleepers += 1
+						end
+						if d:FindFirstAncestor("Dressing") then
+							expect(string.match(d.Name, "^Bed_%d+$")).toBeNil()
+							expect(string.match(d.Name, "^BedSpot_")).toBeNil()
+						end
+						if d:IsA("BasePart") and d:FindFirstAncestor("Sleeper") then
+							expect(d.CanCollide == false and d.CanQuery == false and d.CastShadow == false).toBe(true)
+						end
+						-- every bed stands on its floor
+						if d:IsA("BasePart") and (d.Name == "Base" or string.match(d.Name, "^Bed_")) then
+							local _, lo = boxOf(d)
+							expect(lo >= B.slabTop(k) - 0.01).toBe(true)
+						end
+					end
+					expect(beds).toBe(Config.Look.WardFloorBeds)
+					local open = k <= B.floors(level)
+					expect(sleepers).toBe(if open then Config.Look.Sleepers.Ward else Config.Look.Sleepers.Lv1)
 				end
 			end
-			table.sort(rooms)
-			expect(table.concat(rooms, ",")).toBe("Floor_1,Floor_2,Floor_3,Hall")
 		end
 	)
 
+	test("upstairs: each functional bed's foot is a straight walk from the landing, past nothing solid", function()
+		own({})
+		for level = 2, 5 do
+			local building = build(level)
+			for k = 1, math.min(3, B.floors(level)) do
+				local floorModel = building:FindFirstChild("Floor_" .. k)
+				local solids = solidsOn(building, k)
+				local beds = 0
+				for _, spot in floorModel:GetChildren() do
+					local index = string.match(spot.Name, "^BedSpot_(%d+)$")
+					if index then
+						local bed = spot:FindFirstChild("Bed_" .. index)
+						beds += 1
+						-- Server/Patients.bedFoot: 1.6 past the mattress's -Z end
+						local foot =
+							pivot:PointToObjectSpace((bed.CFrame * CFrame.new(0, 0, -bed.Size.Z / 2 - 1.6)).Position)
+						expect(foot.Z).toBeCloseTo(B.BED_FOOT_Z, 3)
+						for _, s in solids do
+							if crosses(LANDING, { X = foot.X, Z = foot.Z }, s.Rect, B.SKIM) then
+								error(
+									string.format(
+										"Lv %d F%d: %s's foot: the walk crosses %s",
+										level,
+										k,
+										bed.Name,
+										fullName(s.Part)
+									)
+								)
+							end
+						end
+					end
+				end
+				local functional = 0
+				for _, bed in B.wardBeds(level, k) do
+					if bed.Functional then
+						functional += 1
+					end
+				end
+				expect(beds).toBe(functional)
+			end
+		end
+	end)
+
 	test("bed spots stay put (the same parts, the same place) across Lv 2 -> 5 and a theme change", function()
+		own({})
 		build(2)
-		local first = plot.Building.Wards.BedSpot_1
-		local mattress = first.Bed_1
-		local at = pivot:PointToObjectSpace(mattress.Position)
-		expect(at.X).toBeCloseTo(B.WARD_BEDS[1].X, 3)
+		local first = plot.Building.Floor_1.BedSpot_1
+		local at = pivot:PointToObjectSpace(first.Bed_1.Position)
+		expect(at.X).toBeCloseTo(B.WARD_BEDS[1][1].X, 3)
 		expect(at.Z).toBeCloseTo(H.mattressZ(B), 3)
 		for level = 3, 5 do
-			expect(PlotBuilder.buildBuilding(plot, level, level - 1, "Candy").Wards.BedSpot_1).toBe(first)
+			expect(build(level, "Candy", level - 1).Floor_1.BedSpot_1).toBe(first)
 		end
-		local third = plot.Building.Wards.BedSpot_3
-		expect(PlotBuilder.buildBuilding(plot, 5, nil, "Space").Wards.BedSpot_3).toBe(third)
-		expect(plot.Building.Wards.BedSpot_1).toBe(first)
-		expect(pivot:PointToObjectSpace(third.Bed_3.Position).X).toBeCloseTo(B.WARD_BEDS[3].X, 3)
+		local rest = plot.Building.Floor_2.BedSpot_2
+		expect(build(5, "Space").Floor_2.BedSpot_2).toBe(rest)
+		expect(plot.Building.Floor_1.BedSpot_1).toBe(first)
+		expect(pivot:PointToObjectSpace(rest.Bed_2.Position).X).toBeCloseTo(B.WARD_BEDS[2][2].X, 3)
 		expect(plot.Building:GetAttribute("GrewAt")).toBe(0)
 	end)
 
 	test(
 		"a theme recolours only the Trim and Band parts (and adds its prop); the walls stay the plot's colour",
 		function()
+			own({})
 			local function colours(building)
 				local out = {}
 				for _, p in world.parts(building) do
@@ -1192,7 +1458,7 @@ T.describe("Hospital (the built world)", function()
 				end
 				return out
 			end
-			for level = 1, 5 do
+			for _, level in LEVELS do
 				local candy = colours(build(level, "Candy"))
 				for _, theme in Themes.Order do
 					local themed = colours(build(level, theme))
@@ -1217,71 +1483,56 @@ T.describe("Hospital (the built world)", function()
 					expect(plot.Building:FindFirstChild("ThemeProp") ~= nil).toBe(theme ~= "Candy")
 				end
 			end
-			expect(PlotBuilder.buildBuilding(plot, 3, nil, "Order"):GetAttribute("Theme")).toBe("Candy")
-			expect(PlotBuilder.buildBuilding(plot, 1, nil, "Arctic"):FindFirstChild("ThemeProp") ~= nil).toBe(true)
+			expect(build(3, "Order"):GetAttribute("Theme")).toBe("Candy")
 		end
 	)
 
-	test("the theme props: at most 6 parts, walk-through, on the roof (or under its edge)", function()
+	test("the theme props: at most 6 parts, walk-through, up on the roof (or under its edge)", function()
+		own({})
 		for _, theme in Themes.Order do
-			for level = 1, 5 do
-				local building = build(level, theme)
-				local prop = building:FindFirstChild("ThemeProp")
+			for _, level in LEVELS do
+				local prop = build(level, theme):FindFirstChild("ThemeProp")
 				if prop then
 					local parts = world.parts(prop)
 					expect(#parts <= 6).toBe(true)
 					for _, p in parts do
 						expect(p.CanCollide).toBe(false)
 						local _, lo = boxOf(p)
-						expect(lo >= H.DOOR).toBe(true) -- overhead: never in the line or on the walkways
+						expect(lo >= H.DOOR).toBe(true)
 					end
 				end
 			end
 		end
 	end)
 
-	test("nothing low covers the Counter, the line, the gate, the sign, the walkways or a room slot", function()
-		local DOOR = H.DOOR
-		-- The 80 x 80 plot (Config.Town.PlotSize; its front edge at z = -40), PlotBuilder.SLOTS and Patients' walkways
-		-- at x = ±17.5 (makeNav: halfway between the Stand's edge, 15, and a side slot's, 20).
-		local edge = -Config.Town.PlotSize / 2
-		local walk = 17.5
-		local zones = {
-			-- name, x0, x1, z0, z1, below (nil = any height)
-			{ "Counter", -6.4, 6.4, -16, -13, DOOR },
-			{ "QueueLane", -4, 4, edge + 0.5, -15.8, DOOR },
-			{ "Gate", -7, 7, edge, edge + 2 },
-			{ "Sign", -18.5, -7.5, edge, edge + 3 },
-			{ "OwnerSpawn", -8.5, -4.5, -24, -20 },
-			{ "WalkwayLeft", -walk - 1.5, -B.HALF - 0.45, -18, 14, DOOR },
-			{ "WalkwayRight", B.HALF + 0.45, walk + 1.5, -18, 14, DOOR },
-			{ "SlotA", -38, -20, -2, 14 },
-			{ "SlotC", 20, 38, -2, 14 },
-			{ "SlotB", -24, -2, 20, 34 },
-			{ "SlotD", 2, 24, 20, 34 },
-		}
-		local bad = {}
-		for _, theme in { "Candy", "Arctic", "Royal" } do
-			for level = 1, 5 do
-				for _, p in world.parts(build(level, theme)) do
-					local r, lo = boxOf(p)
-					for _, z in zones do
-						if overlaps(r, rect(z[2], z[3], z[4], z[5])) and lo < (z[6] or math.huge) then
-							table.insert(bad, string.format("Lv %d %s %s on %s", level, theme, fullName(p), z[1]))
+	test(
+		"the desk, the front path and the yard stay clear: outside the block only canopies, trim and the A&E bay",
+		function()
+			own({})
+			local f = B.footprint(1, 0)
+			local frontDoor = B.DOORS.Front
+			local path = rect(frontDoor.X0, frontDoor.X1, -Config.Town.PlotSize / 2, f.Z0 - 0.3)
+			local bad = {}
+			for _, theme in { "Candy", "Arctic", "Royal" } do
+				for _, level in LEVELS do
+					for _, p in world.parts(build(level, theme)) do
+						local r, lo, hi = boxOf(p)
+						-- invisible markers (door sensors) and the painted floor (the desk stands on it) take no room
+						local marker = p.Transparency >= 1 and p.CanCollide == false
+						local low = lo < H.DOOR - 0.5 and hi > 0.2 and not marker
+						if low and overlaps(r, B.RECEPTION.Desk) then
+							table.insert(bad, string.format("Lv %d %s %s on the desk", level, theme, fullName(p)))
+						end
+						if low and overlaps(r, path) then
+							table.insert(bad, string.format("Lv %d %s %s on the front path", level, theme, fullName(p)))
+						end
+						if low and not inside(r, grow(f, 0.3)) and not inside(r, B.BAY_AMBULANCE.Area) then
+							table.insert(bad, string.format("Lv %d %s %s out in the yard", level, theme, fullName(p)))
 						end
 					end
 				end
 			end
+			expect(bad).toEqual({})
 		end
-		expect(bad).toEqual({})
-	end)
-
-	test("a free plot goes back to the Lv 1 podium in Candy", function()
-		build(5, "Space")
-		PlotBuilder.clearPlot(plot)
-		expect(plot:GetAttribute("Theme")).toBe("Candy")
-		expect(plot:GetAttribute("Level")).toBe(1)
-		expect(plot.Building.PodiumShell ~= nil).toBe(true)
-		expect(plot.Building:FindFirstChild("Lift")).toBeNil()
-	end)
+	)
 end)

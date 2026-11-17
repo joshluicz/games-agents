@@ -12,7 +12,8 @@
 --   Leaderboard.values(ids, data, week, version, extra?): { [storeName]: number }   what to write for a player.
 --                                          The weekly count goes to the week it was counted in (this week's or,
 --                                          just after Monday 00:00, last week's final count)
---   Leaderboard.addWeekCure(entry, week)   counts one cure in the save's WeekCures (a new week starts from 0)
+--   Leaderboard.addWeekCure(entry, week)   counts one patient treated in the save's WeekCures (a new week starts from
+--                                          0)
 --   Leaderboard.changed(written, values): { string }   the stores whose value is new since the last write (> 0)
 --   Leaderboard.backoff(failures, base, max): number    seconds to wait after `failures` failures in a row
 --   Leaderboard.isPermanent(err): boolean  an error that retrying won't fix (Studio without API access, a place
@@ -33,6 +34,8 @@
 -- Data.Level and Data.NurseIndex only if the save has them, and only show once Config.Leaderboards lists them.
 -- Progression v2 adds 🏢 Most Rebirths ("Rebirths", caption "Branches"): Data.Rebirth.Count (nil before v4). A 0 is
 -- never written (Leaderboard.changed skips zeros), so only players with a rebirth appear.
+-- The Real Clinic (design §12): the boards say "treated", never "cure". Their ids ("Cured", "Week") and the store
+-- names stay, so every board keeps its scores.
 
 export type Board = {
 	Id: string,
@@ -79,10 +82,10 @@ local function board(id: string, icon: string, title: string, caption: string, c
 end
 
 Leaderboard.BOARDS = table.freeze({
-	Cured = board("Cured", "🏥", "Most Cured", "Cured", "Blue", false),
+	Cured = board("Cured", "🏥", "Most Patients Treated", "Treated", "Blue", false),
 	Stars = board("Stars", "⭐", "Most Stars", "Stars", "Orange", false),
 	Hearts = board("Hearts", "❤️", "Most Hearts", "Hearts", "Pink", false),
-	Week = board("Week", "🏆", "Cures This Week", "Week", "Purple", true),
+	Week = board("Week", "🏆", "Treated This Week", "Week", "Purple", true),
 	-- The depth update (docs/plan/2026-11-16-depth-update-design.md): add to Config.Leaderboards when it lands.
 	Level = board("Level", "🏨", "Top Hospitals", "Level", "Cyan", false),
 	Journal = board("Journal", "📔", "Nurse Journal", "Journal", "Lime", false),

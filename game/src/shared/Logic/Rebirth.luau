@@ -41,7 +41,11 @@
 --       (the Fallback "TreePoints" adds its Value to Points instead), Offer clears, and a start-of-branch card applies
 --       now (you choose at the start of a branch): BathReady owns the BathRoom, SeedMoney adds its Value -
 --       StartCash, WarmUp raises Faster Hands to 2 and Tip Jar to 1, ClinicStart raises Level to its Value
---   Rebirth.UNLOCKS[id] = { Icon, Text, Rebirths }   what each rebirth opens (display rows; Text <= 4 words)
+--   Rebirth.UNLOCKS[id] = { Icon, Text, Rebirths }   what each rebirth opens (display rows; Text <= 4 words). The ids
+--                                            are kept; Pharmacy2 is 💊 Expert Dispensing since the Real Clinic: the
+--                                            dispensary's dose band (Config.MiniGame.Games.Dose) is
+--                                            Config.Dispensary.ExpertBand (x1.5) wider for that player
+--                                            (the server checks Rebirth.has(count, "Pharmacy2"))
 --   Rebirth.unlocks(count): { string }       the unlock ids NEW at exactly this count: R1 MythicSecret, SunnyWing ·
 --                                            R2 Helicopter, Pharmacy2 · R3 Golden, LevelCap15 · R4 NightClinic · R5
 --                                            FounderFennec, Mascot · R6-R10 Trophy<count> (Trophy6..Trophy10)
@@ -138,7 +142,7 @@ Rebirth.UNLOCKS = table.freeze({
 	MythicSecret = unlock("🐉", "Mythic and Secret nurses", 1),
 	SunnyWing = unlock("🌻", "Sunny wing patients", 1),
 	Helicopter = unlock("🚁", "Air ambulance", 2),
-	Pharmacy2 = unlock("💊", "Super medicines", 2),
+	Pharmacy2 = unlock("💊", "Expert Dispensing", 2), -- the id from Progression v2 (the Pharmacy's tier 2), kept
 	Golden = unlock("🌟", "Golden patients", 3), -- the UI adds the odds (Config.GoldenChance)
 	LevelCap15 = unlock("⬆️", "Nurses to Lv 15", 3),
 	NightClinic = unlock("🌙", "Night Clinic upgrade", 4),

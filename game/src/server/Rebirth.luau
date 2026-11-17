@@ -20,7 +20,8 @@
 --          Logic/Rebirth.canRebirth (Lv 5, cash >= cost) · no treat session open (Treatment.busy) · one rebirth at a
 --          time per player ("One at a time!") · 5 s per player. `free` (the admin hook) skips the save, tutorial,
 --          card, level, cost and cooldown checks, never the in-flight lock or the count check
---       2. Patients.reopen(p): a treated patient cures on the spot first (its cash lands before the reset)
+--       2. Patients.reopen(p): a patient whose plan is done finishes its visit on the spot first (its cash lands
+--          before the reset)
 --       3. the checks again; from here nothing yields until the save has changed
 --       4. ONE PlayerData.update: the count it read must still be the count (else nothing), then Logic/Rebirth.apply
 --          (with an offer of 3 perk cards rolled by the server's Random, so rejoining never re-rolls it) on a trial
@@ -50,11 +51,13 @@
 -- so the update above is its feed; the 🏅 Branches badge is derived from the same count (Logic/Badges).
 --
 -- The mascot (R5, §E19): a small original creature (CreatureBuilder.buildLook; a placeholder look the brothers can
--- replace) standing by the Counter at the plot's MascotSpot (plot-local (-8, 0, -13) without one), facing the street.
--- It never follows anyone. It hops by the creature-motion contract (NurseBuilder.hop: the attributes, then ONE end-pose
--- write per hop, never a per-frame CFrame): a small hop to the side and back every 6-10 s, and a happy spin whenever a
--- patient at its plot is cured (its State attribute turns "Cured"). The clients draw the hops (Feel/CreatureMotion),
--- calm with reduced motion.
+-- replace) standing by the reception desk (the Counter) at the plot's MascotSpot, facing the street. A plot without
+-- that marker (a kit plot) puts it just off the desk's -x end, in the lobby (Logic/Building.RECEPTION.Desk, the Real
+-- Clinic; read from the module, never copied). It never follows anyone. It hops by the creature-motion contract
+-- (NurseBuilder.hop: the attributes, then ONE end-pose write per hop, never a per-frame CFrame): a small hop to the
+-- side and back every 6-10 s, and a happy spin whenever a patient at its plot has had its plan done (its State
+-- attribute turns "Done"; the old "Cured" still counts). The clients draw the hops (Feel/CreatureMotion), calm with
+-- reduced motion.
 --
 -- Requires Patients, Treatment, Nurses, Plots, PlayerData (and the builders). No module requires Rebirth (but Admin).
 
@@ -304,12 +307,13 @@ local MASCOT_LOOK = table.freeze({
 	Scale = 0.6,
 })
 local MASCOT_SPOT = "MascotSpot" -- PlotBuilder's marker beside the Counter (§B4)
-local MASCOT_FALLBACK = { X = -8, Y = 0, Z = -13 } -- plot-local, when the plot has no MascotSpot
+local MASCOT_DESK_GAP = 1.5 -- studs off the reception desk's -x end, when the plot has no MascotSpot
+local MASCOT_DONE = table.freeze({ Done = true, Cured = true }) -- patient States that make it spin
 local MASCOT_STEP = 1.4 -- studs: its idle hop goes this far to the side and back
 local IDLE_MIN, IDLE_MAX = 6, 10 -- seconds between idle hops
 local IDLE_HEIGHT, IDLE_SECONDS = 0.9, 0.4
-local CHEER_HEIGHT, CHEER_SECONDS = 2.2, 0.6 -- a happy spin on a cure
-local POLL_SECONDS = 0.25 -- how soon a cure's spin starts
+local CHEER_HEIGHT, CHEER_SECONDS = 2.2, 0.6 -- a happy spin when a patient is treated
+local POLL_SECONDS = 0.25 -- how soon that spin starts
 
 type Mascot = {
 	Plot: Plot,
@@ -448,6 +452,21 @@ local function branchLabel(plot: Plot): TextLabel?
 	return label
 end
 
+-- Plot-local: just off the reception desk's -x end, in the lobby (Logic/Building.RECEPTION.Desk). Building is
+-- required here, not at the top, so a harness without it still runs (then the plot's own centre).
+local function deskSide(): Vector3
+	local ok, Building = pcall(require, Shared.Logic.Building)
+	local desk = if ok
+			and type(Building) == "table"
+			and type(Building.RECEPTION) == "table"
+		then Building.RECEPTION.Desk
+		else nil
+	if type(desk) ~= "table" or type(desk.X0) ~= "number" or type(desk.Z0) ~= "number" or type(desk.Z1) ~= "number" then
+		return Vector3.zero
+	end
+	return Vector3.new(desk.X0 - MASCOT_DESK_GAP, 0, (desk.Z0 + desk.Z1) / 2)
+end
+
 local function mascotHome(plot: Plot): CFrame
 	local pivot = plot.Model:GetPivot()
 	local spot = plot.Model:FindFirstChild(MASCOT_SPOT, true)
@@ -457,7 +476,7 @@ local function mascotHome(plot: Plot): CFrame
 	elseif spot and spot:IsA("Attachment") then
 		at = spot.WorldPosition
 	else
-		at = pivot:PointToWorldSpace(Vector3.new(MASCOT_FALLBACK.X, MASCOT_FALLBACK.Y, MASCOT_FALLBACK.Z))
+		at = pivot:PointToWorldSpace(deskSide())
 	end
 	return CFrame.new(at) * pivot.Rotation -- faces the street, like the plot
 end
@@ -476,7 +495,7 @@ local function removeMascot(plot: Plot)
 	m.Model:Destroy()
 end
 
--- Idle hops to the side and back, and a happy spin after each cure at the plot. One end-pose write per hop
+-- Idle hops to the side and back, and a happy spin after each treated patient at the plot. One end-pose write per hop
 -- (NurseBuilder.hop); the clients draw the arc.
 local function mascotLoop(m: Mascot)
 	local away = false
@@ -537,7 +556,7 @@ local function ensureMascot(plot: Plot)
 	}
 	mascots[plot] = m
 
-	-- A patient at this plot turning "Cured" (Server/Patients sets State on the model): spin. Each patient's own
+	-- A patient at this plot turning "Done" (Server/Patients sets State on the model): spin. Each patient's own
 	-- connection goes with its model.
 	local folder = plot.Model:FindFirstChild("Patients")
 	if folder then
@@ -546,7 +565,7 @@ local function ensureMascot(plot: Plot)
 				return
 			end
 			child:GetAttributeChangedSignal("State"):Connect(function()
-				if m.Alive and child:GetAttribute("State") == "Cured" then
+				if m.Alive and MASCOT_DONE[child:GetAttribute("State") :: any] then
 					m.Cheer = true
 				end
 			end)
@@ -633,7 +652,7 @@ end
 
 -- Steps 2-7 of Rebirth.open (the caller holds the in-flight lock). `before` is the count the checks read.
 local function openNow(player: Player, free: boolean, before: number): (boolean, string)
-	-- 2. A treated patient cures on the spot first.
+	-- 2. A patient whose plan is done finishes its visit on the spot first.
 	guarded("Patients.reopen", Patients.reopen, player)
 
 	-- 3. Re-check. From here nothing yields until the save has changed.

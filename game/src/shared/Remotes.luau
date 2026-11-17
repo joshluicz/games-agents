@@ -25,7 +25,7 @@
 --   SetHelpers(on)  the owner's ⚙️ "👥 Friends only / 🤝 Anyone can help" switch: sets their own plot's OpenHelpers
 --                   (Server/Visits; `on` must be a boolean, the caller must own a plot, 1 s cooldown)
 --   Depth update:
---   TreatResult(session: number, ratings: { Rating })   -> ok, message, TreatOutcome?  (Server/Treatment)
+--   TreatResult(session: number, ratings: { Rating }, choice: ItemId?) -> ok, message, TreatOutcome?  (Server/Treatment)
 --   SetSimple(on: boolean)                               Simple mode, saved (Server/Treatment)
 --   HireNurse(riderId: number)                           buy the nurse riding the belt (Server/NurseBelt)
 --   LevelUp()                                            the next hospital level (Server/Levels)

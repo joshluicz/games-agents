@@ -3,7 +3,7 @@
 --   init(ctx)   opens on ctx.fire("Open", "Badges") (the HUD's 🏅 rail button, shown once the tutorial is done)
 --
 -- The Book (the look overhaul's template, look build plan §B8): UI/Modal's navy header, then
---   category tabs    THE tab column (Modal.tabs): one per Data/Badges category (🏥 Clinic, 🗺️ Wings, 🧪 Stations,
+--   category tabs    THE tab column (Modal.tabs): one per Data/Badges category (🏥 Clinic, 🗺️ Wings, 🩹 Stations,
 --                    💛 Friends), down the left like every panel (it was a row)
 --   your boosts      Hud.boostLine at the top of the page: timed boosts with their play time left, then the
 --                    permanent percents

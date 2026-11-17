@@ -139,7 +139,7 @@ function Pure.gateText(message: string): string
 	return (string.gsub(message, "^Needs ", ""))
 end
 
--- A level's line on the Hospital card: its departments' icons, then 🛏️ beds and 🧪 the recipe size.
+-- A level's line on the Hospital card: its departments' icons, then 🩺 exam bays, 🛏️ ward beds and 📋 the plan's size.
 function Pure.levelLine(row: any, departments: any): string
 	local icons: { string } = {}
 	for _, deptId in (if type(row) == "table" and type(row.Departments) == "table" then row.Departments else {}) do
@@ -148,9 +148,10 @@ function Pure.levelLine(row: any, departments: any): string
 			table.insert(icons, dept.Icon)
 		end
 	end
+	local bays = if type(row) == "table" then count(row.Bays) else 0
 	local beds = if type(row) == "table" then count(row.Beds) else 0
 	local recipe = if type(row) == "table" then count(row.RecipeCap) else 0
-	return table.concat(icons, " ") .. "   🛏️ " .. beds .. "   🧪 " .. recipe
+	return table.concat(icons, " ") .. "   🩺 " .. bays .. "   🛏️ " .. beds .. "   📋 " .. recipe
 end
 -- PURE-END
 
@@ -628,7 +629,9 @@ function Shop.init(ctx: Types.Ctx)
 				table.insert(parts, station.Icon)
 			end
 		end
-		if room.Beds > 0 then
+		if type(room.Adds) == "string" and room.Adds ~= "" then
+			table.insert(parts, room.Adds) -- e.g. the Cozy Ward's "+2 exam bays" (its beds are the bays' own)
+		elseif room.Beds > 0 then
 			table.insert(parts, string.rep("🛏️", room.Beds))
 		end
 		if room.DecorSlots > 0 then

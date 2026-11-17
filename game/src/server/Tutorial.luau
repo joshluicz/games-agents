@@ -5,19 +5,21 @@
 -- from the Snapshot (UI/Tutorial, Hud) and can only ever ask three things: TutorialAck (past the welcome),
 -- TutorialSkip and TutorialReplay (below). Every one of them takes no client data.
 --
--- How each step moves on. Every move is a real server event, never the client's word:
+-- How each step moves on (the Real Clinic visit: examine -> treat; design §13). Every move is a real server event,
+-- never the client's word:
 --   1 -> 2     the TutorialAck remote (Remotes.serve: rate-limited, pcalled), only while the player has a clinic.
 --              The client acks as the welcome sweep ends. If no ack comes, by itself WELCOME_FALLBACK_SECONDS after
 --              they got their clinic
---   2 -> 3     ARRIVED_SECONDS after the first patient reaches the Counter (Patients calls onFrontArrived). That
---              patient walks in during step 1 already, so entering step 2 with it at the Counter (the plot's
---              FrontItem is set) counts as the arrival too
---   3 -> 4     the owner makes, at a station on their own clinic, the item the front patient needs (Stations
---              calls onMade). Already carrying it when step 3 starts: straight to 4
---   2..4 -> 5  the front patient on their clinic is treated, by them or a friend (Patients calls onTreated)
---   2..5 -> 6  a cure lands on their clinic (Cure calls onCured)
---   6 -> 7     two more cures on their clinic. The count is the player attribute TutorialCures (State sends it;
---              not saved, so a rejoin in step 6 counts 2 more from 0).
+--   2 -> 3     ARRIVED_SECONDS after a patient on their clinic sits down on an exam bay's bed (its `Bay` attribute
+--              is set and its State is past "ToBay"). Server-side watch of the plot's Patients folder while in steps
+--              2-3 (attribute signals, no polling), so it never hangs on a hook; Patients' onFrontArrived only makes
+--              it look again
+--   2..3 -> 4  an exam on their clinic reveals a case, by them, a friend or a nurse (Patients calls onExamined; the
+--              same watch also sees a patient's `Case` attribute appear)
+--   2..4 -> 5  a patient's plan on their clinic is done (Patients calls onTreated)
+--   2..5 -> 6  a treatment pays out on their clinic (Cure calls onCured)
+--   6 -> 7     three more on their clinic. The count is the player attribute TutorialCures (State sends it; not
+--              saved, so a rejoin in step 6 counts 3 more from 0).
 --              Entering 7: a player who can't afford the cheapest upgrade gets a top-up to exactly its price in
 --              the same save update, with the toast "🎁 A gift to get you started!". In-game cash only, never
 --              Robux, a pass or anything paid (CLAUDE.md red line 3). ONCE PER SAVE: the saved TutorialGift says
@@ -25,6 +27,8 @@
 --              a Replay set it too, so a replay never gives a gift (look build plan §B1)
 --   7 -> 8     any purchase (Economy.Purchased)
 --   8 -> 9     BOOK_SECONDS later: done
+-- Fetching the plan's item (the supply shelf or the dispensary) is no step of its own: the client's card 4 turns
+-- into card 5 when the player carries it. Stations' onMade is kept as a harmless hook.
 -- A rejoin resumes (Logic/Tutorial.resume): steps 3-5 go back to 2, since their patient left with the player.
 -- While a player is in the tutorial they are quiet (Remotes.setQuiet): ambient news toasts wait (Remotes.news,
 -- Remotes.toastAll); replies and warnings still show.
@@ -42,17 +46,22 @@
 --                      over by Main.server) · the player attribute TutorialReplay = true for the session · back to
 --                      PATIENT (the first patient; no welcome sweep, no respawn, no camera move, no funnel logs).
 --                      TutorialGift stays true, so there is never a second gift
--- The onboarding funnel (published games only): every first-run step change logs its card (Logic.card, 1..7) with
--- AnalyticsService:LogOnboardingFunnelStepEvent, in a pcall. Never on a replay; never in Studio.
+-- The onboarding funnel (published games only): every first-run step change logs its stage (Logic.funnelStep: the
+-- card 1..7, then 8 for the Shop) with AnalyticsService:LogOnboardingFunnelStepEvent, in a pcall. Never on a
+-- replay; never in Studio.
 --
 -- API (safe for anyone: a player who isn't loaded, or is done, just gets "not in the tutorial"):
 --   Tutorial.step(p): number?                 the saved step (nil = not loaded)
 --   Tutorial.active(p): boolean               in the tutorial right now
 --   Tutorial.calm(p): boolean                 patience never runs out at their clinic (steps 1-6)
---   Tutorial.spawnPlan(owner, plotEmpty, secondSpawned): Plan   who Patients may send next (Logic/Tutorial)
---   Tutorial.queueCap(owner): number?         at most this many in line, nil = Config.MaxQueue
---   Tutorial.onFrontArrived(owner) · Tutorial.onMade(p, itemId, plot) · Tutorial.onTreated(owner) ·
---   Tutorial.onCured(owner)                   the hooks above
+--   Tutorial.spawnPlan(owner, plotEmpty, secondSpawned): Plan   who Patients may send next (Logic/Tutorial; Patients
+--                                             picks the two tutorial patients' cases)
+--   Tutorial.queueCap(owner): number?         at most this many waiting, nil = the level's queue
+--   Tutorial.onFrontArrived(owner)            a patient at owner's clinic sat down in a bay (look again)
+--   Tutorial.onExamined(owner)                an exam at owner's clinic revealed a case ("Examined")
+--   Tutorial.onTreated(owner)                 a patient's plan at owner's clinic is done ("Treated")
+--   Tutorial.onCured(owner)                   a treatment at owner's clinic paid out (Cure.resolve; "Cured")
+--   Tutorial.onMade(p, itemId, plot)          kept for Stations; it moves nothing now
 --   Tutorial.setReopen(fn)                    Main.server hands over Patients.reopen once (look overhaul §B10): the
 --                                             Replay remote empties the caller's own line with it
 --   Tutorial.REPLAY_ATTRIBUTE                 "TutorialReplay": the player attribute State forwards (a replay session)
@@ -74,7 +83,6 @@ local Prices = require(Shared.Logic.Prices)
 local Logic = require(Shared.Logic.Tutorial)
 local PlayerData = require(script.Parent.PlayerData)
 local Plots = require(script.Parent.Plots)
-local Carry = require(script.Parent.Carry)
 local Economy = require(script.Parent.Economy)
 
 type Plot = Types.Plot
@@ -155,20 +163,30 @@ function Pure.shopStuck(cash: any, cheapest: number?): boolean
 	return type(cash) ~= "number" or cash < cheapest
 end
 
--- The funnel step to log for a move (a card number), or nil: first runs only, and only when the card changes (or
--- the welcome ends: card 1 is logged as the first patient comes).
+-- The funnel stage to log for a move (Logic.funnelStep: a card number, or 8 for the Shop), or nil: first runs only,
+-- and only when the stage changes (or the welcome ends: card 1 is logged as the first patient comes).
 function Pure.funnel(from: any, to: any, replay: boolean?): number?
 	if replay == true then
 		return nil
 	end
-	local card = Logic.card(to)
-	if card == nil then
+	local stage = Logic.funnelStep(to)
+	if stage == nil then
 		return nil
 	end
-	if Logic.card(from) == card and from ~= Logic.WELCOME then
+	if Logic.funnelStep(from) == stage and from ~= Logic.WELCOME then
 		return nil
 	end
-	return card
+	return stage
+end
+
+-- Whether a patient model's attributes count for the watch: sat down on its bay bed (a `Bay`, and a State past the
+-- walk there; no State at all counts too), or examined (`Case`).
+Pure.WALKING = { Arriving = true, Waiting = true, ToBay = true } :: { [string]: boolean }
+function Pure.seated(bay: any, state: any): boolean
+	return type(bay) == "string" and bay ~= "" and not (type(state) == "string" and Pure.WALKING[state] == true)
+end
+function Pure.examined(case: any): boolean
+	return type(case) == "string" and case ~= ""
 end
 -- PURE-END
 
@@ -193,6 +211,7 @@ local cures: { [Player]: number } = {} -- step 6: cures on their clinic so far
 local tokens: { [Player]: number } = {} -- bumps on every step change, so a timer from an older step does nothing
 local resumed: { [Player]: boolean } = {}
 local lastReplay: { [Player]: number } = {} -- os.clock() of the last accepted TutorialReplay
+local watches: { [Player]: { RBXScriptConnection } } = {} -- steps 2-3: the patients on their own clinic
 
 local function isPlayer(value: any): boolean
 	return typeof(value) == "Instance" and value:IsA("Player")
@@ -234,7 +253,7 @@ local function logFunnel(player: Player, card: number)
 	if RunService:IsStudio() then
 		return
 	end
-	local name = Logic.CARD_NAMES[card]
+	local name = Logic.FUNNEL_NAMES[card]
 	if type(name) ~= "string" then
 		return
 	end
@@ -293,27 +312,100 @@ local function later(player: Player, seconds: number, expect: number, event: Log
 	end)
 end
 
+------------------------------------------------------------------------------------------------------------------
+-- Steps 2-3: watching the patients on their own clinic (no polling; only while in those steps)
+------------------------------------------------------------------------------------------------------------------
+
+local function unwatch(player: Player)
+	local list = watches[player]
+	watches[player] = nil
+	if list then
+		for _, connection in list do
+			connection:Disconnect()
+		end
+	end
+end
+
+-- Looks at the patients on `player`'s own clinic: one sitting in a bay moves step 2 on (after ARRIVED_SECONDS, so
+-- the walk-in is seen), one with a revealed case moves steps 2-3 on. The first patient walks in during step 1, so
+-- it can already be sitting there when the ack moves the step to 2: entering the step looks once too. Never yields.
+local function look(player: Player)
+	local step = Tutorial.step(player)
+	if step ~= Logic.PATIENT and step ~= Logic.EXAMINE then
+		return
+	end
+	local plot = Plots.getPlot(player)
+	local folder = if plot then plot.Model:FindFirstChild("Patients") else nil
+	if not folder then
+		return
+	end
+	local seated, examined = false, false
+	for _, model in folder:GetChildren() do
+		examined = examined or Pure.examined(model:GetAttribute("Case"))
+		seated = seated or Pure.seated(model:GetAttribute("Bay"), model:GetAttribute("State"))
+	end
+	if examined then
+		apply(player, "Examined")
+	elseif seated and step == Logic.PATIENT then
+		later(player, Logic.ARRIVED_SECONDS, Logic.PATIENT, "Arrived") -- a repeat is harmless: the step check
+	end
+end
+
+local function watch(player: Player)
+	unwatch(player)
+	local plot = Plots.getPlot(player)
+	if not plot then
+		return
+	end
+	local list: { RBXScriptConnection } = {}
+	watches[player] = list
+	local function onLook()
+		look(player)
+	end
+	local function follow(model: Instance)
+		for _, name in { "Bay", "State", "Case" } do
+			table.insert(list, model:GetAttributeChangedSignal(name):Connect(onLook))
+		end
+	end
+	local function useFolder(folder: Instance)
+		table.insert(
+			list,
+			folder.ChildAdded:Connect(function(model: Instance)
+				follow(model)
+				look(player)
+			end)
+		)
+		for _, model in folder:GetChildren() do
+			follow(model)
+		end
+	end
+	local folder = plot.Model:FindFirstChild("Patients")
+	if folder then
+		useFolder(folder)
+	else
+		table.insert(
+			list,
+			plot.Model.ChildAdded:Connect(function(child: Instance)
+				if child.Name == "Patients" and watches[player] == list then
+					useFolder(child)
+				end
+			end)
+		)
+	end
+	look(player)
+end
+
 -- What starting a step does (also when a player rejoins on that step and gets their clinic).
 local function enter(player: Player, step: number)
 	local plot = Plots.getPlot(player)
+	if step == Logic.PATIENT or step == Logic.EXAMINE then
+		watch(player)
+		return
+	end
+	unwatch(player)
 	if step == Logic.WELCOME then
 		if plot then
 			later(player, Logic.WELCOME_FALLBACK_SECONDS, Logic.WELCOME, "Ack")
-		end
-	elseif step == Logic.PATIENT then
-		-- The first patient comes during the welcome sweep (Logic.spawnPlan), so it can already be standing at the
-		-- Counter when the ack moves the step here. Its onFrontArrived came while the step was still WELCOME and did
-		-- nothing, so count the arrival now (FrontItem is set only while a patient waits at the Counter). Without
-		-- this the tutorial would wait at step 2 for ever.
-		local front = if plot then plot.Model:GetAttribute("FrontItem") else nil
-		if type(front) == "string" and front ~= "" then
-			later(player, Logic.ARRIVED_SECONDS, Logic.PATIENT, "Arrived")
-		end
-	elseif step == Logic.MAKE then
-		-- Made it early (while the patient walked in): carrying it already counts.
-		local front = if plot then plot.Model:GetAttribute("FrontItem") else nil
-		if type(front) == "string" and front ~= "" and Carry.has(player, front) then
-			apply(player, "Made", { Right = true })
 		end
 	elseif step == Logic.MORE then
 		if cures[player] == nil then
@@ -385,32 +477,28 @@ end
 -- Hooks (other systems call these; each one only acts on a player in the matching step)
 ------------------------------------------------------------------------------------------------------------------
 
--- Patients: the patient at the front of `owner`'s line just reached the Counter.
+-- Patients: a patient at `owner`'s clinic just sat down in a bay (the watch sees it too; this only looks again).
 function Tutorial.onFrontArrived(owner: Player)
-	if Tutorial.step(owner) == Logic.PATIENT then
-		later(owner, Logic.ARRIVED_SECONDS, Logic.PATIENT, "Arrived")
+	if isPlayer(owner) then
+		look(owner)
 	end
 end
 
--- Stations: `player` made `itemId` at a station on `plot`.
-function Tutorial.onMade(player: Player, itemId: string, plot: Plot?)
-	if Tutorial.step(player) ~= Logic.MAKE then
-		return
-	end
-	local own = Plots.getPlot(player)
-	if not own or own ~= plot then
-		return -- only their own clinic teaches their tutorial
-	end
-	local front = own.Model:GetAttribute("FrontItem")
-	apply(player, "Made", { Right = type(front) == "string" and front == itemId })
+-- Patients.examine: an exam at `owner`'s clinic just revealed a patient's case (by anyone, a nurse included).
+function Tutorial.onExamined(owner: Player)
+	apply(owner, "Examined")
 end
 
--- Patients: the front patient at `owner`'s clinic was just treated (by anyone).
+-- Stations: `player` made or dispensed `itemId` at a station on `plot`. Fetching is no step of its own any more
+-- (the client's card 4 turns into card 5 when you carry it), so this moves nothing; kept so callers stay valid.
+function Tutorial.onMade(_player: Player, _itemId: string, _plot: Plot?) end
+
+-- Patients: a patient's plan at `owner`'s clinic is done (by anyone).
 function Tutorial.onTreated(owner: Player)
 	apply(owner, "Treated")
 end
 
--- Cure: a cure just landed at `owner`'s clinic (whoever treated it).
+-- Cure: a treatment just paid out at `owner`'s clinic (whoever treated it).
 function Tutorial.onCured(owner: Player)
 	local step = Tutorial.step(owner)
 	if step == Logic.MORE then
@@ -548,6 +636,7 @@ function Tutorial.start()
 		apply(player, "Purchased")
 	end)
 	Players.PlayerRemoving:Connect(function(player)
+		unwatch(player)
 		cures[player] = nil
 		tokens[player] = nil
 		resumed[player] = nil

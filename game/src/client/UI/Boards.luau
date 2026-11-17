@@ -10,7 +10,8 @@
 -- Everything comes from the server's GetBoards (its cache: no DataStore call), asked when the panel opens and every
 -- POLL_SECONDS while it stays open. The client only shows it.
 -- Look (the look overhaul's template, look build plan §B8): UI/Modal's navy header, its meta chip naming the open
--- board ("🏥 Most Cured"); Modal.tabs down the left, each board's own colour as its tab's 6 px stripe; tinted rows
+-- board ("🏥 Most Patients Treated": the titles are Logic/Leaderboard's, the ids stay Cured and Week); Modal.tabs down
+-- the left, each board's own colour as its tab's 6 px stripe; tinted rows
 -- (the medal tints stay for the top 3, your own row gets the Bold outline); your bar pinned under them on the navy
 -- of the header, in white outlined text. Phone-friendly: the tab column fits the height (and scrolls when five tabs
 -- at 56 px don't fit a short landscape phone), the rows scroll, your bar stays put.

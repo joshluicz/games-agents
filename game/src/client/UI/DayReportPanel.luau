@@ -1,11 +1,11 @@
 --!strict
 -- DayReportPanel (build plan Task 6): the end-of-day card, popped when the server sends DayReport (at night's
--- end). A big count of patients cured, ⭐ gained, the new Book pages as faces, and the one clear "next goal"
+-- end). A big count of patients treated, ⭐ gained, the new Book pages as faces, and the one clear "next goal"
 -- with a bar showing how close it is (⭐ toward its stars, then 💰 toward its price) and a 🛒 button that opens
 -- the Shop on it. It closes by itself after AUTO_CLOSE seconds.
 --   init(ctx)   listens to the DayReport remote
 -- It doesn't dim the screen or grab gamepad focus: it arrives on its own while you play, so it never blocks you.
--- A day with nothing cured shows nothing (no "you did nothing" screen), and neither does a day that ends while
+-- A day with nobody treated shows nothing (no "you did nothing" screen), and neither does a day that ends while
 -- you're in the first-session tutorial (the server doesn't send one then either: Server/DayReport).
 -- Look (the look overhaul's template, look build plan §B8): UI/Modal's navy header on a no-dim popup; the count is
 -- the reward moment: big gold outlined display text at Theme.TextSize.Hero on turning rays, springing when it lands;

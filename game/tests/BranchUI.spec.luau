@@ -546,11 +546,14 @@ T.describe("Shop (pure): the 🏥 tab's branch card, gates and levels", function
 		eq((ProgressLogic.canBuyUpgrade(snap({ Level = 5, Rebirth = { Count = 4 } }), "NightClinic", Upgrades)), true)
 		eq(ShopPure.gateText("Coming soon!"), "Coming soon!")
 	end)
-	test("the level line: the departments open at that level, beds and the recipe size", function()
-		eq(ShopPure.levelLine(Levels[1], Departments), "🛎️   🛏️ 1   🧪 1")
-		eq(ShopPure.levelLine(Levels[2], Departments), "🛎️ 🚑 🛏️   🛏️ 3   🧪 2")
-		eq(ShopPure.levelLine(Levels[5], Departments), "🛎️ 🚑 🛏️ 🛁 💊 🚁   🛏️ 4   🧪 3")
-		eq(ShopPure.levelLine(nil, Departments), "   🛏️ 0   🧪 0")
+	test("the level line: the departments open at that level, the bays, the ward beds and the plan size", function()
+		eq(ShopPure.levelLine(Levels[1], Departments), "🛎️ 💊   🩺 2   🛏️ 0   📋 1")
+		eq(ShopPure.levelLine(Levels[2], Departments), "🛎️ 💊 🚑 🛏️   🩺 3   🛏️ 3   📋 2")
+		eq(
+			ShopPure.levelLine(Levels[5], Departments),
+			"🛎️ 💊 🚑 🛏️ 🩻 😴 🚁   🩺 6   🛏️ 7   📋 3"
+		)
+		eq(ShopPure.levelLine(nil, Departments), "   🩺 0   🛏️ 0   📋 0")
 		for level = 1, #Levels do
 			assertWords(ShopPure.levelLine(Levels[level], Departments), "level line")
 		end

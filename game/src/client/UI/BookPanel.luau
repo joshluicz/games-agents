@@ -2,7 +2,8 @@
 -- BookPanel (build plan Task 6): the Patient Book. One tab per wing (Data/Wings) plus 💌 for the regulars.
 --   init(ctx)   opens on ctx.fire("Open", "Book")
 -- A wing page shows its set progress, the set reward and a card per patient: not met yet = a dark silhouette
--- with "?"; met = a face, name, ailment → station icons, times cured and variant stickers (✨ 🧊). Cards for
+-- with "?"; met = a face, name, "🩺 ×n" (times treated: a patient's case is rolled each visit from its wing's pool,
+-- so the card shows none) and variant stickers (✨ 🧊). Cards for
 -- pages stamped since you last looked carry a 🆕 ribbon. The 💌 page shows each regular's story as 5 hearts.
 -- Reads only the Snapshot (Book, Story, Stars) and the Cured remote (NewPage). Fires "BookNew" (count) for the
 -- HUD's 📖 dot.
@@ -633,14 +634,8 @@ function BookPanel.init(ctx: Types.Ctx)
 			setFace(card, patient.Look, not seen)
 			card.Ribbon.Visible = fresh[patientId] == true
 			if seen then
-				local ailment = data.Ailments[patient.Ailment]
-				local station = ailment and data.Stations[ailment.Station]
 				card.Name.Text = patient.Name
-				card.Info.Text = (if ailment then ailment.Icon else "")
-					.. "→"
-					.. (if station then station.Icon else "")
-					.. "  ×"
-					.. cured
+				card.Info.Text = "🩺 ×" .. cured -- times treated (its case is rolled each visit, so none is shown)
 				local stickers, golden = Gate.stickers((state.Book[patientId] or {}).Variants, data.Variants)
 				card.Stickers.Text = stickers
 				-- A Golden 🌟 page: a gold outline round the card.

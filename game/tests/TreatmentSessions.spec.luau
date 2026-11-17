@@ -1,11 +1,15 @@
 --!nocheck
--- Treat sessions end to end (depth update T1, build plan Review focus 1): the real src/server/Treatment.luau runs
--- under Lune with mocked Roblox services (Players, Remotes, Economy, PlayerData, Nurses, Abilities). It checks the
--- session lifecycle a cheating client would poke at: one session per player, junk / someone else's / stale ids
--- refused with nothing changed, a too-early report rated all OK, Simple mode, the distance check, the tip cap per
--- cure, the timeout, drop, the helper leaving, and Healer routing. Progression v2 (T7): auto-Perfect sessions
--- (Abilities.consumePerfects), Ease from the tree, a medicine as one Pour game, the 🫧 Soak kind and its tip under
--- the cap, the Triage remote (right / wrong / junk / late / timeout) and Medic routing.
+-- Sessions end to end (depth update T1; Real Clinic build plan, Task 5, Review Focus 3 and 4): the real
+-- src/server/Treatment.luau runs under Lune with mocked Roblox services (Players, Remotes, Economy, PlayerData, Nurses,
+-- Abilities) and the real Data/Items, Data/Tools and Logic/MiniGame. It checks the session lifecycle a cheating
+-- client would poke at: one session per player AND per patient, junk / someone else's / stale ids refused with
+-- nothing changed, a too-early report rated all OK, Simple mode, the distance check, the tip cap per patient, the
+-- timeout, drop, the player leaving, and Healer routing. Progression v2: auto-Perfect sessions
+-- (Abilities.consumePerfects), Ease from the tree, the Triage remote (right / wrong / junk / late / timeout) and Medic
+-- routing. The Real Clinic: the three kinds (an Exam reveals its case whatever the ratings; a Treat plays one game per
+-- supply and refuses a medicine; a Dispense gives only one of its own Options, before any tip, and nothing to a
+-- player who left), Expert Dispensing's wider Dose band, and Server/Stations' pure dispensary rules (the card's
+-- options, the tip ledger, the prompt's text).
 -- Run from game/ with the rest:  lune run tests/run
 
 local fs = require("@lune/fs")
@@ -131,24 +135,31 @@ local Nurses = {
 	end,
 }
 
+-- The shipped per-game tuning (Config.MiniGame.Games) and dispensary numbers; the rest is copied so the timeout
+-- tests can shorten the session.
+local Shipped = require("./config")
 local Config = {
 	MiniGame = {
 		PerfectTip = 3,
 		TipCapPerCure = 15,
 		Combo = { { At = 3, Multiplier = 1.2 }, { At = 6, Multiplier = 1.5 }, { At = 10, Multiplier = 2 } },
-		MinSeconds = { Pour = 1.2, Patch = 1, Scrub = 1.5, Cool = 1.5 },
+		MinSeconds = { Pour = 1.2, Patch = 1, Scrub = 1.5, Cool = 1.5, Pick = 0.6 },
 		SimpleMinSeconds = 0.25,
 		Slack = 0.8,
 		SessionSeconds = 12,
 		PerGameSeconds = 6,
+		Games = Shipped.MiniGame.Games,
 	},
 	Treat = { ItemPatience = 0.25, Distance = 20 },
 	Triage = { Seconds = 4, RightBonus = 0.1 },
+	Dispensary = Shipped.Dispensary,
 }
 local MiniGame = require("../src/shared/Logic/MiniGame")
 local RebirthLogic = require("../src/shared/Logic/Rebirth")
 local PerksData = require("../src/shared/Data/Perks")
 local TreeData = require("../src/shared/Data/Tree")
+local ItemsData = require("../src/shared/Data/Items")
+local ToolsData = require("../src/shared/Data/Tools")
 
 -- Abilities: what a banked AutoPerfect makes PERFECT (the test sets `autoNext`; each ask spends it).
 local autoNext: { boolean }? = nil
@@ -178,7 +189,7 @@ local Shared = {
 	Remotes = "Remotes",
 	Types = "Types",
 	Logic = { MiniGame = "MiniGame", Rebirth = "RebirthLogic" },
-	Data = { Perks = "PerksData", Tree = "TreeData" },
+	Data = { Perks = "PerksData", Tree = "TreeData", Items = "ItemsData", Tools = "ToolsData" },
 }
 local modules = {
 	Config = Config,
@@ -188,6 +199,8 @@ local modules = {
 	RebirthLogic = RebirthLogic,
 	PerksData = PerksData,
 	TreeData = TreeData,
+	ItemsData = ItemsData,
+	ToolsData = ToolsData,
 	Abilities = Abilities,
 	Economy = Economy,
 	PlayerData = PlayerData,
@@ -227,6 +240,17 @@ local TreatResult = served.TreatResult
 local SetSimple = served.SetSimple
 local Triage = served.Triage
 
+local function pureBlock(path: string, globals: { [string]: any }): any
+	local text = source(path)
+	local from = string.find(text, "-- PURE-BEGIN", 1, true)
+	local to = string.find(text, "-- PURE-END", 1, true)
+	assert(from and to and to > from, path .. ": no PURE block")
+	local block = string.sub(text, from, to - 1) .. "\nreturn Pure\n"
+	return luau.load(block, { debugName = path .. " (pure)", environment = globals })()
+end
+local TrPure = pureBlock("src/server/Treatment.luau", { MiniGame = MiniGame })
+local StPure = pureBlock("src/server/Stations.luau", {})
+
 local plot = { Index = 1 }
 local function spec(items, settled)
 	return {
@@ -245,22 +269,23 @@ end
 
 -- Tests ----------------------------------------------------------------------------------------------------------
 T.describe("Treatment sessions (mocked)", function()
-	test("open fires TreatStart with one game per item and the timeout", function()
+	test("open fires TreatStart with one game per supply and the timeout", function()
 		local a = newPlayer("A")
 		saves[a] = { Simple = false }
 		local settled = {}
-		local id = Treatment.open(a, spec({ "Bubbles", "Potion" }, settled))
+		local id = Treatment.open(a, spec({ "Bubbles", "Ice" }, settled))
 		expect(type(id)).toBe("number")
 		local last = fired[#fired]
 		expect(last.Player).toBe(a)
 		expect(last.Payload.Session).toBe(id)
-		expect(last.Payload.Games).toEqual({ "Scrub", "Pour" })
-		expect(last.Payload.Items).toEqual({ "Bubbles", "Potion" })
+		expect(last.Payload.Kind).toBe("Treat")
+		expect(last.Payload.Games).toEqual({ "Bath", "Ice" })
+		expect(last.Payload.Items).toEqual({ "Bubbles", "Ice" })
 		expect(last.Payload.Simple).toBe(false)
 		expect(last.Payload.Combo).toBe(0)
 		expect(last.Payload.Timeout).toBe(24)
 		expect(Treatment.busy(a)).toBe(true)
-		expect(Treatment.open(a, spec({ "Potion" }, settled))).toBe(nil) -- one at a time
+		expect(Treatment.open(a, spec({ "Ice" }, settled))).toBe(nil) -- one at a time
 		Treatment.drop(id)
 		expect(Treatment.busy(a)).toBe(false)
 	end)
@@ -269,8 +294,8 @@ T.describe("Treatment sessions (mocked)", function()
 		local a, b = newPlayer("A2"), newPlayer("B2")
 		saves[a], saves[b] = { Simple = false }, { Simple = false }
 		local settledA, settledB = {}, {}
-		local idA = Treatment.open(a, spec({ "Potion" }, settledA))
-		local idB = Treatment.open(b, spec({ "Potion" }, settledB))
+		local idA = Treatment.open(a, spec({ "Ice" }, settledA))
+		local idB = Treatment.open(b, spec({ "Ice" }, settledB))
 		for _, junk in { "1", nil, 1.5, 0 / 0, math.huge, {}, -1, idB } do
 			local ok, message, payload = TreatResult(a, junk, { "Perfect" })
 			expect(ok).toBe(false)
@@ -289,14 +314,16 @@ T.describe("Treatment sessions (mocked)", function()
 		local a = newPlayer("A3")
 		saves[a] = { Simple = false }
 		local settled = {}
-		local id = Treatment.open(a, spec({ "Potion" }, settled))
-		now += 1.0 -- Pour min 1.2 x 0.8 = 0.96
+		local id = Treatment.open(a, spec({ "Ice" }, settled))
+		now += 1.0 -- Ice min 1.2 x 0.8 = 0.96
 		local ok, _, outcome = TreatResult(a, id, { "Perfect" })
 		expect(ok).toBe(true)
 		expect(outcome.Ratings).toEqual({ "Perfect" })
 		expect(outcome.Tip).toBe(3)
 		expect(outcome.Combo).toBe(1)
 		expect(outcome.Complete).toBe(true)
+		expect(outcome.Case).toBe(nil) -- only an Exam reveals a case
+		expect(outcome.Item).toBe(nil) -- only a Dispense puts something in your hands
 		expect(a:GetAttribute("Combo")).toBe(1)
 		expect(cash[a]).toBe(3)
 		expect(#settled).toBe(1)
@@ -311,7 +338,7 @@ T.describe("Treatment sessions (mocked)", function()
 		saves[a] = { Simple = false }
 		a:SetAttribute("Combo", 4)
 		local settled = {}
-		local id = Treatment.open(a, spec({ "Potion", "Plaster" }, settled))
+		local id = Treatment.open(a, spec({ "Ice", "Plaster" }, settled))
 		now += 0.1
 		local ok, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" })
 		expect(ok).toBe(true)
@@ -352,23 +379,23 @@ T.describe("Treatment sessions (mocked)", function()
 		expect(outcome.Tip).toBe(0)
 	end)
 
-	test("from far from the Counter: all OK", function()
+	test("from far from the bay: all OK", function()
 		local a = newPlayer("A6", Vector3.new(0, 0, 30))
 		saves[a] = { Simple = false }
 		local settled = {}
-		local id = Treatment.open(a, spec({ "Potion" }, settled))
+		local id = Treatment.open(a, spec({ "Ice" }, settled))
 		now += 5
 		local _, _, outcome = TreatResult(a, id, { "Perfect" })
 		expect(outcome.Ratings).toEqual({ "OK" })
 		expect(outcome.Tip).toBe(0)
 	end)
 
-	test("the tip is capped per cure, with a Cheerer and a big combo", function()
+	test("the tip is capped per patient, with a Cheerer and a big combo", function()
 		local a = newPlayer("A7")
 		saves[a] = { Simple = false }
 		a:SetAttribute("Combo", 20)
 		cheerTip = 99 -- junk-big: capped
-		local s = spec({ "Potion", "Plaster", "Potion" }, {})
+		local s = spec({ "Ice", "Plaster", "Ice" }, {})
 		s.TipSoFar = 10
 		local id = Treatment.open(a, s)
 		now += 10
@@ -382,7 +409,7 @@ T.describe("Treatment sessions (mocked)", function()
 		saves[a] = { Simple = false }
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 0.05, 0
 		local settled = {}
-		local id = Treatment.open(a, spec({ "Potion" }, settled))
+		local id = Treatment.open(a, spec({ "Ice" }, settled))
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 12, 6
 		task.wait(0.15)
 		expect(#settled).toBe(1)
@@ -397,7 +424,7 @@ T.describe("Treatment sessions (mocked)", function()
 		saves[a] = { Simple = false }
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 0.05, 0
 		local settled = {}
-		local id = Treatment.open(a, spec({ "Potion" }, settled))
+		local id = Treatment.open(a, spec({ "Ice" }, settled))
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 12, 6
 		Treatment.drop(id)
 		task.wait(0.15)
@@ -405,12 +432,12 @@ T.describe("Treatment sessions (mocked)", function()
 		expect(TreatResult(a, id, { "OK" })).toBe(false)
 	end)
 
-	test("the helper leaves mid-game: settled all OK, no tip, combo kept", function()
+	test("the player leaves mid-game: settled all OK, no tip, combo kept", function()
 		local a = newPlayer("A10")
 		saves[a] = { Simple = false }
 		a:SetAttribute("Combo", 5)
 		local settled = {}
-		Treatment.open(a, spec({ "Potion" }, settled))
+		Treatment.open(a, spec({ "Ice" }, settled))
 		Players.PlayerRemoving:Fire(a)
 		expect(#settled).toBe(1)
 		expect(settled[1].Ratings).toEqual({ "OK" })
@@ -422,7 +449,7 @@ T.describe("Treatment sessions (mocked)", function()
 	test("a Settle that errors still answers, and the session is closed", function()
 		local a = newPlayer("A11")
 		saves[a] = { Simple = false }
-		local s = spec({ "Potion" }, {})
+		local s = spec({ "Ice" }, {})
 		s.Settle = function()
 			error("boom")
 		end
@@ -446,10 +473,10 @@ T.describe("Treatment sessions (mocked)", function()
 		Nurses.Heal:Fire(plot, "MintMouse")
 		expect(calls).toBe(1)
 		expect(#healed).toBe(0)
-		give = { "Potion" }
+		give = { "Ice" }
 		Nurses.Heal:Fire(plot, "MintMouse")
 		expect(#healed).toBe(1)
-		expect(healed[1].Items).toEqual({ "Potion" })
+		expect(healed[1].Items).toEqual({ "Ice" })
 		Nurses.Heal:Fire(plot, 42) -- junk id: ignored
 		Nurses.Heal:Fire("plot", "MintMouse") -- junk plot: ignored
 		expect(calls).toBe(2)
@@ -465,7 +492,7 @@ local function triageSpec(items, settled, ask, complete)
 	end
 	return s
 end
-local HYDRO_ASK = { Options = { "Wards", "Hydro" }, Right = "Hydro" }
+local REST_ASK = { Options = { "Wards", "Rest" }, Right = "Rest" }
 
 T.describe("Treatment v2 (mocked)", function()
 	test("auto-Perfect: the ability's games are Perfect whatever is reported; the minimum time skips them", function()
@@ -474,13 +501,13 @@ T.describe("Treatment v2 (mocked)", function()
 		autoNext = { true, false }
 		local asks = perfectAsks
 		local settled = {}
-		local id = Treatment.open(a, spec({ "Plaster", "Potion" }, settled))
+		local id = Treatment.open(a, spec({ "Plaster", "Ice" }, settled))
 		expect(perfectAsks).toBe(asks + 1)
 		local payload = fired[#fired].Payload
-		expect(payload.Games).toEqual({ "Patch", "Pour" })
+		expect(payload.Games).toEqual({ "Plaster", "Ice" })
 		expect(payload.Auto).toEqual({ true, false })
 		expect(payload.Kind).toBe("Treat")
-		now += 1.0 -- Pour alone: 1.2 x 0.8 = 0.96 s (with Patch it would need 1.76 s)
+		now += 1.0 -- Ice alone: 1.2 x 0.8 = 0.96 s (with Plaster it would need 1.76 s)
 		local ok, _, outcome = TreatResult(a, id, { "OK", "Perfect" })
 		expect(ok).toBe(true)
 		expect(outcome.Ratings).toEqual({ "Perfect", "Perfect" })
@@ -493,85 +520,74 @@ T.describe("Treatment v2 (mocked)", function()
 		autoNext = { false, true }
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 0.05, 0
 		local settled = {}
-		Treatment.open(a, spec({ "Potion", "Plaster" }, settled))
+		Treatment.open(a, spec({ "Ice", "Plaster" }, settled))
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 12, 6
 		task.wait(0.15)
 		expect(#settled).toBe(1)
 		expect(settled[1].Ratings).toEqual({ "OK", "Perfect" })
 	end)
 
-	test("a medicine is ONE Pour game; no ability banked means no auto games", function()
+	test("a Treat with a medicine or an unknown item is refused (a medicine is handed over with no game)", function()
 		local a = newPlayer("V3")
 		saves[a] = { Simple = false }
-		local id = Treatment.open(a, spec({ "WarmTonic" }, {}))
-		local payload = fired[#fired].Payload
-		expect(payload.Items).toEqual({ "WarmTonic" })
-		expect(payload.Games).toEqual({ "Pour" })
-		expect(payload.Auto).toEqual({ false })
-		Treatment.drop(id)
+		local before = #fired
+		expect(Treatment.open(a, spec({ "CoughSyrup" }, {}))).toBe(nil)
+		expect(Treatment.open(a, spec({ "Plaster", "PainRelief" }, {}))).toBe(nil)
+		expect(Treatment.open(a, spec({ "Mystery" }, {}))).toBe(nil)
+		expect(Treatment.open(a, spec({ "Order" }, {}))).toBe(nil)
+		expect(Treatment.open(a, spec({}, {}))).toBe(nil) -- a Treat needs supplies
+		expect(#fired).toBe(before)
+		expect(Treatment.busy(a)).toBe(false)
 	end)
 
-	test("Ease: the helper's own 🎯 Steady Hands (1 without, 1.3 at three ranks)", function()
+	test("an unknown Kind (the old hot tub's Soak too) or a missing Settle is refused", function()
+		local a = newPlayer("V3b")
+		saves[a] = { Simple = false }
+		local s = spec({ "Ice" }, {})
+		s.Kind = "Soak"
+		expect(Treatment.open(a, s)).toBe(nil)
+		s.Kind = 7
+		expect(Treatment.open(a, s)).toBe(nil)
+		local t = spec({ "Ice" }, {})
+		t.Settle = nil
+		expect(Treatment.open(a, t)).toBe(nil)
+		expect(Treatment.busy(a)).toBe(false)
+	end)
+
+	test("Ease: the player's own 🎯 Steady Hands (1 without, 1.3 at three ranks)", function()
 		local a, b = newPlayer("V4a"), newPlayer("V4b")
 		saves[a] = { Simple = false }
 		saves[b] = { Simple = false, Rebirth = { Tree = { SteadyHands = 3 }, Perks = {} } }
-		local idA = Treatment.open(a, spec({ "Potion" }, {}))
+		local idA = Treatment.open(a, spec({ "Ice" }, {}))
 		expect(fired[#fired].Payload.Ease).toBe(1)
-		local idB = Treatment.open(b, spec({ "Potion" }, {}))
+		local idB = Treatment.open(b, spec({ "Ice" }, {}))
 		expect(fired[#fired].Payload.Ease).toBeCloseTo(1.3)
 		Treatment.drop(idA)
 		Treatment.drop(idB)
 	end)
 
-	test("a Soak: one Scrub game, no items, and its tip stays under the patient's cap", function()
-		local a = newPlayer("V5")
-		saves[a] = { Simple = false }
-		expect(Treatment.open(a, spec({}, {}))).toBe(nil) -- a Treat needs items
-		local settled = {}
-		local s = spec({}, settled)
-		s.Kind = "Soak"
-		s.TipSoFar = 13 -- the cure paid 13 already: 2 left under TipCapPerCure 15
-		s.Settle = function(ratings, tip)
-			table.insert(settled, { Ratings = ratings, Tip = tip })
-			return false, nil
-		end
-		local id = Treatment.open(a, s)
-		local payload = fired[#fired].Payload
-		expect(payload.Kind).toBe("Soak")
-		expect(payload.Items).toEqual({})
-		expect(payload.Games).toEqual({ "Scrub" })
-		now += 2 -- Scrub: 1.5 x 0.8 = 1.2 s
-		local before = cash[a] or 0
-		local ok, _, outcome = TreatResult(a, id, { "Perfect" })
-		expect(ok).toBe(true)
-		expect(outcome.Tip).toBe(2)
-		expect(outcome.Complete).toBe(false)
-		expect(outcome.Triage).toBe(nil)
-		expect((cash[a] or 0) - before).toBe(2)
-	end)
-
 	test("Triage: a right pick, once; waitTriage answers it", function()
 		local a = newPlayer("V6")
 		saves[a] = { Simple = false }
-		expect(Triage(a, 1, "Hydro")).toBe(false) -- nothing pending yet
-		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		expect(Triage(a, 1, "Rest")).toBe(false) -- nothing pending yet
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, REST_ASK))
 		now += 2
 		local ok, _, outcome = TreatResult(a, id, { "Good" })
 		expect(ok).toBe(true)
 		expect(outcome.Complete).toBe(true)
-		expect(outcome.Triage).toEqual({ Options = { "Wards", "Hydro" }, Seconds = 4 })
-		local picked, message, payload = Triage(a, id, "Hydro")
+		expect(outcome.Triage).toEqual({ Options = { "Wards", "Rest" }, Seconds = 4 })
+		local picked, message, payload = Triage(a, id, "Rest")
 		expect(picked).toBe(true)
 		expect(message).toBe("✅ Right floor!")
 		expect(payload).toEqual({ Right = true })
-		expect(Triage(a, id, "Hydro")).toBe(false) -- once
-		expect(Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")).toBe("Hydro")
+		expect(Triage(a, id, "Rest")).toBe(false) -- once
+		expect(Treatment.waitTriage(a, id, REST_ASK.Options, "Rest")).toBe("Rest")
 	end)
 
 	test("Triage: junk and someone else's are refused; a wrong pick says Oops (it still goes the right way)", function()
 		local a, b = newPlayer("V7a"), newPlayer("V7b")
 		saves[a], saves[b] = { Simple = false }, { Simple = false }
-		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, REST_ASK))
 		now += 2
 		TreatResult(a, id, { "Good" })
 		for _, call in { { id, "Roof" }, { id, 7 }, { id + 1, "Wards" }, { "1", "Wards" }, { 0 / 0, "Wards" } } do
@@ -579,41 +595,41 @@ T.describe("Treatment v2 (mocked)", function()
 			expect(okJunk).toBe(false)
 			expect(messageJunk).toBe(Remotes.OOPS)
 		end
-		expect(Triage(b, id, "Hydro")).toBe(false) -- not b's patient
+		expect(Triage(b, id, "Rest")).toBe(false) -- not b's patient
 		local ok, message, payload = Triage(a, id, "Wards")
 		expect(ok).toBe(true)
 		expect(message).toBe("Oops, not this floor!")
 		expect(payload).toEqual({ Right = false })
-		expect(Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")).toBe("Wards")
+		expect(Treatment.waitTriage(a, id, REST_ASK.Options, "Rest")).toBe("Wards")
 	end)
 
 	test("Triage: no pick in time -> waitTriage answers '' and a late pick is refused", function()
 		local a = newPlayer("V8")
 		saves[a] = { Simple = false }
-		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, REST_ASK))
 		now += 2
 		TreatResult(a, id, { "Good" })
 		local answer = nil
 		task.spawn(function()
-			answer = Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")
+			answer = Treatment.waitTriage(a, id, REST_ASK.Options, "Rest")
 		end)
 		expect(answer).toBe(nil) -- still waiting for the pick
 		now += 5 -- past Config.Triage.Seconds
 		task.wait(0.25)
 		expect(answer).toBe("")
-		expect(Triage(a, id, "Hydro")).toBe(false)
+		expect(Triage(a, id, "Rest")).toBe(false)
 	end)
 
-	test("Triage: only the helper's own report asks; a timeout or an unfinished recipe asks nobody", function()
+	test("Triage: only the player's own report asks; a timeout or an unfinished plan asks nobody", function()
 		local a = newPlayer("V9")
 		saves[a] = { Simple = false }
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 0.05, 0
-		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK))
+		local id = Treatment.open(a, triageSpec({ "Bubbles" }, {}, REST_ASK))
 		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 12, 6
 		task.wait(0.15)
-		expect(Treatment.waitTriage(a, id, HYDRO_ASK.Options, "Hydro")).toBe("")
-		expect(Triage(a, id, "Hydro")).toBe(false)
-		local id2 = Treatment.open(a, triageSpec({ "Bubbles" }, {}, HYDRO_ASK, false))
+		expect(Treatment.waitTriage(a, id, REST_ASK.Options, "Rest")).toBe("")
+		expect(Triage(a, id, "Rest")).toBe(false)
+		local id2 = Treatment.open(a, triageSpec({ "Bubbles" }, {}, REST_ASK, false))
 		now += 2
 		local _, _, outcome = TreatResult(a, id2, { "Good" })
 		expect(outcome.Complete).toBe(false)
@@ -636,5 +652,412 @@ T.describe("Treatment v2 (mocked)", function()
 		Nurses.Heal:Fire(plot, "MintMouse", "junk")
 		Nurses.Heal:Fire(plot, "MintMouse")
 		expect(targets).toEqual({ "Urgent", "Front", "Front", "Front" })
+	end)
+end)
+
+-- The Real Clinic (Task 5) ---------------------------------------------------------------------------------------
+local function examSpec(key, settled, case)
+	local s = spec({}, settled)
+	s.Kind = "Exam"
+	s.Key = key
+	s.Tools = { "Magnifier", "Stethoscope", "Light" }
+	s.Answer = "Stethoscope"
+	s.Glow = true
+	s.Case = case or "Cough"
+	s.Settle = function(ratings, tip)
+		table.insert(settled, { Ratings = ratings, Tip = tip })
+		return false
+	end
+	return s
+end
+
+-- A Dispense spec as Server/Stations builds it. `gives` records each Give; `answer` is what Give says.
+local function dispenseSpec(options, gives, answer)
+	return {
+		Plot = plot,
+		PatientId = "",
+		Kind = "Dispense",
+		Items = {},
+		Position = Vector3.new(0, 3, 0),
+		Counter = Vector3.new(0, 0, 0),
+		TipSoFar = 0,
+		Options = options,
+		Give = function(itemId)
+			table.insert(gives, itemId)
+			local result = answer or { true, true }
+			return result[1], result[2]
+		end,
+	}
+end
+
+T.describe("Real Clinic sessions (mocked)", function()
+	test("an Exam: Pick the tool, then the answer tool's own game; the case is never sent ahead", function()
+		local a = newPlayer("R1")
+		saves[a] = { Simple = false }
+		local id = Treatment.open(a, examSpec(101, {}))
+		expect(type(id)).toBe("number")
+		local payload = fired[#fired].Payload
+		expect(payload.Kind).toBe("Exam")
+		expect(payload.Games).toEqual({ "Pick", "Listen" })
+		expect(payload.Tools).toEqual({ "Magnifier", "Stethoscope", "Light" })
+		expect(payload.Answer).toBe("Stethoscope")
+		expect(payload.Glow).toBe(true)
+		expect(payload.Items).toEqual({})
+		expect(payload.Case).toBe(nil)
+		expect(payload.Options).toBe(nil)
+		expect(payload.Timeout).toBe(24)
+		Treatment.drop(id)
+	end)
+
+	test("Exam settle with any ratings reveals the case", function()
+		local a = newPlayer("R2")
+		saves[a] = { Simple = false }
+		for _, report in { { "Perfect", "Perfect" }, { "OK", "OK" }, "Perfect", {}, nil } do
+			local settled = {}
+			local id = Treatment.open(a, examSpec(102, settled, "Earache"))
+			now += 3
+			local ok, _, outcome = TreatResult(a, id, report)
+			expect(ok).toBe(true)
+			expect(outcome.Case).toBe("Earache")
+			expect(outcome.Item).toBe(nil)
+			expect(#settled).toBe(1) -- Patients marked the case found
+		end
+		-- ... a report that came far too soon too (rated all OK, still revealed)
+		local settled = {}
+		local id = Treatment.open(a, examSpec(102, settled, "Fever"))
+		now += 0.1
+		local _, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" })
+		expect(outcome.Ratings).toEqual({ "OK", "OK" })
+		expect(outcome.Case).toBe("Fever")
+	end)
+
+	test("a second Exam open on a patient already in a session is refused (Review Focus 3)", function()
+		local a, b = newPlayer("R3a"), newPlayer("R3b")
+		saves[a], saves[b] = { Simple = false }, { Simple = false }
+		local idA = Treatment.open(a, examSpec(7, {}))
+		expect(type(idA)).toBe("number")
+		expect(Treatment.working(7)).toBe(true)
+		local before = #fired
+		expect(Treatment.open(b, examSpec(7, {}))).toBe(nil) -- the helper taps Examine too: refused
+		local treat = spec({ "Ice" }, {})
+		treat.Key = 7
+		expect(Treatment.open(b, treat)).toBe(nil) -- nor a Treat on that patient
+		expect(#fired).toBe(before)
+		expect(Treatment.busy(b)).toBe(false)
+		local idB = Treatment.open(b, examSpec(8, {})) -- another patient: fine
+		expect(type(idB)).toBe("number")
+		now += 3
+		TreatResult(a, idA, { "Good", "Good" })
+		expect(Treatment.working(7)).toBe(false)
+		Treatment.drop(idB)
+		local again = Treatment.open(b, examSpec(7, {}))
+		expect(type(again)).toBe("number") -- free again
+		expect(Treatment.working(nil)).toBe(false)
+		-- ids may restart per plot: patient 7 at another clinic is someone else
+		local elsewhere = examSpec(7, {})
+		elsewhere.Plot = { Index = 2 }
+		local idC = Treatment.open(a, elsewhere)
+		expect(type(idC)).toBe("number")
+		expect(Treatment.working(7, plot)).toBe(true)
+		expect(Treatment.working(7, elsewhere.Plot)).toBe(true)
+		Treatment.drop(again)
+		expect(Treatment.working(7, plot)).toBe(false)
+		expect(Treatment.working(7, elsewhere.Plot)).toBe(true)
+		Treatment.drop(idC)
+	end)
+
+	test("a broken exam card is refused", function()
+		local a = newPlayer("R4")
+		saves[a] = { Simple = false }
+		local s = examSpec(104, {})
+		s.Answer = "XRay" -- not on the card
+		expect(Treatment.open(a, s)).toBe(nil)
+		s = examSpec(104, {})
+		s.Tools = { "Scalpel", "Stethoscope" }
+		s.Answer = "Scalpel" -- not a tool
+		expect(Treatment.open(a, s)).toBe(nil)
+		s = examSpec(104, {})
+		s.Tools = "Stethoscope"
+		expect(Treatment.open(a, s)).toBe(nil)
+		s = examSpec(104, {})
+		s.Settle = nil
+		expect(Treatment.open(a, s)).toBe(nil)
+		expect(Treatment.busy(a)).toBe(false)
+		-- junk among the tools is dropped, the card still plays
+		s = examSpec(104, {})
+		s.Tools = { "Light", "Light", 5, "Stethoscope", "Order" }
+		local id = Treatment.open(a, s)
+		expect(fired[#fired].Payload.Tools).toEqual({ "Light", "Stethoscope" })
+		Treatment.drop(id)
+	end)
+
+	test("a Treat sends its case with the card", function()
+		local a = newPlayer("R5")
+		saves[a] = { Simple = false }
+		local s = spec({ "Ice", "Bandage" }, {})
+		s.Case = "Sprain"
+		local id = Treatment.open(a, s)
+		local payload = fired[#fired].Payload
+		expect(payload.Case).toBe("Sprain")
+		expect(payload.Games).toEqual({ "Ice", "Bandage" })
+		expect(payload.Tools).toBe(nil)
+		Treatment.drop(id)
+	end)
+
+	test("a Dispense: Pick then Dose; Options only known medicines, at most Config.Dispensary.Options", function()
+		local a = newPlayer("D1")
+		saves[a] = { Simple = false }
+		local options = { "Plaster", "CoughSyrup", "CoughSyrup", "Mystery", "EarDrops", "Order", "Cream", "Lozenges" }
+		local id = Treatment.open(a, dispenseSpec(options, {}))
+		expect(type(id)).toBe("number")
+		local payload = fired[#fired].Payload
+		expect(payload.Kind).toBe("Dispense")
+		expect(payload.Games).toEqual({ "Pick", "Dose" })
+		expect(payload.Options).toEqual({ "CoughSyrup", "EarDrops", "Cream" })
+		expect(#payload.Options).toBe(Config.Dispensary.Options)
+		expect(payload.Items).toEqual({})
+		expect(payload.PatientId).toBe("")
+		expect(payload.Tools).toBe(nil)
+		expect(payload.Tuning).toBe(nil) -- no Expert Dispensing
+		expect(payload.Expert).toBe(nil)
+		Treatment.drop(id)
+		-- nothing a dispensary makes, or no Give: refused
+		expect(Treatment.open(a, dispenseSpec({ "Plaster", "Ice" }, {}))).toBe(nil)
+		expect(Treatment.open(a, dispenseSpec({}, {}))).toBe(nil)
+		local noGive = dispenseSpec({ "CoughSyrup" }, {})
+		noGive.Give = nil
+		expect(Treatment.open(a, noGive)).toBe(nil)
+		expect(Treatment.busy(a)).toBe(false)
+	end)
+
+	test("a Dispense gives the chosen medicine first, then pays its tip at once", function()
+		local a = newPlayer("D2")
+		saves[a] = { Simple = false }
+		local gives = {}
+		local id = Treatment.open(a, dispenseSpec({ "CoughSyrup", "EarDrops" }, gives))
+		now += 2 -- Pick 0.6 + Dose 1.2 = 1.8 x 0.8 = 1.44 s
+		local ok, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" }, "EarDrops")
+		expect(ok).toBe(true)
+		expect(gives).toEqual({ "EarDrops" })
+		expect(outcome.Item).toBe("EarDrops")
+		expect(outcome.Ratings).toEqual({ "Perfect", "Perfect" })
+		expect(outcome.Tip).toBe(6)
+		expect(cash[a]).toBe(6)
+		expect(outcome.Complete).toBe(false)
+		expect(outcome.Case).toBe(nil)
+		expect(Treatment.busy(a)).toBe(false)
+	end)
+
+	test("a Dispense result whose Choice isn't in Options gives nothing and rates OK", function()
+		local a = newPlayer("D3")
+		saves[a] = { Simple = false }
+		a:SetAttribute("Combo", 4)
+		for _, choice in { "FeverMeds", "Plaster", "Order", 5, {}, nil } do
+			local gives = {}
+			local id = Treatment.open(a, dispenseSpec({ "CoughSyrup", "EarDrops" }, gives))
+			now += 3
+			local ok, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" }, choice)
+			expect(ok).toBe(true)
+			expect(#gives).toBe(0)
+			expect(outcome.Item).toBe(nil)
+			expect(outcome.Ratings).toEqual({ "OK", "OK" })
+			expect(outcome.Tip).toBe(0)
+		end
+		-- no choice at all (even with a single option on the card)
+		local gives = {}
+		local id = Treatment.open(a, dispenseSpec({ "CoughSyrup" }, gives))
+		now += 3
+		local ok, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" })
+		expect(ok).toBe(true)
+		expect(#gives).toBe(0)
+		expect(outcome.Item).toBe(nil)
+		expect(outcome.Ratings).toEqual({ "OK", "OK" })
+		expect(cash[a]).toBe(nil)
+		expect(a:GetAttribute("Combo")).toBe(0) -- rated OK: the combo resets as any OK does
+	end)
+
+	test("a Dispense session for a player who left is dropped and gives nothing (Review Focus 4)", function()
+		local a = newPlayer("D4")
+		saves[a] = { Simple = false }
+		a:SetAttribute("Combo", 3)
+		local gives = {}
+		local id = Treatment.open(a, dispenseSpec({ "CoughSyrup" }, gives))
+		Players.PlayerRemoving:Fire(a)
+		expect(#gives).toBe(0)
+		expect(Treatment.busy(a)).toBe(false)
+		expect(a:GetAttribute("Combo")).toBe(3)
+		expect(TreatResult(a, id, { "Perfect", "Perfect" }, "CoughSyrup")).toBe(false)
+		expect(#gives).toBe(0)
+	end)
+
+	test("a Dispense that times out gives nothing (hold Dispense again)", function()
+		local a = newPlayer("D5")
+		saves[a] = { Simple = false }
+		local gives = {}
+		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 0.05, 0
+		local id = Treatment.open(a, dispenseSpec({ "CoughSyrup" }, gives))
+		Config.MiniGame.SessionSeconds, Config.MiniGame.PerGameSeconds = 12, 6
+		task.wait(0.15)
+		expect(#gives).toBe(0)
+		expect(Treatment.busy(a)).toBe(false)
+		expect(TreatResult(a, id, { "Perfect", "Perfect" }, "CoughSyrup")).toBe(false)
+	end)
+
+	test("a Dispense that may not tip (already tipped for) still gives; one whose Give fails gives no tip", function()
+		local a = newPlayer("D6")
+		saves[a] = { Simple = false }
+		local gives = {}
+		local id = Treatment.open(a, dispenseSpec({ "CoughSyrup" }, gives, { true, false }))
+		now += 2
+		local _, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" }, "CoughSyrup")
+		expect(outcome.Item).toBe("CoughSyrup")
+		expect(outcome.Tip).toBe(0)
+		expect(outcome.Combo).toBe(2) -- the Perfects still count for the combo
+		expect(cash[a]).toBe(nil)
+		id = Treatment.open(a, dispenseSpec({ "CoughSyrup" }, gives, { false, true }))
+		now += 2
+		_, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" }, "CoughSyrup")
+		expect(outcome.Item).toBe(nil)
+		expect(outcome.Tip).toBe(0)
+		expect(cash[a]).toBe(nil)
+		local broken = dispenseSpec({ "CoughSyrup" }, gives)
+		broken.Give = function()
+			error("boom")
+		end
+		id = Treatment.open(a, broken)
+		now += 2
+		local ok
+		ok, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" }, "CoughSyrup")
+		expect(ok).toBe(true)
+		expect(outcome.Item).toBe(nil)
+		expect(outcome.Tip).toBe(0)
+	end)
+
+	test("a Dispense reported from far away still gives the medicine, rated OK", function()
+		local a = newPlayer("D7", Vector3.new(0, 0, 40))
+		saves[a] = { Simple = false }
+		local gives = {}
+		local id = Treatment.open(a, dispenseSpec({ "FeverMeds" }, gives))
+		now += 3
+		local _, _, outcome = TreatResult(a, id, { "Perfect", "Perfect" }, "FeverMeds")
+		expect(gives).toEqual({ "FeverMeds" })
+		expect(outcome.Item).toBe("FeverMeds")
+		expect(outcome.Ratings).toEqual({ "OK", "OK" })
+		expect(outcome.Tip).toBe(0)
+	end)
+
+	test("Expert Dispensing widens the Dose band by 50%", function()
+		local a = newPlayer("D8")
+		saves[a] = { Simple = false }
+		local s = dispenseSpec({ "CoughSyrup" }, {})
+		s.Expert = true
+		local id = Treatment.open(a, s)
+		expect(fired[#fired].Payload.Expert).toBe(true) -- what the client widens its own Dose row on
+		local dose = fired[#fired].Payload.Tuning.Dose
+		local plain = Config.MiniGame.Games.Dose
+		expect(dose.BandMax - dose.BandMin).toBeCloseTo((plain.BandMax - plain.BandMin) * Config.Dispensary.ExpertBand)
+		expect(Config.Dispensary.ExpertBand).toBe(1.5)
+		expect((dose.BandMin + dose.BandMax) / 2).toBeCloseTo((plain.BandMin + plain.BandMax) / 2)
+		expect(dose.GoodSlack).toBe(plain.GoodSlack)
+		expect(dose.MinSeconds).toBe(plain.MinSeconds) -- the server's timing rule is unchanged
+		expect(plain.BandMax - plain.BandMin).toBeCloseTo(0.16) -- the shipped row is untouched
+		-- the wider band rates a fill the plain band calls Good as Perfect
+		local fill = plain.BandMax + 0.03
+		expect(MiniGame.rate("Dose", fill, Config)).toBe("Good")
+		local expertCfg = { MiniGame = { Games = { Dose = dose } } }
+		expect(MiniGame.rate("Dose", fill, expertCfg)).toBe("Perfect")
+		Treatment.drop(id)
+		-- Expert only ever touches a Dispense
+		local t = spec({ "Ice" }, {})
+		t.Expert = true
+		local tid = Treatment.open(a, t)
+		expect(fired[#fired].Payload.Tuning).toBe(nil)
+		expect(fired[#fired].Payload.Expert).toBe(nil)
+		Treatment.drop(tid)
+	end)
+
+	test("widen: round the middle, inside 0..1; junk factors change nothing", function()
+		local row = { BandMin = 0.7, BandMax = 0.86, GoodSlack = 0.12 }
+		local wide = TrPure.widen(row, 1.5)
+		expect(wide.BandMin).toBeCloseTo(0.66)
+		expect(wide.BandMax).toBeCloseTo(0.9)
+		expect(row.BandMin).toBe(0.7) -- a new table
+		expect(TrPure.widen({ BandMin = 0.1, BandMax = 0.95 }, 3).BandMax).toBe(1)
+		expect(TrPure.widen({ BandMin = 0.1, BandMax = 0.95 }, 3).BandMin).toBe(0)
+		for _, junk in { 0 / 0, -2, 0.5, "1.5", nil, math.huge } do
+			expect(TrPure.widen(row, junk)).toEqual(row)
+		end
+		expect(TrPure.tuning("Treat", true, Config)).toBe(nil)
+		expect(TrPure.tuning("Dispense", false, Config)).toBe(nil)
+	end)
+end)
+
+T.describe("The dispensary's rules (Server/Stations pure)", function()
+	local bay = {
+		{ Bay = "1", PatientId = 11, Stage = "Treat", Needs = { "CoughSyrup" }, Since = 50 },
+		{ Bay = "2", PatientId = 12, Stage = "Treat", Needs = { "Lozenges", "CoughSyrup" }, Since = 40 },
+		{ Bay = "3", PatientId = 13, Stage = "Exam", Needs = {}, Since = 30 },
+	}
+
+	test("the card offers what the bay patients need, less what you already carry", function()
+		local needed = { "Lozenges", "CoughSyrup" }
+		local options, why = StPure.dispenseOptions(needed, bay, {}, ItemsData)
+		expect(options).toEqual({ "Lozenges", "CoughSyrup" })
+		expect(why).toBe("")
+		options = StPure.dispenseOptions(needed, bay, { "CoughSyrup" }, ItemsData)
+		expect(options).toEqual({ "Lozenges", "CoughSyrup" }) -- two patients need it: one more to go
+		options = StPure.dispenseOptions(needed, bay, { "CoughSyrup", "Plaster", "CoughSyrup" }, ItemsData)
+		expect(options).toEqual({ "Lozenges" })
+		options, why = StPure.dispenseOptions(needed, bay, { "CoughSyrup", "Lozenges", "CoughSyrup" }, ItemsData)
+		expect(options).toEqual({})
+		expect(why).toBe("Have")
+		options, why = StPure.dispenseOptions({}, bay, {}, ItemsData)
+		expect(options).toEqual({})
+		expect(why).toBe("None")
+		options, why = StPure.dispenseOptions({ "Plaster", "Mystery", "Order" }, bay, {}, ItemsData)
+		expect(why).toBe("None") -- supplies and junk are never on the card
+		options = StPure.dispenseOptions(needed, nil, { "CoughSyrup", "Lozenges" }, ItemsData)
+		expect(options).toEqual(needed) -- no bay view: trust the needs
+	end)
+
+	test("the tip ledger: one tip per patient's need, the oldest first; a spare dispense tips nothing", function()
+		local claimed = {}
+		expect(StPure.claimTip(claimed, bay, "CoughSyrup")).toBe("12:CoughSyrup") -- waited longest
+		expect(StPure.claimTip(claimed, bay, "CoughSyrup")).toBe("11:CoughSyrup")
+		expect(StPure.claimTip(claimed, bay, "CoughSyrup")).toBe(nil) -- both players dispensed: one spare, no tip
+		expect(StPure.claimTip(claimed, bay, "Lozenges")).toBe("12:Lozenges")
+		expect(StPure.claimTip(claimed, bay, "FeverMeds")).toBe(nil)
+		expect(StPure.claimTip(claimed, nil, "CoughSyrup")).toBe(nil)
+		-- patient 12 left its bay: its keys go; a new patient's need tips again
+		local later = { bay[1], { Bay = "2", PatientId = 14, Needs = { "CoughSyrup" }, Since = 60 } }
+		StPure.prune(claimed, later)
+		expect(claimed["12:CoughSyrup"]).toBe(nil)
+		expect(claimed["12:Lozenges"]).toBe(nil)
+		expect(claimed["11:CoughSyrup"]).toBe(true)
+		expect(StPure.claimTip(claimed, later, "CoughSyrup")).toBe("14:CoughSyrup")
+		StPure.prune(claimed, "junk") -- junk changes nothing
+		expect(claimed["14:CoughSyrup"]).toBe(true)
+	end)
+
+	test("the prompt's text: the needed medicines' icons, or no prescriptions yet", function()
+		expect(StPure.objectText({}, ItemsData)).toBe("💊 No prescriptions yet")
+		expect(StPure.objectText(nil, ItemsData)).toBe("💊 No prescriptions yet")
+		expect(StPure.objectText({ "Plaster" }, ItemsData)).toBe("💊 No prescriptions yet")
+		expect(StPure.objectText({ "EarDrops", "Lozenges" }, ItemsData)).toBe("💊 💧 🍬")
+		expect(StPure.MSG.None).toBe("💊 No prescriptions yet")
+	end)
+
+	test("Expert Dispensing is the clinic owner's Pharmacy2 unlock (R2)", function()
+		expect(StPure.pharmacyTier(0, RebirthLogic.has)).toBe(1)
+		expect(StPure.pharmacyTier(1, RebirthLogic.has)).toBe(1)
+		expect(StPure.pharmacyTier(2, RebirthLogic.has)).toBe(2)
+		expect(StPure.pharmacyTier("x", RebirthLogic.has)).toBe(1)
+	end)
+
+	test("no crafting is left in the stations", function()
+		expect(StPure.pharmacy).toBe(nil)
+		local text = source("src/server/Stations.luau")
+		expect(string.find(text, "Recipe.craft", 1, true)).toBe(nil)
+		expect(string.find(text, "Potion", 1, true)).toBe(nil)
 	end)
 end)

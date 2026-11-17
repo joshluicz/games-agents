@@ -1,54 +1,77 @@
 --!strict
--- Treatment mini-games (depth-update design §1, build plan §B3/§B9). Client only. OWNER: T2; Progression v2: T8.
+-- The visit's mini-games (depth-update design §1; Real Clinic design §5, §7 and §9, build plan Task 7 and contract
+-- C5). Client only. OWNER: T2; Progression v2: T8; the Real Clinic: Task 7.
 --   init(ctx)   listens for the bus "TreatStart" (Types.TreatSession, forwarded from the server by Main.client)
 --   stage(): GuiObject?   the current game's stage, for UI/Tutorial's touch hand (nil when no game is up)
---   isOpen(): boolean     a treat card is open now (UI/Celebrate waits for it)
+--   isOpen(): boolean     a card is open now (UI/Celebrate waits for it)
 --
 -- The card is THE modal template (UI/Modal, look build plan §B8): Layer Panel, HudMode "Game" (the HUD keeps the
 -- wallet and the Now card, hides the rails and Status), the navy header with the game's icon and name and the 🔥
 -- combo chip where the ✖ would be, NO ✖ and a dim that neither closes it nor takes a tap (the thumbstick still works
--- under it); ButtonB never closes it. Its ScreenGui sits over panels and pop-ups, under cure pops and toasts. The
--- games' own colours stay inside the card (they're the game). Text never under 18 px (Kit.textLimit). While the
+-- under it); ButtonB never closes it. Its ScreenGui sits over panels and pop-ups, under the treat pops and toasts.
+-- The games' own colours stay inside the card (they're the game). Text never under 18 px (Kit.textLimit). While the
 -- first-session tutorial runs, no time bar drains (Pure.drainBar). Gamepad prompts show the pad's own button
--- picture (UserInputService:GetImageForKeyCode: ✕ on PlayStation), never "🅰️".
--- One short game per session.Games entry, in recipe order. Big targets (56 px or more), touch and mouse; Space or
--- the gamepad's A button plays every game too.
---   🧪 Pour   hold to fill the bottle, let go in the green ⭐ band       score = the fill when let go (0..1)
---   🩹 Patch  3 sore spots pop up on the creature, tap each one          score = spots patched in Patch.Seconds
---   🛁 Scrub  bubbles pop up around the creature in its bath, pop them   score = bubbles popped in Scrub.Seconds
---   ☕ Cool   3 steam rings rise off the cocoa: tap as each is biggest   score = good blows (a blow is good within
---             Cool.Window seconds of the ring's biggest moment, halfway through its PulseSeconds; it glows lime then)
--- Each game is rated with Logic/MiniGame.rate(game, score, ctx.Config): a huge outlined PERFECT! / GOOD! / OK! pops
--- and the 🔥 combo counter climbs on a Perfect, holds on a Good and goes back to "Go!" on an OK (Logic/MiniGame.settle
--- predicts it; at 0 it rests at "Go!" in a soft warm colour, never a grey 0, so it never looks like losing; the
--- server's own combo wins when it answers).
--- Never a fail: OK still cures. Then TreatResult (Hud.ask(TreatResult, session.Session, ratings)): its third value is
--- the TreatOutcome; the card shows the server's ratings and tip for a moment and closes.
--- Simple mode (session.Simple): one big tap per game, rated Good, no combo counter. A game id this client doesn't know
--- plays as one tap too (rated Good). Reduced motion (Kit.reducedMotion(), checked live): no wobble, bursts, drift or
--- overshoot; the fill and the steam ring still move (they are the game), same rules.
+-- picture (UserInputService:GetImageForKeyCode: ✕ on PlayStation), never "🅰️". The card's size comes from
+-- Pure.CARD, so Pure.pickLayout can show the choices fit a phone (Review Focus 5: 568 x 320, targets >= 44 px).
+--
+-- A visit is three kinds of card (TreatSession.Kind; Types has the session shapes):
+--   Exam      at a bay. Games = { "Pick", <the tool's game> }: pick the right tool out of session.Tools (the Pick
+--             engine; session.Answer glows while session.Glow: a player's first exams, and Simple mode), then play
+--             that tool's game. The server's answer reveals the case for 1.2 s: "🩺 It's a cough!" with the plan's
+--             icons. The step chips never show the right tool before it is picked.
+--   Treat     at a bay, giving supplies: one game per item (Data/Items Game), as before.
+--   Dispense  at the dispensary. With several session.Options the card first asks which medicine to make (any is
+--             right: each one is needed); then Pick finds its bottle among Config.Dispensary.Bottles (the right one
+--             and others that never share its icon when the shelf has enough: Pure.bottles), then Dose fills the
+--             measuring cup (the Pour engine) in the medicine's colour. The report carries the Choice.
+-- Every GameId is a look (Pure.LOOKS: icon, words, sound, and the engine's skin) on one of five engines
+-- (Logic/MiniGame.ENGINE; Pure.dispatch picks the routine):
+--   Pour   hold, let go in the green ⭐ band       score = the fill when let go (0..1). Skins: the 🧪 bottle, the
+--          🌡️ thermometer (Temp), the 🧊 ice pack (Ice) and the measuring cup (Dose)
+--   Patch  spots pop up, tap each one             score = spots tapped in time. Skins: 🩹 sore spots (Plaster),
+--          💓 glowing chest spots (Listen), 🔍 sore spots to find (Look)
+--   Scrub  bubbles pop up round the creature       score = bubbles popped in time (🛁 Bath)
+--   Cool   tap on the beat, Blows times            score = good beats (a beat is good within Window seconds of
+--          its middle, halfway through PulseSeconds; it glows lime then). Skins: "Ring" (a ring is biggest then:
+--          ☕ Cocoa's steam, 🔦 Light's ring over the patient) and "Sweep" (a bar passes the middle: 🩻 XRay's
+--          scanner over the bone, 🧻 Bandage and 🦴 Cast wrapping)
+--   Pick   tap the right one                       score = WRONG taps before the right one. A wrong tap shakes
+--          its head ("Hmm, not that one!"), greys out and costs nothing but the tip: never a fail
+-- Each game draws and is rated with its own tuning row (Logic/MiniGame.tuning: Config.MiniGame.Games[game]) via
+-- Logic/MiniGame.rate(game, score, ctx.Config): a huge outlined PERFECT! / GOOD! / OK! pops and the 🔥 combo counter
+-- climbs on a Perfect, holds on a Good and goes back to "Go!" on an OK (Logic/MiniGame.settle predicts it; at 0 it
+-- rests at "Go!" in a soft warm colour, never a grey 0, so it never looks like losing; the server's own combo wins
+-- when it answers).
+-- Never a fail: OK still treats. Then TreatResult (Hud.ask(TreatResult, session.Session, ratings, choice)): its third
+-- value is the TreatOutcome; the card shows the server's ratings and tip for a moment and closes.
+-- Simple mode (session.Simple): one big tap per game, rated Good, no combo counter (a Pick's tap shows the right
+-- tool or bottle; a Dispense card takes the first medicine without asking). A game id this client doesn't know plays
+-- as one tap too (rated Good). Reduced motion (Kit.reducedMotion(), checked live): no wobble, bursts, drift or
+-- overshoot; the fill, the rings and the sweep still move (they are the game), same rules.
 -- Fairness: the report never goes sooner than MiniGame.minSeconds after TreatStart (so the server never rates a real
 -- game all OK for being early), and the card closes by itself just before session.Timeout (the server has settled
 -- the session as all OK by then). A new TreatStart replaces a running one. Nothing here decides anything: the
--- server checks the session, the time, the distance and the tip.
+-- server checks the session, the time, the distance, the choice and the tip.
 --
 -- Progression v2 (build plan §B3 TreatSession/TreatOutcome, §C T8):
---   Auto   a game an ability made PERFECT (Golden Touch, Quick Bandage/Soap) sparkles for a moment ("✨ Magic
+--   Auto   a game an ability made PERFECT (Golden Touch, Quick Plaster/Soap) sparkles for a moment ("✨ Magic
 --          help!"), pops "✨ PERFECT!" and is skipped; the minimum report time counts only the games really played
 --          (Pure.played, as the server's MiniGame.accept does).
---   Ease   🎯 Steady Hands (1..1.3) widens the Perfect windows: the Pour's ⭐ band and Good slack, the Cool's blow
---          window, a little more time to patch and scrub (Pure.eased). The client draws and rates with it; the
---          server never checks it (it takes the client's ratings), so the two always agree.
---   Soak   the Hydro hot tub's one Scrub game is a "🫧 Bubble bath!" card, a tip only ("🛁 Ahh, so cosy!").
+--   Ease   🎯 Steady Hands (1..1.3) widens the Perfect windows of every tuning row: the Pour bands and Good slack,
+--          the Cool windows, a little more time to patch and scrub (Pure.eased). The client draws and rates with it;
+--          the server never checks it (it takes the client's ratings), so the two always agree. Expert Dispensing
+--          (the Pharmacy2 unlock, session.Expert) widens the Dose band by Config.Dispensary.ExpertBand the same way
+--          (Pure.widened).
 --   Triage when the server's TreatOutcome has Triage (Lv 3+, no Receptionist), the card stays for "🔀 Which
---          floor?": a huge button per department (Data/Departments icon, the badge chip's colour) over the soft time
---          bar (no digits). One tap asks Triage(session, dept): "✅ Right floor!" or "Oops, not this floor!" (it
---          goes the right way anyway). No tap: the bar empties and the patient goes by itself. Never a fail.
+--          floor?": a huge button per department (Data/Departments icon: 🛏️ Injury Ward, 😴 Rest Ward) over the
+--          soft time bar (no digits). One tap asks Triage(session, dept): "✅ Right floor!" or "Oops, not this
+--          floor!" (it goes the right way anyway). No tap: the bar empties and the patient goes by itself.
 -- Bus events: listens "TreatStart" (session) · fires "MiniGameRated" (game, rating) as each game ends (the client's
 -- own rating, for feel) · "TreatDone" (outcome, session) after the server's reply (session = the TreatStart payload,
--- with its Position) · "Sound" (name) for the hits: Pour, Patch, Scrub, Blow, Tick, plus Whoosh, Splash, Sparkle,
--- Pop, Triage. The rating cues (RateOK/RateGood/RatePerfect on MiniGameRated) and Tip/Combo (on TreatDone) are Feel/Sounds'
--- own, so this file never plays them (they would double).
+-- with its Position) · "Sound" (name) for the hits: each look's Sound (Pour, Patch, Scrub, Blow, Listen, Beep, Shine,
+-- Scan, Cold, Wrap, Pop, Found), plus Tick, Nope, Whoosh, Splash, Sparkle, Triage. The rating cues
+-- (RateOK/RateGood/RatePerfect on MiniGameRated) and Tip/Combo (on TreatDone) are Feel/Sounds' own, so this file
+-- never plays them (they would double).
 -- The pure helpers between the PURE markers use no Roblox API, so a Lune harness can load that block on its own.
 
 local ContextActionService = game:GetService("ContextActionService")
@@ -61,6 +84,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared:WaitForChild("Types"))
 local Palette = require(Shared:WaitForChild("Palette"))
 local MiniGame = require(Shared:WaitForChild("Logic"):WaitForChild("MiniGame"))
+local Visit = require(Shared:WaitForChild("Logic"):WaitForChild("Visit"))
 local TutorialLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tutorial"))
 local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
@@ -75,29 +99,63 @@ local MiniGames = {}
 
 local Pure = {}
 
-Pure.KNOWN = { Pour = true, Patch = true, Scrub = true, Cool = true } -- the games this client can draw
-Pure.MAX_GAMES = 6 -- a recipe has at most 3; more than this is junk
+-- The engines this client can draw (Logic/MiniGame.ENGINE maps every GameId to one of them)
+Pure.KNOWN = { Pour = true, Patch = true, Scrub = true, Cool = true, Pick = true }
+Pure.MAX_GAMES = 6 -- a plan has at most 3; more than this is junk
+-- TreatSession.Kind: Exam / Treat / Dispense (the Real Clinic)
+Pure.KINDS = { Exam = true, Treat = true, Dispense = true }
+-- The most choices a Pick shows: the exam card's 3 tools and the shelf's 4 bottles (Config.Dispensary.Bottles). Five
+-- or more would not fit a phone's card at 44 px (Pure.pickLayout).
+Pure.CHOICES_MAX = 4
+Pure.TAP_MIN = 44 -- the smallest a tap target may be on any screen (Review Focus 5)
 -- Progression v2: 🎯 Steady Hands widens the Perfect windows by up to 30% (TreatSession.Ease, 1..1.3; client only)
 Pure.EASE_MAX = 1.3
-Pure.TRIAGE_MAX = 3 -- floor buttons on the triage card (two today: 🛏️ Wards and 🛁 Hydro)
+Pure.TRIAGE_MAX = 3 -- floor buttons on the triage card (two today: 🛏️ Injury Ward and 😴 Rest Ward)
 Pure.TRIAGE_SECONDS_MAX = 10
 
 export type Session = {
 	Session: number,
 	PatientId: string,
-	Items: { string }, -- one per game ("" when unknown)
+	Items: { string }, -- one per game ("" when unknown; Exam and Dispense have none)
 	Games: { string },
 	Simple: boolean,
 	Combo: number, -- a whole number >= 0
 	Timeout: number?, -- seconds, nil when the payload had none
 	-- Progression v2 (build plan §B3 TreatSession): defaults when the server sends none
-	Kind: string, -- "Treat" | "Soak" (the Hydro hot tub's 🫧 bubble bath: one Scrub game for a tip)
+	Kind: string, -- "Exam" | "Treat" | "Dispense"
 	Auto: { boolean }, -- per game: an ability made it PERFECT already (shown with ✨ and skipped)
 	Ease: number, -- 1..EASE_MAX: how much wider the Perfect windows are
+	-- The Real Clinic (contract C5)
+	Tools: { string }, -- Exam: the tools on the card (ToolIds, at most CHOICES_MAX, no repeats)
+	Answer: string?, -- Exam: the right tool
+	Glow: boolean, -- Exam: the right tool glows
+	Options: { string }, -- Dispense: the medicines to choose from (ItemIds, at most CHOICES_MAX, no repeats)
+	Case: string?, -- Treat: the case being treated
+	Symptom: string, -- Exam: the patient's symptom bubble, as a clue ("" when the server sends none)
+	Expert: boolean, -- Dispense: Expert Dispensing (the Pharmacy2 unlock) widens the Dose band
 }
 export type TriageOption = { Dept: string, Icon: string, Name: string }
 export type TriageCard = { Options: { TriageOption }, Seconds: number }
 export type Point = { X: number, Y: number }
+export type Rect = { X: number, Y: number, W: number, H: number } -- px, top-left corner
+-- What a game id looks like (colours by name: Tint is a Theme.Colors key, Liquid a "#RRGGBB" or "Bottle" for the
+-- chosen medicine's own colour). The skin fields belong to the game's engine.
+export type LookSpec = {
+	Icon: string,
+	Title: string,
+	Hint: string,
+	Sound: string, -- a Feel/Sounds cue: the game's hit
+	Tint: string,
+	Vessel: string?, -- Pour: "Bottle" | "Cup" | "Tube" | "Pack"
+	Pourer: string?, -- Pour: what tips and pours (an emoji, or "Bottle" for the medicine's icon); nil = nothing pours
+	Liquid: string?, -- Pour
+	Mark: string?, -- Patch: what lands on a tapped spot
+	Spot: string?, -- Patch: "Sore" | "Glow"
+	Style: string?, -- Cool: "Ring" | "Sweep"
+	Target: string?, -- Cool: what the beat lines up with ("Mug", "Face" or an emoji)
+	Good: string?, -- Cool: a good beat's pip
+	Miss: string?, -- Cool: any other beat's pip
+}
 
 local function finite(value: any): number?
 	if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
@@ -106,6 +164,23 @@ local function finite(value: any): number?
 	return nil
 end
 Pure.finite = finite
+
+-- A list of distinct strings out of `raw` (at most `max`), or {} for junk.
+local function strings(raw: any, max: number): { string }
+	local out: { string } = {}
+	if type(raw) ~= "table" then
+		return out
+	end
+	for _, value in ipairs(raw) do
+		if #out >= max then
+			break
+		end
+		if type(value) == "string" and value ~= "" and not table.find(out, value) then
+			table.insert(out, value)
+		end
+	end
+	return out
+end
 
 -- The TreatStart payload, checked and tidied, or nil when it can't be played (wrong shape, no games, too many).
 function Pure.session(raw: any): Session?
@@ -148,9 +223,16 @@ function Pure.session(raw: any): Session?
 		Simple = raw.Simple == true,
 		Combo = if combo then math.max(0, math.floor(combo)) else 0,
 		Timeout = if timeout and timeout > 0 then timeout else nil,
-		Kind = if raw.Kind == "Soak" then "Soak" else "Treat",
+		Kind = if type(raw.Kind) == "string" and Pure.KINDS[raw.Kind] then raw.Kind else "Treat",
 		Auto = auto,
 		Ease = math.clamp(finite(raw.Ease) or 1, 1, Pure.EASE_MAX),
+		Tools = strings(raw.Tools, Pure.CHOICES_MAX),
+		Answer = if type(raw.Answer) == "string" and raw.Answer ~= "" then raw.Answer else nil,
+		Glow = raw.Glow == true,
+		Options = strings(raw.Options, Pure.CHOICES_MAX),
+		Case = if type(raw.Case) == "string" and raw.Case ~= "" then raw.Case else nil,
+		Symptom = if type(raw.Symptom) == "string" and #raw.Symptom <= 60 then raw.Symptom else "",
+		Expert = raw.Expert == true,
 	}
 end
 
@@ -166,6 +248,29 @@ function Pure.played(games: { string }, auto: { boolean }?): { string }
 	return out
 end
 
+-- A game id's engine: what `engines` (Logic/MiniGame.ENGINE) says, or the id itself when it names an engine, or nil
+-- (this client can't draw it: it plays as one tap).
+function Pure.engine(gameId: any, engines: any): string?
+	if type(gameId) ~= "string" then
+		return nil
+	end
+	local engine = if type(engines) == "table" then rawget(engines, gameId) else nil
+	if type(engine) == "string" and Pure.KNOWN[engine] then
+		return engine
+	end
+	return if Pure.KNOWN[gameId] then gameId else nil
+end
+
+-- Which routine plays a game: its engine ("Pour", "Patch", "Scrub", "Cool", "Pick"), or "Tap" (one big tap) in
+-- Simple mode or for a game this client can't draw.
+function Pure.dispatch(gameId: any, engines: any, simple: boolean?): string
+	local engine = Pure.engine(gameId, engines)
+	if simple == true or engine == nil then
+		return "Tap"
+	end
+	return engine
+end
+
 local function copyOf(value: any): { [any]: any }
 	local out = {}
 	if type(value) == "table" then
@@ -176,32 +281,92 @@ local function copyOf(value: any): { [any]: any }
 	return out
 end
 
--- Config.MiniGame with the Perfect windows widened by `ease` (🎯 Steady Hands, 1..EASE_MAX): the Pour's ⭐ band
--- (round its middle) and its Good slack, the Cool's blow window, and a little more time to patch and to scrub. New
--- tables (Config is frozen). The client draws and rates with it; the server takes the client's ratings, so the two
--- always agree. ease 1 (or junk) is the plain settings.
+-- The engine a tuning row is for: an engine's own row by its name, any other (a Games row) by its own fields: a Pour
+-- row has a band, a Cool row beats, a Patch row spots and a Scrub row a bubble goal. nil = nothing to widen (a Games
+-- row with none of them, like Pick's).
+function Pure.rowEngine(name: any, row: any): string?
+	if type(name) == "string" and Pure.KNOWN[name] then
+		return name
+	end
+	if type(row) ~= "table" then
+		return nil
+	end
+	if row.BandMin ~= nil or row.BandMax ~= nil or row.FillSeconds ~= nil then
+		return "Pour"
+	elseif row.Window ~= nil or row.Blows ~= nil or row.PulseSeconds ~= nil then
+		return "Cool"
+	elseif row.Spots ~= nil then
+		return "Patch"
+	elseif row.Perfect ~= nil then
+		return "Scrub"
+	end
+	return nil
+end
+
+-- A Pour row's Perfect band, `k` times as wide round its middle (clamped to 0..1).
+local function widenBand(row: any, k: number)
+	local low, high = finite(row.BandMin) or 0.7, finite(row.BandMax) or 0.86
+	local middle, half = (low + high) / 2, (high - low) / 2 * k
+	row.BandMin = math.max(0, middle - half)
+	row.BandMax = math.min(1, middle + half)
+end
+
+-- One tuning row with its windows widened by `k` (a new table).
+local function easeRow(row: any, engine: string?, k: number): any
+	local out = copyOf(row)
+	if engine == "Pour" then
+		widenBand(out, k)
+		out.GoodSlack = (finite(out.GoodSlack) or 0.12) * k
+	elseif engine == "Cool" then
+		out.Window = (finite(out.Window) or 0.3) * k
+	elseif engine == "Patch" then
+		out.Seconds = (finite(out.Seconds) or 4.5) * k
+	elseif engine == "Scrub" then
+		out.Seconds = (finite(out.Seconds) or 4) * k
+	end
+	return out
+end
+
+-- Config.MiniGame with the Perfect windows widened by `ease` (🎯 Steady Hands, 1..EASE_MAX), in the engines' own
+-- rows and in every Games row (Pure.rowEngine says which engine a row is for): the Pour bands (round their middle)
+-- and Good slack, the Cool windows, and a little more time to patch and to scrub. New tables (Config is frozen).
+-- The client draws and rates with it; the server takes the client's ratings, so the two always agree. ease 1 (or
+-- junk) is the plain settings.
 function Pure.eased(mini: any, ease: number?): any
 	local out = copyOf(mini)
 	local k = math.clamp(finite(ease) or 1, 1, Pure.EASE_MAX)
 	if k <= 1 then
 		return out
 	end
-	local pour = copyOf(out.Pour)
-	local low, high = finite(pour.BandMin) or 0.7, finite(pour.BandMax) or 0.86
-	local middle, half = (low + high) / 2, (high - low) / 2 * k
-	pour.BandMin = math.max(0, middle - half)
-	pour.BandMax = math.min(1, middle + half)
-	pour.GoodSlack = (finite(pour.GoodSlack) or 0.12) * k
-	out.Pour = pour
-	local cool = copyOf(out.Cool)
-	cool.Window = (finite(cool.Window) or 0.3) * k
-	out.Cool = cool
-	local patch = copyOf(out.Patch)
-	patch.Seconds = (finite(patch.Seconds) or 4.5) * k
-	out.Patch = patch
-	local scrub = copyOf(out.Scrub)
-	scrub.Seconds = (finite(scrub.Seconds) or 4) * k
-	out.Scrub = scrub
+	for _, engine in { "Pour", "Cool", "Patch", "Scrub" } do
+		out[engine] = easeRow(out[engine], engine, k)
+	end
+	if type(out.Games) == "table" then
+		local games = {}
+		for name, row in out.Games do
+			games[name] = easeRow(row, Pure.rowEngine(name, row), k)
+		end
+		out.Games = games
+	end
+	return out
+end
+
+-- Config.MiniGame with one game's Perfect band `factor` times as wide round its middle (a new table; its Good slack
+-- is kept): Expert Dispensing widens the Dose band by Config.Dispensary.ExpertBand. A factor of 1 or less, junk, or
+-- a game with no band leaves the settings as they are.
+function Pure.widened(mini: any, gameId: string, factor: number?): any
+	local out = copyOf(mini)
+	local k = finite(factor) or 1
+	local games = if type(out.Games) == "table" then out.Games else nil
+	local row = if games then games[gameId] else nil
+	if k <= 1 or type(row) ~= "table" or Pure.rowEngine(gameId, row) ~= "Pour" then
+		return out
+	end
+	local copy = copyOf(games)
+	local wide = copyOf(row)
+	widenBand(wide, k)
+	copy[gameId] = wide
+	out.Games = copy
 	return out
 end
 
@@ -363,7 +528,7 @@ function Pure.multText(multiplier: number): string
 end
 
 -- The draining time bar's share, or nil to hide it: while the first-session tutorial runs no clock ever runs down
--- (look build plan §B8; the game still ends on time, and OK still cures).
+-- (look build plan §B8; the game still ends on time, and OK still treats).
 function Pure.drainBar(share: any, tutorialActive: boolean): number?
 	if tutorialActive then
 		return nil
@@ -371,18 +536,391 @@ function Pure.drainBar(share: any, tutorialActive: boolean): number?
 	return math.clamp(finite(share) or 0, 0, 1)
 end
 
+-- Cool, "Sweep" skin: where the bar is along its track `t` seconds into a beat (0 at the start, 1 at the end). The
+-- middle (0.5) is the beat's biggest moment, so a tap is good while the bar is within sweepZone of the middle.
+function Pure.sweep(t: number, pulse: number?): number
+	local seconds = math.max(finite(pulse) or 1.2, 0.1)
+	return math.clamp((finite(t) or 0) / seconds, 0, 1)
+end
+
+-- Cool, "Sweep" skin: how far either side of the middle (a share of the track) a tap is good (Pure.goodBlow's rule).
+function Pure.sweepZone(pulse: number?, window: number?): number
+	local seconds = math.max(finite(pulse) or 1.2, 0.1)
+	return math.clamp(math.max(finite(window) or 0.3, 0) / seconds, 0, 0.5)
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The Real Clinic's looks and words (design §7 and §9). Hints stay short (they fit a phone's card), and nothing here
+-- says "cure": the game treats (design §12).
+------------------------------------------------------------------------------------------------------------------
+
+Pure.HINT_MAX = 20 -- characters in a hint or a title, so it fits a phone's card at 18 px
+
+Pure.LOOKS = {
+	-- the exam tools (Data/Tools Game)
+	Listen = {
+		Icon = "🩺",
+		Title = "Listen!",
+		Hint = "Tap each glow!",
+		Sound = "Listen",
+		Tint = "Cyan",
+		Mark = "💓",
+		Spot = "Glow",
+	},
+	Temp = {
+		Icon = "🌡️",
+		Title = "Temperature!",
+		Hint = "Hold… let go on ⭐",
+		Sound = "Beep",
+		Tint = "Pink",
+		Vessel = "Tube",
+		Liquid = "#FF6B6B",
+	},
+	Light = {
+		Icon = "🔦",
+		Title = "Light check!",
+		Hint = "Tap when it's big!",
+		Sound = "Shine",
+		Tint = "Cash",
+		Style = "Ring",
+		Target = "Face",
+		Good = "💡",
+		Miss = "💨",
+	},
+	Look = {
+		Icon = "🔍",
+		Title = "Take a look!",
+		Hint = "Find the sore spots!",
+		Sound = "Pop",
+		Tint = "Purple",
+		Mark = "🔍",
+		Spot = "Sore",
+	},
+	XRay = {
+		Icon = "🩻",
+		Title = "X-ray!",
+		Hint = "Tap on the bone!",
+		Sound = "Scan",
+		Tint = "Cyan",
+		Style = "Sweep",
+		Target = "🦴",
+		Good = "🩻",
+		Miss = "〰️",
+	},
+	-- the supplies (Data/Items Game)
+	Plaster = {
+		Icon = "🩹",
+		Title = "Plaster!",
+		Hint = "Tap the sore spots!",
+		Sound = "Patch",
+		Tint = "Pink",
+		Mark = "🩹",
+		Spot = "Sore",
+	},
+	Ice = {
+		Icon = "🧊",
+		Title = "Ice pack!",
+		Hint = "Hold… let go on ⭐",
+		Sound = "Cold",
+		Tint = "Cyan",
+		Vessel = "Pack",
+		Liquid = "#8FD8FF",
+	},
+	Bandage = {
+		Icon = "🧻",
+		Title = "Bandage!",
+		Hint = "Tap to wrap!",
+		Sound = "Wrap",
+		Tint = "Primary",
+		Style = "Sweep",
+		Target = "🦶",
+		Good = "✨",
+		Miss = "〰️",
+	},
+	Cast = {
+		Icon = "🦴",
+		Title = "Cast!",
+		Hint = "Tap to wrap!",
+		Sound = "Wrap",
+		Tint = "Purple",
+		Style = "Sweep",
+		Target = "💪",
+		Good = "✨",
+		Miss = "〰️",
+	},
+	Bath = { Icon = "🛁", Title = "Bath time!", Hint = "Pop the bubbles!", Sound = "Scrub", Tint = "Cyan" },
+	Cocoa = {
+		Icon = "☕",
+		Title = "Hot cocoa!",
+		Hint = "Blow when it's big!",
+		Sound = "Blow",
+		Tint = "Primary",
+		Style = "Ring",
+		Target = "Mug",
+		Good = "❄️",
+		Miss = "💨",
+	},
+	-- the dispensary
+	Dose = {
+		Icon = "🥄",
+		Title = "Measure!",
+		Hint = "Fill to the ⭐!",
+		Sound = "Pour",
+		Tint = "Purple",
+		Vessel = "Cup",
+		Pourer = "Bottle",
+		Liquid = "Bottle",
+	},
+	Pick = { Icon = "🤔", Title = "Pick one!", Hint = "Tap the right one!", Sound = "Found", Tint = "Collect" },
+	-- the engines' own looks (a session that still names an engine plays as before)
+	Pour = {
+		Icon = "🧪",
+		Title = "Pour!",
+		Hint = "Hold… let go on ⭐",
+		Sound = "Pour",
+		Tint = "Purple",
+		Vessel = "Bottle",
+		Pourer = "🧪",
+		Liquid = "#FF8FC7",
+	},
+	Patch = {
+		Icon = "🩹",
+		Title = "Patch!",
+		Hint = "Tap the sore spots!",
+		Sound = "Patch",
+		Tint = "Pink",
+		Mark = "🩹",
+		Spot = "Sore",
+	},
+	Scrub = { Icon = "🛁", Title = "Scrub!", Hint = "Pop the bubbles!", Sound = "Scrub", Tint = "Cyan" },
+	Cool = {
+		Icon = "☕",
+		Title = "Cool!",
+		Hint = "Blow when it's big!",
+		Sound = "Blow",
+		Tint = "Primary",
+		Style = "Ring",
+		Target = "Mug",
+		Good = "❄️",
+		Miss = "💨",
+	},
+} :: { [string]: LookSpec }
+
+-- The cards' own words (the exam's tool pick, the dispensary, the reveal, the results).
+Pure.WORDS = {
+	ExamIcon = "🤔",
+	ExamTitle = "Which tool?",
+	ExamHint = "👀 Which one fits?",
+	GlowHint = "✨ The shiny one!",
+	Wrong = "🙃 Hmm, not that one!",
+	ChooseIcon = "💊",
+	ChooseTitle = "Which one?",
+	ChooseHint = "👆 Pick one to make",
+	FindHint = "👀 Find this bottle!",
+	Ready = "Ready!",
+	ToBay = "🛏️ To the patient!",
+	Better = "All better!",
+	BetterHint = "😊 Feeling better!",
+	Nice = "Nice!",
+	NextHint = "🔜 Next step!",
+}
+
+------------------------------------------------------------------------------------------------------------------
+-- Phone fit (Review Focus 5): the card's size on a screen, and where the Pick's targets go on its stage.
+------------------------------------------------------------------------------------------------------------------
+
+-- The card's numbers. build() makes the card from these, and MiniGamesPure.spec checks the copies of other modules'
+-- numbers against their sources: Header = Kit.HEADER, Pad = Theme.Space.PadPanel, Gap = Theme.Space.Gap (under the
+-- header) = Theme.Space.Step[2] (between the strips), Topbar = HudZones.TOPBAR (the ScreenGui's CoreUISafeInsets
+-- leave the Roblox top bar out).
+Pure.CARD = {
+	MaxX = 540, -- the card's largest size (UISizeConstraint)
+	MaxY = 514,
+	ShareX = 0.96, -- its share of the safe area
+	ShareY = 0.94,
+	Aspect = 1.05, -- width / height (UIAspectRatioConstraint)
+	Pad = 16, -- the panel's padding, every side
+	Header = 64, -- the navy band
+	Gap = 8, -- under the header, and between the strips
+	Status = 26, -- the status strip: the step chips and the time bar
+	Hint = 40, -- the hint line
+	Topbar = 58, -- the Roblox top bar (the safe area starts under it)
+	PickGap = 8, -- between the Pick's targets
+	PickMax = 132, -- the Pick's targets never grow past this (a computer's big card)
+}
+
+local function xy(value: any): (number, number)
+	local ok, x, y = pcall(function()
+		return value.X, value.Y
+	end)
+	if not ok then
+		return 0, 0
+	end
+	return math.max(finite(x) or 0, 0), math.max(finite(y) or 0, 0)
+end
+
+-- The card's size on a screen of `viewport` px (a Vector2 or { X, Y }), and the stage inside it where the games
+-- draw. topInset: the top bar's height (default CARD.Topbar). Both as { X, Y } px.
+function Pure.cardSize(viewport: any, topInset: number?): (Point, Point)
+	local c = Pure.CARD
+	local vx, vy = xy(viewport)
+	local safeY = math.max(vy - math.max(finite(topInset) or c.Topbar, 0), 0)
+	local w = math.min(vx * c.ShareX, c.MaxX)
+	local h = math.min(safeY * c.ShareY, c.MaxY)
+	-- The aspect ratio fits inside that box (FitWithinMaxSize).
+	if h > 0 and w / h > c.Aspect then
+		w = h * c.Aspect
+	else
+		h = w / c.Aspect
+	end
+	local innerW = math.max(w - c.Pad * 2, 0)
+	local bodyH = math.max(h - c.Pad * 2 - (c.Header - c.Pad + c.Gap), 0)
+	local stageH = math.max(bodyH - (c.Status + c.Gap + c.Hint + c.Gap), 0)
+	return { X = w, Y = h }, { X = innerW, Y = stageH }
+end
+
+-- `n` square tap targets on a stage of `stage` px (a Vector2 or { X, Y }), as big as they fit (up to CARD.PickMax),
+-- in the rows that make them biggest, centred, CARD.PickGap apart. Top-left rects in the stage's px. On a phone's
+-- card every target is at least TAP_MIN (MiniGamesPure.spec), none overlap and none leave the stage.
+function Pure.pickRects(stage: any, n: number): { Rect }
+	local w, h = xy(stage)
+	local count = math.clamp(math.floor(finite(n) or 0), 0, Pure.CHOICES_MAX)
+	local gap = Pure.CARD.PickGap
+	local out: { Rect } = {}
+	if count == 0 or w <= 0 or h <= 0 then
+		return out
+	end
+	local bestSide, bestRows = -1, 1
+	for rows = 1, count do
+		local cols = math.ceil(count / rows)
+		local side = math.min((w - (cols - 1) * gap) / cols, (h - (rows - 1) * gap) / rows)
+		if side > bestSide + 1e-9 then
+			bestSide, bestRows = side, rows
+		end
+	end
+	local side = math.floor(math.clamp(bestSide, 0, Pure.CARD.PickMax))
+	local rows = bestRows
+	local cols = math.ceil(count / rows)
+	local top = (h - (rows * side + (rows - 1) * gap)) / 2
+	for index = 1, count do
+		local row = math.floor((index - 1) / cols)
+		local col = (index - 1) % cols
+		local inRow = math.min(cols, count - row * cols)
+		local left = (w - (inRow * side + (inRow - 1) * gap)) / 2
+		table.insert(out, {
+			X = math.floor(left + col * (side + gap)),
+			Y = math.floor(top + row * (side + gap)),
+			W = side,
+			H = side,
+		})
+	end
+	return out
+end
+
+-- The Pick's targets on the card a screen of `viewport` px shows (Pure.cardSize, then Pure.pickRects), with the
+-- stage and the card they sit in.
+function Pure.pickLayout(viewport: any, n: number, topInset: number?): ({ Rect }, Point, Point)
+	local card, stage = Pure.cardSize(viewport, topInset)
+	return Pure.pickRects(stage, n), stage, card
+end
+
+------------------------------------------------------------------------------------------------------------------
+-- The exam's tools and the dispensary's bottles
+------------------------------------------------------------------------------------------------------------------
+
+-- The Pick's choices: distinct ids from `list` (at most `max`, default CHOICES_MAX) with `answer` always among them
+-- (it takes the last place when the list is full or doesn't have it). nil when there is no answer.
+function Pure.choices(list: any, answer: any, max: number?): { string }?
+	if type(answer) ~= "string" or answer == "" then
+		return nil
+	end
+	local limit = math.clamp(math.floor(finite(max) or Pure.CHOICES_MAX), 1, Pure.CHOICES_MAX)
+	local out = strings(list, limit)
+	if not table.find(out, answer) then
+		if #out >= limit then
+			out[limit] = answer
+		else
+			table.insert(out, answer)
+		end
+	end
+	return out
+end
+
+-- The shelf the dispensary's Pick shows: `count` medicine ids (Config.Dispensary.Bottles), `answer` among them, no
+-- repeats. The others never share the answer's icon while the shelf has enough that don't (two 🧴 bottles side by
+-- side would be a trick). pool = { { Id, Icon } } (the medicines, in Data/Items order); r01() returns 0..1 (a Random
+-- in the game), so the same r01 gives the same shelf.
+function Pure.bottles(answer: string, pool: any, count: number?, r01: () -> number): { string }
+	local want = math.clamp(math.floor(finite(count) or 4), 1, Pure.CHOICES_MAX)
+	local icon: string? = nil
+	if type(pool) == "table" then
+		for _, entry in ipairs(pool) do
+			if type(entry) == "table" and entry.Id == answer then
+				icon = entry.Icon
+			end
+		end
+	end
+	local unlike: { string } = {}
+	local alike: { string } = {}
+	if type(pool) == "table" then
+		for _, entry in ipairs(pool) do
+			local id = if type(entry) == "table" then entry.Id else nil
+			if type(id) == "string" and id ~= answer and not table.find(unlike, id) and not table.find(alike, id) then
+				table.insert(if icon ~= nil and entry.Icon == icon then alike else unlike, id)
+			end
+		end
+	end
+	local function shuffle(list: { string })
+		for index = #list, 2, -1 do
+			local other = math.clamp(math.floor(r01() * index) + 1, 1, index)
+			list[index], list[other] = list[other], list[index]
+		end
+	end
+	shuffle(unlike)
+	local others: { string } = {}
+	for _, id in unlike do
+		if #others >= want - 1 then
+			break
+		end
+		table.insert(others, id)
+	end
+	for _, id in alike do
+		if #others >= want - 1 then
+			break
+		end
+		table.insert(others, id)
+	end
+	local at = math.clamp(math.floor(r01() * (#others + 1)) + 1, 1, #others + 1)
+	table.insert(others, at, answer)
+	return others
+end
+
+-- The reveal after an exam: "It's a cough!", "It's an earache!", "It's sore muscles!" (a plural name takes no "a").
+function Pure.reveal(name: any): string
+	local text = "something"
+	if type(name) == "string" and name ~= "" then
+		text = string.lower(string.sub(name, 1, 1)) .. string.sub(name, 2)
+	end
+	local plural = string.sub(text, -1) == "s" and string.sub(text, -2) ~= "ss"
+	if plural or text == "something" then
+		return "It's " .. text .. "!"
+	end
+	local vowel = string.find(string.sub(text, 1, 1), "[aeiou]") ~= nil
+	return "It's " .. (if vowel then "an " else "a ") .. text .. "!"
+end
+
 ------------------------------------------------------------------------------------------------------------------
 -- PURE:END
 ------------------------------------------------------------------------------------------------------------------
 
-local DISPLAY_ORDER = Theme.DisplayOrder.Popup + 5 -- over panels and pop-ups, under cure pops and toasts
+local DISPLAY_ORDER = Theme.DisplayOrder.Popup + 5 -- over panels and pop-ups, under the treat pops and toasts
 local ACTION = "MiniGamesAction" -- Space / gamepad A while the card is open
 local MIN_TAP = Theme.Size.ButtonHeight
 local NAME = "MiniGame" -- the modal's name (ModalOpened / ModalClosed)
 
 -- The card's body (px, under UI/Modal's navy header): the status strip (steps + time bar), the stage, the hint line.
-local STATUS = 26
-local HINT = 40
+local STATUS = Pure.CARD.Status
+local HINT = Pure.CARD.Hint
 local GAP = Theme.Space.Step[2]
 local GLYPH = 32 -- the pad's button picture on the hint line
 
@@ -390,6 +928,7 @@ local GLYPH = 32 -- the pad's button picture on the hint line
 local INTRO = 0.4 -- each game's picture pops in before it takes taps
 local RATING_HOLD = 0.9 -- the rating pop stays this long before the next game
 local RESULT_HOLD = 1.2 -- the server's answer stays this long before the card closes
+local REVEAL_HOLD = 1.2 -- an exam's case reveal ("🩺 It's a cough!") stays this long (build plan Task 7)
 local REPORT_MARGIN = 0.15
 local TIMEOUT_MARGIN = 0.6 -- the card closes this long before the server settles the session by itself
 local POUR_IDLE = 6 -- a Pour nobody starts ends by itself (rated OK)
@@ -398,61 +937,57 @@ local SPOT_EVERY = 0.4 -- Patch: the sore spots pop up one after another
 local BUBBLE_EVERY = 0.36
 local BUBBLE_LIFE = 1.8
 local BUBBLE_MAX = 4
-local COOL_GAP = 0.35 -- between steam rings
-local COOL_GRACE = 0.08 -- a tap this soon in a ring is a leftover from the last one: ignored
+local COOL_GAP = 0.35 -- between beats
+local COOL_GRACE = 0.08 -- a tap this soon in a beat is a leftover from the last one: ignored
 local RING_MIN = 0.3
+local PICK_SHAKE = 0.3 -- a wrong pick shakes its head this long
 
 local WHITE = Palette.White
 local OUTLINE = Theme.Colors.Outline
 local GLASS = Color3.fromRGB(226, 244, 255)
-local POTION = Theme.Colors.Pink
 local SORE = Color3.fromRGB(255, 120, 140)
 local SORE_CORE = Color3.fromRGB(230, 60, 90)
+local GLOW = Color3.fromRGB(150, 228, 255) -- Listen: the chest's glowing spots
+local GLOW_CORE = Color3.fromRGB(255, 255, 255)
 local MUD = Color3.fromRGB(150, 98, 56)
 local BUBBLE = Color3.fromRGB(196, 238, 255)
 local STEAM = Color3.fromRGB(232, 236, 252)
+local BEAM = Color3.fromRGB(255, 240, 170) -- Light: the light ring
+local SCAN = Color3.fromRGB(120, 210, 255) -- XRay: the scanner bar
 local COCOA = Color3.fromRGB(132, 74, 44)
 local CALM_BLUE = Palette.Candy.Blue -- "OK!": a calm blue, never a grey "fail"
 
--- Each game's colour lives INSIDE the card (it's the game: its pop, its chips); the header is always navy.
-type GameLook = { Icon: string, Title: string, Hint: string, Color: Color3, Sound: string }
-local GAME_LOOK: { [string]: GameLook } = {
-	Pour = {
-		Icon = "🧪",
-		Title = "Pour!",
-		Hint = "Hold… let go on ⭐",
-		Color = Theme.Colors.Purple,
-		Sound = "Pour",
-	},
-	Patch = {
-		Icon = "🩹",
-		Title = "Patch!",
-		Hint = "Tap the sore spots!",
-		Color = Theme.Colors.Pink,
-		Sound = "Patch",
-	},
-	Scrub = { Icon = "🛁", Title = "Scrub!", Hint = "Pop the bubbles!", Color = Theme.Colors.Cyan, Sound = "Scrub" },
-	Cool = {
-		Icon = "☕",
-		Title = "Cool!",
-		Hint = "Blow when it's biggest!",
-		Color = Theme.Colors.Primary,
-		Sound = "Blow",
-	},
-}
+-- Each game's look lives INSIDE the card (it's the game: its pop, its chips, its skin); the header is always navy.
+-- Built from Pure.LOOKS: the Tint names a Theme colour, the Liquid is a hex (or the chosen medicine's colour).
+type GameLook = LookSpec & { Color: Color3 }
+
+local function tint(name: string?): Color3
+	local color = if type(name) == "string" then (Theme.Colors :: any)[name] else nil
+	return if typeof(color) == "Color3" then color else Theme.Colors.Primary
+end
+
+local function lookOf(spec: LookSpec): GameLook
+	local look = table.clone(spec) :: any
+	look.Color = tint(spec.Tint)
+	return look :: GameLook
+end
+
+local GAME_LOOK: { [string]: GameLook } = {}
+for gameId, spec in Pure.LOOKS do
+	GAME_LOOK[gameId] = lookOf(spec)
+end
 local TAP_LOOK: GameLook =
-	{ Icon = "✨", Title = "Tap!", Hint = "Tap to help!", Color = Theme.Colors.Collect, Sound = "Pop" }
--- Progression v2: the Hydro hot tub's bubble bath (TreatSession Kind "Soak": one Scrub game, a tip only)
-local SOAK_LOOK: GameLook =
-	{ Icon = "🫧", Title = "Bubble bath!", Hint = "Pop the bubbles!", Color = Theme.Colors.Cyan, Sound = "Scrub" }
+	lookOf({ Icon = "✨", Title = "Tap!", Hint = "Tap to help!", Sound = "Pop", Tint = "Collect" })
 -- The triage card's floor buttons wear each department's badge-chip colour (CreatureBuilder.setDept): the colour is
 -- the game ("Match the badge!"), so they're candy buttons with their own Fill.
 local DEPT_COLORS: { [string]: Color3 } = {
 	Reception = Theme.Colors.Primary,
 	AE = Theme.Colors.Destructive,
-	Wards = Theme.Colors.Pink,
+	Wards = Theme.Colors.Pink, -- 🛏️ the Injury Ward
+	Rest = Theme.Colors.Night, -- 😴 the Rest Ward
 	Hydro = Theme.Colors.Cyan,
 	Pharmacy = Theme.Colors.Collect,
+	Imaging = Theme.Colors.Cyan,
 	Roof = Theme.Colors.Purple,
 }
 local AUTO_HOLD = 0.5 -- an ability's PERFECT game shows its sparkle this long before the rating pop
@@ -673,21 +1208,41 @@ local function pressMark(parent: Instance, props: { [string]: any }): GuiObject
 	return emoji(parent, pointer(), props)
 end
 
--- The running session's Config.MiniGame, eased by 🎯 Steady Hands (Pure.eased); nil between sessions.
+-- The running session's Config.MiniGame, eased by 🎯 Steady Hands (Pure.eased) and, for an Expert dispenser, the
+-- wider Dose band (Pure.widened); nil between sessions.
 local activeMini: any = nil
 
 local function miniOf(ctx: Types.Ctx): any
 	return activeMini or ctx.Config.MiniGame
 end
 
-local function settingsOf(ctx: Types.Ctx, name: string): any
-	local mini = miniOf(ctx)
-	local value = if type(mini) == "table" then mini[name] else nil
-	return if type(value) == "table" then value else {}
+-- A game's tuning row as this session draws and rates it (Logic/MiniGame.tuning: its Games row, else its engine's).
+local function tuningOf(ctx: Types.Ctx, gameId: string): any
+	local row = MiniGame.tuning(gameId, { MiniGame = miniOf(ctx) })
+	return if type(row) == "table" then row else {}
 end
 
 local function num(value: any, fallback: number): number
 	return finite(value) or fallback
+end
+
+-- A row of one of ctx.Data's maps (Tools, Items, Cases, ...), or nil (a junk id, or a map this client lacks).
+local function dataRow(ctx: Types.Ctx, map: string, id: any): any
+	local data = (ctx.Data :: any)[map]
+	if type(data) ~= "table" or type(id) ~= "string" or id == "" then
+		return nil
+	end
+	local row = rawget(data, id)
+	return if type(row) == "table" then row else nil
+end
+
+-- A "#RRGGBB" as a Color3, or the fallback.
+local function hexColor(value: any, fallback: Color3): Color3
+	if type(value) ~= "string" then
+		return fallback
+	end
+	local ok, color = pcall(Color3.fromHex, value)
+	return if ok and typeof(color) == "Color3" then color else fallback
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -724,14 +1279,15 @@ local stop: (run: Run) -> () -- ends a run (below)
 local function build(ctx: Types.Ctx): View
 	local modal = Modal.modal(ctx, {
 		Name = NAME,
-		Title = "🧪 Pour!",
+		Title = "🤔 Pick one!",
 		Layer = "Panel",
 		HudMode = "Game",
 		CloseButton = false,
 		DimCloses = false, -- the dim is a shade only: the thumbstick and camera still work under it
 		AutoFocus = false, -- Space / gamepad A play the games; the triage card picks its own focus
-		MaxSize = Vector2.new(540, 514),
-		Scale = Vector2.new(0.96, 0.94),
+		-- Pure.CARD: Pure.pickLayout works out the targets' size on a phone from the same numbers
+		MaxSize = Vector2.new(Pure.CARD.MaxX, Pure.CARD.MaxY),
+		Scale = Vector2.new(Pure.CARD.ShareX, Pure.CARD.ShareY),
 		OnClose = function()
 			-- Only closeCard closes it. If anything else ever does, the run ends (the server settles it as OK).
 			local run = current
@@ -740,7 +1296,7 @@ local function build(ctx: Types.Ctx): View
 			end
 		end,
 	})
-	modal.Gui.DisplayOrder = DISPLAY_ORDER -- over panels and pop-ups, under cure pops and toasts
+	modal.Gui.DisplayOrder = DISPLAY_ORDER -- over panels and pop-ups, under the treat pops and toasts
 	-- The tutorial's slim Now strip stays readable (look build plan §B7): while Hud lifts it over this card's
 	-- shade, the card keeps clear of it (it centres in the room under the strip).
 	local function clearNow()
@@ -755,7 +1311,7 @@ local function build(ctx: Types.Ctx): View
 	end
 	Hud.NowMoved:Connect(clearNow)
 	modal.Gui:GetPropertyChangedSignal("AbsolutePosition"):Connect(clearNow)
-	new("UIAspectRatioConstraint", { AspectRatio = 1.05, Parent = modal.Root })
+	new("UIAspectRatioConstraint", { AspectRatio = Pure.CARD.Aspect, Parent = modal.Root })
 	local body = modal.Body
 
 	-- The 🔥 combo is the header's ONE meta chip (white, ink text; there's no ✖), with its ×multiplier tag under it.
@@ -867,17 +1423,18 @@ local function build(ctx: Types.Ctx): View
 		ZIndex = 3,
 		Parent = hint,
 	})
+	-- The words fill the line and shrink to fit a phone's card (never under 18 px: Kit.textLimit).
 	local hintText = Kit.label({
 		Name = "Text",
 		Text = "",
-		TextSize = Theme.TextSize.Body,
+		TextScaled = true,
 		TextWrapped = false,
-		AutomaticSize = Enum.AutomaticSize.X,
-		Size = UDim2.fromOffset(0, HINT),
+		Size = UDim2.new(1, 0, 0, HINT - Theme.Space.Step[2]),
 		LayoutOrder = 2,
 		ZIndex = 3,
 		Parent = hint,
 	})
+	Kit.textLimit(hintText, Theme.TextSize.Body)
 
 	-- The rating pop: huge outlined words over the middle of the card.
 	local pop = new("Frame", {
@@ -952,6 +1509,7 @@ local function setHint(v: View, text: string, withPress: boolean?)
 	local image = if withPress then padImage() else nil
 	v.HintGlyph.Visible = image ~= nil
 	v.HintGlyph.Image = image or ""
+	v.HintText.Size = UDim2.new(1, if image then -(GLYPH + Theme.Space.Step[2]) else 0, 0, HINT - Theme.Space.Step[2])
 	local mark = if withPress and not image then pointer() else ""
 	v.HintText.Text = if mark ~= "" and text ~= "" then mark .. " " .. text else text
 end
@@ -965,7 +1523,31 @@ local function setTime(v: View, share: number?)
 	v.TimeFill.Size = UDim2.fromScale(math.clamp(share, 0, 1), 1)
 end
 
-local function setSteps(ctx: Types.Ctx, v: View, session: Session)
+-- A step chip's icon. A Treat step shows its item; an Exam never shows the right tool before it is picked (🤔 and ❓
+-- until then); a Dispense step shows the chosen medicine (💊 until it is chosen) and the cup.
+local function stepIcon(ctx: Types.Ctx, run: Run, index: number): string
+	local session = run.Session
+	local gameId = session.Games[index]
+	local look = GAME_LOOK[gameId] or TAP_LOOK
+	if session.Kind == "Exam" then
+		if not run.Picked then
+			return if gameId == "Pick" then Pure.WORDS.ExamIcon else "❓"
+		end
+		local tool = dataRow(ctx, "Tools", session.Answer)
+		return if tool and type(tool.Icon) == "string" then tool.Icon else look.Icon
+	elseif session.Kind == "Dispense" then
+		local item = dataRow(ctx, "Items", run.Choice)
+		if gameId == "Pick" then
+			return if item and type(item.Icon) == "string" then item.Icon else Pure.WORDS.ChooseIcon
+		end
+		return look.Icon
+	end
+	local item = dataRow(ctx, "Items", session.Items[index])
+	return if item and type(item.Icon) == "string" then item.Icon else look.Icon
+end
+
+local function setSteps(ctx: Types.Ctx, v: View, run: Run)
+	local session = run.Session
 	for _, child in v.Steps:GetChildren() do
 		if child:IsA("GuiObject") then
 			child:Destroy()
@@ -980,19 +1562,28 @@ local function setSteps(ctx: Types.Ctx, v: View, session: Session)
 	if not shown then
 		return
 	end
-	for index, gameId in session.Games do
-		local item = rawget(ctx.Data.Items :: any, session.Items[index])
-		local look = GAME_LOOK[gameId] or TAP_LOOK
+	for index in session.Games do
 		local chip = blob(v.Steps, "Step" .. index, Theme.Colors.Card, {
 			LayoutOrder = index,
 			Size = UDim2.fromOffset(STATUS, STATUS),
 			ZIndex = 3,
 		})
-		emoji(chip, if type(item) == "table" then item.Icon else look.Icon, {
+		emoji(chip, stepIcon(ctx, run, index), {
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.fromScale(0.78, 0.78),
 			ZIndex = 4,
 		})
+	end
+end
+
+-- The step chips' icons again (an exam's tool was picked, or a medicine chosen).
+local function refreshSteps(ctx: Types.Ctx, v: View, run: Run)
+	for index in run.Session.Games do
+		local chip = v.Steps:FindFirstChild("Step" .. index)
+		local label = chip and chip:FindFirstChild("Emoji")
+		if label and label:IsA("TextLabel") then
+			label.Text = stepIcon(ctx, run, index)
+		end
 	end
 end
 
@@ -1101,6 +1692,9 @@ type Run = {
 	Cleanups: { () -> () },
 	Rng: Random,
 	HideDrain: boolean, -- the first-session tutorial: no time bar runs down (Pure.drainBar)
+	-- The Real Clinic
+	Picked: boolean, -- Exam: the right tool has been picked (the step chips may show it now)
+	Choice: string?, -- Dispense: the medicine being made (the report's Choice)
 }
 
 -- Everything a game needs. Each game builds into Layer, waits on intro(), loops while alive() and returns a score.
@@ -1111,6 +1705,9 @@ type Env = {
 	Layer: Frame, -- this game's own layer in the stage (destroyed when the game ends)
 	Catcher: TextButton, -- the whole stage, under the game's drawing: for "tap anywhere" games
 	Rng: Random,
+	Run: Run,
+	GameId: string, -- the game being played ("" for the Dispense card's medicine choice)
+	Look: GameLook, -- its look (Pure.LOOKS): the words, the sound and the engine's skin
 	alive: () -> boolean,
 	track: (connection: RBXScriptConnection) -> (),
 	intro: () -> boolean, -- pops the picture in and waits INTRO seconds; false when the run ended meanwhile
@@ -1137,17 +1734,34 @@ local function handleAction(_: string, state: Enum.UserInputState, _input: Input
 	return Enum.ContextActionResult.Sink
 end
 
+-- Space and the gamepad's A play the games. withPad false: Space only, so the gamepad's A presses the selected
+-- button (a Pick's targets; Space still never makes the character jump while the card is up).
+local function bindPlay(withPad: boolean)
+	ContextActionService:UnbindAction(ACTION)
+	if withPad then
+		ContextActionService:BindActionAtPriority(
+			ACTION,
+			handleAction,
+			false,
+			Enum.ContextActionPriority.High.Value,
+			Enum.KeyCode.ButtonA,
+			Enum.KeyCode.Space
+		)
+	else
+		ContextActionService:BindActionAtPriority(
+			ACTION,
+			handleAction,
+			false,
+			Enum.ContextActionPriority.High.Value,
+			Enum.KeyCode.Space
+		)
+	end
+end
+
 local function openCard(v: View)
 	clearPop(v)
 	v.Modal.open() -- the dim, the pop in, the Whoosh, and ModalOpened (MiniGame, "Game") for the HUD
-	ContextActionService:BindActionAtPriority(
-		ACTION,
-		handleAction,
-		false,
-		Enum.ContextActionPriority.High.Value,
-		Enum.KeyCode.ButtonA,
-		Enum.KeyCode.Space
-	)
+	bindPlay(true)
 end
 
 local function closeCard(v: View)
@@ -1204,50 +1818,102 @@ local function creature(env: Env, k: number, y: number): Frame
 	return holder
 end
 
--- 🧪 Pour: hold to fill, let go in the band. Score = the fill when let go.
+-- The medicine a Dispense card is making (Data/Items row), or nil.
+local function chosenMedicine(env: Env): any
+	return dataRow(env.Ctx, "Items", env.Run.Choice)
+end
+
+-- The Pour engine's vessels (Pure.LOOKS Vessel). Width and Height are shares of the stage's height; Neck is the
+-- neck's share of the vessel; Bulb draws a thermometer's round end.
+type Vessel = { Width: number, Height: number, Neck: number, Radius: UDim, Bulb: boolean? }
+local VESSELS: { [string]: Vessel } = {
+	Bottle = { Width = 0.46, Height = 0.8, Neck = 0.16, Radius = UDim.new(0.3, 0) }, -- 🧪
+	Cup = { Width = 0.62, Height = 0.7, Neck = 0, Radius = UDim.new(0.16, 0) }, -- the dispensary's measuring cup
+	Tube = { Width = 0.2, Height = 0.66, Neck = 0, Radius = UDim.new(0.5, 0), Bulb = true }, -- 🌡️
+	Pack = { Width = 0.66, Height = 0.64, Neck = 0.12, Radius = UDim.new(0.24, 0) }, -- 🧊
+}
+
+-- Pour: hold to fill, let go in the band. Score = the fill when let go. The look picks the vessel, its liquid and
+-- what pours (the 🧪 vial, the medicine's own bottle) or nothing (a thermometer climbs, an ice pack cools).
 local function playPour(env: Env): number
-	local cfg = settingsOf(env.Ctx, "Pour")
+	local cfg = tuningOf(env.Ctx, env.GameId)
+	local look = env.Look
 	local fillSeconds = math.max(num(cfg.FillSeconds, 2.4), 0.5)
 	local lo, hi, goodLo, goodHi = Pure.bands(cfg)
 	local layer = env.Layer
-	local NECK = 0.16 -- the neck's share of the bottle's height
-	local BOTTOM, HEIGHT = 0.97, 0.8 -- the bottle in the stage (stage-height scale)
+	local shape = VESSELS[look.Vessel or "Bottle"] or VESSELS.Bottle
+	local NECK = shape.Neck
+	local BOTTOM, HEIGHT = 0.97, shape.Height -- the vessel in the stage (stage-height scale)
+	local medicine = chosenMedicine(env)
+	local liquidColor = if look.Liquid == "Bottle"
+		then hexColor(if medicine then medicine.Bottle else nil, Theme.Colors.Pink)
+		else hexColor(look.Liquid, Theme.Colors.Pink)
+	local pourIcon: string? = if look.Pourer == "Bottle"
+		then (if medicine and type(medicine.Icon) == "string" then medicine.Icon else look.Icon)
+		else look.Pourer
 
 	local bottle = new("Frame", {
-		Name = "Bottle",
+		Name = "Vessel",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.fromScale(0.5, BOTTOM),
-		Size = UDim2.fromScale(0.46, HEIGHT),
+		Size = UDim2.fromScale(shape.Width, HEIGHT),
 		SizeConstraint = Enum.SizeConstraint.RelativeYY,
 		BackgroundTransparency = 1,
 		ZIndex = 2,
 		Parent = layer,
 	})
-	blob(bottle, "Neck", GLASS, {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0),
-		Size = UDim2.fromScale(0.36, NECK + 0.05),
-		ZIndex = 2,
-	}, UDim.new(0, 8))
+	if NECK > 0 then
+		blob(bottle, "Neck", GLASS, {
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.fromScale(0.5, 0),
+			Size = UDim2.fromScale(0.36, NECK + 0.05),
+			ZIndex = 2,
+		}, UDim.new(0, 8))
+	end
 	local body = blob(bottle, "Body", GLASS, {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.fromScale(0.5, 1),
 		Size = UDim2.fromScale(1, 1 - NECK),
 		ClipsDescendants = true,
 		ZIndex = 3,
-	}, UDim.new(0.3, 0))
+	}, shape.Radius)
 	local liquid = new("Frame", {
 		Name = "Liquid",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.fromScale(0.5, 1),
 		Size = UDim2.fromScale(1, 0),
-		BackgroundColor3 = POTION,
+		BackgroundColor3 = liquidColor,
 		BorderSizePixel = 0,
 		ZIndex = 3,
 		Parent = body,
 	})
 	corner(liquid, Theme.Radius.Medium)
 	Palette.candyGradient(liquid)
+	if shape.Bulb then
+		-- The thermometer's round end, always full.
+		blob(bottle, "Bulb", liquidColor, {
+			AnchorPoint = Vector2.new(0.5, 0.6),
+			Position = UDim2.fromScale(0.5, 1),
+			Size = UDim2.fromScale(1.8, 1.8),
+			SizeConstraint = Enum.SizeConstraint.RelativeXX,
+			ZIndex = 4,
+		})
+	end
+	if look.Vessel == "Cup" then
+		-- The measuring cup's lines.
+		for _, at in { 0.25, 0.5, 0.75 } do
+			new("Frame", {
+				Name = "Line",
+				Position = UDim2.fromScale(0.08, 1 - at),
+				Size = UDim2.new(0.22, 0, 0, 3),
+				BackgroundColor3 = OUTLINE,
+				BackgroundTransparency = 0.45,
+				BorderSizePixel = 0,
+				ZIndex = 5,
+				Parent = body,
+			})
+		end
+	end
 	local surface = new("Frame", {
 		Name = "Surface",
 		Size = UDim2.new(1, 0, 0, 5),
@@ -1274,30 +1940,32 @@ local function playPour(env: Env): number
 	local perfect = band("Perfect", lo, hi, Theme.Colors.Collect, 0.35, 6)
 	local glow = Kit.stroke(perfect, WHITE, Theme.Stroke.Bold)
 	glow.Enabled = false
+	-- A ⭐ just outside each side of the vessel, level with the band.
 	local starY = NECK + (1 - NECK) * (1 - (lo + hi) / 2)
 	local stars: { TextLabel } = {}
 	for _, side in { -1, 1 } do
 		table.insert(
 			stars,
 			emoji(bottle, "⭐", {
-				Position = UDim2.fromScale(0.5 + side * 0.7, starY),
-				Size = UDim2.fromScale(0.34, 0.34),
-				SizeConstraint = Enum.SizeConstraint.RelativeXX,
+				AnchorPoint = Vector2.new(if side < 0 then 1 else 0, 0.5),
+				Position = UDim2.new(if side < 0 then 0 else 1, side * 4, starY, 0),
+				Size = UDim2.fromScale(0.24, 0.24),
+				SizeConstraint = Enum.SizeConstraint.RelativeYY,
 				ZIndex = 6,
 			})
 		)
 	end
-	-- The vial that pours, the stream, and the "hold here" hand.
+	-- What pours (it tips and streams), or the game's own icon over the vessel; and the "hold here" hand.
 	local vialProps = squareAt(0.19, UDim2.fromScale(0.5, 0.1))
 	vialProps.ZIndex = 7
-	local vial = emoji(layer, "🧪", vialProps)
+	local vial = emoji(layer, pourIcon or look.Icon, vialProps)
 	local stream = new("Frame", {
 		Name = "Stream",
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0.14),
 		Size = UDim2.fromScale(0.05, 0),
 		SizeConstraint = Enum.SizeConstraint.RelativeYY,
-		BackgroundColor3 = POTION,
+		BackgroundColor3 = liquidColor,
 		BorderSizePixel = 0,
 		Visible = false,
 		ZIndex = 5,
@@ -1317,9 +1985,13 @@ local function playPour(env: Env): number
 		end
 		pressedAt = os.clock()
 		hand.Visible = false
-		stream.Visible = true
-		ease(vial, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Rotation = -110 })
-		sound("Pour")
+		if pourIcon then
+			stream.Visible = true
+			ease(vial, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Rotation = -110 })
+		else
+			punch(vial, 1.3, 0.25)
+		end
+		sound(look.Sound)
 	end
 	local function release()
 		local at = pressedAt
@@ -1383,7 +2055,7 @@ local function playPour(env: Env): number
 			end
 			if now >= nextSound then
 				nextSound = now + POUR_SOUND_EVERY
-				sound("Pour")
+				sound(look.Sound)
 			end
 			if not calm() and now >= nextBubble and fill > 0.08 then
 				nextBubble = now + 0.14
@@ -1410,7 +2082,7 @@ local function playPour(env: Env): number
 				end)
 			end
 			if fill >= 1 then
-				-- Too full: a little splash out of the neck. Still OK.
+				-- Too full: a little splash over the top. Still OK.
 				result = 1
 				sound("Splash")
 				burst(layer, UDim2.fromScale(0.5, 0.2), "💧", 5, 0.12)
@@ -1422,7 +2094,9 @@ local function playPour(env: Env): number
 	local score = result or 0
 	liquid.Size = UDim2.fromScale(1, score) -- exactly where it was let go
 	stream.Visible = false
-	ease(vial, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Rotation = 0 })
+	if pourIcon then
+		ease(vial, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Rotation = 0 })
+	end
 	punch(bottle, 1.12, 0.3)
 	if score >= lo and score <= hi then
 		burst(layer, UDim2.fromScale(0.5, 0.55), "✨", 6, 0.14)
@@ -1430,14 +2104,20 @@ local function playPour(env: Env): number
 	return score
 end
 
--- 🩹 Patch: sore spots pop up one by one; tap each to stick a plaster on. Score = spots patched in time.
+-- Patch: spots pop up one by one on the patient; tap each one. Score = spots tapped in time. The look picks the
+-- spots (sore pink ones, or the chest's glowing ones for Listen) and what lands on each (a 🩹, a 💓, a 🔍).
 local function playPatch(env: Env): number
-	local cfg = settingsOf(env.Ctx, "Patch")
+	local cfg = tuningOf(env.Ctx, env.GameId)
+	local look = env.Look
 	local spots = math.clamp(math.floor(num(cfg.Spots, 3)), 1, 6)
 	local seconds = math.max(num(cfg.Seconds, 4.5), 1)
 	local holder = creature(env, 0.96, 0.5)
 	local points = Pure.scatter(spots, { 0.27, 0.4, 0.73, 0.82 }, 0.3, env.r01)
 	local SPOT = 0.26 -- of the creature
+	local glowing = look.Spot == "Glow"
+	local spotColor = if glowing then GLOW else SORE
+	local coreColor = if glowing then GLOW_CORE else SORE_CORE
+	local mark = look.Mark or "🩹"
 
 	type Spot = { Button: TextButton, Ring: Frame, RingStroke: UIStroke, Point: Point, Done: boolean, Born: number }
 	local live: { Spot } = {}
@@ -1453,13 +2133,13 @@ local function playPatch(env: Env): number
 		spot.Button.Visible = false
 		local at = UDim2.fromScale(spot.Point.X, spot.Point.Y)
 		local props = squareAt(SPOT * 1.25, at)
-		props.Rotation = env.Rng:NextInteger(-28, 28)
+		props.Rotation = if mark == "🩹" then env.Rng:NextInteger(-28, 28) else 0
 		props.ZIndex = 12
-		local plaster = emoji(holder, "🩹", props)
-		punch(plaster, 1.8, 0.22)
+		local sticker = emoji(holder, mark, props)
+		punch(sticker, 1.8, 0.22)
 		punch(holder, 0.94, 0.3)
 		burst(holder, at, "✨", 4, 0.12)
-		sound("Patch")
+		sound(look.Sound)
 	end
 
 	local function spawnSpot(point: Point)
@@ -1468,7 +2148,7 @@ local function playPatch(env: Env): number
 		button.Text = ""
 		button.AutoButtonColor = false
 		button.Selectable = false
-		button.BackgroundColor3 = SORE
+		button.BackgroundColor3 = spotColor
 		button.BorderSizePixel = 0
 		button.ZIndex = 10
 		corner(button)
@@ -1478,7 +2158,7 @@ local function playPatch(env: Env): number
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.fromScale(0.46, 0.46),
-			BackgroundColor3 = SORE_CORE,
+			BackgroundColor3 = coreColor,
 			BorderSizePixel = 0,
 			ZIndex = 11,
 			Parent = button,
@@ -1493,7 +2173,7 @@ local function playPatch(env: Env): number
 			Parent = button,
 		})
 		corner(ring)
-		local ringStroke = Kit.stroke(ring, SORE, Theme.Stroke.Panel)
+		local ringStroke = Kit.stroke(ring, spotColor, Theme.Stroke.Panel)
 		button.Parent = holder
 		punch(button, 0.2, 0.28)
 		local spot: Spot =
@@ -1536,7 +2216,7 @@ local function playPatch(env: Env): number
 		if t >= seconds then
 			break
 		end
-		-- A soft ring pulses out of each sore spot (still when calm).
+		-- A soft ring pulses out of each spot (still when calm).
 		local quiet = calm()
 		for _, spot in live do
 			if not spot.Done then
@@ -1563,7 +2243,8 @@ end
 -- 🛁 Scrub: bubbles pop up around the creature in its bath; pop them. Each pop washes a mud spot off.
 -- Score = bubbles popped in time (it ends early once it's sparkly clean).
 local function playScrub(env: Env): number
-	local cfg = settingsOf(env.Ctx, "Scrub")
+	local cfg = tuningOf(env.Ctx, env.GameId)
+	local look = env.Look
 	local seconds = math.max(num(cfg.Seconds, 4), 1)
 	local goal = math.clamp(math.floor(num(cfg.Perfect, 6)), 1, 12)
 	local layer = env.Layer
@@ -1681,7 +2362,7 @@ local function playScrub(env: Env): number
 		end
 		counterText.Text = "🧼 " .. popped
 		punch(counter, 1.3, 0.25)
-		sound("Scrub")
+		sound(look.Sound)
 	end
 
 	local function spawnBubble(slot: number)
@@ -1780,42 +2461,57 @@ local function playScrub(env: Env): number
 	return popped
 end
 
--- ☕ Cool: steam rings rise off the cocoa one at a time; tap as each one is biggest. Score = good blows.
-local function playCool(env: Env): number
-	local cfg = settingsOf(env.Ctx, "Cool")
-	local blows = math.clamp(math.floor(num(cfg.Blows, 3)), 1, 6)
-	local pulse = math.max(num(cfg.PulseSeconds, 1.2), 0.4)
-	local window = math.max(num(cfg.Window, 0.3), 0.05)
-	local layer = env.Layer
-	local RING_Y, RING = 0.38, 0.54
+-- A beat game's scene (the Cool engine's two skins): frame(t, hot) draws each moment of a beat, start() readies the
+-- next beat, done(good) clears it; Hit is where a good beat bursts and Prop what bounces then.
+type Scene = {
+	frame: (t: number, hot: boolean) -> (),
+	start: () -> (),
+	done: (result: boolean?) -> (),
+	Hit: UDim2,
+	Prop: GuiObject,
+}
 
-	local mug = blob(layer, "Mug", Kit.lighten(Theme.Colors.Primary, 0.08), {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.fromScale(0.5, 0.97),
-		Size = UDim2.fromScale(0.4, 0.3),
-		SizeConstraint = Enum.SizeConstraint.RelativeYY,
-		ZIndex = 3,
-	}, UDim.new(0, 14))
-	Palette.candyGradient(mug)
-	Kit.gloss(mug, 8)
-	local handle = blob(mug, "Handle", Kit.lighten(Theme.Colors.Primary, 0.08), {
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.fromScale(0.9, 0.5),
-		Size = UDim2.fromScale(0.3, 0.56),
-		ZIndex = 2,
-	}, UDim.new(0.5, 0))
-	blob(handle, "Hole", Theme.Colors.PaperEdge, {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.4, 0.5),
-		ZIndex = 2,
-	}, UDim.new(0.5, 0))
-	blob(mug, "Cocoa", COCOA, {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.1),
-		Size = UDim2.fromScale(0.84, 0.2),
-		ZIndex = 4,
-	})
+-- "Ring": a ring grows from the middle and is biggest halfway (☕ the cocoa's steam; 🔦 a light ring over the
+-- patient's face, lining up with the ear or the mouth).
+local function ringScene(env: Env, pulse: number, _window: number): Scene
+	local layer = env.Layer
+	local look = env.Look
+	local face = look.Target == "Face"
+	local RING_Y, RING = if face then 0.46 else 0.38, if face then 0.62 else 0.54
+	local ringColor = if face then BEAM else STEAM
+	local prop: GuiObject
+	if face then
+		prop = creature(env, 0.92, 0.5)
+	else
+		local mug = blob(layer, "Mug", Kit.lighten(Theme.Colors.Primary, 0.08), {
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.fromScale(0.5, 0.97),
+			Size = UDim2.fromScale(0.4, 0.3),
+			SizeConstraint = Enum.SizeConstraint.RelativeYY,
+			ZIndex = 3,
+		}, UDim.new(0, 14))
+		Palette.candyGradient(mug)
+		Kit.gloss(mug, 8)
+		local handle = blob(mug, "Handle", Kit.lighten(Theme.Colors.Primary, 0.08), {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromScale(0.9, 0.5),
+			Size = UDim2.fromScale(0.3, 0.56),
+			ZIndex = 2,
+		}, UDim.new(0.5, 0))
+		blob(handle, "Hole", Theme.Colors.PaperEdge, {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.4, 0.5),
+			ZIndex = 2,
+		}, UDim.new(0.5, 0))
+		blob(mug, "Cocoa", COCOA, {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.1),
+			Size = UDim2.fromScale(0.84, 0.2),
+			ZIndex = 4,
+		})
+		prop = mug
+	end
 
 	local target = new("Frame", squareAt(RING, UDim2.fromScale(0.5, RING_Y)))
 	target.Name = "Target"
@@ -1825,13 +2521,145 @@ local function playCool(env: Env): number
 	local targetStroke = Kit.stroke(target, Theme.Colors.InkSoft, Theme.Stroke.Panel)
 	targetStroke.Transparency = 0.55
 	target.Parent = layer
-	local steam = blob(layer, "Steam", STEAM, squareAt(RING * RING_MIN, UDim2.fromScale(0.5, RING_Y)))
-	steam.BackgroundTransparency = 0.2
+	local steam = blob(layer, "Ring", ringColor, squareAt(RING * RING_MIN, UDim2.fromScale(0.5, RING_Y)))
+	steam.BackgroundTransparency = if face then 0.45 else 0.2
 	steam.ZIndex = 5
 	steam.Visible = false
 	local steamStroke = steam:FindFirstChildOfClass("UIStroke") :: UIStroke
+	local size = RING_MIN
 
-	-- One pip per blow, top left: ❄️ for a good one, 💨 for the rest.
+	return {
+		Hit = UDim2.fromScale(0.5, RING_Y),
+		Prop = prop,
+		start = function()
+			steam.Visible = true
+			steam.BackgroundTransparency = if face then 0.45 else 0.2
+			steamStroke.Transparency = 0
+			size = RING_MIN
+		end,
+		frame = function(t: number, hot: boolean)
+			size = Pure.ring(t, pulse, RING_MIN)
+			steam.Size = UDim2.fromScale(RING * size, RING * size)
+			steam.BackgroundColor3 = if hot then Kit.lighten(Theme.Colors.Collect, 0.35) else ringColor
+			steamStroke.Thickness = if hot then Theme.Stroke.Panel else Theme.Stroke.Bold
+			targetStroke.Color = if hot then Theme.Colors.Collect else Theme.Colors.InkSoft
+			targetStroke.Transparency = if hot then 0 else 0.55
+		end,
+		done = function(result: boolean?)
+			targetStroke.Color = Theme.Colors.InkSoft
+			targetStroke.Transparency = 0.55
+			if result ~= nil and look.Target == "Mug" and not calm() then
+				-- A puff of breath flies up at the steam.
+				local puffProps = squareAt(0.18, UDim2.fromScale(0.5, 0.92))
+				puffProps.ZIndex = 9
+				local puff = emoji(layer, "💨", puffProps)
+				local fly = play(puff, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Position = UDim2.fromScale(0.5, RING_Y),
+					TextTransparency = 1,
+				})
+				fly.Completed:Once(function()
+					puff:Destroy()
+				end)
+			end
+			-- The ring puffs away (it just fades when calm).
+			local grow = math.clamp(size * 1.3, 0, 1.4)
+			local fade = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			if not calm() then
+				play(steam, fade, { Size = UDim2.fromScale(RING * grow, RING * grow), BackgroundTransparency = 1 })
+			else
+				play(steam, fade, { BackgroundTransparency = 1 })
+			end
+			play(steamStroke, fade, { Transparency = 1 })
+		end,
+	}
+end
+
+-- "Sweep": a bar crosses the stage and is in the middle halfway; the green zone round the middle is where a tap is
+-- good (Pure.sweepZone: the same rule as the ring). 🩻 the X-ray's scanner over the bone; 🧻 🦴 a wrap going round.
+local function sweepScene(env: Env, pulse: number, window: number): Scene
+	local layer = env.Layer
+	local look = env.Look
+	local X0, X1, MID = 0.08, 0.92, 0.56
+	local barColor = if env.GameId == "XRay" then SCAN else WHITE
+	blob(layer, "Track", Theme.Colors.Card, {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, MID),
+		Size = UDim2.fromScale(X1 - X0 + 0.06, 0.56),
+		ZIndex = 2,
+	}, Theme.Radius.Medium)
+	local zoneHalf = (X1 - X0) * Pure.sweepZone(pulse, window)
+	local zone = new("Frame", {
+		Name = "Zone",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, MID),
+		Size = UDim2.fromScale(zoneHalf * 2, 0.56),
+		BackgroundColor3 = Theme.Colors.Collect,
+		BackgroundTransparency = 0.65,
+		BorderSizePixel = 0,
+		ZIndex = 3,
+		Parent = layer,
+	})
+	corner(zone, Theme.Radius.Small)
+	local targetProps = squareAt(0.44, UDim2.fromScale(0.5, MID))
+	targetProps.ZIndex = 4
+	local target = emoji(layer, look.Target or look.Icon, targetProps)
+	local bar = new("Frame", {
+		Name = "Bar",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(X0, MID),
+		Size = UDim2.new(0, 14, 0.74, 0),
+		BackgroundColor3 = barColor,
+		BorderSizePixel = 0,
+		Visible = false,
+		ZIndex = 6,
+		Parent = layer,
+	})
+	corner(bar, Theme.Radius.Small)
+	Kit.stroke(bar, OUTLINE, Theme.Stroke.Bold)
+
+	return {
+		Hit = UDim2.fromScale(0.5, MID),
+		Prop = target,
+		start = function()
+			bar.Visible = true
+			bar.Position = UDim2.fromScale(X0, MID)
+			bar.BackgroundColor3 = barColor
+		end,
+		frame = function(t: number, hot: boolean)
+			bar.Position = UDim2.fromScale(X0 + (X1 - X0) * Pure.sweep(t, pulse), MID)
+			bar.BackgroundColor3 = if hot then Kit.lighten(Theme.Colors.Collect, 0.35) else barColor
+			zone.BackgroundTransparency = if hot then 0.35 else 0.65
+		end,
+		done = function(_result: boolean?)
+			zone.BackgroundTransparency = 0.65
+			ease(
+				bar,
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ BackgroundTransparency = 1 }
+			)
+			task.delay(0.22, function()
+				if bar.Parent then
+					bar.Visible = false
+					bar.BackgroundTransparency = 0
+				end
+			end)
+		end,
+	}
+end
+
+-- Cool: Blows beats, one after another; tap as each is at its middle. Score = good beats. The look picks the scene
+-- ("Ring" or "Sweep") and the pips: its Good mark for a good beat, its Miss mark for the rest.
+local function playCool(env: Env): number
+	local cfg = tuningOf(env.Ctx, env.GameId)
+	local look = env.Look
+	local blows = math.clamp(math.floor(num(cfg.Blows, 3)), 1, 6)
+	local pulse = math.max(num(cfg.PulseSeconds, 1.2), 0.4)
+	local window = math.max(num(cfg.Window, 0.3), 0.05)
+	local layer = env.Layer
+	local scene = if look.Style == "Sweep" then sweepScene(env, pulse, window) else ringScene(env, pulse, window)
+	local goodMark, missMark = look.Good or "❄️", look.Miss or "💨"
+
+	-- One pip per beat, top left: the Good mark for a good one, the Miss mark for the rest.
 	local pips = new("Frame", {
 		Name = "Pips",
 		Position = UDim2.fromScale(0.02, 0.03),
@@ -1866,18 +2694,18 @@ local function playCool(env: Env): number
 
 	local request = false
 	local open = false
-	local ringStarted = 0
-	local function blow()
-		if open and os.clock() - ringStarted >= COOL_GRACE then
+	local beatStarted = 0
+	local function tap()
+		if open and os.clock() - beatStarted >= COOL_GRACE then
 			request = true
 		end
 	end
 	env.onPress(env.Catcher, function()
-		blow()
+		tap()
 	end)
 	env.onAction(function(began)
 		if began then
-			blow()
+			tap()
 		end
 	end)
 
@@ -1886,17 +2714,14 @@ local function playCool(env: Env): number
 	end
 	local good = 0
 	for index = 1, blows do
-		ringStarted = os.clock()
+		beatStarted = os.clock()
 		request = false
 		open = true
-		steam.Visible = true
-		steam.BackgroundTransparency = 0.2
-		steamStroke.Transparency = 0
+		scene.start()
 		local ticked = false
-		local result: boolean? = nil -- true = a good blow, false = a blow off the beat, nil = no blow
-		local size = RING_MIN
+		local result: boolean? = nil -- true = a good beat, false = a tap off the beat, nil = no tap
 		while env.alive() do
-			local t = os.clock() - ringStarted
+			local t = os.clock() - beatStarted
 			if request then
 				result = Pure.goodBlow(t, pulse, window)
 				break
@@ -1904,13 +2729,7 @@ local function playCool(env: Env): number
 			if t >= pulse then
 				break
 			end
-			size = Pure.ring(t, pulse, RING_MIN)
-			local hot = Pure.goodBlow(t, pulse, window)
-			steam.Size = UDim2.fromScale(RING * size, RING * size)
-			steam.BackgroundColor3 = if hot then Kit.lighten(Theme.Colors.Collect, 0.35) else STEAM
-			steamStroke.Thickness = if hot then Theme.Stroke.Panel else Theme.Stroke.Bold
-			targetStroke.Color = if hot then Theme.Colors.Collect else Theme.Colors.InkSoft
-			targetStroke.Transparency = if hot then 0 else 0.55
+			scene.frame(t, Pure.goodBlow(t, pulse, window))
 			if not ticked and t >= pulse / 2 then
 				ticked = true
 				sound("Tick")
@@ -1921,32 +2740,17 @@ local function playCool(env: Env): number
 		if not env.alive() then
 			return good
 		end
-		targetStroke.Color = Theme.Colors.InkSoft
-		targetStroke.Transparency = 0.55
-		local pip = pipLabels[index]
-		local ringAt = UDim2.fromScale(0.5, RING_Y)
 		if result ~= nil then
-			sound("Blow")
-			if not calm() then
-				local puffProps = squareAt(0.18, UDim2.fromScale(0.5, 0.92))
-				puffProps.ZIndex = 9
-				local puff = emoji(layer, "💨", puffProps)
-				local fly = play(puff, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Position = ringAt,
-					TextTransparency = 1,
-				})
-				fly.Completed:Once(function()
-					puff:Destroy()
-				end)
-			end
+			sound(look.Sound)
 		end
+		local pip = pipLabels[index]
 		if result == true then
 			good += 1
-			pip.Text = "❄️"
-			burst(layer, ringAt, "❄️", 6, 0.1)
-			punch(mug, 1.12, 0.3)
+			pip.Text = goodMark
+			burst(layer, scene.Hit, goodMark, 6, 0.1)
+			punch(scene.Prop, 1.12, 0.3)
 		else
-			pip.Text = "💨"
+			pip.Text = missMark
 			if pip.Parent and pip.Parent:IsA("GuiObject") then
 				pip.Parent.BackgroundColor3 = Theme.Colors.Disabled
 			end
@@ -1954,25 +2758,272 @@ local function playCool(env: Env): number
 		if pip.Parent and pip.Parent:IsA("GuiObject") then
 			punch(pip.Parent, 1.35, 0.3)
 		end
-		-- The ring puffs away (it just fades when calm).
-		local grow = math.clamp(size * 1.3, 0, 1.4)
-		local fade = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-		if not calm() then
-			play(steam, fade, { Size = UDim2.fromScale(RING * grow, RING * grow), BackgroundTransparency = 1 })
-		else
-			play(steam, fade, { BackgroundTransparency = 1 })
-		end
-		play(steamStroke, fade, { Transparency = 1 })
+		scene.done(result)
 		if not env.pause(COOL_GAP) then
 			return good
 		end
 	end
-	steam.Visible = false
 	return good
 end
 
+-- One target of a Pick: an exam tool on a card, or a medicine bottle in its colour.
+type PickChoice = { Id: string, Icon: string, Fill: Color3?, Bottle: boolean? }
+
+-- A wrong pick shakes its head (still when calm).
+local function shake(gui: GuiObject)
+	if calm() then
+		return
+	end
+	task.spawn(function()
+		local step = PICK_SHAKE / 5
+		for _, angle in { -14, 12, -8, 5, 0 } do
+			if not gui.Parent then
+				return
+			end
+			play(gui, TweenInfo.new(step, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Rotation = angle })
+			task.wait(step)
+		end
+	end)
+end
+
+-- Shows `choices` as big targets laid out by Pure.pickRects on the stage's real size, and waits for a right one
+-- (isRight). A wrong tap shakes its head, says "Hmm, not that one!", greys out and can't be tapped again: never a
+-- fail. glowId's target glows (the right tool, for a first exam). Taps, the mouse and the gamepad (A presses the
+-- selected target; Space only stops the character jumping meanwhile). Returns the wrong taps and the id picked.
+local function pickLoop(
+	env: Env,
+	choices: { PickChoice },
+	isRight: (id: string) -> boolean,
+	glowId: string?
+): (number, string?)
+	local layer = env.Layer
+	local stage = env.View.Stage
+	local wrong = 0
+	local picked: string? = nil
+	local ready = false
+	local buttons: { TextButton } = {}
+	local glowing: TextButton? = nil
+
+	local function layout()
+		local rects = Pure.pickRects(stage.AbsoluteSize, #buttons)
+		for index, button in buttons do
+			local rect = rects[index]
+			if rect then
+				button.Position = UDim2.fromOffset(rect.X + rect.W / 2, rect.Y + rect.H / 2)
+				button.Size = UDim2.fromOffset(rect.W, rect.H)
+			end
+		end
+	end
+
+	local function focusNext()
+		if not usesGamepad() then
+			return
+		end
+		for _, button in buttons do
+			if button.Interactable then
+				GuiService.SelectedObject = button
+				return
+			end
+		end
+	end
+
+	local function choose(index: number)
+		local button = buttons[index]
+		local choice = choices[index]
+		if not ready or picked ~= nil or not button or not button.Interactable then
+			return
+		end
+		if isRight(choice.Id) then
+			picked = choice.Id
+			sound(env.Look.Sound)
+			punch(button, 1.25, 0.3)
+			burst(button, UDim2.fromScale(0.5, 0.5), "✨", 6, 0.4)
+			return
+		end
+		wrong += 1
+		sound("Nope")
+		setHint(env.View, Pure.WORDS.Wrong)
+		button.Interactable = false
+		button.Selectable = false
+		button.BackgroundTransparency = 0.5
+		for _, child in button:GetDescendants() do
+			if child:IsA("TextLabel") then
+				child.TextTransparency = 0.5
+			elseif child:IsA("Frame") then
+				child.BackgroundTransparency = 0.5
+			end
+		end
+		shake(button)
+		if GuiService.SelectedObject == button then
+			focusNext()
+		end
+	end
+
+	for index, choice in choices do
+		local button = new("TextButton", {
+			Name = "Choice" .. index,
+			Text = "",
+			AutoButtonColor = false,
+			Selectable = true,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(Pure.TAP_MIN, Pure.TAP_MIN),
+			BackgroundColor3 = if choice.Bottle then WHITE else Theme.Colors.Card,
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = layer,
+		})
+		corner(button, Theme.Radius.Medium)
+		local stroke = Kit.stroke(button, OUTLINE, Theme.Stroke.Bold)
+		if choice.Bottle then
+			-- A little bottle: its cap, and its body in the medicine's colour with the medicine's icon on it.
+			blob(button, "Cap", Theme.Colors.InkSoft, {
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.08),
+				Size = UDim2.fromScale(0.3, 0.16),
+				ZIndex = 4,
+			}, Theme.Radius.Small)
+			local body = blob(button, "Body", choice.Fill or Theme.Colors.Pink, {
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.fromScale(0.5, 0.92),
+				Size = UDim2.fromScale(0.64, 0.66),
+				ZIndex = 4,
+			}, Theme.Radius.Small)
+			emoji(body, choice.Icon, {
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromScale(0.78, 0.78),
+				ZIndex = 5,
+			})
+		else
+			emoji(button, choice.Icon, {
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromScale(0.68, 0.68),
+				ZIndex = 4,
+			})
+		end
+		if glowId ~= nil and choice.Id == glowId then
+			-- The right one glows: a gold outline and a sparkle (it breathes a little unless motion is calm).
+			stroke.Color = Theme.Colors.Cash
+			stroke.Thickness = Theme.Stroke.Panel
+			emoji(button, "✨", {
+				Position = UDim2.fromScale(0.84, 0.16),
+				Size = UDim2.fromScale(0.36, 0.36),
+				ZIndex = 6,
+			})
+			glowing = button
+		end
+		env.track(button.Activated:Connect(function()
+			choose(index)
+		end))
+		table.insert(buttons, button)
+	end
+	layout()
+	env.track(stage:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout))
+
+	-- The gamepad's A presses the selected target, so the card's own A steps aside (Space stays, doing nothing).
+	bindPlay(false)
+	env.onAction(nil)
+	if not env.intro() then
+		return wrong, picked
+	end
+	ready = true
+	focusNext()
+	local started = os.clock()
+	while env.alive() and picked == nil do
+		local glow = glowing
+		if glow and not calm() then
+			scaleOf(glow).Scale = 1 + 0.05 * math.sin((os.clock() - started) * 5)
+		end
+		task.wait()
+	end
+	ready = false
+	if GuiService.SelectedObject and GuiService.SelectedObject:IsDescendantOf(layer) then
+		GuiService.SelectedObject = nil
+	end
+	if env.Run.Alive and current == env.Run then
+		bindPlay(true)
+	end
+	env.pause(0.3)
+	return wrong, picked
+end
+
+-- Pick: tap the right one of `choices` (`answer`); it glows when `glow`. Score = the wrong taps (Logic/MiniGame.rate:
+-- 0 Perfect, 1 Good, more OK).
+local function playPick(env: Env, choices: { PickChoice }, answer: string, glow: boolean): number
+	local wrong = pickLoop(env, choices, function(id: string): boolean
+		return id == answer
+	end, if glow then answer else nil)
+	return wrong
+end
+
+-- The medicines on the shelf (Data/Items Kind "Medicine", in their order) for Pure.bottles.
+local function medicinePool(ctx: Types.Ctx): { { Id: string, Icon: string } }
+	local items = (ctx.Data :: any).Items
+	local pool: { { Id: string, Icon: string } } = {}
+	if type(items) ~= "table" then
+		return pool
+	end
+	local order = items.Order
+	if type(order) ~= "table" then
+		order = {}
+		for id in items do
+			table.insert(order, id)
+		end
+		table.sort(order)
+	end
+	for _, id in order do
+		local item = dataRow(ctx, "Items", id)
+		if item and item.Kind == "Medicine" then
+			table.insert(pool, { Id = id, Icon = if type(item.Icon) == "string" then item.Icon else "💊" })
+		end
+	end
+	return pool
+end
+
+local function medicineChoice(ctx: Types.Ctx, id: string): PickChoice
+	local item = dataRow(ctx, "Items", id)
+	return {
+		Id = id,
+		Icon = if item and type(item.Icon) == "string" then item.Icon else "💊",
+		Fill = hexColor(if item then item.Bottle else nil, Theme.Colors.Pink),
+		Bottle = true,
+	}
+end
+
+-- The Pick routine (Pure.dispatch's "Pick"): the exam card's tools, or the dispensary's shelf of bottles. A Pick
+-- with nothing sensible to show (a junk session) plays as one tap.
+local playTap: (env: Env) -> number
+local function playPickGame(env: Env): number
+	local ctx, session, run = env.Ctx, env.Session, env.Run
+	if session.Kind == "Dispense" then
+		local choice = run.Choice
+		if choice == nil then
+			return playTap(env)
+		end
+		local dispensary = (ctx.Config :: any).Dispensary
+		local count = if type(dispensary) == "table" then num(dispensary.Bottles, 4) else 4
+		local choices: { PickChoice } = {}
+		for _, id in Pure.bottles(choice, medicinePool(ctx), count, env.r01) do
+			table.insert(choices, medicineChoice(ctx, id))
+		end
+		return playPick(env, choices, choice, session.Glow)
+	end
+	local ids = Pure.choices(session.Tools, session.Answer)
+	local answer = session.Answer
+	if ids == nil or answer == nil then
+		return playTap(env)
+	end
+	local choices: { PickChoice } = {}
+	for _, id in ids do
+		local tool = dataRow(ctx, "Tools", id)
+		table.insert(choices, { Id = id, Icon = if tool and type(tool.Icon) == "string" then tool.Icon else "❓" })
+	end
+	return playPick(env, choices, answer, session.Glow)
+end
+
 -- One big tap (Simple mode, or a game this client can't draw). Always scores; Simple rates it Good.
-local function playTap(env: Env, look: GameLook): number
+playTap = function(env: Env): number
+	local look = env.Look
 	local layer = env.Layer
 	local iconProps = squareAt(0.46, UDim2.fromScale(0.5, 0.36))
 	iconProps.ZIndex = 3
@@ -2039,23 +3090,33 @@ local function playTap(env: Env, look: GameLook): number
 	return 1
 end
 
+-- The routine for each Pure.dispatch answer: one per engine, and the one big tap.
+local PLAY: { [string]: (env: Env) -> number } = {
+	Pour = playPour,
+	Patch = playPatch,
+	Scrub = playScrub,
+	Cool = playCool,
+	Pick = playPickGame,
+	Tap = playTap,
+}
+
 ------------------------------------------------------------------------------------------------------------------
 -- The session
 ------------------------------------------------------------------------------------------------------------------
 
--- Plays one game and returns its rating.
-local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId: string): string
-	local session = run.Session
-	local known = Pure.KNOWN[gameId] == true
-	local simple = session.Simple or not known
-	local look = if session.Kind == "Soak" and gameId == "Scrub" then SOAK_LOOK else GAME_LOOK[gameId] or TAP_LOOK
-	setHeader(v, look.Icon, if simple and look ~= SOAK_LOOK then TAP_LOOK.Title else look.Title, look.Color)
-	setHint(v, if simple then TAP_LOOK.Hint else look.Hint, true)
-	setTime(v, nil)
-	markStep(v, index, nil)
-
+-- Builds a fresh layer on the stage with everything a game needs (the Env), runs fn on it (protected), then clears
+-- the layer, its connections and its keyboard/gamepad handler. Returns pcall's results.
+local function withStage(
+	ctx: Types.Ctx,
+	v: View,
+	run: Run,
+	name: string,
+	gameId: string,
+	look: GameLook,
+	fn: (env: Env) -> ...any
+): (boolean, ...any)
 	local layer = new("Frame", {
-		Name = "Game" .. index,
+		Name = name,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromScale(1, 1),
@@ -2102,11 +3163,14 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 	end
 	local env: Env = {
 		Ctx = ctx,
-		Session = session,
+		Session = run.Session,
 		View = v,
 		Layer = layer,
 		Catcher = catcher,
 		Rng = run.Rng,
+		Run = run,
+		GameId = gameId,
+		Look = look,
 		alive = alive,
 		track = track,
 		intro = function(): boolean
@@ -2118,18 +3182,18 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 			task.wait(seconds)
 			return alive()
 		end,
-		onPress = function(gui: GuiObject, fn: (input: InputObject) -> ())
+		onPress = function(gui: GuiObject, onDown: (input: InputObject) -> ())
 			track(gui.InputBegan:Connect(function(input: InputObject)
 				local kind = input.UserInputType
 				if kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch then
-					fn(input)
+					onDown(input)
 				end
 			end))
 		end,
-		onAction = function(fn: ((began: boolean) -> ())?)
+		onAction = function(handler: ((began: boolean) -> ())?)
 			if alive() then
-				ownHandler = fn
-				actionHandler = fn
+				ownHandler = handler
+				actionHandler = handler
 			end
 		end,
 		drain = function(share: number)
@@ -2142,23 +3206,70 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 		end,
 	}
 
-	local ok, score: any = pcall(function(): number
-		if simple then
-			return playTap(env, look)
-		elseif gameId == "Pour" then
-			return playPour(env)
-		elseif gameId == "Patch" then
-			return playPatch(env)
-		elseif gameId == "Scrub" then
-			return playScrub(env)
-		end
-		return playCool(env)
-	end)
+	local results = table.pack(pcall(fn, env))
 	local slot = table.find(run.Cleanups, cleanup)
 	if slot then
 		table.remove(run.Cleanups, slot)
 	end
 	cleanup()
+	return table.unpack(results, 1, results.n)
+end
+
+-- The right answer's icon for a Pick played as one tap (Simple mode): the right tool, or the medicine's bottle.
+local function answerIcon(ctx: Types.Ctx, run: Run): string?
+	local session = run.Session
+	if session.Kind == "Dispense" then
+		local item = dataRow(ctx, "Items", run.Choice)
+		return if item and type(item.Icon) == "string" then item.Icon else nil
+	end
+	local tool = dataRow(ctx, "Tools", session.Answer)
+	return if tool and type(tool.Icon) == "string" then tool.Icon else nil
+end
+
+-- A Pick's header and hint: the exam's "🤔 Which tool?" (the symptom as a clue, or "✨ The shiny one!" while the
+-- right tool glows), or the medicine to find on the shelf.
+local function pickWords(ctx: Types.Ctx, run: Run): (string, string, string)
+	local session = run.Session
+	local words = Pure.WORDS
+	if session.Kind == "Dispense" then
+		local item = dataRow(ctx, "Items", run.Choice)
+		if item then
+			return item.Icon, item.Name, words.FindHint
+		end
+		return words.ChooseIcon, Pure.LOOKS.Pick.Title, words.FindHint
+	end
+	local hint = if session.Glow
+		then words.GlowHint
+		elseif session.Symptom ~= "" then session.Symptom
+		else words.ExamHint
+	return words.ExamIcon, words.ExamTitle, hint
+end
+
+-- Plays one game and returns its rating.
+local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId: string): string
+	local session = run.Session
+	local route = Pure.dispatch(gameId, MiniGame.ENGINE, session.Simple)
+	local look = GAME_LOOK[gameId] or TAP_LOOK
+	if route == "Tap" and gameId == "Pick" then
+		-- Simple mode's Pick is one tap on the right tool or bottle.
+		local icon = answerIcon(ctx, run)
+		if icon then
+			look = table.clone(look)
+			look.Icon = icon
+		end
+	end
+	if route == "Pick" then
+		local icon, title, hint = pickWords(ctx, run)
+		setHeader(v, icon, title, look.Color)
+		setHint(v, hint)
+	else
+		setHeader(v, look.Icon, if route == "Tap" then TAP_LOOK.Title else look.Title, look.Color)
+		setHint(v, if route == "Tap" then TAP_LOOK.Hint else look.Hint, true)
+	end
+	setTime(v, nil)
+	markStep(v, index, nil)
+
+	local ok, score: any = withStage(ctx, v, run, "Game" .. index, gameId, look, PLAY[route] or PLAY.Tap)
 	if run.Alive then
 		setTime(v, nil)
 	end
@@ -2166,14 +3277,56 @@ local function playOne(ctx: Types.Ctx, v: View, run: Run, index: number, gameId:
 		warn("[MiniGames] " .. gameId .. " broke, rated Good: " .. tostring(score))
 		return "Good"
 	end
-	if simple then
+	if route == "Tap" then
 		return "Good"
 	end
 	-- Rated against the same (eased) windows the game was drawn with.
 	return MiniGame.rate(gameId, if type(score) == "number" then score else 0, { MiniGame = miniOf(ctx) })
 end
 
--- A game an ability already made PERFECT (TreatSession.Auto: Golden Touch, Quick Bandage, Quick Soap): its icon
+-- The Dispense card's first question when bay patients need several medicines: which one to make (any is right:
+-- each one is needed). One needed, or Simple mode: the first, without asking. Returns the medicine's ItemId (nil only
+-- when the session offers nothing this client knows: the server then gives nothing and rates it OK).
+local CHOOSE_LOOK: GameLook = lookOf({
+	Icon = Pure.WORDS.ChooseIcon,
+	Title = Pure.WORDS.ChooseTitle,
+	Hint = Pure.WORDS.ChooseHint,
+	Sound = "Found",
+	Tint = "Purple",
+})
+local function chooseMedicine(ctx: Types.Ctx, v: View, run: Run): string?
+	local session = run.Session
+	local options: { string } = {}
+	for _, id in session.Options do
+		local item = dataRow(ctx, "Items", id)
+		if item and item.Kind == "Medicine" then
+			table.insert(options, id)
+		end
+	end
+	if #options == 0 then
+		return session.Options[1]
+	elseif #options == 1 or session.Simple then
+		return options[1]
+	end
+	setHeader(v, CHOOSE_LOOK.Icon, CHOOSE_LOOK.Title, CHOOSE_LOOK.Color)
+	setHint(v, CHOOSE_LOOK.Hint)
+	setTime(v, nil)
+	local choices: { PickChoice } = {}
+	for _, id in options do
+		table.insert(choices, medicineChoice(ctx, id))
+	end
+	local ok, first, picked = withStage(ctx, v, run, "Choose", "", CHOOSE_LOOK, function(env: Env): (number, string?)
+		return pickLoop(env, choices, function(): boolean
+			return true
+		end, nil)
+	end)
+	if not ok then
+		warn("[MiniGames] the medicine choice broke: " .. tostring(first))
+	end
+	return if ok and type(picked) == "string" then picked else options[1]
+end
+
+-- A game an ability already made PERFECT (TreatSession.Auto: Golden Touch, Quick Plaster, Quick Soap): its icon
 -- sparkles on the stage for a moment, then the run goes on (the server rates it Perfect whatever is reported).
 local function playAuto(v: View, run: Run, index: number, gameId: string): string
 	local look = GAME_LOOK[gameId] or TAP_LOOK
@@ -2242,10 +3395,9 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = row,
 	})
-	for index, gameId in run.Session.Games do
+	for index in run.Session.Games do
 		local rating = RATING_LOOK[ratings[index]] or RATING_LOOK.OK
 		local magic = run.Session.Auto[index] == true
-		local item = rawget(ctx.Data.Items :: any, run.Session.Items[index])
 		local chip = blob(row, "Chip" .. index, Kit.lighten(rating.Color, 0.1), {
 			LayoutOrder = index,
 			Size = UDim2.fromScale(1, 1),
@@ -2253,7 +3405,7 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 			ZIndex = 3,
 		}, Theme.Radius.Medium)
 		Kit.gloss(chip, 8)
-		emoji(chip, if type(item) == "table" then item.Icon else (GAME_LOOK[gameId] or TAP_LOOK).Icon, {
+		emoji(chip, stepIcon(ctx, run, index), {
 			Position = UDim2.fromScale(0.5, 0.45),
 			Size = UDim2.fromScale(0.62, 0.62),
 			ZIndex = 4,
@@ -2284,23 +3436,146 @@ local function showResults(ctx: Types.Ctx, v: View, run: Run, ratings: { string 
 		Kit.textLimit(tipLabel, 44)
 		punch(tipLabel, 1.5, 0.35)
 	end
-	if run.Session.Kind == "Soak" then
-		setHeader(v, "🫧", "So bubbly!", Theme.Colors.Cyan)
-		setHint(v, if type(outcome) == "table" then "🛁 Ahh, so cosy!" else "")
-	elseif type(outcome) ~= "table" then
-		setHeader(v, "✨", "Nice!", Theme.Colors.Collect)
+	local words = Pure.WORDS
+	local kind = run.Session.Kind
+	if type(outcome) ~= "table" then
+		setHeader(v, "✨", words.Nice, Theme.Colors.Collect)
 		setHint(v, "")
+	elseif kind == "Dispense" then
+		-- The medicine is in your hands now: off to the bay with it.
+		local item = dataRow(ctx, "Items", outcome.Item)
+		if item and type(item.Icon) == "string" then
+			setHeader(v, item.Icon, words.Ready, Theme.Colors.Collect)
+			setHint(v, words.ToBay)
+		else
+			setHeader(v, "👍", words.Nice, CALM_BLUE)
+			setHint(v, "")
+		end
 	elseif outcome.Complete == true then
-		setHeader(v, "💖", "All better!", Theme.Colors.Collect)
-		setHint(v, "🛏️ Time to rest!")
+		setHeader(v, "💖", words.Better, Theme.Colors.Collect)
+		setHint(v, words.BetterHint)
 	else
-		setHeader(v, "👍", "Nice!", CALM_BLUE)
-		setHint(v, "🔜 Make the next one!")
+		setHeader(v, "👍", words.Nice, CALM_BLUE)
+		setHint(v, words.NextHint)
 	end
 end
 
--- If this file has a bug outside a game, answer like the Foundation stub did (all Good, never early), so the treat
--- flow never jams waiting for the timeout.
+-- The case's plan as the exam reveals it: the server's own (TreatOutcome.Plan, when it sends one), else the case's
+-- plan cut to this clinic's level (Logic/Visit.plan with Data/Levels RecipeCap).
+local function planOf(ctx: Types.Ctx, case: any, outcome: any): { string }
+	local sent = if type(outcome) == "table" then outcome.Plan else nil
+	if type(sent) == "table" then
+		local out: { string } = {}
+		for _, id in ipairs(sent) do
+			if #out < Visit.MAX_PLAN and dataRow(ctx, "Items", id) then
+				table.insert(out, id)
+			end
+		end
+		if #out > 0 then
+			return out
+		end
+	end
+	local levels = (ctx.Data :: any).Levels
+	local level = math.max(1, math.floor(num((ctx.State :: any).Level, 1)))
+	local row = if type(levels) == "table" then levels[level] else nil
+	local cap = if type(row) == "table" then num(row.RecipeCap, 1) else 1
+	return Visit.plan(case, cap)
+end
+
+-- After an exam: the case, for REVEAL_HOLD seconds ("🩺 It's a cough!" in the header with the plan's icons, the
+-- first step on the hint line, and the tip). false when the outcome names no case this client knows.
+local function showReveal(ctx: Types.Ctx, v: View, run: Run, outcome: any): boolean
+	local caseId = if type(outcome) == "table" then outcome.Case else nil
+	local case = dataRow(ctx, "Cases", caseId)
+	if not case then
+		return false
+	end
+	local old = v.Stage:FindFirstChild("Results")
+	if old then
+		old:Destroy()
+	end
+	local tool = dataRow(ctx, "Tools", run.Session.Answer)
+	local toolIcon = if tool and type(tool.Icon) == "string" then tool.Icon else "🩺"
+	setHeader(v, toolIcon, Pure.reveal(case.Name), Theme.Colors.Collect)
+	local layer = new("Frame", {
+		Name = "Results",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 2,
+		Parent = v.Stage,
+	})
+	table.insert(run.Cleanups, function()
+		layer:Destroy()
+	end)
+	local row = new("Frame", {
+		Name = "Plan",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.42),
+		Size = UDim2.fromScale(0.96, 0.56),
+		BackgroundTransparency = 1,
+		ZIndex = 2,
+		Parent = layer,
+	})
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = row,
+	})
+	-- The case's own picture, then each step of its plan on a chip.
+	emoji(row, if type(case.Icon) == "string" then case.Icon else "🩺", {
+		AnchorPoint = Vector2.zero,
+		LayoutOrder = 0,
+		Size = UDim2.fromScale(1, 1),
+		SizeConstraint = Enum.SizeConstraint.RelativeYY,
+		ZIndex = 3,
+	})
+	local plan = planOf(ctx, case, outcome)
+	for index, itemId in plan do
+		local item = dataRow(ctx, "Items", itemId)
+		local chip = blob(row, "Step" .. index, Theme.Colors.Card, {
+			LayoutOrder = index,
+			Size = UDim2.fromScale(1, 1),
+			SizeConstraint = Enum.SizeConstraint.RelativeYY,
+			ZIndex = 3,
+		}, Theme.Radius.Medium)
+		emoji(chip, if item and type(item.Icon) == "string" then item.Icon else "❓", {
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.7, 0.7),
+			ZIndex = 4,
+		})
+		punch(chip, 0.5, 0.3 + index * 0.08)
+	end
+	local first = dataRow(ctx, "Items", plan[1])
+	setHint(v, if first then "🔜 " .. first.Icon .. " " .. first.Name else "")
+	local tip = finite(outcome.Tip)
+	if tip and tip > 0 then
+		local tipLabel = Kit.label({
+			Name = "Tip",
+			Text = "💰 +" .. Hud.format(math.floor(tip)),
+			Outlined = true,
+			TextScaled = true,
+			TextWrapped = false,
+			TextColor3 = Theme.Colors.Cash,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.86),
+			Size = UDim2.fromScale(0.8, 0.22),
+			ZIndex = 4,
+			Parent = layer,
+		})
+		Kit.outline(tipLabel, Theme.Stroke.Bold)
+		Kit.textLimit(tipLabel, 44)
+		punch(tipLabel, 1.5, 0.35)
+	end
+	burst(layer, UDim2.fromScale(0.5, 0.42), "✨", 8, 0.16)
+	sound("Sparkle")
+	return true
+end
+
+-- If this file has a bug outside a game, answer like the Foundation stub did (all Good, never early), so the visit
+-- never jams waiting for the timeout. A Dispense answer names the medicine it was making (or the first on offer).
 local function rescue(ctx: Types.Ctx, run: Run)
 	local reported = run.Reported
 	stop(run)
@@ -2317,7 +3592,8 @@ local function rescue(ctx: Types.Ctx, run: Run)
 			ratings[index] = "Perfect"
 		end
 	end
-	local ok, _, outcome = Hud.ask(ctx.Remotes.TreatResult, session.Session, ratings)
+	local choice = if session.Kind == "Dispense" then run.Choice or session.Options[1] else nil
+	local ok, _, outcome = Hud.ask(ctx.Remotes.TreatResult, session.Session, ratings, choice)
 	if ok and type(outcome) == "table" then
 		fireBus("TreatDone", outcome, run.Raw)
 	end
@@ -2452,13 +3728,18 @@ local function runSession(ctx: Types.Ctx, run: Run)
 	local session = run.Session
 	local v = view or build(ctx)
 	view = v
-	setSteps(ctx, v, session)
+	setSteps(ctx, v, run)
 	v.ComboValue = session.Combo
 	v.ComboOn = not session.Simple
 	showCombo(ctx, v, session.Combo, false)
 	openCard(v)
-	if session.Kind == "Soak" then
-		sound("Splash")
+	if session.Kind == "Dispense" then
+		-- Which medicine to make (asked only when bay patients need several), then find its bottle and measure it.
+		run.Choice = chooseMedicine(ctx, v, run)
+		if not run.Alive then
+			return
+		end
+		refreshSteps(ctx, v, run)
 	end
 
 	local ratings: { string } = {}
@@ -2472,6 +3753,11 @@ local function runSession(ctx: Types.Ctx, run: Run)
 			return
 		end
 		ratings[index] = rating
+		if gameId == "Pick" and session.Kind == "Exam" then
+			-- The right tool is out now: the step chips may show it.
+			run.Picked = true
+			refreshSteps(ctx, v, run)
+		end
 		fireBus("MiniGameRated", gameId, rating)
 		markStep(v, index, rating)
 		showRating(v, rating, magic)
@@ -2492,25 +3778,29 @@ local function runSession(ctx: Types.Ctx, run: Run)
 	end
 	run.Reported = true
 	showResults(ctx, v, run, ratings, nil)
-	local ok, _, outcome = Hud.ask(ctx.Remotes.TreatResult, session.Session, ratings)
+	local choice = if session.Kind == "Dispense" then run.Choice else nil
+	local ok, _, outcome = Hud.ask(ctx.Remotes.TreatResult, session.Session, ratings, choice)
 	local answeredAt = os.clock()
 	local triage: TriageCard? = nil
+	local revealed = false
 	if ok and type(outcome) == "table" then
 		fireBus("TreatDone", outcome, run.Raw)
 		if run.Alive then
-			local serverRatings = if type(outcome.Ratings) == "table" then outcome.Ratings else ratings
-			showResults(ctx, v, run, serverRatings, outcome)
+			-- An exam reveals the case; anything else shows the server's ratings and the tip.
+			revealed = session.Kind == "Exam" and showReveal(ctx, v, run, outcome)
+			if not revealed then
+				local serverRatings = if type(outcome.Ratings) == "table" then outcome.Ratings else ratings
+				showResults(ctx, v, run, serverRatings, outcome)
+			end
 			local combo = finite(outcome.Combo)
 			if combo and not session.Simple then
 				showCombo(ctx, v, math.max(0, math.floor(combo)), true)
 			end
 		end
-		if session.Kind ~= "Soak" then
-			triage = Pure.triage(outcome.Triage, ctx.Data.Departments)
-		end
+		triage = Pure.triage(outcome.Triage, ctx.Data.Departments)
 	end
 	-- A floor to pick comes almost at once (the server is waiting); otherwise the answer stays a moment.
-	if not waitFor(run, if triage then TRIAGE_LEAD else RESULT_HOLD) then
+	if not waitFor(run, if triage then TRIAGE_LEAD elseif revealed then REVEAL_HOLD else RESULT_HOLD) then
 		return
 	end
 	if triage then
@@ -2538,12 +3828,20 @@ local function start(ctx: Types.Ctx, raw: any)
 		Started = os.clock(),
 		Cleanups = {},
 		Rng = Random.new(),
-		-- The first-session tutorial: no draining time bar (look build plan §B8). OK still cures.
+		-- The first-session tutorial: no draining time bar (look build plan §B8). OK still treats.
 		HideDrain = TutorialLogic.active(ctx.State.Tutorial),
+		Picked = false,
+		Choice = nil,
 	}
 	current = run
 	-- 🎯 Steady Hands: this session's games draw and rate with wider Perfect windows.
 	activeMini = Pure.eased(ctx.Config.MiniGame, session.Ease)
+	if session.Expert then
+		-- Expert Dispensing (the Pharmacy2 unlock): a wider Dose band, drawn and rated alike.
+		local dispensary = (ctx.Config :: any).Dispensary
+		local band = if type(dispensary) == "table" then finite(dispensary.ExpertBand) else nil
+		activeMini = Pure.widened(activeMini, "Dose", band or 1.5)
+	end
 	-- Close just before the server settles the session by itself (all OK): no report after that.
 	local timeout = session.Timeout or MiniGame.timeout(session.Games, ctx.Config)
 	task.delay(math.max(timeout - TIMEOUT_MARGIN, 1), function()

@@ -114,7 +114,6 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Config = require(Shared.Config)
-local Ailments = require(Shared.Data.Ailments)
 local CreatureSize = require(Shared.Logic.CreatureSize)
 local Departments = require(Shared.Data.Departments)
 local Items = require(Shared.Data.Items)
@@ -1992,12 +1991,8 @@ function CreatureBuilder.build(patientId: string, variant: string?): Model
 	local entry = PatientsData[patientId]
 	local regular = Regulars[patientId]
 	local look: Look = if entry then entry.Look elseif regular then regular.Look else DEFAULT_LOOK
-	local ailmentId = if entry then entry.Ailment elseif regular then regular.Ailment else ""
 	-- Night patients glow; so do Night-wing regulars (they only visit at night).
 	local night = (entry ~= nil and entry.Night == true) or (regular ~= nil and regular.Wing == "Night")
-	local ailment = Ailments[ailmentId]
-	local station = if ailment then Stations[ailment.Station] else nil
-	local item = if station then Items[station.Item] else nil
 	local variantData = if variant then Variants[variant] else nil
 	-- Its size: the species' own, player-sized, give or take this patient's wobble (Logic/CreatureSize).
 	local roll = math.random()
@@ -2025,9 +2020,9 @@ function CreatureBuilder.build(patientId: string, variant: string?): Model
 	anchor.Parent = root
 	badges[model] = makeBadge(
 		anchor,
-		if ailment then ailment.Icon else "❔",
-		if item then item.Icon else "",
-		if station then station.Color else DEFAULT_STATION,
+		"❔", -- a species has no case of its own: Patients sets the symptom, then the case after the exam
+		"",
+		DEFAULT_STATION,
 		if variantData then variantData.Icon else nil,
 		if variant then STICKER_RING[variant] or WHITE else WHITE
 	)

@@ -2,6 +2,7 @@
 -- Upgrades bought with cash (build plan §B2). Prices[n] is the price of level n, so the next price at level L
 -- is Prices[L + 1], and #Prices is the max level. The effect maths is in Logic/Prices and Logic/Pay.
 -- Lune-safe (no Roblox types). Iterate `Upgrades.Order`; `for id, upgrade in Upgrades` yields only upgrades.
+-- Hints say "treat" or "patient", never "cure" (design §12).
 
 export type UpgradeId = string
 export type Upgrade = {
@@ -22,7 +23,7 @@ local ENTRIES: { [UpgradeId]: Upgrade } = {
 	},
 	Tray = { Name = "Bigger Tray", Icon = "🧺", Hint = "Carry one more", Prices = { 100, 500, 1500 } },
 	Chairs = { Name = "Comfy Chairs", Icon = "💺", Hint = "Patients wait longer", Prices = { 75, 250, 600 } },
-	Tips = { Name = "Tip Jar", Icon = "💰", Hint = "More cash per cure", Prices = { 75, 250, 600, 1400, 3000 } },
+	Tips = { Name = "Tip Jar", Icon = "💰", Hint = "More cash per patient", Prices = { 75, 250, 600, 1400, 3000 } },
 	-- Progression v2 (build plan §B5): department upgrades, gated. Each level: Config.WardComfort / AESpeed /
 	-- NightClinicPerLevel.
 	WardComfort = {
@@ -42,7 +43,7 @@ local ENTRIES: { [UpgradeId]: Upgrade } = {
 	NightClinic = {
 		Name = "Night Clinic",
 		Icon = "🌙",
-		Hint = "Night cures pay more",
+		Hint = "Night patients pay more",
 		Prices = { 1500, 4000, 9000 },
 		Rebirths = 4,
 	},

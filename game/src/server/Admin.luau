@@ -312,7 +312,7 @@ local RUN: { [string]: Run } = {
 		if not Badges.add(player, { Cures = 100 }) then
 			return false, LOADING
 		end
-		return true, "🏥 +100 cures counted!"
+		return true, "🏥 Healer badge +100!"
 	end,
 
 	MaxBadges = function(player)

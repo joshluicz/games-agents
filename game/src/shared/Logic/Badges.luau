@@ -20,9 +20,17 @@
 --   Badges.boostAt(def, tier): number         that badge's boost percent at a tier
 --   Badges.add(stats, counts): stats          a copy with each { [counter]: n } added (whole n > 0 only)
 --   Badges.seed(data, creatures): stats       counters worked out from an older save: Cures from Cured; per-wing,
---                                             night and per-station counts from the Patient Book (each cure needed
---                                             one treatment made); Visitors 1 if a visitor was ever cured
+--                                             night and per-station counts from the Patient Book (each patient
+--                                             treated needed one treatment made); Visitors 1 if a visitor was ever
+--                                             treated
+--   Badges.SEED_STATIONS[creatureId]          the station a species' treatment was made at when that older save was
+--                                             played (its old ailment's: 🧪 Remedy, 🩹 Plaster, 🛁 Bath, ☕ Cocoa),
+--                                             frozen so a save from before badges seeds the same counts it always
+--                                             did. Since the Real Clinic a species has no fixed case (each visit
+--                                             rolls one), so this is history, never a rule: nothing else reads it
 --   Badges.maxed(stats, defs): stats          every counter badge's counter at least its top threshold (Admin)
+-- The counters keep their pre-Real-Clinic names ("Cures", "NightCures", "Cures:<WingId>"): saves count on in them,
+-- and players only ever see the badges' words (Data/Badges), which say "treat".
 
 export type Tier = { Id: string, Name: string, Icon: string, Color: string, Cash: number, Stars: number }
 export type Boost = { Kind: string, Scope: string?, Percent: number }
@@ -45,6 +53,30 @@ local Badges = {}
 
 Badges.DERIVED = table.freeze({ PlayHours = true, Beats = true, Builder = true, Rebirths = true })
 Badges.SEEDED = "Seeded"
+Badges.SEED_STATIONS = table.freeze({
+	-- Data/Patients
+	DumplingFrog = "Remedy",
+	CloudSheep = "Remedy",
+	ToastPup = "Plaster",
+	JellyBun = "Plaster",
+	SlimeCat = "Bath",
+	MossMole = "Bath",
+	SnowconePenguin = "Cocoa",
+	IcicleOwl = "Cocoa",
+	HiccupGhost = "Remedy",
+	MoonMoth = "Plaster",
+	DaisyDoodle = "Remedy",
+	BuzzBun = "Remedy",
+	ThistleTot = "Plaster",
+	CactusCub = "Plaster",
+	CometKite = "Remedy",
+	NimbusNarwhal = "Remedy",
+	PuffinPilot = "Remedy",
+	-- Data/Regulars
+	ShySprout = "Remedy",
+	GrumpyTeapot = "Remedy",
+	DizzyComet = "Plaster",
+}) :: { [string]: string }
 
 local function finite(value: any): boolean
 	return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge

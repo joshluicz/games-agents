@@ -1,5 +1,5 @@
 --!strict
--- CreatureProps: the props, particles and face extras a sick creature acts with (Data/AilmentActing). Client only, a
+-- CreatureProps: the props, particles and face extras a sick creature acts with (Data/CaseActing). Client only, a
 -- library (not inited): Feel/CreatureActing builds a kit for each patient and drives it.
 --   CreatureProps.build(model, acting): Kit?       props + emitters + face extras, sized to the creature (nil if the
 --                                                  model isn't a CreatureBuilder creature: no Core)
@@ -200,7 +200,7 @@ local function point(kit: Kit, name: string, cf: CFrame): Attachment
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- The props (AilmentActing.Vocabulary.Props)
+-- The props (CaseActing.Vocabulary.Props)
 ------------------------------------------------------------------------------------------------------------------
 
 local PROPS: { [string]: (kit: Kit) -> () } = {}
@@ -375,7 +375,7 @@ PROPS.Earmuffs = function(kit)
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- Particles (AilmentActing.Vocabulary.Bursts and Ambients), and the joy and poof bursts
+-- Particles (CaseActing.Vocabulary.Bursts and Ambients), and the joy and poof bursts
 ------------------------------------------------------------------------------------------------------------------
 
 local function addEmitters(kit: Kit, acting: Acting)

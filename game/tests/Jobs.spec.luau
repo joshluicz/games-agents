@@ -36,8 +36,13 @@ T.describe("Jobs", function()
 		expect(Jobs.department("Medic", nil, JobsData)).toBe("AE")
 		expect(Jobs.department("Maker", "Bath", JobsData, Departments.Stations)).toBe("Hydro")
 		expect(Jobs.department("Maker", "Cocoa", JobsData)).toBe("Pharmacy")
-		expect(Jobs.department("Maker", "Pharmacy", JobsData)).toBe("Pharmacy")
-		expect(Jobs.department("Maker", "Remedy", JobsData)).toBe("Reception")
+		-- the Real Clinic: the supply shelf is the Pharmacy's, the Cast Table the X-ray room's
+		expect(Jobs.department("Maker", "Plaster", JobsData)).toBe("Pharmacy")
+		expect(Jobs.department("Maker", "Ice", JobsData)).toBe("Pharmacy")
+		expect(Jobs.department("Maker", "Bandage", JobsData)).toBe("Pharmacy")
+		expect(Jobs.department("Maker", "Cast", JobsData)).toBe("Imaging")
+		expect(Jobs.department("Maker", "Remedy", JobsData)).toBe("Pharmacy")
+		expect(Jobs.department("Maker", "Pharmacy", JobsData)).toBe("Reception") -- the crafting station is gone
 		expect(Jobs.department("Maker", nil, JobsData)).toBe("Reception")
 		expect(Jobs.department("Nope", nil, JobsData)).toBe("Reception")
 	end)
@@ -63,7 +68,16 @@ T.describe("Jobs", function()
 
 	test("teams: matching specialties per department; Any counts for every one", function()
 		local counts = Jobs.teams({ "Reception", "Reception", "Hydro", "Any", "Nope" }, Departments)
-		expect(counts).toEqual({ Reception = 3, AE = 1, Wards = 1, Hydro = 2, Pharmacy = 1, Roof = 1 })
+		expect(counts).toEqual({
+			Reception = 3,
+			AE = 1,
+			Wards = 1,
+			Hydro = 2,
+			Pharmacy = 1,
+			Imaging = 1,
+			Rest = 1,
+			Roof = 1,
+		})
 		expect(Jobs.teams({}, Departments).Reception).toBe(0)
 	end)
 
@@ -81,7 +95,11 @@ T.describe("Jobs", function()
 		expect(hydro.Make.Bath).toBeCloseTo(0.6) -- 🛁 holds 40% shorter
 		local pharmacy = Jobs.teamEffects(Jobs.teams({ "Pharmacy", "Pharmacy" }, Departments), Departments)
 		expect(pharmacy.Make.Cocoa).toBeCloseTo(0.8)
-		expect(pharmacy.Make.Pharmacy).toBeCloseTo(0.8)
+		for _, stationId in { "Plaster", "Ice", "Bandage" } do -- the supply shelf
+			expect(pharmacy.Make[stationId]).toBeCloseTo(0.8)
+		end
+		expect(pharmacy.Make.Remedy).toBeNil() -- nobody speeds up dispensing: the player measures every dose
+		expect(pharmacy.Make.Pharmacy).toBeNil()
 		local mixed = Jobs.teamEffects(Jobs.teams({ "AE", "AE", "Wards", "Wards", "Wards" }, Departments), Departments)
 		expect(mixed.Urgent).toBeCloseTo(1.25)
 		expect(mixed.Recover).toBeCloseTo(0.5)

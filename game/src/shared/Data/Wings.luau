@@ -1,6 +1,8 @@
 --!strict
--- Wings: groups of patients for the Patient Book. Completing a wing's set (every patient cured at least once)
+-- Wings: groups of patients for the Patient Book. Completing a wing's set (every patient treated at least once)
 -- grants its SetReward decor (build plan Task 4). Lune-safe (no Roblox types).
+-- The Real Clinic (design §15 #2): each wing also has a case pool (Data/Cases.POOLS, keyed by these ids), so a
+-- patient's case is rolled each visit from its wing's pool.
 -- Progression v2 (build plan §B5): a wing may need rebirths (Rebirths) and may come only by helicopter (Only =
 -- "Helicopter"). Sunny's patients come from the start of each branch after R1, with whatever stations you have; Sky's
 -- only on the R2 air ambulance. Their patients never come (nor as Today's Visitor) before that.

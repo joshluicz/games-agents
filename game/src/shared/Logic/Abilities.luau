@@ -1,10 +1,15 @@
 --!strict
 -- Nurse signature abilities: strength by level, when one helps, banked charges (Progression v2 build plan §B5/§B7;
--- design §7). Pure: no Roblox services, no requires. `abilities` is Shared/Data/Abilities, `cfg` Shared/Config
--- (cfg.Abilities is read). Server/Abilities runs the cooldowns; Patients, Treatment and Cure spend the effects.
--- Cooldowns are shown as filling rings, never seconds (red line 3).
+-- design §7; the Real Clinic, design §15 #1). Pure: no Roblox services, no requires. `abilities` is
+-- Shared/Data/Abilities, `cfg` Shared/Config (cfg.Abilities is read). Server/Abilities runs the cooldowns and Miracle;
+-- Patients, Treatment and Cure spend the other effects. Cooldowns are shown as filling rings, never seconds (red
+-- line 3).
 --
---   Abilities.BANKED                              the kinds that wait for the next matching treat or cure
+-- The Real Clinic: a visit is examine -> treat -> dispense at an exam bay. "The front patient" is the bay patient who
+-- has waited longest for the doctor (Logic/Visit.front). Abilities are rare and earned, so they may finish whole
+-- visits, medicine steps included (design §15 #1); nurses never dispense.
+--
+--   Abilities.BANKED                              the kinds that wait for the next matching treat or treated patient
 --   Abilities.TIMED                               the kinds whose Value is seconds (Strength.Seconds)
 --   Abilities.tier(level, cfg): 0 | 1 | 2         how many of cfg.Abilities.UpgradeLevels (5, 10) the nurse reached
 --   Abilities.strength(abilityId, level, abilities, cfg, secondWind?): Strength?
@@ -13,20 +18,22 @@
 --       MinCooldown; a Daily ability's Cooldown is only its ring's length and never scales; Seconds = Value for the
 --       timed kinds
 --   Abilities.useful(kind, view): boolean        it would help right now (an ability fires by itself only then):
---       view = { FrontPatience: number? (0..1, the front WAITING patient), LowCount (waiting patients under 50%),
---       Waiting (patients waiting, not being treated), Missing (items the line needs that no hand or tray holds),
---       TrayRoom (free tray places), NearStation (the owner is within 25 studs of a station), OnCooldown (OTHER
---       abilities at this plot cooling down) }. Banked kinds are always useful (they light up and wait).
---         TrayItem    Missing >= 1 and TrayRoom >= 1      RefillFront  FrontPatience < 0.5
+--       view = { FrontPatience: number? (0..1, the front bay patient's), LowCount (patients waiting in a seat or for
+--       the doctor in a bay, under 50%), Waiting (bay patients waiting for the doctor: what Miracle finishes),
+--       Missing (plan steps bay patients still need that no hand or tray holds), Supplies (of those, the supplies:
+--       what a tray can hold; nil = Missing), TrayRoom (free tray places), NearStation (the owner is within 25 studs
+--       of an open station), OnCooldown (OTHER abilities at this plot cooling down) }. Banked kinds are always useful
+--       (they light up and wait).
+--         TrayItem    Supplies >= 1 and TrayRoom >= 1     RefillFront  FrontPatience < 0.5
 --         PauseLine   LowCount >= 1                       FastMake     Missing >= 2
 --         RefillLine  LowCount >= 2                       InstantMake  Missing >= 2 and NearStation
 --         CureLine    Waiting >= 2                        Recharge     OnCooldown >= 2
 --   Abilities.ready(readyAt, now): boolean        readyAt <= now (server time)
 --   Abilities.autoGames(games, charges): ({ boolean }, charges)
---       which of a session's games an AutoPerfect bank makes PERFECT. `charges` is one { Game: GameId?, Count } or a
---       list of them; a charge for one game (QuickBandage: "Patch") is spent before an any-game charge (GoldenTouch:
---       Game nil), each game takes one Count. Returns the flags and the charges left (same shape, Count >= 0; new
---       tables)
+--       which of a session's games (GameIds, Logic/MiniGame) an AutoPerfect bank makes PERFECT. `charges` is one
+--       { Game: GameId?, Count } or a list of them; a charge for one game (Quick Plaster: "Plaster") is spent before an
+--       any-game charge (Golden Touch: Game nil), each game takes one Count. Returns the flags and the charges left
+--       (same shape, Count >= 0; new tables)
 
 export type Strength = {
 	Kind: string,
@@ -41,6 +48,7 @@ export type View = {
 	LowCount: number?,
 	Waiting: number?,
 	Missing: number?,
+	Supplies: number?,
 	TrayRoom: number?,
 	NearStation: boolean?,
 	OnCooldown: number?,
@@ -116,7 +124,9 @@ function Abilities.useful(kind: string, view: View): boolean
 	local missing = num(view.Missing, 0)
 	local low = num(view.LowCount, 0)
 	if kind == "TrayItem" then
-		return missing >= 1 and num(view.TrayRoom, 0) >= 1
+		-- Only supplies go in the tray (medicines come from the dispensary), so a medicine missing isn't a reason.
+		local supplies = if view.Supplies ~= nil then num(view.Supplies, 0) else missing
+		return supplies >= 1 and num(view.TrayRoom, 0) >= 1
 	elseif kind == "RefillFront" then
 		return view.FrontPatience ~= nil and num(view.FrontPatience, 1) < Abilities.LOW
 	elseif kind == "PauseLine" then

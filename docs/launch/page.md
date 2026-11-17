@@ -29,6 +29,11 @@ Everyone welcome. Even the weird ones. 💖
 ```
 Search words it carries: hospital, pet, vet, doctor, clinic, creatures, cute. No links (Roblox rule for this audience).
 
+**DRAFT, not published (the Real Clinic update; red line 4: both brothers say yes first).** A line that could replace
+the first two bullets once that update ships, since the game now says "treat", not "cure" (design §12; the game's name
+stays until both brothers decide, OPEN #12):
+`🩺 Examine patients, treat them with real supplies, and hand out medicine from your own dispensary`
+
 ## Images
 AI-made in Higgsfield (GPT Image 2.6, 2026-11-16) from real Studio captures of the game as references, so they show
 the actual cast and clinic in the stylised 3D look the top games use. Exported at Roblox's sizes.

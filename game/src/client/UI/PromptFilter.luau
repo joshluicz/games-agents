@@ -8,20 +8,21 @@
 --   ClinicSignPrompt (Visits)                Audience "Visitor": everyone but the owner (send a heart).
 --                                            Audience "Owner": only the plot's owner (none today: the helpers
 --                                            switch moved to the HUD's ⚙️ Settings, the SetHelpers remote).
---   StationPrompt (Stations) and the         only players who may work the clinic: the owner, the owner's Roblox
---   Counter's TreatPrompt (Patients)         friends, or anyone while the plot's OpenHelpers is on.
---   Progression v2: the lift landings'        the same: "Ride with patient" and the hot tub's 🫧 are work at that
---   EscortPrompt and the hot tub's            clinic (build plan §C T8). The LiftPrompt stays for everyone (anyone
---   SoakPrompt (PlotBuilder, Patients)        may ride a lift).
+--   StationPrompt (Stations: the supply      only players who may work the clinic: the owner, the owner's Roblox
+--   stations and the dispensary's Dispense)  friends, or anyone while the plot's OpenHelpers is on.
+--   and each exam bay's BayPrompt (Patients:
+--   "Examine" / "Treat", tag TreatPrompt)
+--   Progression v2: the lift landings'        the same: "Ride with patient" is work at that clinic (build plan §C
+--   EscortPrompt (PlotBuilder, Patients)     T8). The LiftPrompt stays for everyone (anyone may ride a lift).
 -- Friend status comes from LocalPlayer:IsFriendsWith, cached per owner. Until it's known (or if it can't be
 -- checked) the prompt shows. Nothing here is a security check: the server's Plots.canWork has the last word.
 --
--- Finding the prompts costs nothing while the town is busy (depth update perf pass): the sign and station prompts
--- arrive by their CollectionService tags (also when they stream in or a room is bought), and the Treat prompt by
--- TREAT_TAG when Patients tags it, or else by watching just each plot's Counter. Nothing listens to every part
--- added to Workspace.Clinics (each creature, nurse and building floor used to wake it). Progression v2's Escort and
--- Soak prompts arrive by their tags (ESCORT_TAG, SOAK_TAG) once their owners tag them; until then each plot's
--- Building is watched for them (it is rebuilt only on a level-up or a theme change, so that's a handful of events).
+-- Finding the prompts costs nothing while the town is busy (depth update perf pass): the sign, station, bay and
+-- escort prompts arrive by their CollectionService tags (also when they stream in or a room is bought). A bay or
+-- escort prompt that isn't tagged yet is found by name in each plot's Building and Rooms (rebuilt only on a
+-- level-up, a theme change or a purchase, so that's a handful of events). Nothing listens to every part added to
+-- Workspace.Clinics (each creature, nurse and building floor used to wake it). The Real Clinic removed the
+-- Counter's Treat prompt and the hot tub's SoakPrompt: treating happens at the bays.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,18 +34,18 @@ local PromptFilter = {}
 
 local SIGN_TAG = "ClinicSignPrompt" -- Visits.SIGN_PROMPT_TAG (server modules can't be required here)
 local STATION_TAG = "StationPrompt" -- Stations.PROMPT_TAG
-local TREAT_NAME = "TreatPrompt" -- Patients' prompt on the Counter
-local TREAT_TAG = "TreatPrompt" -- the same prompt's tag, once Patients adds it (until then: the Counter watch)
-local COUNTER_NAME = "Counter"
+local TREAT_TAG = "TreatPrompt" -- Patients' tag on every exam bay's BayPrompt
+local BAY_NAME = "BayPrompt" -- the prompt at each ExamBay_<id>'s DoctorSpot ("Examine" / "Treat")
+local TREAT_NAME = "TreatPrompt" -- an older name for a treat prompt (still counts as work)
 local MAKE_NAME = "MakePrompt" -- Stations.PROMPT_NAME
 local REACH_ATTRIBUTE = "FilterReach" -- set on this client only
--- Progression v2 (build plan §B4): the lift's "Ride with patient" prompt on each landing and the hot tub's 🫧 prompt
+-- Progression v2 (build plan §B4): the lift's "Ride with patient" prompt on each landing
 local ESCORT_NAME = "EscortPrompt"
-local SOAK_NAME = "SoakPrompt"
-local ESCORT_TAG = "EscortPrompt" -- the same prompts' tags, once PlotBuilder/Patients add them (until then: the
-local SOAK_TAG = "SoakPrompt" -- Building watch below)
-local BUILDING_NAME = "Building"
-local WORK_NAMES = { [TREAT_NAME] = true, [MAKE_NAME] = true, [ESCORT_NAME] = true, [SOAK_NAME] = true }
+local ESCORT_TAG = "EscortPrompt" -- its tag, once PlotBuilder/Patients add it (until then: the name watch below)
+-- Where an untagged bay or escort prompt is looked for: the plot's Building and its Rooms (the Cozy Ward's bays).
+local HOLDER_NAMES = { Building = true, Rooms = true }
+local WATCHED_NAMES = { [BAY_NAME] = true, [ESCORT_NAME] = true }
+local WORK_NAMES = { [BAY_NAME] = true, [TREAT_NAME] = true, [MAKE_NAME] = true, [ESCORT_NAME] = true }
 
 type Kind = "Sign" | "Work"
 
@@ -85,7 +86,6 @@ function PromptFilter.init(ctx: Types.Ctx)
 			CollectionService:HasTag(prompt, STATION_TAG)
 			or CollectionService:HasTag(prompt, TREAT_TAG)
 			or CollectionService:HasTag(prompt, ESCORT_TAG)
-			or CollectionService:HasTag(prompt, SOAK_TAG)
 			or WORK_NAMES[prompt.Name] == true
 		then
 			return "Work"
@@ -142,7 +142,7 @@ function PromptFilter.init(ctx: Types.Ctx)
 	end
 
 	-- Gone from its plot (destroyed with a room, or streamed out): forget it. If it comes back, its tag signal (or
-	-- the Counter watch) tracks it again from scratch.
+	-- the name watch) tracks it again from scratch.
 	local function forget(prompt: ProximityPrompt)
 		tracked[prompt] = nil
 		local connection = untrack[prompt]
@@ -223,9 +223,10 @@ function PromptFilter.init(ctx: Types.Ctx)
 		apply(instance, entry)
 	end
 
-	-- Tagged prompts: the sign's, every station's, and the Counter's once Patients tags it. Streaming and new rooms
-	-- bring theirs in through the same signals. (Deferred: a prompt can arrive a moment before its plot does.)
-	for _, tag in { SIGN_TAG, STATION_TAG, TREAT_TAG, ESCORT_TAG, SOAK_TAG } do
+	-- Tagged prompts: the sign's, every station's (the dispensary's too), every bay's and the lift landings'.
+	-- Streaming and new rooms bring theirs in through the same signals. (Deferred: a prompt can arrive a moment
+	-- before its plot does.)
+	for _, tag in { SIGN_TAG, STATION_TAG, TREAT_TAG, ESCORT_TAG } do
 		CollectionService:GetInstanceAddedSignal(tag):Connect(function(instance: Instance)
 			task.defer(track, instance)
 		end)
@@ -234,74 +235,42 @@ function PromptFilter.init(ctx: Types.Ctx)
 		end
 	end
 
-	-- The Counter's Treat prompt without a tag: watch only the Counters, never the whole town.
-	local watchedCounters: { [Instance]: { RBXScriptConnection } } = {}
-	local function watchCounter(counter: Instance)
-		if counter.Name ~= COUNTER_NAME or watchedCounters[counter] then
-			return
-		end
-		local connections: { RBXScriptConnection } = {}
-		watchedCounters[counter] = connections
-		table.insert(connections, counter.DescendantAdded:Connect(track))
-		table.insert(
-			connections,
-			counter.AncestryChanged:Connect(function()
-				if not counter:IsDescendantOf(Workspace) then
-					watchedCounters[counter] = nil -- streamed out or rebuilt: a new one is watched when it comes
-					for _, connection in connections do
-						connection:Disconnect()
-					end
-				end
-			end)
-		)
-		for _, descendant in counter:GetDescendants() do
-			track(descendant)
-		end
-	end
-	-- Progression v2: the Escort and Soak prompts inside a plot's Building, until they carry their tags. Only prompts
-	-- with those names are looked at; the Building is rebuilt on a level-up or a theme change (a new one is watched).
-	local function trackBuildingPrompt(descendant: Instance)
-		if descendant:IsA("ProximityPrompt") and (descendant.Name == ESCORT_NAME or descendant.Name == SOAK_NAME) then
+	-- A bay or escort prompt without its tag: inside a plot's Building and Rooms, by name only. Each is rebuilt on a
+	-- level-up, a theme change or a purchase (a new one is watched).
+	local function trackByName(descendant: Instance)
+		if descendant:IsA("ProximityPrompt") and WATCHED_NAMES[descendant.Name] then
 			task.defer(track, descendant)
 		end
 	end
-	local watchedBuildings: { [Instance]: RBXScriptConnection } = {}
-	local function watchBuilding(building: Instance)
-		if building.Name ~= BUILDING_NAME or watchedBuildings[building] then
+	local watchedHolders: { [Instance]: RBXScriptConnection } = {}
+	local function watchHolder(holder: Instance)
+		if not HOLDER_NAMES[holder.Name] or watchedHolders[holder] then
 			return
 		end
-		watchedBuildings[building] = building.DescendantAdded:Connect(trackBuildingPrompt)
-		building.AncestryChanged:Connect(function()
-			if not building:IsDescendantOf(Workspace) then
-				local connection = watchedBuildings[building]
-				watchedBuildings[building] = nil
+		watchedHolders[holder] = holder.DescendantAdded:Connect(trackByName)
+		holder.AncestryChanged:Connect(function()
+			if not holder:IsDescendantOf(Workspace) then
+				local connection = watchedHolders[holder]
+				watchedHolders[holder] = nil
 				if connection then
 					connection:Disconnect()
 				end
 			end
 		end)
-		for _, descendant in building:GetDescendants() do
-			trackBuildingPrompt(descendant)
+		for _, descendant in holder:GetDescendants() do
+			trackByName(descendant)
 		end
 	end
 
-	local counterPlots: { [Instance]: boolean } = {}
+	local watchedPlotModels: { [Instance]: boolean } = {}
 	local function watchPlotModel(plot: Instance)
-		if counterPlots[plot] then
+		if watchedPlotModels[plot] then
 			return
 		end
-		counterPlots[plot] = true
-		plot.ChildAdded:Connect(function(child: Instance)
-			watchCounter(child) -- a Counter that streams in later
-			watchBuilding(child) -- a new Building (level-up, theme)
-		end)
-		local counter = plot:FindFirstChild(COUNTER_NAME)
-		if counter then
-			watchCounter(counter)
-		end
-		local building = plot:FindFirstChild(BUILDING_NAME)
-		if building then
-			watchBuilding(building)
+		watchedPlotModels[plot] = true
+		plot.ChildAdded:Connect(watchHolder) -- a new Building (level-up, theme) or Rooms folder
+		for _, child in plot:GetChildren() do
+			watchHolder(child)
 		end
 	end
 	task.spawn(function()

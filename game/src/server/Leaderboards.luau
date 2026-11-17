@@ -4,8 +4,9 @@
 --   Leaderboards.status(): Status         "Loading" (no read yet) | "Live" | "Offline" (no DataStores here)
 --   start(): the plaza boards (BoardBuilder), the write and read loops, the GetBoards remote, BindToClose
 --
--- Boards (Logic/Leaderboard.BOARDS, listed in Config.Leaderboards): 🏥 Most Cured (Data.Cured), ⭐ Most Stars
--- (Data.Stars), ❤️ Most Hearts (Data.HeartsReceived) and 🏆 Cures This Week (Data.WeekCures, counted by Cure). One
+-- Boards (Logic/Leaderboard.BOARDS, listed in Config.Leaderboards): 🏥 Most Patients Treated (Data.Cured), ⭐ Most
+-- Stars (Data.Stars), ❤️ Most Hearts (Data.HeartsReceived) and 🏆 Treated This Week (Data.WeekCures, counted by Cure).
+-- The Real Clinic renamed the titles only: the ids, store names and save fields stay, so the scores carry on. One
 -- OrderedDataStore per board ("Board_<Id>_v<Version>", the weekly one "..._w<UTC week>"), key tostring(UserId),
 -- value a whole number. Hospital Level and Nurse Journal % are defined and switch on from Config once the depth
 -- update's Data.Level and Data.NurseIndex exist.
@@ -32,8 +33,8 @@
 --   off (30 s, doubling to 10 min); a write waits for the next pass, a leave-write tries once per board.
 --
 -- Live merge: the boards show the stored top list with this server's players' current saved values laid over it
--- (Logic/Leaderboard.merge), so a cure moves you up the plaza boards and your "You: #n" within seconds, without
--- waiting for the next write and read. Ranks are exact within the top Depth, then "#100+".
+-- (Logic/Leaderboard.merge), so a patient treated moves you up the plaza boards and your "You: #n" within seconds,
+-- without waiting for the next write and read. Ranks are exact within the top Depth, then "#100+".
 --
 -- Studio: without "Enable Studio Access to API Services" (or in an unpublished place) the first DataStore call fails
 -- with a permanent error. The status goes Offline (one line in Output, no errors), nothing is tried again, and the

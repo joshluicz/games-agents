@@ -1,6 +1,7 @@
 --!strict
--- What each player is carrying: typed treatment items, up to their tray size (build plan §B1/§B5, Task 2).
--- Server only. The server is the only one that changes it; clients just read the attributes.
+-- What each player is carrying: supplies from the stations and medicines from the dispensary (Data/Items), up to
+-- their tray size (build plan §B1/§B5; Real Clinic build plan, Task 5). Server only. The server is the only one that
+-- changes it; clients just read the attributes.
 --
 --   Carry.items(p): { ItemId }      a copy, oldest first
 --   Carry.capacity(p): number       Logic/Prices.capacity(<Bigger Tray level>, <🧺 Big Hands>) = 1 + level + bonus;
@@ -10,13 +11,14 @@
 --   Carry.add(p, itemId): boolean   false: unknown item, tray full, or the player is gone
 --   Carry.take(p, itemId): boolean  removes ONE of that item; false if the player doesn't carry it
 --   Carry.clear(p)
--- Extras: Carry.has(p, itemId): boolean · Carry.isFull(p): boolean
+-- Extras: Carry.has(p, itemId): boolean · Carry.count(p, itemId): number · Carry.isFull(p): boolean
 --
 -- Kept in step on every change:
---   · player attribute `Carry`: the ids joined with commas, oldest first ("Potion,Plaster"; "" = nothing)
+--   · player attribute `Carry`: the ids joined with commas, oldest first ("Plaster,CoughSyrup"; "" = nothing)
 --   · player attribute `CarryMax`: the tray size (follows a Bigger Tray purchase straight away)
 --   · the tray bubble: a BillboardGui `CarryGui` on the character's Head. Each item is a big emoji in a ring of
---     its station's colour (so it matches the patient's ailment colour), followed by soft dots for the room
+--     its colour: a supply's station colour, a medicine's own bottle colour (Data/Items Bottle, the bottle the
+--     player picked at the dispensary), so it matches the step on the patient's plan. Soft dots follow for the room
 --     left. The bubble turns candy yellow when the tray is full and hides when you carry nothing. It's sized in
 --     studs, drawn on top and unlit, so it stays readable on a phone, at night and through a roof. Candy pop
 --     (memory-20261116-007): a white pill with a thick dark outline and a dark lip underneath, like a candy button.
@@ -92,9 +94,19 @@ local function perkBonus(player: Player): number
 	return if type(tray) == "number" and tray == tray and tray > 0 then math.floor(tray) else 0
 end
 
+-- A medicine's ring is its bottle's colour (hex); a supply's is its station's.
 local function itemColor(itemId: string): Color3
-	local item = Items[itemId]
-	local station = item and Stations[item.Station]
+	local item = rawget(Items :: any, itemId)
+	if not item then
+		return COLORS.Fallback
+	end
+	if type(item.Bottle) == "string" then
+		local ok, color = pcall(Color3.fromHex, item.Bottle)
+		if ok then
+			return color
+		end
+	end
+	local station = rawget(Stations :: any, item.Station)
 	return if station then station.Color else COLORS.Fallback
 end
 
@@ -312,6 +324,19 @@ end
 function Carry.has(player: Player, itemId: string): boolean
 	local list = carried[player]
 	return list ~= nil and type(itemId) == "string" and table.find(list, itemId) ~= nil
+end
+
+function Carry.count(player: Player, itemId: string): number
+	local list = carried[player]
+	local n = 0
+	if list then
+		for _, item in list do
+			if item == itemId then
+				n += 1
+			end
+		end
+	end
+	return n
 end
 
 function Carry.isFull(player: Player): boolean

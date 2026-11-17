@@ -6,6 +6,13 @@ local expect, test = T.expect, T.test
 
 local Schema = require("../src/shared/Logic/Schema")
 local Nurses = require("../src/shared/Data/Nurses")
+local Daily = require("../src/shared/Logic/Daily")
+local DailyGoals = require("../src/shared/Data/DailyGoals")
+local BadgesLogic = require("../src/shared/Logic/Badges")
+local BadgeData = require("../src/shared/Data/Badges")
+local Patients = require("../src/shared/Data/Patients")
+local Rooms = require("../src/shared/Data/Rooms")
+local Leaderboard = require("../src/shared/Logic/Leaderboard")
 
 T.describe("Schema.default", function()
 	test("is Version 4", function()
@@ -625,6 +632,91 @@ T.describe("Schema.reconcile", function()
 			expect(Schema.isNewer(data)).toBe(false)
 		end
 	)
+
+	test("the Real Clinic: a live v3 save keeps every count, page, room and badge; only a Potion goal goes", function()
+		-- An Update 1 (live) save from before the Real Clinic, still Version 3 (design §11, §15 #4)
+		local v3 = {
+			Version = 3,
+			Cash = 4321,
+			Stars = 88,
+			Cured = 640,
+			Upgrades = { Speed = 3, Tray = 1, Chairs = 2, Tips = 3 },
+			Rooms = { Stand = true, BathRoom = true, WinterWing = true },
+			Decor = { Owned = { HeartRug = true }, Placed = { ["BathRoom:1"] = "HeartRug" } },
+			Book = {
+				DumplingFrog = { Cured = 12, Variants = { Sparkly = true } },
+				SlimeCat = { Cured = 3, Variants = {} },
+			},
+			Story = { GrumpyTeapot = { Beat = 2, LastBeatDay = 20499 } },
+			Daily = {
+				Goals = {
+					{ Id = "Cure5", Progress = 4, Day = 20498 },
+					{ Id = "MakePotion5", Progress = 2, Day = 20499 }, -- a goal naming the gone Potion
+					{ Id = "Bath4", Progress = 1, Day = 20500 },
+				},
+				LastGrantDay = 20500,
+			},
+			Mailbox = { LastSeenDay = 20500 },
+			VisitorDay = 20500,
+			Tutorial = 9,
+			WeekCures = { Week = 2968, Count = 40 },
+			Stats = {
+				Seeded = 1,
+				Cures = 640,
+				NightCures = 30,
+				["Cures:Starter"] = 500,
+				["Cures:Bath"] = 60,
+				["Made:Remedy"] = 410,
+				["Made:Plaster"] = 230,
+				["Made:Bath"] = 60,
+			},
+			Badges = { Healer = 3, Potions = 3, Plasters = 3, Bubbles = 2, Meadow = 3 },
+			Level = 3,
+		}
+		local data = Schema.reconcile(v3, 20500)
+		expect(data.Version).toBe(Schema.VERSION)
+		expect(Schema.VERSION).toBe(4) -- no bump: no saved field changed shape
+		for _, field in { "Cash", "Stars", "Cured", "Rooms", "Decor", "Book", "Story", "VisitorDay", "Stats", "Badges" } do
+			local ok, err = pcall(function()
+				expect((data :: any)[field]).toEqual((v3 :: any)[field])
+			end)
+			if not ok then
+				error(field .. ": " .. tostring(err))
+			end
+		end
+		expect(data.Level).toBe(3)
+		expect(data.WeekCures).toEqual(v3.WeekCures)
+		-- the server prunes banked goals whose Id left the pool (Server/Daily on load): only the Potion one goes, and
+		-- the others keep their progress
+		local daily = Daily.prune(data.Daily, DailyGoals)
+		expect(daily.Goals).toEqual({
+			{ Id = "Cure5", Progress = 4, Day = 20498 },
+			{ Id = "Bath4", Progress = 1, Day = 20500 },
+		})
+		expect(daily.LastGrantDay).toBe(20500)
+		-- every id the save names still means the same thing
+		expect(rawget(Patients :: any, "DumplingFrog") ~= nil and rawget(Patients :: any, "SlimeCat") ~= nil).toBe(true)
+		expect(rawget(Rooms :: any, "BathRoom") ~= nil and rawget(Rooms :: any, "WinterWing") ~= nil).toBe(true)
+		local defs = BadgeData.List :: { BadgesLogic.Def }
+		local byId = {}
+		for _, def in defs do
+			byId[def.Id] = def
+		end
+		for badgeId in v3.Badges do
+			expect(byId[badgeId] ~= nil).toBe(true)
+		end
+		expect(byId.Potions.Stat).toBe("Made:Remedy") -- the 💊 Pharmacist counts on from 410
+		-- no tier is lost, none is paid twice: nothing is due for the badges this save already holds
+		for _, up in BadgesLogic.ups(data.Badges, data, defs) do
+			expect(v3.Badges[up.Id] == nil or up.From >= v3.Badges[up.Id]).toBe(true)
+			expect(up.To > up.From).toBe(true)
+		end
+		expect(BadgesLogic.statValue(data, "Made:Remedy")).toBe(410)
+		-- the boards read the same numbers (their ids and store names are unchanged)
+		expect(Leaderboard.valueOf("Cured", data, 2968)).toBe(640)
+		expect(Leaderboard.valueOf("Week", data, 2968)).toBe(40)
+		expect(Schema.reconcile(data, 20500)).toEqual(data) -- written back as v4, it loads the same
+	end)
 
 	test("a v3 save with fewer equipped than the roster fills the rest by NurseId", function()
 		local data = Schema.reconcile({
