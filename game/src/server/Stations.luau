@@ -716,8 +716,10 @@ end
 -- Building.PROMPT_REACH, so a neighbour's prompt through a wall never beats it at its own stand (Logic/Building).
 -- Anything else (a room's station, a kit's, a part not where Logic/Building puts it): the part, as before.
 local function promptHolder(plot: Plot, holder: Instance, part: BasePart, stationId: string, prompt: ProximityPrompt)
+	-- `holder` is the Station_<id> instance: a Building's own station is that Part, straight under the Building.
 	local at = Building.stationPromptAt(stationId)
-	if not at or holder.Name ~= BUILDING_NAME or not plot.Model then
+	local parent = holder.Parent
+	if not at or holder ~= part or not parent or parent.Name ~= BUILDING_NAME or not plot.Model then
 		return part
 	end
 	local pivot = plot.Model:GetPivot()
