@@ -2652,6 +2652,9 @@ function Hud.init(ctx: Types.Ctx)
 			return
 		end
 		local view = LevelBar.view(state, data.Levels)
+		if state.PlotIndex == nil then
+			view.Ready = false -- no clinic yet: the server refuses a level-up (Levels.levelUp MSG.NoPlot), so never say "Level up!"
+		end
 		levelView = view
 		local phone = layout.WalletInTopbar
 		local label = LevelBar.label(view)

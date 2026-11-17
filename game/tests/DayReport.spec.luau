@@ -185,7 +185,7 @@ T.describe("Server/DayReport: the day's tally (CashGained for the Cash line)", f
 		"the client never sends it: DayReport is fired by the server only, and Cure passes the cash it paid",
 		function()
 			local cure = fs.readFile(World.find("src/server/Cure.luau"))
-			assert(string.find(cure, "DayReport.record, helper, cure, newPage, helperStars, reward.Cash)", 1, true))
+			assert(string.find(cure, "DayReport.record, helper, cure, newPage, helperStars, cashPaid)", 1, true))
 			assert(string.find(cure, "DayReport.record, owner, cure, false, reward.Stars, 0)", 1, true))
 			local source = fs.readFile(World.find(PATH))
 			assert(not string.find(source, "OnServerEvent", 1, true), "DayReport listens to no client")

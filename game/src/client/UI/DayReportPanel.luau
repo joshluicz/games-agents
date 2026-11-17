@@ -122,7 +122,7 @@ function Pure.visible(report: Report, state: any): { [string]: boolean }
 	local hasNext = report.Next.Kind ~= "None" and report.Next.Id ~= ""
 	return {
 		Cured = true,
-		Cash = report.CashGained ~= nil,
+		Cash = type(report.CashGained) == "number" and report.CashGained > 0, -- a quiet day shows no "+0" row
 		Stars = true,
 		Pages = #report.NewPages > 0,
 		Next = hasNext and Pure.shopUsed(state),

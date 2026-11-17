@@ -211,8 +211,12 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 	})
 
 	-- 2. The helper's cash and Cured count
+	local cashPaid = 0 -- what addCash really paid (a closing save or the cash cap pays nothing): the Day Report's cash
 	if helperHere then
-		safely("Economy.addCash", Economy.addCash, helper, reward.Cash)
+		local ok, paid = safely("Economy.addCash", Economy.addCash, helper, reward.Cash)
+		if ok and paid == true then
+			cashPaid = reward.Cash
+		end
 		local week = Leaderboard.week(os.time())
 		PlayerData.update(helper, function(d)
 			d.Cured += 1
@@ -246,7 +250,7 @@ function Cure.resolve(ctx: Types.CureCtx): Result?
 	-- 7. Day Reports (the helper's carries the cash step 2 paid them; the owner's, when someone else helped, none)
 	if helperHere then
 		local helperStars = if sameHelper then reward.Stars else 0
-		safely("DayReport.record", DayReport.record, helper, cure, newPage, helperStars, reward.Cash)
+		safely("DayReport.record", DayReport.record, helper, cure, newPage, helperStars, cashPaid)
 	end
 	if ownerHere and not sameHelper then
 		safely("DayReport.record", DayReport.record, owner, cure, false, reward.Stars, 0)
