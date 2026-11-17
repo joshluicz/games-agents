@@ -67,7 +67,7 @@ local Pure = {}
 
 Pure.REACH_SLACK = 3 -- studs past Config.Lift.CarDistance (the prompt reaches 8; lag and a step)
 Pure.BELOW = 1.5 -- a rider's root may be this far under its landing's floor ...
-Pure.ABOVE = 6.5 -- ... or this far over it (standing, jumping): never a whole storey (7)
+Pure.ABOVE = 6.5 -- ... or this far over it (standing, jumping): never a whole storey (Logic/Building.STOREY: 11)
 Pure.MIN_FACTOR = 0.2 -- Express Lift never makes a ride shorter than this share
 Pure.MAX_WAIT = 30 -- Lift.waitEscort waits at most this long
 Pure.SPREAD = 2.8 -- studs between riders set down side by side

@@ -907,7 +907,7 @@ local function makeNav(plot: Plot): Nav
 		return pivot:PointToObjectSpace(part.Position)
 	end
 	local counter = plot.Counter
-	local standHalf, standBack = 11, 1
+	local standHalf, standBack = 15, 1 -- PlotBuilder.SLOTS.Stand (x ±15, z -13..1), for a plot with no RoomSlot_Stand
 	local slots = plot.Model:FindFirstChild("Slots")
 	local stand = slots and slots:FindFirstChild("RoomSlot_Stand")
 	if stand and stand:IsA("BasePart") then

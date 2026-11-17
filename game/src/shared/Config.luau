@@ -114,7 +114,7 @@ Config.Town = {
 	SpawnOffset = Vector3.new(0, 0, 11), -- TownSpawn's centre (an 8 x 8 pad, z 7..15)
 	SpawnSize = 8,
 	Plaza = { X0 = -30, X1 = 30, Z0 = 5.4, Z1 = 17 }, -- the row-2 half of the road (the curb is z 17.2..18)
-	BeltClear = 4.4, -- |z| <= this, x -121.5..121.5: the belt's alone (its bed is +-3.3)
+	BeltClear = 4.4, -- |z| <= this, x -136.5..136.5: the belt's alone (its bed is +-3.3)
 }
 
 -- Background music: Roblox's licensed music library (uploader DistrokidOfficial), free for any experience.
@@ -168,21 +168,22 @@ Config.Treat = {
 -- The Nurse Belt: one shared conveyor along the town's main street (memory-20261116-012/-013/-017, Logic/Belt,
 -- Server/NurseBelt). Cash only. Every odd, event odds included, is printed on the belt's sign and in the 🎲 popup.
 -- Where (Joshua, 2026-11-17, memory-20261117-001 #3: the belt runs down the road's CENTRE line): on z = 0, from just
--- inside the east welcome arch (x = +120 from Town.Origin) to just inside the west one (x = -120), past every plot's
--- gate. The spawn plaza moved off it (Config.Town.SpawnOffset / Plaza; nothing else solid stands within
--- Config.Town.BeltClear of the centre line). Riders move west, toward the Hall of Fame end (it stays clear:
--- x < -137), and face the plaza (+z). The conveyor is low enough to step over anywhere.
+-- inside the east welcome arch (x = +135 from Town.Origin) to just inside the west one (x = -135), past every plot's
+-- gate (the arches stand at x = +-147 since the plots grew to 80 x 80). The spawn plaza moved off it
+-- (Config.Town.SpawnOffset / Plaza; nothing else solid stands within Config.Town.BeltClear of the centre line).
+-- Riders move west, toward the Hall of Fame end (it stays clear: x < -152), and face the plaza (+z). The conveyor is
+-- low enough to step over anywhere.
 -- How often (memory-20261116-017, his brother: rarer than the belt games, so a rare nurse feels earned): one nurse
 -- about every 40 s, base odds 75 / 20 / 4.5 / 0.5, a Rare+ guaranteed within 15 arrivals; Mythic only in Night Rush
 -- and Secret only in Golden Hour. Epic and up ride for everyone but need hospital Lv 3 to hire (MinLevel); their
 -- first-rebirth gate for Mythic and Secret waits for rebirths (design §7).
 Config.Belt = {
-	Offset = Vector3.new(120, 0, 0), -- the belt's start (the nurse house at the east end, z = 0) from Town.Origin
+	Offset = Vector3.new(135, 0, 0), -- the belt's start (the nurse house at the east end, z = 0) from Town.Origin
 	Heading = 180, -- degrees about Y from world +X that riders move: 180 = toward -X (west)
-	Length = 240, -- studs, start to end
+	Length = 270, -- studs, start to end (was 240 on the 70-stud plots' street)
 	SignOffset = Vector3.new(-24, 0, 11), -- the odds sign from Town.Origin: the plaza's west end, facing TownSpawn
 	ArriveSeconds = 40, -- a nurse steps on this often
-	RideSeconds = 100, -- start to end (2.4 studs a second); with one every 40 s, two or three ride at once
+	RideSeconds = 100, -- start to end (2.7 studs a second); with one every 40 s, two or three ride at once
 	ReplaceSeconds = 8, -- a hire that leaves no other nurse on the belt (Common or Rare) brings the next this soon
 	Odds = { Common = 75, Rare = 20, Epic = 4.5, Legendary = 0.5 }, -- percent
 	MinLevel = { Epic = 3, Legendary = 3, Mythic = 3, Secret = 3 }, -- the hospital level that may hire them

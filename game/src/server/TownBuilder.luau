@@ -10,9 +10,11 @@
 --   · the plaza on the street's row-2 half (Config.Town.Plaza): a plank pad with benches, planters and lamps inside
 --     its rectangle, clear of the spawn, the kiosks, the odds sign and the row-2 middle gate's mouth (no pink ring);
 --   · voxel trees (World/Props.tree) in the plot gaps, the ends and behind the plots, in three greens, at most one
---     blossom tree in six; dark street lamps between the plots (x +-39, +-117; z +-16.4);
---   · the welcome arches at both ends (x +-132): wooden posts, a dark beam, the motto in floating outlined letters.
--- Nothing solid stands in the belt's lane (|z| <= Config.Town.BeltClear, x -121.5..121.5): only flat road paint
+--     blossom tree in six; dark street lamps between the plots (x +-44, +-132; z +-16.4);
+--   · the welcome arches at both ends (x +-147): wooden posts, a dark beam, the motto in floating outlined letters.
+-- With 80-stud plots (Config.Town.PlotSize) 8 apart, the plot columns stand at x -88 / 0 / 88, the rows at |z| 18..98
+-- and the street runs x -152..152. Everything here is laid out from those numbers.
+-- Nothing solid stands in the belt's lane (|z| <= Config.Town.BeltClear, x -136.5..136.5): only flat road paint
 -- (tests/TownWorld.spec builds the real town and checks it, with the parts budget Config.Look.TownParts).
 --   TownBuilder.build(count): Model        Workspace.ClinicTown for `count` plots (NOT parented: PlotBuilder does)
 --   TownBuilder.spawn(): SpawnLocation     TownSpawn at Config.Town.Origin + Config.Town.SpawnOffset, studded, facing -z
@@ -371,7 +373,7 @@ function TownBuilder.build(count: number): Model
 
 	buildPlaza(town, ground, streetTop)
 
-	-- Street lamps between the plots (x +-39 and +-117 with 6 plots), on the road by each curb.
+	-- Street lamps between the plots (x +-44 and +-132 with 6 plots), on the road by each curb.
 	for column = 0, perRow do
 		local x = (column - perRow / 2) * (size + PLOT_GAP)
 		if math.abs(x) > 1 then

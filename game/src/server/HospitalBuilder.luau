@@ -18,8 +18,11 @@
 -- Palette.PlotColors entry when missing). It never requires PlotBuilder (PlotBuilder requires this).
 --
 -- THE BUILDING (memory-20261117-001 #2, -002 #1, -003; Joshua: "i want an actual hospital"). A studded podium clinic
--- from Lv 1 that grows a storey per level, one bold plot colour, warm trim, dark roofs, plank floors, glass bands:
---   Lv 1  the podium (x ±11.5, z -13..3): the reception window the Counter sits in, the main door, the display window,
+-- from Lv 1 that grows a storey per level, one bold plot colour, warm trim, dark roofs, plank floors, glass bands.
+-- The wide hospital (Joshua, 2026-11-17: "cramped ... wider ... a little taller per storey"): 32 wide (x ±16), the
+-- ground storey 12 tall and every upper storey 11 (slab tops 12, 23, 34, 45; 10.4 clear upstairs), so a big creature
+-- sitting on a bed keeps its headroom; the extra width is space between the beds, stations and stairs:
+--   Lv 1  the podium (x ±16, z -13..3): the reception window the Counter sits in, the main door, the display window,
 --         the name floating on the fascia under the canopy, a warm stripe, a dark flat roof, a waiting bench and one
 --         made-up bed with a sleeper. No tent, no awning
 --   Lv 2  G + F1 over the whole footprint (z -13..13): the A&E door with its red canopy and the ambulance bay, the
@@ -32,8 +35,9 @@
 --   Lv 5  the walkable roof (Floor_4): the helipad and HeliSpot, planters, the lift tower with the NEON paw-heart
 --         facing the street and a beacon
 -- THE WARDS (Joshua: "more beds, wards should look full"). F1 holds 7 beds: the main ward (z -3..7) has the three
--- BedSpot spots, pillows at a glass partition (z -3), feet in the back aisle (z 6, a straight walk from the landing);
--- the front ward (z -13..-3) has 4 made-up beds, heads at the street window, 2 with sleepers the street sees.
+-- BedSpot spots (3.1 studs between frames), pillows at a glass partition (z -3), feet in the back aisle (z 6, a
+-- straight walk from the landing); the front ward (z -13..-3) has 4 made-up beds (2.8 between frames), heads at the
+-- street window, 2 with sleepers the street sees.
 -- Made-up beds are Wards.Dressing.DressBed_<n> (Base + Headboard; never named Bed_* or BedSpot_*, so no system ever
 -- picks one). A sleeper is DressBed_<n>.Sleeper (Head + Blanket + a 💤 billboard): soft, never moving, no faces.
 -- The usable beds are exactly Data/Levels.Beds - 1 (BedSpot_<n>.Bed_<n>, Floor = 1): no gameplay change.
@@ -42,7 +46,8 @@
 -- those in) and Storey (0 = the ground ... 4 = the roof; a loose part carries its own). Feel/Cutaway hides every
 -- part whose Storey is above the floor you stand on and fades your floor's parts with Outer = true:
 --   Podium (0)       the street face at every level: WallFascia (the name), the Pier frames, GlassDisplay, the
---                    BandFascia stripe, RoofCanopy + TrimCanopy over the Counter, the waiting Bench
+--                    studded WallFrontLeft/WallFrontRight beside the windows and the main door, the BandFascia
+--                    stripe, RoofCanopy + TrimCanopy over the Counter and the main door, the waiting Bench
 --   PodiumShell (0)  Lv 1 only: the side walls with their side doors, the back wall, RoofPodium (Storey 1), the
 --                    floor strip and the made-up bed with its sleeper (Dressing.DressBed_1)
 --   Hall (0)         Lv 2+: the ground's sides and back with the A&E, lift-lobby and corridor doors, the A&E canopy,
@@ -50,7 +55,8 @@
 --   Landing_0 (0)    a loose marker in front of the lift door, with the LiftPrompt and EscortPrompt
 --   Lift (0)         the glass Shaft (solid: it is the wall at that corner), the Car (soft, the plot colour,
 --                    studded; its DoorsGui faces the landings, +z); attributes Ride, Rider, RideAt; tag HospitalLift
---   Stairs (0)       one collidable wedge per storey, Flight_<k> (Storey k), alternating the atrium's two lanes
+--   Stairs (0)       one collidable wedge per storey, Flight_<k> (Storey k), alternating the atrium's two lanes:
+--                    24 long, rising 12 (G -> 1) or 11, with a 3.4-stud landing at each lane end
 --   Floor_<n> (n)    the slab (Slab is the part with the landing; plank, 0.6 thick), the Landing (Floor = n), the
 --                    storey's studded walls (Wall*, Outer), its front glass band with the floor's icon, dark ribbon
 --                    windows (Window*, Outer), a department dado band and the atrium rails. Floor_4 is the roof
@@ -120,12 +126,15 @@ HospitalBuilder.PROMPT_TAGS = table.freeze({ Lift = "LiftPrompt", Escort = "Esco
 -- the slabs' pieces) is here.
 local Pure = {}
 
-Pure.SLAB = 0.6 -- every slab and roof (Logic/Building.SLAB_MAX: F1's underside stays at 10.4)
+-- Every slab and roof (Logic/Building.SLAB_MAX): F1's underside is at 11.4, over the 10.4 it must clear.
+Pure.SLAB = 0.6
 Pure.DOOR = 7 -- every doorway's height; the fascia and the lintels start here
 Pure.BAND = 0.5 -- the fascia stripe's height, just under F1's slab (the podium's roof at Lv 1)
-Pure.SPANDREL = 2.4 -- an upper storey's studded wall under its front glass band
+-- An upper storey's studded wall under its front glass band (8 of glass over it in a 10.4-clear storey). Kept low so
+-- the front ward's sleepers, heads at the street window, still show over it.
+Pure.SPANDREL = 2.4
 Pure.GLASS = 0.55 -- (0.3 with a navy tint read as black from the street: Studio 2026-11-17) the see-through parts: the glass bands, the display window, the partition, the lift shaft
-Pure.CAR = 6.5 -- the lift car's height
+Pure.CAR = 7.5 -- the lift car's height: a 6.5-stud creature rides inside with room over its head
 Pure.CLEAR = 0.5 -- Lv 5: the shaft's glass reaches this far over the car standing at the roof
 Pure.HEAD = 4.5 -- Lv 5: the lift tower's head over the shaft (the neon paw-heart's wall)
 Pure.LIFT_HEAD = 2.5 -- Lv 2-4: the lift's head box on the top roof
@@ -135,8 +144,10 @@ Pure.STAND_BACK = 1 -- the Stand room's back edge (PlotBuilder.SLOTS.Stand): the
 Pure.DECOR_HALF = 2 -- a decor slot is 4 x 4 (PlotBuilder's DecorSlot markers): the Lv 1 bed stays off slot 1
 Pure.RAIL = { Height = 3, Thick = 0.3 } -- the atrium rails (inside the open lane, along its edges)
 Pure.PARAPET = 1.2
-Pure.WINDOW = { Y0 = 3.5, Y1 = 6, Inset = 1, Proud = 0.1 } -- ribbon windows: from the storey's floor, ends inset
-Pure.DADO = { Height = 2.4, Thick = 0.2 } -- the department's studded band inside the +x wall
+-- Ribbon windows: from the storey's floor (ends inset). Their tops line up with the doors' heads (Pure.DOOR) on the
+-- ground, and they sit at mid-height in a 10.4-clear upper storey.
+Pure.WINDOW = { Y0 = 4, Y1 = 7, Inset = 1, Proud = 0.1 }
+Pure.DADO = { Height = 3, Thick = 0.2 } -- the department's studded band inside the +x wall (for an 11-tall storey)
 -- A bed (look build plan §B6: the bed contract). Functional: Frame + Headboard + Bed_<n> (the mattress). Made up:
 -- Base (frame and mattress in one block) + Headboard.
 Pure.BED = {
@@ -154,22 +165,27 @@ Pure.BED = {
 -- A sleeper: a head on the pillow and a blanket over the foot two-thirds. Blocky like every creature now
 -- (memory-20261117-004); set Blocky = false for the round stand-in the plan first drew.
 Pure.SLEEPER = { Width = 2, Height = 1.8, Depth = 1.8, Blocky = true, Blanket = 0.5 }
--- Hydro (F2): the hot tub, and its two spots on the landing's side so a soaker's approach (TUB_SHORT short of its
--- spot, on the line from the landing: Server/Patients.shortOf) stays outside the tub.
-Pure.TUB = { X = 2.5, Z = 2.4, Diameter = 8, Rim = 1.6 }
-Pure.TUB_SPOTS = { { X = 0.2, Z = 0.8 }, { X = 0.2, Z = 4 } }
+-- Hydro (F2, the room x -11..15.4 beside the shaft): the hot tub in the middle (about 10 studs of floor from the
+-- shaft to its rim, 7 to the towel shelf), and its two spots on the landing's side so a soaker's approach
+-- (TUB_SHORT short of its spot, on the line from the landing: Server/Patients.shortOf) stays outside the tub.
+Pure.TUB = { X = 3.5, Z = 2.4, Diameter = 8, Rim = 1.6 }
+Pure.TUB_SPOTS = { { X = 1.2, Z = 0.8 }, { X = 1.2, Z = 4 } }
 Pure.TUB_SHORT = 3
--- The Pharmacy (F3): the station (hold it from the street side, z ~2.5) and the bench by the front glass.
-Pure.PHARMACY = { X = 2, Z = 5, Width = 4.6, Depth = 2.6, Height = 3 }
+-- The Pharmacy (F3): the station in the middle of the room (hold it from the street side, z ~2.5: a straight walk
+-- from the landing) and the bench by the front glass, off to the landing's side.
+Pure.PHARMACY = { X = 3.5, Z = 5, Width = 4.6, Depth = 2.6, Height = 3 }
 Pure.SHELF = { Height = 4, Thick = 0.6 }
-Pure.BENCH = { X0 = -5.5, X1 = -2.5, Z0 = -2.2, Z1 = -1.2, Height = 1.4 }
--- The roof (Lv 5).
+Pure.BENCH = { X0 = -7, X1 = -3, Z0 = -2.2, Z1 = -1.2, Height = 1.4 }
+-- The roof (Lv 5): the helipad in the middle of the deck, the planters against the +x parapet.
 Pure.PAD = { X = 3, Z = 2.3, Diameter = 9 }
-Pure.PLANTERS = { { X = 9.6, Z = 3.5 }, { X = 9.6, Z = 5.8 } }
+Pure.PLANTERS = { { X = 14, Z = 3.5 }, { X = 14, Z = 5.8 } }
 Pure.PLANTER = 2
--- Where a theme's prop stands: on the podium's roof (Lv 1), F1's roof (Lv 2), the tower's roof (Lv 3+).
-Pure.PROP = { Podium = { X = 7, Z = -9 }, Block = { X = 8, Z = -9 }, Tower = { X = 9.2, Z = -0.5 } }
-Pure.BAY = { X = -26.8, Z = -16.5 } -- the ambulance bay (unchanged from Progression v2), its nose to the street
+-- Where a theme's prop stands: on the podium's roof (Lv 1), F1's roof (Lv 2), the tower's roof (Lv 3+), toward the
+-- +x edge (the lift's head is at the -x corner).
+Pure.PROP = { Podium = { X = 12, Z = -9 }, Block = { X = 12, Z = -9 }, Tower = { X = 12, Z = -0.5 } }
+-- The ambulance bay on the front-left lawn, its nose to the street: x -35..-27.6, z -23..-10, the same 11.6 studs
+-- off the -x wall as in Progression v2 (it moved out with the wall), on the pad and clear of room slot A (z >= -2).
+Pure.BAY = { X = -31.3, Z = -16.5 }
 Pure.CAP = 240 -- no world colour brighter than this in any channel (theme colours are capped to it)
 
 type Rect = { X0: number, X1: number, Z0: number, Z1: number }
@@ -514,7 +530,7 @@ end
 -- A room's own light: shadowless (the perf budget), always on, warm white, on an Attachment (no part). Without it
 -- every storey read as black through its glass from the street by day (Studio run, 2026-11-17).
 local ROOM_LIGHT_BRIGHTNESS = 1.1
-local ROOM_LIGHT_RANGE = 18
+local ROOM_LIGHT_RANGE = 22 -- from the ceiling's middle to the side walls' feet of a 32-wide, 10.4-clear storey
 local function roomLight(anchor: BasePart, at: Vector3)
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "RoomLight"
@@ -733,8 +749,8 @@ end
 -- The ground storey
 ------------------------------------------------------------------------------------------------------------------
 
--- The street face, at every level: the fascia with the name, the frames, the display window, the stripe, the
--- canopy over the Counter and the waiting bench.
+-- The street face, at every level: the fascia with the name, the frames, the display window, the studded walls
+-- beside it and the main door, the stripe, the canopy over the Counter and the main door, and the waiting bench.
 local function buildPodium(model: Model, style: Style, standTop: number, name: string)
 	local podium = piece(model, "Podium", 1, 0)
 	local h, f, w = B.HALF, B.FRONT, B.WALL
@@ -746,34 +762,38 @@ local function buildPodium(model: Model, style: Style, standTop: number, name: s
 	local under = canopy.Y - 0.25 - 0.15
 	local nameGui = surface(fascia, "NameGui", Enum.NormalId.Front, 24, 220, 0)
 	local height = top - Pure.DOOR
+	local nameWidth = 18 -- studs, centred over the reception window and under the canopy (x ±12)
 	floatText(nameGui, name, {
 		Shadow = true,
-		Size = UDim2.fromScale(14 / (2 * h), (under - Pure.DOOR - 0.2) / height),
-		Position = UDim2.fromScale((h - 7) / (2 * h), (top - under) / height),
+		Size = UDim2.fromScale(nameWidth / (2 * h), (under - Pure.DOOR - 0.2) / height),
+		Position = UDim2.fromScale((h - nameWidth / 2) / (2 * h), (top - under) / height),
 	})
-	-- Warm frames: the two corners, and between the display window, the reception window and the main door.
+	-- Under the fascia, from -x to +x: a warm corner frame (-16..-15), the display window (-15..-9), a studded wall
+	-- (-9..-7), a warm frame (-7..-6.5), the reception window, a warm frame (6.5..7), the main door (7..11), a studded
+	-- wall (11..15) and the other corner frame (15..16). The studded walls are whole studs across; the frames are trim.
+	local pier = doors.Main.X0 - doors.Reception.X1 -- the frames either side of the reception window
+	local corner = doors.Display.X0 + h -- the corner frames: as wide as the display window's offset from the corner
 	for _, x in
 		{
-			{ -h, -h + w },
-			{ doors.Display.X1, doors.Reception.X0 },
+			{ -h, doors.Display.X0 },
+			{ doors.Reception.X0 - pier, doors.Reception.X0 },
 			{ doors.Reception.X1, doors.Main.X0 },
-			{
-				h - w,
-				h,
-			},
+			{ h - corner, h },
 		}
 	do
 		local name0 = if x[1] == -h or x[2] == h then "PierCorner" else "Pier"
 		painted(box(podium, name0, x[1], x[2], 0, Pure.DOOR, f, f + w, style.Trim), "Trim")
 	end
-	glass(podium, "GlassDisplay", -h + w, doors.Display.X1, 0, Pure.DOOR, f + 0.1, f + w - 0.1)
+	outerWall(podium, "WallFrontLeft", doors.Display.X1, doors.Reception.X0 - pier, 0, Pure.DOOR, f, f + w, style)
+	outerWall(podium, "WallFrontRight", doors.Main.X1, h - corner, 0, Pure.DOOR, f, f + w, style)
+	glass(podium, "GlassDisplay", doors.Display.X0, doors.Display.X1, 0, Pure.DOOR, f + 0.1, f + w - 0.1)
 	-- The fascia stripe (a theme's roof band), just proud of the façade.
 	local stripe = painted(
 		box(podium, "BandFascia", -h - 0.15, h + 0.15, top - Pure.BAND, top, f - 0.15, f + 0.15, style.Band),
 		"Band"
 	)
 	paint(stripe)
-	-- The canopy over the Counter: soft and overhead, short of queue spot 1.
+	-- The canopy over the Counter and the main door: soft and overhead, short of queue spot 1.
 	soft(
 		box(
 			podium,
@@ -1188,7 +1208,7 @@ local function buildWards(model: Model, level: number, keep: { [number]: boolean
 		dressBed(dressing, index, r, y, -1, color, sleepers[index] == true)
 	end
 	-- Curtains between the main ward's beds, and between the front ward's outer pairs.
-	local curtainH = 5.4
+	local curtainH = 6.5 -- in a 10.4-clear storey
 	local mainZ0, mainZ1 = B.BED_Z0 + 0.4, B.BED_Z1 - 0.4
 	for i = 1, #B.WARD_BEDS - 1 do
 		local x = (B.WARD_BEDS[i].X + B.WARD_BEDS[i + 1].X) / 2
@@ -1380,7 +1400,7 @@ local function buildRoofTop(model: Model, style: Style, level: number, floors: n
 	local spot = if floors <= WARDS_FLOOR then Pure.PROP.Block else Pure.PROP.Tower
 	if floors > WARDS_FLOOR then
 		-- The "big sign" (Data/Levels Lv 3): the paw-heart on the tower's roof edge, over the band, facing the street.
-		local d = 5
+		local d = 6 -- on the 27-stud tower face
 		pawSign(roofTop, "LogoSign", CFrame.new((s.X1 + h) / 2, top + 0.4 + d / 2, f.Z0 - 0.1), d, style)
 	end
 	return CFrame.new(spot.X, top, spot.Z), CFrame.new((x0 + h) / 2, top - Pure.SLAB, f.Z0 - 0.25), h - x0

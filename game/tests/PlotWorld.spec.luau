@@ -8,7 +8,8 @@
 --   · the dark studded Pad and its Slate Edges, the Counter (studded top, our paw-heart, no cross), the floating sign
 --   · the Stand's spots are Shared/Logic/Building's, and the Stand has no shell
 --   · nothing of the plot's own on the Counter, the queue lane, the gate's mouth, the walkways or the building's
---     footprint; the patients' ways to the room beds stay open
+--     footprint; the trees and bushes off the room slots and the ambulance bay; the patients' ways to the room beds
+--     and out through PatientExit stay open
 --   · the queue lane: 6 mid-tone tiles, the numbers on their spot discs at PlotBuilder.queueSpot
 --   · the annexes and the Garden; 3-part beds; studs on whole studs, in both studs modes
 --   · the palette: no Texture or Decal, no big face at V >= 0.95 (the plot's own colour aside), no channel above 245
@@ -28,7 +29,20 @@ local roblox = World.roblox
 local Vector3, CFrame, Enum = roblox.Vector3, roblox.CFrame, roblox.Enum
 
 local EPS = 0.01
-local WALKWAY = 12.5 -- Server/Patients' walkways (halfway between the Stand's slot and the side rooms)
+local PLOT_HALF = Config.Town.PlotSize / 2 -- 40: the plot's front edge is z -40, its front fence z -39.6
+-- Server/Patients' walkways (makeNav: halfway between the Stand's slot edge, x ±15, and the side rooms', x ±20)
+local WALKWAY = 17.5
+
+-- "Plot_1.Scenery.Tree.Leaves" (the mock has no GetFullName).
+local function fullName(instance): string
+	local names = {}
+	local current = instance
+	while current and current.Name ~= "Workspace" do
+		table.insert(names, 1, current.Name)
+		current = current.Parent
+	end
+	return table.concat(names, ".")
+end
 
 -- Builds the town in a fresh world. Before PlotBuilder loads, Props.tree/bush/fence are wrapped (the same table
 -- PlotBuilder requires) to record every piece: the parts it added and its contract maximum.
@@ -195,7 +209,7 @@ T.describe("Plot and rooms: the parts budget (Lv 5, every room)", function()
 		end
 		expect(W.wrapped).toBe(true) -- Props must stay a plain table, so this spec can see its pieces
 		expect(kinds.tree).toBe(5)
-		expect(kinds.bush).toBe(8)
+		expect(kinds.bush).toBe(5)
 		expect(kinds.fence).toBe(5)
 		local own = measured - props
 		local bound = own + maxProps
@@ -444,7 +458,7 @@ T.describe("Plot: clearances", function()
 			if not d:FindFirstAncestor("Room_Stand") then
 				local lo, hi = localBox(d)
 				if overlaps(lo, hi, zone) then
-					error(d:GetFullName() .. " is in the building's footprint")
+					error(fullName(d) .. " is in the building's footprint")
 				end
 			end
 		end
@@ -468,21 +482,21 @@ T.describe("Plot: clearances", function()
 				Y0 = 0.5,
 				Y1 = 5.5,
 			},
-			Gate = { X0 = -5.5, X1 = 5.5, Z0 = -35, Z1 = -33, Y0 = 0.5, Y1 = 5.5 },
+			Gate = { X0 = -5.5, X1 = 5.5, Z0 = -PLOT_HALF, Z1 = -PLOT_HALF + 2, Y0 = 0.5, Y1 = 5.5 },
 		}
 		for name, zone in zones do
 			for _, d in solidish() do
 				if not inside(d, "QueueLane") and not (zone.Allow and zone.Allow[d.Name]) then
 					local lo, hi = localBox(d)
 					if overlaps(lo, hi, zone) then
-						error(d:GetFullName() .. " is on the " .. name)
+						error(fullName(d) .. " is on the " .. name)
 					end
 				end
 			end
 		end
 	end)
 
-	test("the walkways (x = ±12.5) are clear from the line to the back of the block", function()
+	test("the walkways (x = ±17.5) are clear from the line to the back of the block", function()
 		for _, side in { -1, 1 } do
 			local x = side * WALKWAY
 			local zone = { X0 = x - 1, X1 = x + 1, Z0 = -18, Z1 = 14, Y0 = 0.7, Y1 = 7 }
@@ -490,7 +504,7 @@ T.describe("Plot: clearances", function()
 				if d.CanCollide then
 					local lo, hi = localBox(d)
 					if overlaps(lo, hi, zone) then
-						error(d:GetFullName() .. " is on the walkway at x " .. x)
+						error(fullName(d) .. " is on the walkway at x " .. x)
 					end
 				end
 			end
@@ -553,6 +567,57 @@ T.describe("Plot: clearances", function()
 			end
 		end
 		expect(beds).toBe(3) -- the Cozy Ward's 2 and the Winter Wing's 1
+	end)
+
+	test("the trees and bushes stay off the room slots and the ambulance bay (as built at Lv 5)", function()
+		local zones = {}
+		for _, slot in plot.Slots:GetChildren() do
+			local lo, hi = localBox(slot)
+			zones[slot.Name] = { X0 = lo.X, X1 = hi.X, Z0 = lo.Z, Z1 = hi.Z }
+		end
+		local bay = plot.Building:FindFirstChild("BayFloor", true)
+		expect(bay ~= nil).toBe(true)
+		local bayLo, bayHi = localBox(bay)
+		zones.AmbulanceBay = { X0 = bayLo.X, X1 = bayHi.X, Z0 = bayLo.Z, Z1 = bayHi.Z }
+		local checked = 0
+		for _, piece in piecesOn(plot) do
+			if piece.Kind == "tree" or piece.Kind == "bush" then
+				for _, d in piece.Parts do
+					checked += 1
+					local lo, hi = localBox(d)
+					for name, zone in zones do
+						if overlaps(lo, hi, zone) then
+							error(fullName(d) .. " is on " .. name)
+						end
+					end
+				end
+			end
+		end
+		expect(checked > 0).toBe(true)
+	end)
+
+	test("the patients' ways along the line and out through PatientExit stay open (Patients' exitRoute)", function()
+		local laneZ = pivot:PointToObjectSpace(plot.QueueStart.Position).Z
+		local exit = pivot:PointToObjectSpace(plot.PatientExit.Position)
+		local counter = plot.Counter
+		local sideStep = math.abs(pivot:PointToObjectSpace(counter.Position).X) + counter.Size.X / 2 + 1.6
+		local legs = {
+			{ Vector3.new(-WALKWAY, 0, laneZ), Vector3.new(WALKWAY, 0, laneZ) }, -- from the line to either walkway
+			{ Vector3.new(WALKWAY, 0, laneZ), Vector3.new(exit.X, 0, exit.Z) }, -- down the right walkway and out
+			{ Vector3.new(sideStep, 0, laneZ), Vector3.new(exit.X, 0, exit.Z) }, -- round the Counter and out
+		}
+		for _, d in plotParts(plot) do
+			if d.CanCollide and not inside(d, "Ground") then
+				local lo, hi = localBox(d)
+				if hi.Y > 1 and lo.Y < 4 then
+					for _, leg in legs do
+						if crosses(leg[1], leg[2], lo, hi, 0.5) then
+							error(fullName(d) .. " is in the patients' way")
+						end
+					end
+				end
+			end
+		end
 	end)
 end)
 
@@ -623,7 +688,7 @@ T.describe("Plot: the queue lane", function()
 			hi = if hi then hi:Max(b) else b
 		end
 		expect(hi.Z <= -15.7 and hi.Z >= -16.5).toBe(true) -- the Counter's face is at z -15.7
-		expect(lo.Z >= -35).toBe(true)
+		expect(lo.Z >= -PLOT_HALF + 0.4).toBe(true) -- inside the front fence (z = -39.6)
 		expect(hi.Y <= 0.4).toBe(true) -- flat paint: creatures stand on it
 	end)
 end)
@@ -752,7 +817,7 @@ T.describe("Plot and rooms: the look's rules", function()
 			if d:GetAttribute("Studded") == true and not propsParts[d] then
 				studded += 1
 				if not (whole(d.Size.X) and whole(d.Size.Z)) then
-					error(string.format("%s is %.2f x %.2f", d:GetFullName(), d.Size.X, d.Size.Z))
+					error(string.format("%s is %.2f x %.2f", fullName(d), d.Size.X, d.Size.Z))
 				end
 			end
 		end
@@ -769,10 +834,10 @@ T.describe("Plot and rooms: the look's rules", function()
 					if d.Transparency < 0.5 and d.Color ~= WORLD.Lamp then
 						local _, _, v = Look.hsv(d.Color)
 						if Look.isBigFace(d, 16) and v >= 0.95 and d.Color ~= accent then
-							error(string.format("%s: V %.2f on a big face", d:GetFullName(), v))
+							error(string.format("%s: V %.2f on a big face", fullName(d), v))
 						end
 						if Look.maxChannel(d.Color) > 245 then
-							error(d:GetFullName() .. " has a channel above 245")
+							error(fullName(d) .. " has a channel above 245")
 						end
 					end
 				end

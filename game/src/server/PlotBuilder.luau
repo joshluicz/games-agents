@@ -32,21 +32,22 @@
 --
 -- THE LOOK (memory-20261117-001; look build plan §B6 "T4's side"; docs/research/2026-11-16-hospital-building.md
 -- §3.8-3.9, §5.4; art-direction §2.4, §4.1). Studs, dark anchors, one colour per surface, no lerp toward white:
---   Ground       a Model: the plot's dark studded `Pad` (World.Pad, 67 x 67: odd, so its studs fall whole at its
---                edges) framed by 4 Slate `Edge` parts (World.Edge) out to the plot's 70 x 70. Patients and Nurses
+--   Ground       a Model: the plot's dark studded `Pad` (World.Pad, 77 x 77: odd, so its studs fall whole at its
+--                edges) framed by 4 Slate `Edge` parts (World.Edge) out to the plot's 80 x 80. Patients and Nurses
 --                stand creatures on it by the name Ground (their rays include its descendants)
 --   Scenery      the plank path from the gate to the Counter, 2 slate stepping stones to the main entrance, the fence
 --                (Props.fence: posts every 14 studs) and the gate (warm-white posts, a studded arch in the plot's
---                colour, two lamps), the mailbox, 5 voxel trees (Props.tree; the one by the Stand moved to (18.5,
---                -10), clear of the podium) and 8 one-cube bushes (Props.bush). No blossom tree on a plot: Pink is one
---                plot's colour, and the town keeps blossoms to 1 tree in 6
+--                colour, two lamps), the mailbox, 5 voxel trees (Props.tree: the big one beside the hospital at (30,
+--                -12), in front of slot C and off the +x walkway; one in each corner) and 5 one-cube bushes (Props.bush;
+--                the 80-stud plot's longer fence takes 3 more posts, so 3 bushes went to keep Config.Look.PlotParts).
+--                No blossom tree on a plot: Pink is one plot's colour, and the town keeps blossoms to 1 tree in 6
 --   Counter      the reception desk: a SmoothPlastic body in the plot's colour, its CounterTop studded in warm
 --                white, and OUR paw-heart mark (Parts.pawHeart) on its street face: one SurfaceGui, no cross
 --   Sign         the owner's name floats (Parts.floatText: outlined letters, NO board; the Sign part is invisible)
 --                between two studded posts in the plot's colour, above the fence. SignGui keeps OwnerName and
 --                HeartCount (Plots and Visits write them), RankBadge (Playtime) and BranchBadge (Rebirth): navy pills,
 --                hidden until their system fills them
---   MascotSpot   at Shared/Logic/Building's (-7, -14.8), beside the Counter's -x end (Server/Rebirth's mascot)
+--   MascotSpot   at Shared/Logic/Building's (-8.5, -14.8), beside the Counter's -x end (Server/Rebirth's mascot)
 --   QueueLane    6 tiles in the mid-tone pavement (World.Pavement / PavementAlt), an edge in the plot's colour on
 --                each side, and a disc in the plot's colour at each place in line with its number floating on it
 --   Rooms        no awnings, walls in pale tints or plaques. The Stand has NO shell (the hospital podium is its
@@ -71,7 +72,7 @@
 --
 -- Coordinates. Each plot has a CFrame at the centre of its ground's TOP face, LookVector pointing at the street
 -- (that CFrame is also the plot Model's WorldPivot). In plot-local space +X is right as you face the street, -Z is
--- the street side (front edge z = -35) and +Z the back. Markers are 2x1x2 invisible Parts resting on the ground.
+-- the street side (front edge z = -40) and +Z the back. Markers are 2x1x2 invisible Parts resting on the ground.
 -- Rooms face the street too. Inside a room Model, y = 0.3 is the top of the Floor (and y = -0.3 the pad under it).
 --
 -- The brother's models win: ServerStorage.ClinicKit.<RoomId> replaces a placeholder room, and
@@ -199,7 +200,7 @@ end
 
 -- Where things go inside each placeholder room (room-local x, z; y is ignored). Counts match Data/Rooms.
 -- The Stand's spots are Shared/Logic/Building's (plot-local; the hospital is built round them), moved into the
--- Stand slot's own space: Remedy and Plaster moved +1.2 in x (clear of the lift shaft), decor slot 2 on the porch.
+-- Stand slot's own space: Remedy and Plaster clear of the lift shaft, decor slot 2 on the porch.
 type Layout = { Stations: { [string]: Vector3 }, Beds: { Vector3 }, Decor: { Vector3 } }
 
 local STAND_AT = PlotBuilder.SLOTS.Stand.Offset
@@ -283,7 +284,7 @@ local function layoutFor(roomId: string, w: number, d: number): Layout
 end
 
 -- A table station: its body in the station's colour, a studded warm-white Top in whole studs (4 x 3: at Remedy's x
--- it ends 0.2 short of the lift shaft's face, Shared/Logic/Building.SHAFT), and a few blocky props on it.
+-- it ends 3 studs short of the lift shaft's face, Shared/Logic/Building.SHAFT), and a few blocky props on it.
 local STATION_BODY = Vector3.new(3.8, 3, 2.6)
 local STATION_TOP = Vector3.new(4, 0.3, 3)
 
@@ -678,9 +679,10 @@ local function plotCFrame(index: number, count: number): CFrame
 end
 
 -- The plot's floor: the Ground Model holding the dark studded Pad and the 4 Slate Edge parts round it. The pad is
--- odd (67 x 67) and centred on the plot, so its studs fall whole at its edges in both studs modes; the edging fills
--- the rest of the plot's square and stands EDGE_RAISE proud of the pad, so it reads as a stone frame.
-local PAD = 67
+-- odd (77 x 77) and centred on the plot, so its studs fall whole at its edges in both studs modes; the edging fills
+-- the rest of the plot's 80 x 80 square (1.5 wide) and stands EDGE_RAISE proud of the pad, so it reads as a stone
+-- frame.
+local PAD = 77
 local EDGE_RAISE = 0.1
 
 local function buildGround(model: Model, cf: CFrame, half: number): BasePart
@@ -721,7 +723,7 @@ end
 -- (a world information plate) hidden until their system fills them.
 local SIGN_SIZE = Vector3.new(10, 4, 0.5)
 local SIGN_X = -13 -- plot-local: beside the gate (the gate posts stand at x = ±6.2)
-local SIGN_Z = -34 -- just behind the front fence (z = -34.6)
+local SIGN_Z = -39 -- just behind the front fence (z = -39.6)
 local SIGN_BOTTOM = 4 -- the letters' bottom edge: 1 stud over the fence's 3-stud top
 
 local function signPill(gui: SurfaceGui, name: string, size: UDim2, position: UDim2): TextLabel
@@ -840,9 +842,9 @@ end
 local function buildMailbox(scenery: Model, cf: CFrame, accent: Color3)
 	local model = Instance.new("Model")
 	model.Name = "MailboxProp"
-	part(model, "Post", Vector3.new(0.4, 3, 0.4), cf * CFrame.new(9.5, 1.5, -33), COLORS.Trim)
-	part(model, "Box", Vector3.new(1.6, 1.2, 2), cf * CFrame.new(9.5, 3.5, -33), accent)
-	soft(part(model, "Flag", Vector3.new(0.1, 0.9, 0.35), cf * CFrame.new(10.4, 3.9, -33.5), COLORS.Flag))
+	part(model, "Post", Vector3.new(0.4, 3, 0.4), cf * CFrame.new(9.5, 1.5, -38), COLORS.Trim)
+	part(model, "Box", Vector3.new(1.6, 1.2, 2), cf * CFrame.new(9.5, 3.5, -38), accent)
+	soft(part(model, "Flag", Vector3.new(0.1, 0.9, 0.35), cf * CFrame.new(10.4, 3.9, -38.5), COLORS.Flag))
 	model.Parent = scenery
 end
 
@@ -862,24 +864,25 @@ local function buildCounter(model: Model, scenery: Model, cf: CFrame, accent: Co
 	pawHeart(holder, UDim2.fromScale(0.82, 0.82), accent)
 end
 
--- The trees and bushes (Props: voxel trees, one-cube bushes). The tree beside the Stand moved to (18.5, -10), so
--- its crown stays clear of the podium (hospital doc §3.9) and of the +x walkway.
+-- The trees and bushes (Props: voxel trees, one-cube bushes), all clear of the hospital (x ±16; hospital doc §3.9),
+-- the walkways (x ±17.5), the room slots, the queue lane, the patients' way out and the ambulance bay on the
+-- front-left lawn (HospitalBuilder's Pure.BAY: x -35..-27.6, z -23..-10; tests/PlotWorld.spec checks them all). The
+-- big tree stands beside the hospital at (30, -12), in front of slot C (which starts at z -2); the others stand in the
+-- corners. The bushes stand by the fence (z ±37.6, x 37), three along the front either side of the gate. Only 5: the
+-- longer fence's 3 extra posts keep the plot inside Config.Look.PlotParts.
 local TREES = {
-	{ X = 18.5, Z = -10, Scale = 1.35 },
-	{ X = -28, Z = -27, Scale = 1 },
-	{ X = 28.5, Z = -26, Scale = 1.1 },
-	{ X = -29, Z = 29, Scale = 1.2 },
-	{ X = 29.5, Z = 29.5, Scale = 1 },
+	{ X = 30, Z = -12, Scale = 1.35 },
+	{ X = -33, Z = -33, Scale = 1 },
+	{ X = 33, Z = -31, Scale = 1.1 },
+	{ X = -33, Z = 33, Scale = 1.2 },
+	{ X = 33, Z = 33, Scale = 1 },
 }
 local BUSHES = {
-	Vector3.new(-24, 0, -32.6),
-	Vector3.new(-31.5, 0, -31.8),
-	Vector3.new(16, 0, -32.6),
-	Vector3.new(21.5, 0, -32.6),
-	Vector3.new(32, 0, -10),
-	Vector3.new(-32, 0, -10),
-	Vector3.new(0, 0, 32.6),
-	Vector3.new(-32, 0, 20),
+	Vector3.new(-24, 0, -37.6),
+	Vector3.new(16, 0, -37.6),
+	Vector3.new(21.5, 0, -37.6),
+	Vector3.new(37, 0, -10),
+	Vector3.new(0, 0, 37.6),
 }
 
 local function buildPlaceholderPlot(index: number, cf: CFrame): Model
@@ -917,8 +920,8 @@ local function buildPlaceholderPlot(index: number, cf: CFrame): Model
 	-- Markers. QueueStart and PatientSpawn face the counter; PatientExit faces the street.
 	local turn = CFrame.Angles(0, math.pi, 0)
 	marker(model, "QueueStart", cf * CFrame.new(0, 0.5, -18) * turn)
-	marker(model, "PatientSpawn", cf * CFrame.new(-4, 0.5, -32.5) * turn)
-	marker(model, "PatientExit", cf * CFrame.new(4, 0.5, -32.5))
+	marker(model, "PatientSpawn", cf * CFrame.new(-4, 0.5, -37.5) * turn)
+	marker(model, "PatientExit", cf * CFrame.new(4, 0.5, -37.5))
 	marker(model, "MascotSpot", cf * CFrame.new(MASCOT_SPOT))
 
 	local slots = Instance.new("Folder")

@@ -34,7 +34,7 @@ local Town = Config.Town
 local HALF = numberIn(PLOT_BUILDER, "STREET_HALF_WIDTH") -- 18
 local GAP = numberIn(PLOT_BUILDER, "PLOT_GAP") -- 8
 local PER_ROW = math.ceil(Town.Plots / 2)
-local STREET_END = (PER_ROW * (Town.PlotSize + GAP) + 40) / 2 -- 137
+local STREET_END = (PER_ROW * (Town.PlotSize + GAP) + 40) / 2 -- 152 (80-stud plots, 8 apart)
 local CURB_INNER = HALF - 0.8 -- the curbs are z 17.2..18
 local KIOSK_WIDTH, KIOSK_DEPTH = 7, 4.5 -- Server/Agency and Server/Market: `local width, depth = 7, 4.5`
 
@@ -68,7 +68,7 @@ local spawnBox = box(
 	Town.SpawnOffset.Z - Town.SpawnSize / 2,
 	Town.SpawnOffset.Z + Town.SpawnSize / 2
 )
-local laneBox = box(-121.5, 121.5, -Town.BeltClear, Town.BeltClear)
+local laneBox = box(-136.5, 136.5, -Town.BeltClear, Town.BeltClear) -- the belt (x -135..135) and its end rollers
 local plaza = Town.Plaza
 local agency = facing(
 	Config.Agency.Offset.X,
@@ -89,7 +89,7 @@ local market = facing(
 
 T.describe("Town layout: the shipped numbers (look build plan §B2)", function()
 	test("Config matches the plan exactly", function()
-		expect({ Config.Belt.Offset.X, Config.Belt.Offset.Y, Config.Belt.Offset.Z }).toEqual({ 120, 0, 0 })
+		expect({ Config.Belt.Offset.X, Config.Belt.Offset.Y, Config.Belt.Offset.Z }).toEqual({ 135, 0, 0 })
 		expect({ Config.Belt.SignOffset.X, Config.Belt.SignOffset.Z }).toEqual({ -24, 11 })
 		expect({ Town.SpawnOffset.X, Town.SpawnOffset.Y, Town.SpawnOffset.Z }).toEqual({ 0, 0, 11 })
 		expect(Town.SpawnSize).toBe(8)
@@ -99,9 +99,9 @@ T.describe("Town layout: the shipped numbers (look build plan §B2)", function()
 		expect({ Config.Market.Offset.X, Config.Market.Offset.Z }).toEqual({ -13, 12 })
 	end)
 
-	test("the street: z -18..18, x -137..137; PlotBuilder and TownBuilder agree on its numbers", function()
+	test("the street: z -18..18, x -152..152; PlotBuilder and TownBuilder agree on its numbers", function()
 		expect(HALF).toBe(18)
-		expect(STREET_END).toBe(137)
+		expect(STREET_END).toBe(152)
 		for _, name in { "STREET_HALF_WIDTH", "PLOT_GAP", "BASE_TOP" } do
 			expect(numberIn(TOWN_BUILDER, name)).toBe(numberIn(PLOT_BUILDER, name))
 		end
@@ -123,14 +123,14 @@ end)
 T.describe("Town layout: the belt's lane", function()
 	local sx, sz, ex, ez = Belt.path(Config)
 
-	test("the belt runs along the road's centre line, x 120 to -120, inside its lane", function()
+	test("the belt runs along the road's centre line, x 135 to -135, inside its lane", function()
 		expect(math.abs(sz) < 1e-6 and math.abs(ez) < 1e-6).toBe(true)
-		expect(sx).toBe(120)
-		expect(ex).toBeCloseTo(-120, 6)
+		expect(sx).toBe(135)
+		expect(ex).toBeCloseTo(-135, 6)
 		expect(math.max(sx, ex) <= laneBox.X1 and math.min(sx, ex) >= laneBox.X0).toBe(true)
 		-- its bed is +-3.3 (NurseBelt: BELT_WIDTH 5 + 1.6); the lane leaves it a stud each side
 		expect(Town.BeltClear - 3.3 >= 1).toBe(true)
-		-- the lane ends inside the welcome arches (their posts at x = +-132) and the Hall of Fame (x < -137)
+		-- the lane ends inside the welcome arches (their posts at x = +-147) and the Hall of Fame (x < -152)
 		expect(laneBox.X1 < STREET_END - 5 - 0.8).toBe(true)
 		expect(laneBox.X0 > -STREET_END).toBe(true)
 	end)
@@ -143,7 +143,7 @@ T.describe("Town layout: the belt's lane", function()
 		for column = 1, PER_ROW do
 			local x = (column - (PER_ROW + 1) / 2) * (Town.PlotSize + GAP)
 			for _, side in { -1, 1 } do
-				local gateZ = side * (HALF + Town.PlotSize / 2 - 34.6)
+				local gateZ = side * (HALF + Town.PlotSize / 2 - 39.6) -- the gate in the plot's front fence (z -39.6)
 				expect(Belt.distanceToPath(Config, x, gateZ) <= Config.Belt.HireDistance - 5).toBe(true)
 			end
 		end
@@ -219,14 +219,17 @@ T.describe("Town layout: the plaza, the spawn, the kiosks and the sign", functio
 	)
 
 	test(
-		"the street lamps (x +-39, z +-16.4) and the crossings (x +-78) are outside the plaza and the kiosks",
+		"the street lamps (x +-44, z +-16.4) and the crossings (x +-88) are outside the plaza and the kiosks",
 		function()
-			for _, x in { -39, 39 } do
+			-- TownBuilder: the lamps stand in the gaps between plot columns, the crossings at the outer gates
+			local pitch = Town.PlotSize + GAP -- 88
+			expect(pitch).toBe(88)
+			for _, x in { -pitch / 2, pitch / 2 } do
 				local lamp = box(x - 0.8, x + 0.8, 16.4 - 0.8, 16.4 + 0.8)
 				expect(gap(lamp, agency) >= 1 and gap(lamp, market) >= 1 and gap(lamp, spawnBox) >= 1).toBe(true)
 				expect(math.abs(x) > plaza.X1).toBe(true)
 			end
-			expect(78 - 4 > plaza.X1).toBe(true)
+			expect(pitch - 4 > plaza.X1).toBe(true)
 		end
 	)
 end)

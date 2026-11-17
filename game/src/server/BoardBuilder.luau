@@ -10,11 +10,11 @@
 -- belt should be on the main road"), so the whole street is free for the Nurse Belt. Nothing here sits on the
 -- street, its curbs, a plot, a welcome arch or the plaza. The garden is its own lawn past the street's WEST
 -- end (GARDEN_END), beyond the welcome arch: GARDEN_DEPTH (38) deep, 2 x GARDEN_HALF_WIDTH (80) wide, centred on
--- the street's line, its east edge on the town lawn's west edge (Origin.X - 137 with PlotBuilder's town). A plank
+-- the street's line, its east edge on the town lawn's west edge (Origin.X - 152 with PlotBuilder's town). A plank
 -- path runs from the street's end to a "🏆 Hall of Fame" title with a gold trophy on top, ARC_BACK (24) studs in.
 -- The boards stand on low Slate plinths on the grass in a shallow arc through the title, two each side, each turned
 -- to a point on the street's line ARC_RADIUS (80) studs in front of the arc: they face back down the street to the
--- plaza and the TownSpawn (~160 studs, inside MAX_DISTANCE). Board 1 is on the left as seen from the plaza (+Z); each
+-- plaza and the TownSpawn (~176 studs, inside MAX_DISTANCE). Board 1 is on the left as seen from the plaza (+Z); each
 -- board's back shows the same board. Benches face the boards, low planters flank the path, lamps stand at the arc's
 -- ends and trees behind it. The edges come from the built town (ClinicTown.Street and Lawn), so the garden follows
 -- the town's layout; if they're missing it falls back to PlotBuilder's numbers. The garden does not move with the
@@ -53,7 +53,7 @@ export type Gantry = {
 BoardBuilder.MODEL_NAME = "TownBoards"
 
 -- PlotBuilder's town, used when ClinicTown's parts can't be read (above / along from Config.Town.Origin).
-local FALLBACK_STREET_HALF_LENGTH = 137
+local FALLBACK_STREET_HALF_LENGTH = 152
 local FALLBACK_STREET_TOP = 0.5
 local FALLBACK_LAWN_TOP = 0.3
 

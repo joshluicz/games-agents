@@ -181,7 +181,7 @@ progression panels, T8 tutorial, T9 blocky creatures) are integrated; nothing be
 ### New and split modules *(look)*
 | File | Does | Owner |
 |---|---|---|
-| `shared/Logic/Building.luau` | The hospital's **interface numbers** (plot-local studs): footprints per level and floor, storey heights and slab tops (11, 20, 29, 38; a slab ≤ 0.6 thick), the lift shaft and landings, the door rects, the canopy, the Stand's spots (Remedy, Plaster, `Bed_1`, the decor slots, `MascotSpot`, the bench), the ward beds. `obstacles(level, floor)`, `clear(rect, level)` and `reach(from, to, level, floor?)` check them against what `Patients` assumes | frozen |
+| `shared/Logic/Building.luau` | The hospital's **interface numbers** (plot-local studs): footprints per level and floor, storey heights and slab tops (12, 23, 34, 45; a slab ≤ 0.6 thick), the lift shaft and landings, the door rects, the canopy, the Stand's spots (Remedy, Plaster, `Bed_1`, the decor slots, `MascotSpot`, the bench), the ward beds. `obstacles(level, floor)`, `clear(rect, level)` and `reach(from, to, level, floor?)` check them against what `Patients` assumes | frozen |
 | `shared/Logic/HudZones.luau` | The HUD zone map: `ZONE` (every piece in one zone), `ORDER` (the rails' fixed slots), `layout(safeW, safeH, topbar?)`, `nowWidth`, `railRect`, `nowRect` | frozen |
 | `shared/Logic/NextEvent.luau` | The "coming up" chip: `pick(now, candidates, maxAhead?)` (the soonest FREE event within 6 h; never one with `Paid = true`) and `label(seconds)` ("in 12m": minutes only) | frozen |
 | `shared/Data/Guide.luau` | The tutorial's guide nurse: a placeholder name (never shown) and an original `Look` | frozen |

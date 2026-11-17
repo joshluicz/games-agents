@@ -29,7 +29,11 @@ local BASE_TOP = 0.3 -- TownBuilder's lawn top above the origin (TownLayout.spec
 local STREET_TOP = BASE_TOP + 0.2
 -- World positions are float32 (Roblox Vector3): compare them to about a thousandth of a stud.
 local TOL = 1e-3
-local LANE = { X0 = -121.5, X1 = 121.5, Z0 = -Config.Town.BeltClear, Z1 = Config.Town.BeltClear }
+-- PlotBuilder's town: 80-stud plots 8 apart (PLOT_GAP), so the columns stand PITCH (88) apart and the street (and the
+-- lawn) runs x -STREET_END..STREET_END (152). The belt runs x -135..135 (Config.Belt); its lane reaches its end rollers.
+local PITCH = Config.Town.PlotSize + 8
+local STREET_END = (math.ceil(Config.Town.Plots / 2) * PITCH + 40) / 2
+local LANE = { X0 = -136.5, X1 = 136.5, Z0 = -Config.Town.BeltClear, Z1 = Config.Town.BeltClear }
 
 local function pureBlock(path: string, env: { [string]: any }?): any
 	local text = fs.readFile(World.find(path))
@@ -107,7 +111,7 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 	local plots = Pure.plotRects(Config.Town.Plots, size, half, gap)
 	local tiles = Pure.checker(regions)
 
-	test("the plots are where PlotBuilder puts them: x -78 / 0 / 78, rows at z 18..88 either side", function()
+	test("the plots are where PlotBuilder puts them: x -88 / 0 / 88, rows at z 18..98 either side", function()
 		expect(#plots).toBe(6)
 		local xs = {}
 		for _, r in plots do
@@ -115,14 +119,14 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 			expect(r.X1 - r.X0).toBe(size)
 			expect(math.abs((r.Z0 + r.Z1) / 2)).toBe(half + size / 2)
 		end
-		expect(xs).toEqual({ -78, 0, 78, -78, 0, 78 })
+		expect(xs).toEqual({ -88, 0, 88, -88, 0, 88 })
 	end)
 
 	test("the regions never reach the street or a plot, and stay on the lawn", function()
 		for _, r in regions do
 			expect(r.U0 >= half - 1e-6).toBe(true)
 			expect(r.U1 <= half + size + 20 + 1e-6).toBe(true)
-			expect(r.X0 >= -137 - 1e-6 and r.X1 <= 137 + 1e-6).toBe(true)
+			expect(r.X0 >= -STREET_END - 1e-6 and r.X1 <= STREET_END + 1e-6).toBe(true)
 			local rect = {
 				X0 = r.X0,
 				X1 = r.X1,
@@ -140,7 +144,7 @@ T.describe("TownBuilder.Pure: the lawn's regions and the checker", function()
 	test("4-stud cells within 20 studs of the street and in the plot gaps, 8-stud cells elsewhere", function()
 		local sawGap, sawFar = false, false
 		for _, r in regions do
-			local inner = r.X0 > -137 + 1e-6 and r.X1 < 137 - 1e-6
+			local inner = r.X0 > -STREET_END + 1e-6 and r.X1 < STREET_END - 1e-6
 			if r.U1 <= half + 20 + 1e-6 or (inner and r.U1 <= half + size + 1e-6) then
 				expect(r.Cell).toBe(look.CheckerStuds)
 				sawGap = sawGap or inner
@@ -205,13 +209,47 @@ end)
 ------------------------------------------------------------------------------------------------------------------
 
 T.describe("The built town (Surface mode)", function()
-	local world, town, spawn = buildTown()
+	local world, town, spawn, plots = buildTown()
 	local parts = world.parts(town)
 
 	test("ClinicTown and TownSpawn are built", function()
 		expect(town ~= nil).toBe(true)
 		expect(spawn ~= nil and spawn.ClassName == "SpawnLocation").toBe(true)
 	end)
+
+	test(
+		"nothing of the town stands on a plot (its ground, as PlotBuilder built it), only the flat lawn under it",
+		function()
+			expect(#plots).toBe(Config.Town.Plots)
+			local grounds = {}
+			for _, plot in plots do
+				local box
+				for _, p in world.parts(plot:FindFirstChild("Ground")) do
+					local e = extent(world, p)
+					box = if box
+						then {
+							X0 = math.min(box.X0, e.X0),
+							X1 = math.max(box.X1, e.X1),
+							Z0 = math.min(box.Z0, e.Z0),
+							Z1 = math.max(box.Z1, e.Z1),
+						}
+						else e
+				end
+				expect(math.abs(box.X1 - box.X0 - Config.Town.PlotSize) < TOL).toBe(true)
+				table.insert(grounds, box)
+			end
+			for _, p in parts do
+				local e = extent(world, p)
+				if e.Y1 > STREET_TOP + 0.3 then
+					for index, box in grounds do
+						if overlaps(e, box, -TOL) then
+							error(string.format("%s stands on Plot_%d at x %.1f, z %.1f", p.Name, index, e.X0, e.Z0))
+						end
+					end
+				end
+			end
+		end
+	)
 
 	test("ClinicTown stays inside Config.Look.TownParts", function()
 		print(string.format("    [parts] ClinicTown: %d / %d", #parts, Config.Look.TownParts))
@@ -298,7 +336,7 @@ T.describe("The built town (Surface mode)", function()
 					expect(math.abs((e.Z0 + e.Z1) / 2) > 12).toBe(true)
 				else
 					crossings += 1
-					expect(math.abs(math.abs((e.X0 + e.X1) / 2) - 78) < TOL).toBe(true) -- the crossings at x +-78
+					expect(math.abs(math.abs((e.X0 + e.X1) / 2) - PITCH) < TOL).toBe(true) -- the crossings at x +-88
 				end
 			end
 		end
@@ -414,7 +452,7 @@ T.describe("The built town (Surface mode)", function()
 		end
 	end)
 
-	test("the street lamps (x +-39, z +-16.4) are dark posts with NightLights heads", function()
+	test("the street lamps (x +-44, z +-16.4) are dark posts with NightLights heads", function()
 		local found = 0
 		for _, d in town:GetDescendants() do
 			if d.ClassName == "Model" and d.Name == "Lamp" then
@@ -422,7 +460,7 @@ T.describe("The built town (Surface mode)", function()
 				expect(head ~= nil and head:GetAttribute("NightKind") == "Lamp").toBe(true)
 				local e = extent(world, d:FindFirstChild("Post"))
 				local x, z = (e.X0 + e.X1) / 2, (e.Z0 + e.Z1) / 2
-				if math.abs(math.abs(x) - 39) < TOL and math.abs(math.abs(z) - 16.4) < TOL then
+				if math.abs(math.abs(x) - PITCH / 2) < TOL and math.abs(math.abs(z) - 16.4) < TOL then
 					found += 1
 				end
 			end
@@ -435,7 +473,7 @@ T.describe("The built town (Surface mode)", function()
 		for _, p in parts do
 			if p.Name == "ArchBeam" then
 				local e = extent(world, p)
-				expect(math.abs(math.abs((e.X0 + e.X1) / 2) - 132) < TOL).toBe(true) -- the arches stay at x +-132
+				expect(math.abs(math.abs((e.X0 + e.X1) / 2) - (STREET_END - 5)) < TOL).toBe(true) -- the arches at x +-147
 				for _, gui in p:GetChildren() do
 					if gui.ClassName == "SurfaceGui" then
 						guis += 1
@@ -613,10 +651,10 @@ T.describe("The Hall of Fame garden (BoardBuilder)", function()
 	local gantry = BoardBuilder.build(ids)
 	local model = gantry.Model
 
-	test("it stays past the street's west end (x < -137), off the street", function()
+	test("it stays past the street's west end (x < -152), off the street", function()
 		for _, p in world.parts(model) do
 			local e = extent(world, p)
-			if e.X1 > -137 + TOL then
+			if e.X1 > -STREET_END + TOL then
 				error(p.Name .. " reaches the street")
 			end
 		end

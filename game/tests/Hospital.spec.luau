@@ -144,34 +144,37 @@ T.describe("Hospital (layout)", function()
 
 	test("the open lanes alternate (F1 and F3 lane A, F2 and the roof lane B)", function()
 		expect({ H.holeLane(1), H.holeLane(2), H.holeLane(3), H.holeLane(4) }).toEqual({ "A", "B", "A", "B" })
-		expect(H.lane(B, "A")).toEqual(rect(-9, 9, 7, 10))
-		expect(H.lane(B, "B")).toEqual(rect(-9, 9, 10, 13))
+		expect(H.lane(B, "A")).toEqual(rect(-12, 12, 7, 10))
+		expect(H.lane(B, "B")).toEqual(rect(-12, 12, 10, 13))
 	end)
 
 	test(
 		"each flight: one storey up at 45 degrees or less, its top meeting the next one's foot, with headroom",
 		function()
+			local a = B.ATRIUM
 			for k = 0, 3 do
 				local fl = H.flight(B, k)
 				expect(fl.YLow).toBe(B.slabTop(k))
 				expect(fl.YHigh).toBe(B.slabTop(k + 1))
 				local run = math.abs(fl.XHigh - fl.XLow)
 				expect(math.deg(math.atan2(fl.YHigh - fl.YLow, run)) <= 45).toBe(true)
+				expect((fl.YHigh - fl.YLow) / run <= 0.5 + 1e-9).toBe(true) -- the wide hospital's shallower flights
+				expect(run).toBe(a.X1 - a.X0) -- the whole lane
 				-- the floor it arrives on leaves its lane open ...
 				for _, r in H.slabRects(B, k + 1) do
-					expect(overlaps(r, rect(-9, 9, fl.Z0, fl.Z1))).toBe(false)
+					expect(overlaps(r, rect(a.X0, a.X1, fl.Z0, fl.Z1))).toBe(false)
 				end
 				-- ... and the floor it starts from (above the ground) holds it up: its lane is covered there
 				if k >= 1 then
 					local covered = 0
 					for _, r in H.slabRects(B, k) do
-						local x0, x1 = math.max(r.X0, -9), math.min(r.X1, 9)
+						local x0, x1 = math.max(r.X0, a.X0), math.min(r.X1, a.X1)
 						local z0, z1 = math.max(r.Z0, fl.Z0), math.min(r.Z1, fl.Z1)
 						if x1 > x0 and z1 > z0 then
 							covered += (x1 - x0) * (z1 - z0)
 						end
 					end
-					expect(covered).toBeCloseTo(18 * (fl.Z1 - fl.Z0), 5)
+					expect(covered).toBeCloseTo((a.X1 - a.X0) * (fl.Z1 - fl.Z0), 5)
 				end
 				if k < 3 then
 					local nextFlight = H.flight(B, k + 1)
@@ -252,7 +255,7 @@ T.describe("Hospital (layout)", function()
 		local p = H.PHARMACY
 		local station = rect(p.X - p.Width / 2, p.X + p.Width / 2, p.Z - p.Depth / 2, p.Z + p.Depth / 2)
 		local tower = rect(-B.HALF + B.WALL, B.HALF - B.WALL, B.TOWER_FRONT + B.WALL, B.BACK - B.WALL)
-		local shelf = rect(-9, 9, B.ATRIUM.Z0, B.ATRIUM.Z0 + H.SHELF.Thick)
+		local shelf = rect(B.ATRIUM.X0, B.ATRIUM.X1, B.ATRIUM.Z0, B.ATRIUM.Z0 + H.SHELF.Thick)
 		local bench = rect(H.BENCH.X0, H.BENCH.X1, H.BENCH.Z0, H.BENCH.Z1)
 		for _, r in { station, bench } do
 			expect(inside(r, tower)).toBe(true)
@@ -293,15 +296,15 @@ T.describe("Hospital (layout)", function()
 	test(
 		"the shaft: up under the top roof at Lv 2-4, past the car at the roof at Lv 5; the car fits a storey",
 		function()
-			expect(H.shaftTop(B, 1, ROOF)).toBeCloseTo(20 - H.SLAB, 5)
-			expect(H.shaftTop(B, 2, ROOF)).toBeCloseTo(29 - H.SLAB, 5)
-			expect(H.shaftTop(B, 3, ROOF)).toBeCloseTo(38 - H.SLAB, 5)
-			expect(H.shaftTop(B, 4, ROOF)).toBeCloseTo(38 + H.CAR + H.CLEAR, 5)
+			expect(H.shaftTop(B, 1, ROOF)).toBeCloseTo(23 - H.SLAB, 5)
+			expect(H.shaftTop(B, 2, ROOF)).toBeCloseTo(34 - H.SLAB, 5)
+			expect(H.shaftTop(B, 3, ROOF)).toBeCloseTo(45 - H.SLAB, 5)
+			expect(H.shaftTop(B, 4, ROOF)).toBeCloseTo(45 + H.CAR + H.CLEAR, 5)
 			expect(H.CAR < B.STOREY - H.SLAB).toBe(true)
-			expect(H.CAR >= 6).toBe(true) -- a creature rides inside
-			expect(H.roofTop(B, 1)).toBe(20)
-			expect(H.wallTop(B, 0)).toBeCloseTo(10.4, 5)
-			expect(H.wallTop(B, 3)).toBeCloseTo(37.4, 5)
+			expect(H.CAR >= 6.5 + 1).toBe(true) -- the biggest creature (6.5 tall) rides inside with a stud to spare
+			expect(H.roofTop(B, 1)).toBe(23)
+			expect(H.wallTop(B, 0)).toBeCloseTo(11.4, 5)
+			expect(H.wallTop(B, 3)).toBeCloseTo(44.4, 5)
 			expect(H.SLAB <= B.SLAB_MAX).toBe(true)
 		end
 	)
@@ -378,8 +381,8 @@ T.describe("Hospital (lift rules)", function()
 		local reach = Config.Lift.CarDistance + Lift.REACH_SLACK
 		-- A rider's root stands ~3 over the floor.
 		expect(Lift.nearest(landings, LANDING.X + 1, 0 + 3, LANDING.Z, reach).Floor).toBe(0)
-		expect(Lift.nearest(landings, LANDING.X + 1, 20 + 3, LANDING.Z, reach).Floor).toBe(2)
-		expect(Lift.nearest(landings, LANDING.X, 38 + 3, LANDING.Z, reach).Floor).toBe(4)
+		expect(Lift.nearest(landings, LANDING.X + 1, B.slabTop(2) + 3, LANDING.Z, reach).Floor).toBe(2)
+		expect(Lift.nearest(landings, LANDING.X, B.slabTop(4) + 3, LANDING.Z, reach).Floor).toBe(4)
 		expect(Lift.nearest(landings, LANDING.X + reach + 1, 3, LANDING.Z, reach)).toBeNil() -- from the street
 		expect(Lift.nearest(landings, LANDING.X, -5, LANDING.Z, reach)).toBeNil()
 		-- Between two floors (a jump off a slab): never counted as a storey it isn't on.
@@ -486,14 +489,14 @@ T.describe("Hospital (cutaway)", function()
 	test("floorOf: the highest slab at or just under the feet; only the building's own floors count", function()
 		local tops = B.SLAB_TOPS
 		local got = {}
-		for _, y in { 0, 5, 10.4, 10.5, 11, 15, 19.6, 20, 29, 37.6, 38, 50 } do
+		for _, y in { 0, 5, 11.4, 11.5, 12, 18, 22.6, 23, 34, 44.6, 45, 60 } do
 			table.insert(got, Cut.floorOf(y, tops))
 		end
 		expect(got).toEqual({ 0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 4, 4 })
-		expect(Cut.tops(tops, 2)).toEqual({ 11, 20 })
+		expect(Cut.tops(tops, 2)).toEqual({ 12, 23 })
 		expect(Cut.tops(tops, 0)).toEqual({})
-		expect(Cut.tops(tops, 9)).toEqual({ 11, 20, 29, 38 })
-		expect(Cut.floorOf(30, Cut.tops(tops, 2))).toBe(2) -- on a Lv 3 roof: still the top floor
+		expect(Cut.tops(tops, 9)).toEqual({ 12, 23, 34, 45 })
+		expect(Cut.floorOf(34, Cut.tops(tops, 2))).toBe(2) -- on a Lv 3 roof: still the top floor
 	end)
 
 	test("hide: on the ground nothing changes; above, everything over you hides and your outer walls fade", function()
@@ -519,8 +522,8 @@ T.describe("Hospital (cutaway)", function()
 		expect(Cut.feet(14, 1, 0)).toBe(11)
 		local podium = B.footprint(1, 0)
 		expect(Cut.inside(0, 0, podium, 0)).toBe(true)
-		expect(Cut.inside(-11.8, 0, podium, Cut.MARGIN)).toBe(true)
-		expect(Cut.inside(-12.5, 0, podium, Cut.MARGIN)).toBe(false) -- the walkway is outside
+		expect(Cut.inside(-B.HALF - 0.3, 0, podium, Cut.MARGIN)).toBe(true)
+		expect(Cut.inside(-17.5, 0, podium, Cut.MARGIN)).toBe(false) -- the walkway (Patients: x = ±17.5) is outside
 		expect(Cut.inside(0, 5, podium, Cut.MARGIN)).toBe(false)
 	end)
 end)
@@ -1004,6 +1007,56 @@ T.describe("Hospital (the built world)", function()
 	end)
 
 	test(
+		"roomy (Joshua, 2026-11-17: 'cramped'): 2.5+ studs between the Wards' bed frames, headroom over a sitting creature",
+		function()
+			for level = 2, 5 do
+				local building = build(level)
+				-- every bed frame on the Wards floor (a functional bed's Frame, a made-up bed's Base), by ward row
+				local rows = {}
+				for _, d in building.Wards:GetDescendants() do
+					if d:IsA("BasePart") and (d.Name == "Frame" or d.Name == "Base") then
+						local r = boxOf(d)
+						local row = if r.Z1 <= B.PARTITION_Z then "front" else "main"
+						rows[row] = rows[row] or {}
+						table.insert(rows[row], r)
+					end
+				end
+				for name, frames in rows do
+					table.sort(frames, function(a, b)
+						return a.X0 < b.X0
+					end)
+					for i = 2, #frames do
+						local gap = frames[i].X0 - frames[i - 1].X1
+						if gap < 2.5 then
+							error(string.format("Lv %d %s ward: %.2f studs between two bed frames", level, name, gap))
+						end
+					end
+				end
+				expect(#rows.front).toBe(#B.FRONT_WARD.Xs)
+				expect(#rows.main).toBe(#B.WARD_BEDS)
+				-- a 6.5-stud creature sitting on a mattress keeps 1.5+ studs under the ceiling (the roof at Lv 2)
+				local ceiling = B.slabTop(2) - H.SLAB
+				for _, d in building.Wards:GetDescendants() do
+					if d:IsA("BasePart") and string.match(d.Name, "^Bed_%d+$") then
+						local _, _, top = boxOf(d)
+						expect(ceiling - (top + 6.5) >= 1.5).toBe(true)
+					end
+				end
+				-- the lift car: the biggest creature stands inside with a stud over its head
+				expect(building.Lift.Car.Size.Y >= 6.5 + 1).toBe(true)
+			end
+			-- the stairs: no flight steeper than 1 in 2, and a landing of 3+ studs at each lane end inside the walls
+			local building = build(5)
+			for k = 0, 3 do
+				local s = building.Stairs:FindFirstChild("Flight_" .. k).Size
+				expect(s.Y / s.Z <= 0.5 + 1e-6).toBe(true)
+			end
+			expect(B.ATRIUM.X0 - (-B.HALF + B.WALL) >= 3).toBe(true)
+			expect(B.HALF - B.WALL - B.ATRIUM.X1 >= 3).toBe(true)
+		end
+	)
+
+	test(
 		"night: the glass and ribbon windows are Windows, the neon paw-heart and the beacon Lamps, one light",
 		function()
 			local building = build(5)
@@ -1123,19 +1176,23 @@ T.describe("Hospital (the built world)", function()
 
 	test("nothing low covers the Counter, the line, the gate, the sign, the walkways or a room slot", function()
 		local DOOR = H.DOOR
+		-- The 80 x 80 plot (Config.Town.PlotSize; its front edge at z = -40), PlotBuilder.SLOTS and Patients' walkways
+		-- at x = ±17.5 (makeNav: halfway between the Stand's edge, 15, and a side slot's, 20).
+		local edge = -Config.Town.PlotSize / 2
+		local walk = 17.5
 		local zones = {
 			-- name, x0, x1, z0, z1, below (nil = any height)
 			{ "Counter", -6.4, 6.4, -16, -13, DOOR },
-			{ "QueueLane", -4, 4, -34.5, -15.8, DOOR },
-			{ "Gate", -7, 7, -35, -33 },
-			{ "Sign", -18.5, -7.5, -35, -32 },
+			{ "QueueLane", -4, 4, edge + 0.5, -15.8, DOOR },
+			{ "Gate", -7, 7, edge, edge + 2 },
+			{ "Sign", -18.5, -7.5, edge, edge + 3 },
 			{ "OwnerSpawn", -8.5, -4.5, -24, -20 },
-			{ "WalkwayLeft", -14, -11.95, -18, 14, DOOR },
-			{ "WalkwayRight", 11.95, 14, -18, 14, DOOR },
-			{ "SlotA", -32, -14, -2, 14 },
-			{ "SlotC", 14, 32, -2, 14 },
-			{ "SlotB", -24, -2, 18, 32 },
-			{ "SlotD", 2, 24, 18, 32 },
+			{ "WalkwayLeft", -walk - 1.5, -B.HALF - 0.45, -18, 14, DOOR },
+			{ "WalkwayRight", B.HALF + 0.45, walk + 1.5, -18, 14, DOOR },
+			{ "SlotA", -38, -20, -2, 14 },
+			{ "SlotC", 20, 38, -2, 14 },
+			{ "SlotB", -24, -2, 20, 34 },
+			{ "SlotD", 2, 24, 20, 34 },
 		}
 		local bad = {}
 		for _, theme in { "Candy", "Arctic", "Royal" } do
