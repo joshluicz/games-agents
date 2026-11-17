@@ -24,6 +24,10 @@
 --              treatment)                   server does the hop)
 --   Calm       (Leaving before it)          the props go quietly (it's going home with no sad penalty)
 --   Sad        (Sad)                        arms droop and it hangs its head (the server does the puff)
+-- Seated (the model's Seated attribute: the server sat it on a waiting-room seat, Logic/CreatureSize.seatFit) is
+-- played on top of any phase: it settles into the sit over SIT.EaseSeconds (and out of it as it gets up) with a
+-- tiny recline and its tail curled up over its back, off the chair back and the wall; a ghost stops hovering and
+-- rests on the seat. It breathes and acts its ailment as ever, and never drifts: Root is the server's.
 -- Only creatures within NEAR_STUDS of the camera act; the rest stand still and cost nothing. Calm effects (the
 -- ReduceEffects attribute, or the device's Reduced Motion: Kit.reducedMotion()) make every motion small and slow, with
 -- no shivering, no circling stars and no bounce, and fewer particles.
@@ -41,6 +45,7 @@ local CaseActing = require(DataFolder:WaitForChild("CaseActing"))
 local Cases = require(DataFolder:WaitForChild("Cases"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Kit = require(UI:WaitForChild("Kit"))
+local CreatureSize = require(Shared:WaitForChild("Logic"):WaitForChild("CreatureSize"))
 local Props = require(script.Parent:WaitForChild("CreatureProps"))
 
 local CreatureActing = {}
@@ -120,6 +125,8 @@ type Creature = {
 	Wave: number?, -- when the current wave started
 	WaveBoth: boolean,
 	Since: number, -- when State last changed
+	Sit: number, -- 0 standing .. 1 sitting: eases toward the Seated attribute (CreatureSize.sitEase)
+	Stamp: number, -- when it last acted (the sit eases by the time since)
 	Connections: { RBXScriptConnection },
 }
 
@@ -410,11 +417,14 @@ local function act(c: Creature, now: number, quiet: boolean)
 	local state = c.State
 	local kit = c.Props
 	local sick = state == "Arriving" or state == "Waiting"
+	c.Sit = CreatureSize.sitEase(c.Sit, if c.Model:GetAttribute("Seated") == true then 1 else 0, now - c.Stamp)
+	c.Stamp = now
+	local sit = c.Sit
 
-	-- Breathing, always; a ghost hovers.
+	-- Breathing, always; a ghost hovers (one on a seat rests on it).
 	local breathe = 0.015 * math.sin(TAU * 0.45 * t)
 	if c.Ghost and state ~= "Recovering" then
-		breathe += 0.12 + (if quiet then 0 else 0.08 * math.sin(TAU * 0.4 * t))
+		breathe += (0.12 + (if quiet then 0 else 0.08 * math.sin(TAU * 0.4 * t))) * (1 - sit)
 	end
 	p.Body *= lift(u, 0, breathe, 0)
 
@@ -488,6 +498,11 @@ local function act(c: Creature, now: number, quiet: boolean)
 	end
 	if sick and c.Tail then -- a slow, hopeful little wag
 		p.Tail = CFrame.Angles(0, 0.12 * k * math.sin(TAU * 0.7 * t), 0)
+	end
+	if sit > 0 then -- sitting: a tiny recline under everything else, the tail curled up off the chair back
+		local ease = smooth(sit)
+		p.Body = CFrame.Angles(CreatureSize.SIT.Recline * ease, 0, 0) * p.Body
+		p.Tail = CFrame.Angles(-CreatureSize.SIT.TailCurl * ease, 0, 0) * p.Tail
 	end
 
 	c.Pose.Transform = p.Body
@@ -670,6 +685,8 @@ local function track(instance: Instance)
 		Wave = nil,
 		WaveBoth = false,
 		Since = now,
+		Sit = if model:GetAttribute("Seated") == true then 1 else 0, -- one that streams in seated is sitting
+		Stamp = now,
 		Connections = {},
 	}
 	onState(c)

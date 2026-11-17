@@ -253,6 +253,8 @@ K.HOP_SECONDS = 0.3
 K.HOP_HEIGHT = 0.9
 K.LEAN = 0.14 -- radians forward at the top of a hop
 K.SIT_HEIGHT = 1.8 -- a hop onto (or off) a seat or a bed
+K.CreatureSize = require(Shared.Logic.CreatureSize) -- how a sitter fits a seat (seatFit; in K: the local limit)
+K.SEAT_BACK = 0.6 -- a chair back's thickness (HospitalBuilder Pure.SEAT.Back; tests/Sit.spec keeps them equal)
 K.SIT_SECONDS = 0.45
 K.RING_STEPS = 48 -- the ring moves in 7.5 degree steps, so it replicates a few times a second at most
 K.PATIENCE_STEPS = 20 -- the PatienceFraction attribute moves in 0.05 steps (about 20 changes in a whole wait)
@@ -1390,15 +1392,60 @@ local function plotView(state: PlotState): any
 	return { Level = state.Level, Rooms = state.Rooms, Stations = state.Layout.Stations, Bays = bays }
 end
 
--- A seat's pose: on the seat (its WaitSeat_<n> marker, else the seat's top under its numbers), facing out.
-function U.seatPose(state: PlotState, index: number): CFrame
+-- How this creature sits (Logic/CreatureSize.seatFit's fit, in studs from its pivot at its size now): Hip = its
+-- Body's bottom, Body = how far its Body and Head reach back, Reach = how far any part but its tail reaches back (the
+-- client curls the tail up). A kit model with no Body: its whole box, sitting on its bottom.
+function U.sitFit(p: Patient): { Hip: number, Body: number, Reach: number }
+	local fit = { Hip = 0, Body = 0, Reach = 0 }
+	local root = p.Root
+	local found = false
+	local core = p.Model:FindFirstChild("Core")
+	local curls = core ~= nil and core:FindFirstChild("TailJoint") ~= nil -- a tail on its joint: the client curls it
+	for _, part in p.Model:GetDescendants() do
+		if not part:IsA("BasePart") or part == root or part.Name == "Core" or part.Transparency >= 1 then
+			continue
+		end
+		local rel = root.CFrame:ToObjectSpace(part.CFrame)
+		local _, y, z, _, _, _, r10, r11, r12, r20, r21, r22 = rel:GetComponents()
+		local size = part.Size
+		local back = z + (math.abs(r20) * size.X + math.abs(r21) * size.Y + math.abs(r22) * size.Z) / 2
+		if part.Name == "Body" or part.Name == "Head" then
+			fit.Body = math.max(fit.Body, back)
+			if part.Name == "Body" then
+				fit.Hip = y - (math.abs(r10) * size.X + math.abs(r11) * size.Y + math.abs(r12) * size.Z) / 2
+				found = true
+			end
+		end
+		if not (curls and (part.Name == "Tail" or part.Name == "TailTip")) then
+			fit.Reach = math.max(fit.Reach, back)
+		end
+	end
+	if not found then
+		fit.Body = fit.Reach
+	end
+	return fit
+end
+
+-- A seat's pose for patient `p`: sitting on the seat (its WaitSeat_<n> marker, else the seat's top under its numbers)
+-- facing out of it into the room, its bottom on the seat top and its back against the chair back
+-- (Logic/CreatureSize.seatFit: a big creature sits further forward, so it never pokes through the back or the wall).
+function U.seatPose(state: PlotState, index: number, p: Patient): CFrame
 	local seat = Building.SEATS[index]
 	local dx, dz = Building.facing(seat.Face)
 	local marker = state.Layout.Seats[index]
 	local at = if marker and marker.Parent
 		then U.markerGround(marker).Position
 		else surface(state, U.worldAt(state, seat.X, seat.Z, 0), 0)
-	return facing(at, worldDir(state, dx, dz))
+	local half = Building.SEAT_SIZE / 2
+	local forward, drop = K.CreatureSize.seatFit(U.sitFit(p), { Cushion = half - K.SEAT_BACK, Wall = half })
+	return facing(at, worldDir(state, dx, dz)) * CFrame.new(0, -drop, -forward)
+end
+
+-- On its seat or not: OnSeat and the model's Seated attribute together (Feel/CreatureActing settles it into the sit
+-- while it's set: a little recline, its tail curled up). Every way off a seat comes through here.
+function U.setSeated(p: Patient, on: boolean)
+	p.OnSeat = on
+	p.Model:SetAttribute("Seated", if on then true else nil)
 end
 
 -- On a bay bed (the Bed's top), facing its foot (the DoctorSpot).
@@ -1876,7 +1923,7 @@ local function freeSeat(p: Patient)
 		p.Plot.Seats[seat] = nil
 	end
 	p.Seat = nil
-	p.OnSeat = false
+	U.setSeated(p, false)
 end
 
 local function freeBay(p: Patient)
@@ -2220,7 +2267,7 @@ local function getUp(p: Patient): boolean
 		local info = Building.SEATS[seat]
 		local front = Building.seatFront(info)
 		local dx, dz = Building.facing(info.Face)
-		p.OnSeat = false
+		U.setSeated(p, false)
 		local at = surface(state, U.worldAt(state, front.X, front.Z, 0), 0)
 		if not hop(p, facing(at, worldDir(state, dx, dz)), K.SIT_HEIGHT, K.SIT_SECONDS) then
 			return false
@@ -2483,11 +2530,10 @@ local function findSeat(p: Patient): boolean
 			p.Phase = "ToBay"
 			return true
 		end
-		if not hop(p, U.seatPose(state, seat), K.SIT_HEIGHT, K.SIT_SECONDS) then
+		if not hop(p, U.seatPose(state, seat, p), K.SIT_HEIGHT, K.SIT_SECONDS) then
 			return false
 		end
-		p.OnSeat = true
-		p.NextIdle = os.clock() + rng:NextNumber(2.5, 4.5) -- it sits still a moment before its first little hop
+		U.setSeated(p, true) -- it sits still now: no idle hops on a seat (waitSeated)
 	end
 	if p.Phase ~= "Arriving" then
 		return alive(p)
@@ -2504,7 +2550,8 @@ local function findSeat(p: Patient): boolean
 	return alive(p)
 end
 
--- In the waiting room (little hops now and then) until a bay is its, or it goes.
+-- In the waiting room until a bay is its, or it goes. On a seat it sits still (it may sit a long while: no hops, no
+-- drift; the client breathes and acts its ailment); one standing (every seat taken) hops a little now and then.
 local function waitSeated(p: Patient): boolean
 	while alive(p) and p.Phase == "Seated" do
 		if p.Bay then
@@ -2512,7 +2559,7 @@ local function waitSeated(p: Patient): boolean
 			break
 		end
 		local now = os.clock()
-		if now >= p.NextIdle then
+		if now >= p.NextIdle and not p.OnSeat then
 			local low = p.Patience / p.PatienceMax < 0.3 -- impatient: bouncier
 			p.NextIdle = now + (if low then rng:NextNumber(0.8, 1.4) else rng:NextNumber(2.5, 4.5))
 			if not hop(p, p.Pivot, if low then 0.35 else 0.5, 0.3) then
