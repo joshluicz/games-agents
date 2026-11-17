@@ -37,7 +37,25 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
       - First Studio run: the tutorial, Lv 1-5, the X-ray → cast → pain relief case. It found 5 bugs, all fixed with
         specs (`logs/playtests/2026-11-17-real-clinic-studio.md`). 1602 specs pass.
       - Joins the pending unpublished release.
-- [ ] **Claude, next on the Real Clinic:**
+- [x] **Claude:** Joshua's first-play notes fixed and Studio-checked (`logs/playtests/2026-11-17-clinic-feedback.md`,
+      `207709d`, 1637 specs):
+      - the dispensary is one medicine on a prescription slip;
+      - patients sit first;
+      - stations are real furniture;
+      - stepped stairs, taller doors, no flicker;
+      - the back rooms are rebuilt;
+      - solid arrows sit on a floor strip.
+      Rulings `-006` (simple start: you route patients, fewer places at Lv 1, cocoa to a pantry, a 1.5x bigger
+      building with a see-through camera) and `-007` (calm UI, emoji rules) are recorded. UI direction:
+      `docs/plan/2026-11-17-ui-direction.md`. Open-source research: `docs/research/2026-11-17-open-source-roblox.md`.
+- [ ] **Claude, next batch (`-006` + `-007`):**
+      - simple start (3 cases at Lv 1);
+      - tap a waiting patient to send it (`U.callToBay`);
+      - a pantry for cocoa and bath foam;
+      - the building about 1.5x bigger with Invisicam and low bay dividers;
+      - the UI rebuild (T0 foundation, then 5 tasks).
+- [ ] **Joshua:** the arrow image for the strip (optional): Claude makes the PNG, Joshua imports it in Asset Manager.
+- [ ] **Claude, still on the Real Clinic:**
       - the broken arm's timing by hand;
       - a ward stay with the pick;
       - the lift, the ambulance and helicopter, night;
@@ -66,6 +84,12 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-17 (night, Joshua's PC, Claude + 7 agents). Joshua's first-play notes.**
+  - He sent 9 notes with screenshots: the medicine pick, sitting first, block-like stations, the hot-chocolate room,
+    the arrows, glitchy stairs, low doors, purple flicker, cramped rooms, the cluttered UI and emojis.
+  - Six builders and a Fable UI auditor ran in `.worktrees/feedback`. Merged at `207709d` and checked in Studio.
+  - Two rulings came from his answers: `-006` (simple start, you route patients) and `-007` (calm UI). The next
+    batch builds them.
 - **2026-11-17 (evening, Joshua's PC, Claude + a 14-agent workflow). The Real Clinic, built and run in Studio.**
   - Joshua: no "cures", treatments for real cases; the clinic big from the first moment; a dispensary the player
     runs; doors instead of the display window; no wood floors; Studio tests more often. "B. kept light. your call for
