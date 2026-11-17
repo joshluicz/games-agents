@@ -3,7 +3,7 @@
 > Live state first, narrative second. New entries go at the **top** of `## Recent sessions`.
 
 ## Phase
-**Stage 0: Creature Clinic, private build** (2026-11-16). The concept moved from the shop sim to a creature clinic on
+**Stage 0: Creature Clinic, live (16+) with Update 1; Update 2 "the Real Clinic" built and in Studio testing, unpublished** (2026-11-17). The concept moved from the shop sim to a creature clinic on
 your own plot (`memory-20261116-003` to `-006`). Design: `docs/plan/2026-11-16-creature-clinic-design.md`. Build plan
 and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 are built, merged and ran in Studio
 (`logs/playtests/2026-11-16-clinic-first-studio-run.md`). Winter build private and playtested by about 7 Dec.
@@ -31,8 +31,22 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 - [x] **Claude:** the wide hospital (Joshua: "cramped... wider... a little taller per storey"). The building is 32 wide
       (was 23), with storeys 12 / 11 (were 11 / 9). Plots are 80 (were 70). Run in Studio
       (`logs/playtests/2026-11-17-wide-hospital.md`). 1450 specs pass. The Building is at 158 of its 160-part budget.
+- [x] **Claude:** the Real Clinic (Update 2, `memory-20261117-005`).
+      - Examine → treat → dispense, 12 real cases, a big clinic from Lv 1, a dispensary.
+      - A 14-agent workflow built it, merged at `4c81365`.
+      - First Studio run: the tutorial, Lv 1-5, the X-ray → cast → pain relief case. It found 5 bugs, all fixed with
+        specs (`logs/playtests/2026-11-17-real-clinic-studio.md`). 1602 specs pass.
+      - Joins the pending unpublished release.
+- [ ] **Claude, next on the Real Clinic:**
+      - the broken arm's timing by hand;
+      - a ward stay with the pick;
+      - the lift, the ambulance and helicopter, night;
+      - the Bath Room, the Winter Wing, the Cozy Ward;
+      - a phone-size view;
+      - the small items in the log.
 - [ ] **Joshua + brother:** play it in Studio (or a private server), then **both say yes** before publishing (red
       line 4). Pick the First-Aid Stand icon and Golden Hour's icon (`2026-11-17-look-overhaul.md`, "Still open").
+      Decide whether to keep the title (OPEN #12).
 - [ ] **Claude, next:**
       - the beam's arrow texture (needs one uploaded image);
       - a phone check in the Device Simulator;
@@ -52,6 +66,20 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-17 (evening, Joshua's PC, Claude + a 14-agent workflow). The Real Clinic, built and run in Studio.**
+  - Joshua: no "cures", treatments for real cases; the clinic big from the first moment; a dispensary the player
+    runs; doors instead of the display window; no wood floors; Studio tests more often. "B. kept light. your call for
+    the rest." (`memory-20261117-005`)
+  - Design and build plan: `docs/plan/2026-11-17-real-clinic-design.md` and `docs/plan/2026-11-17-real-clinic-build-plan.md`.
+  - The workflow: a Fable foundation, then 8 builders, a Fable integrator, 3 Fable reviewers (13 findings) and a Fable
+    fixer. The fixer also caught Patients.luau not compiling (over 200 locals); new `Compile.spec`. Merged at `4c81365`.
+  - The Studio run found 5 bugs, fixed in `80c78c4`..`195f14d`:
+    - 6 emojis Roblox can't draw (the X-ray card was blank);
+    - overlapping tap spots;
+    - a station badge filling the screen;
+    - a cast couldn't be taken (another E prompt won);
+    - clipped bottles.
+  - Not published.
 - **2026-11-17 (later, Joshua's PC, Claude + a 7-agent workflow). The wide hospital.**
   - Joshua: "much better but the hospital is cramped. it should be wider. and a little taller per storey else the head
     will be too near".
