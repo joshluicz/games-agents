@@ -436,8 +436,17 @@ T.describe("Building: seats, bays and stations", function()
 		expect(Building.bayOpen(Building.bay("1"), 0 / 0)).toBe(true)
 	end)
 
-	test("the 5 stations: on the supply shelf, in the X-ray room and at the dispensary counter", function()
-		local where = { Plaster = "Supply", Ice = "Supply", Bandage = "Supply", Cast = "XRay", Remedy = "Dispensary" }
+	test("the 7 stations: the supply shelf, the X-ray room, the dispensary counter and the pantry", function()
+		-- the pantry (memory-20261117-006; tests/Pantry.spec): Cocoa and Bath, in the hall behind the supply alcove
+		local where = {
+			Plaster = "Supply",
+			Ice = "Supply",
+			Bandage = "Supply",
+			Cast = "XRay",
+			Remedy = "Dispensary",
+			Cocoa = "LiftCore",
+			Bath = "LiftCore",
+		}
 		local opens = {}
 		for id, station in Building.STATIONS do
 			opens[id] = station.Opens
@@ -463,14 +472,17 @@ T.describe("Building: seats, bays and stations", function()
 			end
 		end
 		-- simple start (memory-20261117-006): Lv 1 has only the Plaster shelf and the dispensary
-		expect(opens).toEqual({ Plaster = 1, Ice = 2, Bandage = 2, Cast = 3, Remedy = 1 })
+		-- (the pantry's two are Lv 1 by level, and shut until their room is owned)
+		expect(opens).toEqual({ Plaster = 1, Ice = 2, Bandage = 2, Cast = 3, Remedy = 1, Cocoa = 1, Bath = 1 })
 		expect(Building.stationOpen("Ice", 1)).toBe(false)
 		expect(Building.stationOpen("Ice", 2)).toBe(true)
 		expect(Building.stationOpen("Bandage", 1)).toBe(false)
 		expect(Building.stationOpen("Bandage", 2)).toBe(true)
 		expect(Building.stationOpen("Cast", 2)).toBe(false)
-		expect(Building.stationOpen("Bath", 5)).toBe(false) -- the Bath Room's own (PlotBuilder)
-		expect(Building.stationRect("Bath")).toBeNil()
+		expect(Building.stationOpen("Bath", 5)).toBe(false) -- the pantry's: only with the Bath Room
+		expect(Building.stationOpen("Bath", 1, { BathRoom = true })).toBe(true)
+		expect(Building.stationOpen("Pharmacy", 5)).toBe(false)
+		expect(Building.stationRect("Pharmacy")).toBeNil()
 		-- the alcove stays a passage between the two corridors: a creature fits between the shelves
 		local plaster, bandage = Building.stationRect("Plaster"), Building.stationRect("Bandage")
 		expect(bandage.X0 - plaster.X1 >= 4.5).toBe(true)

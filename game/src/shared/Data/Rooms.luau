@@ -1,9 +1,12 @@
 --!strict
 -- Rooms: prebuilt modules that unlock into fixed slots on your plot (build plan §B2, design §5.10).
--- Each room adds stations (so new cases, so new patients), beds and decor slots. Lune-safe.
+-- Each room OPENS stations (so new cases, so new patients) and adds beds and decor slots. Lune-safe.
 --
 -- A room is a Model `Room_<RoomId>` with PrimaryPart `Floor`, placed so Floor.CFrame == its slot's CFrame.
--- Inside: `Station_<StationId>` Parts, `Bed_<n>` Parts and invisible `DecorSlot_<n>` Parts, n from 1.
+-- Inside: `Bed_<n>` Parts and invisible `DecorSlot_<n>` Parts, n from 1. NO station part: `Stations` lists the
+-- stations a room opens, and every one of them stands in the Building (memory-20261117-006: patients walk as little
+-- as possible). The Bath Room opens the pantry's Station_Bath and the Winter Wing its Station_Cocoa
+-- (Logic/Building.PANTRY_ROOMS, the same pairs; tests/Pantry.spec), so the rooms are themed recovery rooms.
 -- A placeholder is built from these counts unless ServerStorage.ClinicKit.<RoomId> exists.
 -- The Real Clinic (design §8.2, §15 #5; Server/PlotBuilder): the Bath Room, the Cozy Ward and the Winter Wing are
 -- fit-outs INSIDE the Building's ground floor (each behind its own door, shut until the room is owned), the Garden is
@@ -23,7 +26,7 @@ export type Room = {
 	Slot: string, -- SlotId: the plot has an invisible Part `Slots.RoomSlot_<SlotId>`
 	Price: number, -- cash; 0 = free
 	StarsNeeded: number, -- Clinic Stars needed to buy
-	Stations: { string }, -- StationIds
+	Stations: { string }, -- StationIds this room OPENS (they stand in the Building, never in the room)
 	Beds: number,
 	DecorSlots: number,
 	Wing: string, -- WingId

@@ -1,14 +1,18 @@
 --!strict
 -- Stations: the supply shelf and the dispensary (Real Clinic build plan, Task 5; design §7, §8.2, §9). Server only.
 --
--- Every `Station_<StationId>` in a plot's Building (Plaster, Ice, Bandage, Cast and Remedy, contract C2: found by
--- name, and again whenever a level-up or a rebirth rebuilds the Building) and in every placed room (Bath in the Bath
--- Room, Cocoa in the Winter Wing: Plots.observeRooms) gets a hold prompt `MakePrompt`, tagged `StationPrompt`
+-- Every `Station_<StationId>` in a plot's Building (Plaster, Ice, Bandage, Cast and Remedy, and the pantry's Cocoa
+-- and Bath; contract C2: found by name, and again whenever a level-up or a rebirth rebuilds the Building) gets a hold
+-- prompt `MakePrompt`, tagged `StationPrompt`. (No room has a station any more, memory-20261117-006: hot chocolate
+-- and bath foam are taken at the pantry. A placed room is still looked through, Plots.observeRooms, for a station
+-- only a future room or kit might carry.) The prompt is tagged
 -- (CollectionService; clients use GetInstanceAddedSignal too, for streaming and rebuilds) with the attributes
 -- `StationId` and `ItemId` (Data/Stations .Item; "" for the dispensary). Only people who may work the clinic
 -- (Plots.canWork) can use them, and only while it has an owner: a free plot's prompts are switched off. A station
--- whose `Open` attribute is false (a supply the clinic's level hasn't opened: Bandage below Lv 2, Cast below Lv 3)
--- has its prompt switched off too, and a trigger on it is refused.
+-- whose `Open` attribute is false (a supply the clinic's level hasn't opened: Bandage below Lv 2, Cast below Lv 3;
+-- the pantry's Cocoa without the Winter Wing and Bath without the Bath Room: Server/HospitalBuilder keeps their Open
+-- in step with the plot's rooms, and the prompt follows the attribute) has its prompt switched off too, and a
+-- trigger on it is refused.
 --
 --   Supplies ("Take", ObjectText the station's icon): holding puts that station's item in your tray (Carry.add), with
 --   a sparkle burst. Then Daily.onMake, Badges.onMade ("Made:<StationId>") and Tutorial.onMade.

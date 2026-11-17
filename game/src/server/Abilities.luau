@@ -594,7 +594,7 @@ for _, itemId in ItemsData.Order do
 end
 
 -- The owner stands within NEAR_STATION studs of one of this plot's OPEN stations (Station_<id> under the Building or
--- the Rooms whose Open isn't false: the supply shelf, the Cast Table, the dispensary, the bought rooms').
+-- the Rooms whose Open isn't false: the supply shelf, the Cast Table, the dispensary, the pantry).
 local function nearStation(plot: Plot, owner: Player): boolean
 	local character = owner.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")

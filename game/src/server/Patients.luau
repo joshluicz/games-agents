@@ -19,7 +19,9 @@
 --      Station_<id> parts, a usable bay of the case's kind and its exam tool unlocked). A case that needs an item no
 --      open station makes is never picked (Review Focus 1), for anyone: the usual pool, regulars, Today's Visitor,
 --      night patients, ambulances and the helicopter. A species comes only when its pool has such a case; Bath-wing
---      patients also need the Bath Room and Winter-wing ones the Winter Wing, as they always did (Pure.wingRoom). The
+--      patients also need the Bath Room and Winter-wing ones the Winter Wing, as they always did (Pure.wingRoom).
+--      Their supplies (bath foam, hot chocolate) are taken at the Building's PANTRY (Station_Bath, Station_Cocoa:
+--      open while that room is owned), never in the room: no patient walks into a room to be treated. The
 --      plan is the case's Plan cut to the level (Logic/Visit.plan with Levels.recipeCap; 1 step through the
 --      tutorial). Variants: Sparkly, Frosty in winter, 🌟 Golden from R3 (Pure.variant). Night patients only at
 --      night (and in 🦉 Night Owl's morning); 🌻 Sunny from R1; 🚁 Sky only by air ambulance (Pure.wingOpen).
@@ -1370,7 +1372,8 @@ local function scanLayout(state: PlotState, building: Instance?, key: string, no
 			}
 		end
 	end
-	-- The stations: a Station_<id> Part by contract (a kit room may use a Model), open unless it says Open = false.
+	-- The stations: a Station_<id> Part by contract (a kit may use a Model), open unless it says Open = false (the
+	-- pantry's Station_Cocoa and Station_Bath say so until their room is owned: Server/HospitalBuilder.syncStations).
 	local inBuilding = false
 	for _, holder in { building, rooms } do
 		if holder then
@@ -1386,9 +1389,10 @@ local function scanLayout(state: PlotState, building: Instance?, key: string, no
 		end
 	end
 	if not inBuilding then
-		-- A Building without Station_ parts (a kit one, or one still being built): its stations by the numbers.
+		-- A Building without Station_ parts (a kit one, or one still being built): its stations by the numbers (the
+		-- pantry's Cocoa and Bath with the rooms the save owns).
 		for stationId in Building.STATIONS do
-			if Building.stationOpen(stationId, state.Level) then
+			if Building.stationOpen(stationId, state.Level, state.Rooms) then
 				layout.Stations[stationId] = true
 			end
 		end

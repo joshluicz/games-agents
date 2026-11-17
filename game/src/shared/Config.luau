@@ -388,8 +388,10 @@ Config.Look = {
 	-- The Real Clinic (design §8.5): the whole clinic stands from Lv 1, so the budgets grew. Six plots plus the town
 	-- stay under 4,500 parts.
 	PlotBudget = 640, -- one plot at Lv 5 with every room, any theme, no creatures, nurses or decor (was 400)
-	BuildingParts = 420, -- its share: the Building, any level, any theme (was 160)
-	RoomParts = 90, -- its share: every room model on the plot (interior fit-outs, no walls or roofs, + the Garden)
+	-- The pantry (memory-20261117-006): the hot-chocolate and bath-foam stations moved from the rooms into the
+	-- Building, so 20 parts of budget moved with them (Building 420 -> 440, rooms 90 -> 70); the plot's 640 is as it was.
+	BuildingParts = 440, -- its share: the Building, any level, any theme (was 160, then 420)
+	RoomParts = 70, -- its share: every room model on the plot (interior fit-outs, no walls or roofs, + the Garden)
 	-- Its share: everything else on the plot (pad, edging, path, Counter, markers, sign, fence, gate, mailbox, trees,
 	-- bushes).
 	PlotParts = 130,

@@ -9,6 +9,10 @@
 --   HospitalBuilder.Pure          the building's own numbers (plot-local studs; PlotBuilder.Pure re-exports it;
 --                                 tests/Hospital.spec loads the PURE block). Its functions take Shared/Logic/Building
 --                                 (the interface numbers everyone else builds to) as their first argument
+--   HospitalBuilder.syncStations(plotModel)
+--       the pantry's stations (Logic/Building.STATIONS with a Room: Cocoa, Bath) follow the rooms the plot owns NOW:
+--       their Open attribute, their badge (the icon, or 🔒 on a grey ring) and their "Needs ❄️ Winter Wing" hint.
+--       build() calls it and hooks it to the plot's Rooms folder, so buying (or losing) a room needs no rebuild
 --   HospitalBuilder.STATION_TAG   ("BuildingStation")  every Station_<id> part in the Building (Server/Stations)
 --   HospitalBuilder.LIFT_TAG      ("HospitalLift")     each Building's Lift Model (UI/LiftPanel slides its car)
 --   HospitalBuilder.DOOR_TAG      ("ClinicDoor")       each door Model (Server/World/Doors slides and locks them)
@@ -36,6 +40,10 @@
 --       Station_Ice (a freezer chest with ice cubes on its lid), Station_Bandage (an open shelf of bandage rolls)
 --     the X-ray room (shut until Lv 3): ExamBay_X under the X-ray arm, Station_Cast (a work table on legs: a tray of
 --       plaster rolls and a bucket)
+--     the pantry, in the hall behind the supply alcove, against the stairs' rail (memory-20261117-006: "move the hot
+--       cocoa into like a pantry"): Station_Cocoa (a small counter with a cocoa pot and two mugs; open while the
+--       Winter Wing is owned) and Station_Bath (an open shelf of bath-foam bottles and a towel stack; open while the
+--       Bath Room is owned). Closed, each wears 🔒 and a floating hint naming its room (RoomHint)
 --     the Bath Room, Winter Wing and Cozy Ward behind their doors (shut until bought; their fit-outs are
 --       PlotBuilder's, ExamBay_W1/W2 included), the lift (glass shaft, door on its -x face) and the dog-leg stairs
 --       (tiled steps over an invisible walking ramp a half-flight)
@@ -52,7 +60,8 @@
 -- the lift); a marker RESTS on its surface (its bottom face is the seat top, the floor), like the lift landings.
 -- An ExamBay_<id> Model's Bed is the couch the patient sits on (its top at Pure.COUCH; its LookVector toward the
 -- foot, where the DoctorSpot is), with the attributes Bay, Kind, Opens, Face and Open (level >= Opens).
--- Station_<id> parts carry Open (Logic/Building.stationOpen) and StationId and are tagged STATION_TAG. Each is
+-- Station_<id> parts carry Open (Logic/Building.stationOpen, with the plot's rooms), StationId and, the pantry's,
+-- Room (the RoomId that opens it), and are tagged STATION_TAG. Each is
 -- Logic/Building.stationRect's box from the floor (what stops you; invisible round the open shelf and the table) with
 -- its walk-through furniture as its own children and its IconGui badge over that furniture.
 --
@@ -165,7 +174,17 @@ Pure.STATION = {
 	Bandage = 4.6, -- the open shelf unit (an invisible box round it: the shelves are open)
 	Cast = 3.2, -- the work table's top (an invisible box round it: the table stands on legs)
 	Remedy = 3, -- the dispensary counter's body (its countertop on it)
+	Cocoa = 3, -- the pantry's cocoa counter's body (its countertop, the pot and the mugs on it)
+	Bath = 4.6, -- the pantry's shelf unit (an invisible box round it: bath-foam bottles and towels on open shelves)
 }
+-- A room-gated station's hint while it is closed (a BillboardGui over its badge: no part, no SurfaceGui): which room
+-- opens it. A room is bought with in-game cash at its own door (the price is on the door, never here).
+Pure.HINT = { Width = 7, Height = 1, Over = 1.9, MaxDistance = 45 }
+function Pure.roomHint(room: any): string
+	local icon = if type(room) == "table" and type(room.Icon) == "string" then room.Icon .. " " else ""
+	local name = if type(room) == "table" and type(room.Name) == "string" then room.Name else "a room"
+	return "Needs " .. icon .. name
+end
 Pure.TOP = 0.3 -- a countertop's (and the freezer lid's) thickness
 -- The nurses' station's desk (Logic/Building.NURSE_STATION.Desk): its body's height (counter height, like the
 -- dispensary's), with a countertop and a clipboard on it. Three parts: the Building was near its budget.
@@ -777,6 +796,8 @@ local DOOR_SPECS: { DoorSpec } = {
 	{ Key = "Garden", Name = "Door_Garden", Slide = 1, Face = Enum.NormalId.Front, Color = WORLD.LeavesA },
 }
 
+local NO_ROOMS: { [string]: boolean } = table.freeze({}) -- for a station no room gates
+
 -- The rooms the plot owns now (Plot.Rooms.Room_<RoomId>).
 local function ownedRooms(plotModel: Model): { [string]: boolean }
 	local owned: { [string]: boolean } = {}
@@ -1088,6 +1109,12 @@ local function cylinderOn(
 end
 
 local PLASTER_TAN = Color3.fromRGB(226, 182, 138) -- a sticking plaster
+local COCOA_BROWN = Color3.fromRGB(122, 74, 46) -- the pantry's cocoa pot
+-- Half a station's width in its own frame (Logic/Building.stationRect: the pantry's units are narrower than 4).
+local function stationHalf(id: string): number
+	local station = B.STATIONS[id]
+	return ((station and station.Width) or B.STATION_SIZE.Width) / 2
+end
 local function bottleColor(itemId: string, fallback: Color3): Color3
 	local row = rawget(ItemsData :: any, itemId)
 	return hexColor(if type(row) == "table" then row.Bottle else nil, fallback)
@@ -1096,6 +1123,7 @@ end
 -- Each station's furniture round its part `p` (in `color`, the station's own, capped). Returns the furniture's
 -- highest point (its badge floats Pure.BADGE over it). Sizes: Logic/Building.STATION_SIZE, 4 across and 2.4 deep.
 type Furnish = (p: Part, frame: CFrame, color: Color3) -> number
+local OPEN_FURNITURE: { [string]: boolean } = { Bandage = true, Cast = true, Bath = true } -- an invisible box round it
 local FURNISH: { [string]: Furnish } = {
 	-- 🩹 A supply cabinet: the pink body (the part) with two doors and their knobs, a white countertop, and on it a box
 	-- of plasters (its lid pink) and a plaster.
@@ -1212,14 +1240,75 @@ local FURNISH: { [string]: Furnish } = {
 		tiny(cylinderOn(p, "MeasuringCup", frame, 1.1, y, -0.3, 0.6, 0.6, WORLD.Trim))
 		return y + 1
 	end,
+	-- ☕ The pantry's cocoa counter: the orange body (the part) with one wide door, a white countertop, and on it a
+	-- chocolate-brown pot with its lid and two white mugs. (Its width is Logic/Building.PANTRY's, not 4.)
+	Cocoa = function(p, frame, color)
+		local h, t = Pure.STATION.Cocoa, Pure.TOP
+		local half = stationHalf("Cocoa")
+		fit(p, "Door", frame, -half + 0.15, half - 0.15, 0.35, h - 0.25, -1.3, -1.2, tame(Parts.lighten(color, 0.3)))
+		fit(p, "Countertop", frame, -half, half, h, h + t, -1.35, 1.2, WORLD.Trim)
+		local y = h + t
+		cylinderOn(p, "CocoaPot", frame, -0.7, y, 0.2, 0.9, 1.1, COCOA_BROWN)
+		tiny(cylinderOn(p, "CocoaPotLid", frame, -0.7, y + 0.9, 0.2, 0.2, 0.6, WORLD.Trim))
+		for _, x in { 0.45, 1.1 } do
+			tiny(cylinderOn(p, "Mug", frame, x, y, -0.35, 0.55, 0.5, WORLD.Trim))
+		end
+		return y + 1.1
+	end,
+	-- 🛁 The pantry's bath shelf: an open shelf unit in the station's blue (the part is an invisible box round it):
+	-- two sides, a darker back, three boards, bottles of bath foam on the middle board and a stack of two towels on
+	-- the bottom one.
+	Bath = function(p, frame, color)
+		local h, w = Pure.STATION.Bath, 0.3
+		local half = stationHalf("Bath")
+		for _, side in { -1, 1 } do
+			local x0 = if side < 0 then -half else half - w
+			fit(p, "ShelfSide", frame, x0, x0 + w, 0, h, -1.2, 1.2, color)
+		end
+		fit(p, "ShelfBack", frame, -half + w, half - w, 0, h, 1.2 - w, 1.2, tame(Parts.darken(color, 0.25)))
+		local boards = { 0, 2.1, h - w }
+		for _, y in boards do
+			fit(p, "ShelfBoard", frame, -half + w, half - w, y, y + w, -1.2, 1.2 - w, color)
+		end
+		for i, x in { -0.75, 0, 0.75 } do
+			local foam = if i == 2 then tame(ACCENT.Cyan) else tame(ACCENT.Pink)
+			tiny(cylinderOn(p, "FoamBottle", frame, x, boards[2] + w, -0.2, 1.1, 0.55, foam))
+		end
+		for i = 1, 2 do
+			local y0 = boards[1] + w + (i - 1) * 0.5
+			local towel = fit(p, "Towel", frame, -0.8, 0.8, y0, y0 + 0.5, -0.8, 0.5, WORLD.Trim, Enum.Material.Fabric)
+			tiny(towel)
+		end
+		return h
+	end,
 }
+
+-- A station's floating badge: its icon in its own colour's ring, or 🔒 on a grey ring while it is closed. `height`
+-- is the badge's offset over the part's centre. A room-gated station's RoomHint shows only while it is closed.
+local function stationBadge(p: BasePart, id: string, open: boolean, height: number)
+	local data = rawget(Stations :: any, id)
+	local color = if data and typeof(data.Color) == "Color3" then data.Color else WORLD.Trim
+	iconBadge(
+		p,
+		"IconGui",
+		if open and data then data.Icon else "🔒",
+		if open then color else CLOSED_RING,
+		2.6,
+		height
+	)
+	local hint = p:FindFirstChild("RoomHint")
+	if hint and hint:IsA("BillboardGui") then
+		hint.Enabled = not open
+	end
+end
 
 -- A station in the Building: Station_<id> (tagged), Logic/Building.stationRect's box from the floor up to its Height,
 -- with its furniture as its own children and its icon badge over it (🔒 on a grey ring while closed; a closed station
 -- looks the same otherwise, so kids see what's coming). The body keeps the station's colour where it is one solid
--- body (the cabinet, the counter; the freezer is white with a coloured lid), and the open furniture (the shelves, the
--- table) is coloured itself round an invisible box.
-local function buildStation(model: Model, id: string, level: number)
+-- body (the cabinet, the counters; the freezer is white with a coloured lid), and the open furniture (the shelves, the
+-- table) is coloured itself round an invisible box. `owned`: the rooms the plot owns (the pantry's stations open with
+-- theirs; closed, each also floats a hint naming its room).
+local function buildStation(model: Model, id: string, level: number, owned: { [string]: boolean })
 	local r = B.stationRect(id)
 	local station = B.STATIONS[id]
 	if not (r and station) then
@@ -1230,7 +1319,7 @@ local function buildStation(model: Model, id: string, level: number)
 	-- like every world colour.
 	local color = if data and typeof(data.Color) == "Color3" then data.Color else WORLD.Trim
 	local height = rawget(Pure.STATION :: any, id) or 3
-	local open = B.stationOpen(id, level)
+	local open = B.stationOpen(id, level, owned)
 	local body = if id == "Ice" then WORLD.Trim else tame(color)
 	local p = loose(box(model, "Station_" .. id, r.X0, r.X1, 0, height, r.Z0, r.Z1, body), 1, 0)
 	p:SetAttribute("StationId", id)
@@ -1238,19 +1327,66 @@ local function buildStation(model: Model, id: string, level: number)
 	local frame = CFrame.new(station.X, 0, station.Z) * CFrame.Angles(0, math.rad(station.Face), 0)
 	local furnish = FURNISH[id]
 	local top = if furnish then furnish(p, frame, tame(color)) else height
-	if id == "Bandage" or id == "Cast" then
+	if OPEN_FURNITURE[id] then
 		p.Transparency = 1 -- open furniture: the part is only the box that stops you
 		p.CastShadow = false
 	end
-	iconBadge(
-		p,
-		"IconGui",
-		if open and data then data.Icon else "🔒",
-		if open then color else CLOSED_RING,
-		2.6,
-		top + Pure.BADGE - height / 2
-	)
+	local badgeAt = top + Pure.BADGE - height / 2
+	if station.Room then
+		p:SetAttribute("Room", station.Room)
+		local hint = Instance.new("BillboardGui")
+		hint.Name = "RoomHint"
+		hint.Size = UDim2.fromScale(Pure.HINT.Width, Pure.HINT.Height)
+		hint.StudsOffsetWorldSpace = Vector3.new(0, badgeAt + Pure.HINT.Over, 0)
+		hint.LightInfluence = 0
+		hint.MaxDistance = Pure.HINT.MaxDistance
+		floatText(hint, Pure.roomHint(rawget(RoomsData :: any, station.Room)))
+		hint.Parent = p
+	end
+	stationBadge(p, id, open, badgeAt)
 	CollectionService:AddTag(p, HospitalBuilder.STATION_TAG)
+end
+
+-- The pantry's stations follow the rooms the plot owns now (see the header): Open, the badge and the hint. A kit
+-- Building's Station_Cocoa / Station_Bath get their Open the same way (their look is the kit's own).
+function HospitalBuilder.syncStations(plotModel: Model)
+	local building = plotModel:FindFirstChild("Building")
+	if not building then
+		return
+	end
+	local level = building:GetAttribute("Level")
+	local owned = ownedRooms(plotModel)
+	for id, station in B.STATIONS do
+		local p = if station.Room then building:FindFirstChild("Station_" .. id, true) else nil
+		if p then
+			local open = B.stationOpen(id, if type(level) == "number" then level else 1, owned)
+			if p:GetAttribute("Open") ~= open then
+				p:SetAttribute("Open", open)
+				local badge = p:FindFirstChild("IconGui")
+				if p:IsA("BasePart") and p:FindFirstChild("RoomHint") and badge and badge:IsA("BillboardGui") then
+					local height = badge.StudsOffsetWorldSpace.Y
+					badge:Destroy()
+					stationBadge(p, id, open, height)
+				end
+			end
+		end
+	end
+end
+
+-- Hooks syncStations to a plot's Rooms folder, once per plot (PlotBuilder makes the folder with the plot; a room is
+-- named Room_<id> before it is parented).
+local watching: { [Instance]: boolean } = {}
+local function watchRooms(plotModel: Model)
+	local rooms = plotModel:FindFirstChild("Rooms")
+	if not rooms or watching[rooms] then
+		return
+	end
+	watching[rooms] = true
+	local function changed()
+		HospitalBuilder.syncStations(plotModel)
+	end
+	rooms.ChildAdded:Connect(changed)
+	rooms.ChildRemoved:Connect(changed)
 end
 
 -- The dispensary: the wall onto the lobby with its glass hatch over the counter (Station_Remedy), the wall onto
@@ -1294,7 +1430,7 @@ local function buildDispensary(model: Model, level: number)
 			Parts.rounded(bottle, UDim.new(0.35, 0))
 		end
 	end
-	buildStation(model, "Remedy", level)
+	buildStation(model, "Remedy", level, NO_ROOMS)
 end
 
 -- The nurses' station (Logic/Building.NURSE_STATION; Joshua 2026-11-17: "nurses look like theyre in the middle of
@@ -1455,7 +1591,7 @@ local function buildXRay(model: Model, level: number)
 		)
 	).CastShadow =
 		false
-	buildStation(model, "Cast", level)
+	buildStation(model, "Cast", level, NO_ROOMS)
 end
 
 -- The back rooms' walls: the long wall onto corridor B (three doorways, their doors are Door_<room>) and the walls
@@ -2242,6 +2378,12 @@ local function kitBuilding(level: number, themeId: string): Model?
 			warn("[HospitalBuilder] ClinicKit.Building" .. level .. " has no " .. name)
 		end
 	end
+	for _, id in B.PANTRY_ORDER do
+		if not model:FindFirstChild("Station_" .. id, true) then
+			-- no room has a station any more: without it that room's cases never come
+			warn("[HospitalBuilder] ClinicKit.Building" .. level .. " has no Station_" .. id .. " (the pantry)")
+		end
+	end
 	if B.floors(level) > 0 and not model:FindFirstChild("Landing_0", true) then
 		warn("[HospitalBuilder] ClinicKit.Building" .. level .. " has no Landing_0: its lift won't work")
 	end
@@ -2271,7 +2413,10 @@ local function placeholderBuilding(
 	buildNurseStation(model)
 	buildBays(model, level)
 	for _, id in { "Plaster", "Ice", "Bandage" } do
-		buildStation(model, id, level) -- the supply alcove
+		buildStation(model, id, level, owned) -- the supply alcove
+	end
+	for _, id in B.PANTRY_ORDER do
+		buildStation(model, id, level, owned) -- the pantry: open with its room
 	end
 	buildXRay(model, level)
 	buildBackRooms(model)
@@ -2348,6 +2493,9 @@ function HospitalBuilder.build(plotModel: Model, level: number, grewFrom: number
 	building.Parent = plotModel
 	plotModel:SetAttribute("Level", lv)
 	plotModel:SetAttribute("Theme", themeId)
+	-- The pantry follows the plot's rooms: now (a kit Building's too) and whenever one is bought or lost.
+	HospitalBuilder.syncStations(plotModel)
+	watchRooms(plotModel)
 	return building
 end
 

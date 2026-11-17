@@ -89,9 +89,10 @@
 -- walls, through the open doors; cached), so nobody walks through a wall.
 --   Maker        stocks what the bay patients still need (front first), minus what's already in the tray, being made
 --                by another Maker or carried by the owner: SUPPLIES only (Data/Items Kind "Supply"), from an open
---                Station_<id> (Open ~= false) under the Building (Plaster, Ice, Bandage, Cast) or the Rooms (Bath in
---                the Bath Room, Cocoa in the Winter Wing). Never the dispensary (Remedy): medicines are the player's
---                job. It walks to that station, works for its Every seconds, and puts the item in the tray
+--                Station_<id> (Open ~= false) under the Building: Plaster, Ice, Bandage, Cast, and the pantry's Bath
+--                and Cocoa while their rooms are owned (a kit room's own station too, were there one). Never the
+--                dispensary (Remedy): medicines are the player's job. It walks to that station (Logic/Building's
+--                stand, a step to its side), works for its Every seconds, and puts the item in the tray
 --   Healer       waits at the bays' end (Pure.home); at most every Every seconds, when the front bay patient (or, with 👯
 --                Twin Counters, the next one when the front can't be helped) needs its exam
 --                (a nurse examines: no game, no tip) or a supply the tray holds, walks to that bay's side and fires Heal
@@ -518,7 +519,7 @@ function Pure.bedside(bay: any, index: number, level: number): Spot
 end
 
 -- Where a Maker stands at a Building station (Logic/Building.STATIONS): beside the player's stand spot, facing the
--- station. nil for a station outside the Building (a room's: its part says where).
+-- station. nil for a station outside the Building (a kit room's own: its part says where).
 function Pure.stationSpot(stationId: string, index: number): Spot?
 	local B = BuildingLogic
 	local station = B.STATIONS[stationId]
@@ -576,7 +577,8 @@ function Pure.matches(specialty: any, dept: any): boolean
 end
 
 -- The job works in the nurse's own department (Logic/Jobs.department: a Maker's is its station's, `stations` =
--- Data/Departments.Stations): a Pharmacy specialist at the supply shelf or the Cocoa Corner, a Hydro one at the Bath.
+-- Data/Departments.Stations): a Pharmacy specialist at the supply shelf or the pantry's Cocoa Corner, a Hydro one at
+-- the pantry's bath-foam shelf.
 function Pure.specialty(job: string, specialty: any, stationId: string?, jobs: any, stations: any): boolean
 	return Pure.matches(specialty, JobsLogic.department(job, stationId, jobs, stations))
 end
@@ -1198,8 +1200,8 @@ type Source = { Part: BasePart, Station: string, Built: boolean }
 local SUPPLY_STATIONS = Pure.supplyStations(ItemsData) -- the stations a Maker may use (never the dispensary)
 
 -- Every supply this plot's OPEN stations make (a Station_<id> whose Open isn't false), with its part: the Building's
--- (Plaster, Ice, Bandage, Cast) and the bought rooms' (Bath in the Bath Room, Cocoa in the Winter Wing). Never the
--- dispensary (Remedy): medicines are the player's job.
+-- (Plaster, Ice, Bandage, Cast, and the pantry's Bath and Cocoa: open while the Bath Room / the Winter Wing is owned)
+-- and any a room model carries (none today). Never the dispensary (Remedy): medicines are the player's job.
 local function stationsOf(plot: Plot): { [string]: Source }
 	local found: { [string]: Source } = {}
 	for _, holderName in { "Building", "Rooms" } do

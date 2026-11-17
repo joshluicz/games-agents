@@ -54,21 +54,15 @@ local P = loadPure("src/server/Patients.luau", {
 })
 local MAX_EXTRA = 5 -- Logic/Pay.MAX_EXTRA
 
--- A clinic as Pure.eligible sees it: the Building's stations by level, the bought rooms' own, and its usable bays
--- (Logic/Building.openBays with every bay built).
+-- A clinic as Pure.eligible sees it: the Building's stations by level (the pantry's Cocoa and Bath with their rooms),
+-- and its usable bays (Logic/Building.openBays with every bay built).
 local function clinic(level: number, rooms: { [string]: boolean }?, overrides: { [string]: any }?): any
 	local owned = rooms or {}
 	local stations = {}
 	for stationId in Building.STATIONS do
-		if Building.stationOpen(stationId, level) then
+		if Building.stationOpen(stationId, level, owned) then
 			stations[stationId] = true
 		end
-	end
-	if owned.BathRoom then
-		stations.Bath = true
-	end
-	if owned.WinterWing then
-		stations.Cocoa = true
 	end
 	local bays = { Exam = false, XRay = false }
 	for _, bay in Building.openBays(level, owned) do

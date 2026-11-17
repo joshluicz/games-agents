@@ -1063,7 +1063,8 @@ T.describe("Hospital (the built world)", function()
 			for _, theme in Themes.Order do
 				for _, level in LEVELS do
 					local building = build(level, theme)
-					-- every theme carries the whole contract: the front doors, 6 seats, 7 bays and the 5 stations
+					-- every theme carries the whole contract: the front doors, 6 seats, 7 bays and the 7 stations (the
+					-- supply shelf's three, the Cast Table, the dispensary and the pantry's two)
 					local seats, bays, stations = 0, 0, 0
 					for _, child in building:GetChildren() do
 						if string.match(child.Name, "^WaitSeat_%d+$") then
@@ -1074,7 +1075,7 @@ T.describe("Hospital (the built world)", function()
 							stations += 1
 						end
 					end
-					expect({ seats, bays, stations }).toEqual({ 6, 7, 5 })
+					expect({ seats, bays, stations }).toEqual({ 6, 7, 7 })
 					expect(building:FindFirstChild("FrontDoor") ~= nil).toBe(true)
 					local parts, guis, glassParts = 0, 0, 0
 					for _, d in building:GetDescendants() do
@@ -1587,7 +1588,7 @@ T.describe("Hospital (the built world)", function()
 	)
 
 	test(
-		"the stations look like the real thing: a cabinet, a freezer, open shelves, a table on legs, a counter",
+		"the stations look like the real thing: a cabinet, a freezer, open shelves, a table on legs, counters",
 		function()
 			-- Joshua (2026-11-17): "the texture of the cabinets / places to take the bandage should be improved. now its
 			-- just a rectangular block". Each Station_<id> keeps its contract (its rect, from the floor) and wears its
@@ -1598,8 +1599,12 @@ T.describe("Hospital (the built world)", function()
 				Bandage = { "ShelfSide", "ShelfBack", "ShelfBoard", "BandageRoll" },
 				Cast = { "TableTop", "TableLeg", "TableShelf", "Tray", "CastRoll", "Bucket" },
 				Remedy = { "Drawer", "Pull", "Countertop", "Bottle", "MeasuringCup" },
+				-- the pantry (memory-20261117-006): a cocoa counter and a shelf of bath foam and towels
+				Cocoa = { "Door", "Countertop", "CocoaPot", "CocoaPotLid", "Mug" },
+				Bath = { "ShelfSide", "ShelfBack", "ShelfBoard", "FoamBottle", "Towel" },
 			}
-			local body = { Plaster = true, Ice = true, Remedy = true } -- the body is the part (else: an invisible box)
+			-- the body is the part (else: an invisible box)
+			local body = { Plaster = true, Ice = true, Remedy = true, Cocoa = true }
 			own({})
 			local counts = {}
 			for _, level in LEVELS do

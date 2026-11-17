@@ -85,10 +85,11 @@ local function regularRow(id: string): Types.Regular?
 	return rawget(Regulars :: any, id)
 end
 
--- Is this station open at this clinic? The Building's (Logic/Building.STATIONS) by the hospital level; a bought
--- room's (the Bath Room's 🛁, the Winter Wing's ☕) once that room is owned.
+-- Is this station open at this clinic? The Building's (Logic/Building.STATIONS) by the hospital level, the pantry's
+-- two (🛁 bath foam, ☕ hot chocolate) once their room is owned. (A station only Data/Rooms knows, were there ever
+-- one again: once its room is owned.)
 local function stationOpen(data: Types.Data, stationId: string): boolean
-	if Building.stationOpen(stationId, data.Level) then
+	if Building.stationOpen(stationId, data.Level, data.Rooms) then
 		return true
 	end
 	for roomId, owned in data.Rooms do

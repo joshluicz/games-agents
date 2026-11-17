@@ -64,15 +64,16 @@
 --               either side of the canopy. Data/Rooms still lists Remedy, Plaster and a bed for it: those are the
 --               Building's now (Station_Remedy in the dispensary, Station_Plaster on the supply shelf), so the
 --               Stand's fit-out builds neither
---   BathRoom    (Cyan) Station_Bath, the tub, on the back wall opposite the door, against a tiled panel (light cyan
---               CeramicTiles), its water and two bubbles ON it; a bath mat in front; a towel on its rail on the -x
---               wall; a shelf with two bottles of bath foam on the +x wall; 1 decor slot in the front +x corner
+--   BathRoom    (Cyan) the Tub (decor now: bath foam is taken at the Building's pantry, Station_Bath) on the back wall
+--               opposite the door, against a tiled panel (light cyan CeramicTiles), its water and two bubbles ON it;
+--               a bath mat in front; a towel on its rail on the -x wall; a shelf with two bottles of bath foam on
+--               the +x wall; 1 decor slot in the front +x corner
 --   WinterWing  (Blue) Bed_1 (a 3-part recovery bed: Frame, Bed_1, studded Headboard) in the back -x corner, its
 --               head on the back wall; the fireplace on the back wall (studded bricks, a firebox, a Neon flame with a
 --               shadowless PointLight, a mantel shelf, snowflakes drawn on its face) with a rug in front; a small
---               Station_Cocoa table (a pot, a mug) in the back +x corner, its front toward -x (Joshua: the hot
---               chocolate moves to a pantry in the Building next, so it is no feature here); 2 decor slots along the
---               +x wall
+--               SideTable with a Mug on it in the back +x corner (decor: Joshua, 2026-11-17, "move the hot cocoa
+--               into like a pantry": hot chocolate is taken at the Building's pantry, Station_Cocoa); 2 decor slots
+--               along the +x wall
 --   Ward        (Purple) the Cozy Ward: ExamBay_W1 and ExamBay_W2 to contract C2 at Building.bay("W1"/"W2") (Bed,
 --               DoctorSpot, Curtain, Tray, Sign; attributes Bay, Kind, Opens, Face, Room and Open = true: a bay of a
 --               room exists only while the room is owned), made like bays 1-6: the Bed is the couch the patient sits
@@ -81,14 +82,16 @@
 --               the head; a rug down the aisle and 2 small decor slots in the aisle's corners
 --   Garden      the Sunny Garden behind the Garden door: a studded lawn, studded hedges (back and the back half of the
 --               sides) and an arbor with its name. Outdoors
--- Stations in a room carry Open = true (Server/Patients' stationsOnPlot reads Open ~= false) and StationId, as the
--- Building's do; they are NOT tagged HospitalBuilder.STATION_TAG (Server/Stations finds room stations through the
--- rooms, Plots.observeRooms).
+-- NO STATION stands in a room (memory-20261117-006: patients walk as little as possible, supplies come from the
+-- main building): Data/Rooms Stations are the stations a room OPENS, and every one of them is the Building's
+-- (Logic/Building.STATIONS: the pantry's Station_Cocoa and Station_Bath, open while their room is owned). The bought
+-- rooms are themed recovery rooms: they bring their case pools and, the Winter Wing, its bed. A kit room that still
+-- carries a `Station_<id>` of the Building's has it renamed `Decor_<id>` (it would be a second place to take it).
 -- No Texture or Decal anywhere. Studded parts go through World/Studs with whole-stud X and Z.
 --
 -- Parts budget (Config.Look; docs/plan/2026-11-16-perf-budget.md): a Lv 5 plot with every room is at most PlotBudget
 -- (640) parts without creatures and decor: the Building's share (HospitalBuilder), every room together at most
--- RoomParts (90), and the plot's own share (everything here but the Building and the rooms) at most PlotParts (130).
+-- RoomParts (70), and the plot's own share (everything here but the Building and the rooms) at most PlotParts (130).
 -- tests/PlotWorld.spec holds the rooms' and the plot's shares; tests/PartBudget.spec the total.
 --
 -- Coordinates. Each plot has a CFrame at the centre of its ground's TOP face, LookVector pointing at the street
@@ -383,10 +386,10 @@ local FULL_DECOR = 4 -- a decor model fits a 4 x 4 footprint (Server/DecorBuilde
 local MATTRESS = Vector3.new(4, 1, 6.6)
 local BED_FRAME = Vector3.new(4.4, 0.8, MATTRESS.Z)
 local HEADBOARD = Vector3.new(4, 2.6, 1)
--- A small supply table (Station_Cocoa): its width along its wall, its height, its depth out from the wall. Joshua
--- (2026-11-17): the hot chocolate moves to a pantry in the Building next; until then it stays, small, by a wall.
+-- A small table (a room station's body, were a room ever to have one again; the Winter Wing's SideTable): its width
+-- along its wall, its height, its depth out from the wall.
 local STATION_BODY = Vector3.new(3, 3, 2)
--- The tub (Station_Bath) and the tiled panel on the wall behind it.
+-- The tub (decor: bath foam is taken at the Building's pantry) and the tiled panel on the wall behind it.
 local TUB = Vector3.new(5.6, 2.2, 3.6)
 local TILES = Vector3.new(7, 5, 0.2)
 local BUBBLES = { { X = -1.1, Z = -0.4, D = 1.2 }, { X = 0.2, Z = 0.5, D = 0.9 } } -- on the water, tub-local
@@ -434,10 +437,20 @@ local function buildFireplace(model: Model, roomId: string, x: number, back: num
 	roomBox(model, roomId, "Mantel", x - 2, x + 2, f.Y, f.Y + 0.4, back - 1.4, back, COLORS.Wood, Enum.Material.Wood)
 end
 
--- The Bath Room's own pieces: the tiled panel behind the tub, a towel on its rail (the -x wall) and a shelf with two
--- bottles of bath foam (the +x wall). All against the walls, all soft: nobody bumps into them.
-local function dressBath(model: Model, r: Rect, tubX: number)
+-- The Bath Room's own pieces: the Tub (solid; its water and two bubbles ON it), the tiled panel behind it, a towel
+-- on its rail (the -x wall) and a shelf with two bottles of bath foam (the +x wall). All against the walls; all but
+-- the tub soft: nobody bumps into them. Decor only: nothing here is a station.
+local function dressBath(model: Model, r: Rect, tubX: number, tubZ: number)
 	local id = "BathRoom"
+	local at = roomLocal(id, tubX, tubZ)
+	local base = CFrame.new(at.X, FLOOR_TOP, at.Z)
+	part(model, "Tub", TUB, base * CFrame.new(0, TUB.Y / 2, 0), COLORS.Trim)
+	local water = Vector3.new(TUB.X - 0.8, 0.1, TUB.Z - 0.8)
+	paint(part(model, "Water", water, base * CFrame.new(0, TUB.Y + water.Y / 2, 0), COLORS.Water))
+	local top = TUB.Y + water.Y
+	for _, b in BUBBLES do
+		paint(ball(model, "Bubble", b.D, base * CFrame.new(b.X, top + b.D / 2, b.Z), COLORS.Trim))
+	end
 	paint(
 		roomBox(
 			model,
@@ -481,7 +494,7 @@ local function bathLayout(): Layout
 	local tubX = (r.X0 + r.X1) / 2
 	local tubZ = r.Z1 - TILES.Z - TUB.Z / 2
 	return {
-		Stations = { Bath = { At = roomLocal("BathRoom", tubX, tubZ), Face = 0 } },
+		Stations = {},
 		Beds = {},
 		Bays = {},
 		-- the front corner on the +x side (the foam shelf hangs further back)
@@ -490,27 +503,21 @@ local function bathLayout(): Layout
 			{ Name = "BathMat", At = roomLocal("BathRoom", tubX, tubZ - TUB.Z / 2 - 1.1), Size = Vector2.new(3, 1.8) },
 		},
 		Dress = function(model: Model)
-			dressBath(model, r, tubX)
+			dressBath(model, r, tubX, tubZ)
 		end,
 	}
 end
 
 -- The Winter Wing: Bed_1 in the back corner on the -x side (its head on the back wall), the fireplace on the back wall
--- with the rug in front of it, the small cocoa table in the back corner on the +x side (its front toward -x), the
--- decor slots along the +x wall. The doorway and the floor in front of it stay clear (the bed's foot spot is just
--- inside, on the -x side). The cocoa stays in its back corner: a room station's prompt reaches 10 studs through
--- walls (Server/Stations), and from there it never reaches the Cozy Ward's doorway.
+-- with the rug in front of it, a small side table with a mug in the back corner on the +x side (its front toward -x;
+-- decor, not a station: hot chocolate is taken at the pantry), the decor slots along the +x wall. The doorway and the
+-- floor in front of it stay clear (the bed's foot spot is just inside, on the -x side).
 local function winterLayout(): Layout
 	local r = INNER.WinterWing
 	local door = Building.DOORS.WinterWing
 	local fireX = ((door.X0 :: number) + (door.X1 :: number)) / 2 + FIRE_SHIFT
 	return {
-		Stations = {
-			Cocoa = {
-				At = roomLocal("WinterWing", r.X1 - STATION_BODY.Z / 2, r.Z1 - STATION_BODY.X / 2),
-				Face = 90,
-			},
-		},
+		Stations = {},
 		Beds = { roomLocal("WinterWing", r.X0 + BED_FRAME.X / 2, r.Z1 - HEADBOARD.Z - BED_FRAME.Z / 2) },
 		Bays = {},
 		Decor = {
@@ -520,6 +527,14 @@ local function winterLayout(): Layout
 		Mats = { { Name = "Rug", At = roomLocal("WinterWing", fireX, r.Z1 - 3.8), Size = Vector2.new(4, 4) } },
 		Dress = function(model: Model)
 			buildFireplace(model, "WinterWing", fireX, r.Z1)
+			-- The side table (solid; wood, like the mantel: the station's orange now means "take it here", at the
+			-- pantry) and its mug. STATION_BODY turned to face -x: its long side lies along the +x wall.
+			local b = STATION_BODY
+			local wood = Enum.Material.Wood
+			local side =
+				roomBox(model, "WinterWing", "SideTable", r.X1 - b.Z, r.X1, 0, b.Y, r.Z1 - b.X, r.Z1, COLORS.Wood, wood)
+			local mug = Vector3.new(0.8, 0.9, 0.8)
+			soft(part(model, "Mug", mug, side.CFrame * CFrame.new(0, (b.Y + mug.Y) / 2, -0.5), COLORS.Mug))
 		end,
 	}
 end
@@ -647,35 +662,18 @@ end
 -- Room pieces
 ------------------------------------------------------------------------------------------------------------------
 
--- A room's station: Station_<id> is its body, with Open = true and StationId (as the Building's) and the floating
--- icon badge (IconGui). Its front (where the player stands, local -Z) is the spot's Face (Logic/Building's: 0 = -z,
--- 90 = -x); Server/Nurses stands a Maker in front of it, by that front. The Bath is a tub with its water and bubbles
--- ON it; the Cocoa a small table in the station's colour with a pot and a mug on it.
+-- A room's station, were Data/Rooms ever to list one the Building doesn't have (none today: ownStations is empty for
+-- every room, and tests/Pantry.spec checks no room builds a Station_ part): Station_<id> is its body, a small table in
+-- the station's colour, with Open = true and StationId (as the Building's) and the floating icon badge (IconGui). Its
+-- front (where the player stands, local -Z) is the spot's Face (Logic/Building's: 0 = -z, 90 = -x).
 local function buildStation(model: Model, stationId: string, spot: StationSpot, floorTop: number)
 	local station = Stations[stationId]
 	local uiColor = if station then station.Color else Palette.Candy.Orange
-	local color = worldColor(uiColor)
 	local icon = if station then station.Icon else "❔"
 	local base = CFrame.new(spot.At.X, floorTop, spot.At.Z) * CFrame.Angles(0, math.rad(spot.Face), 0)
-	local stationPart: BasePart
-
-	if stationId == "Bath" then
-		stationPart = part(model, "Station_Bath", TUB, base * CFrame.new(0, TUB.Y / 2, 0), COLORS.Trim)
-		local water = Vector3.new(TUB.X - 0.8, 0.1, TUB.Z - 0.8)
-		paint(part(model, "Water", water, base * CFrame.new(0, TUB.Y + water.Y / 2, 0), COLORS.Water))
-		local top = TUB.Y + water.Y
-		for _, b in BUBBLES do
-			local bubble = ball(model, "Bubble", b.D, base * CFrame.new(b.X, top + b.D / 2, b.Z), COLORS.Trim)
-			paint(bubble)
-		end
-	else
-		local body = STATION_BODY
-		stationPart = part(model, "Station_" .. stationId, body, base * CFrame.new(0, body.Y / 2, 0), color)
-		if stationId == "Cocoa" then
-			soft(part(model, "Pot", Vector3.new(1.2, 1, 1.2), base * CFrame.new(-0.5, body.Y + 0.5, 0), ACCENT.Red))
-			soft(part(model, "Mug", Vector3.new(0.8, 0.9, 0.8), base * CFrame.new(0.9, body.Y + 0.45, 0), COLORS.Mug))
-		end
-	end
+	local body = STATION_BODY
+	local stationPart =
+		part(model, "Station_" .. stationId, body, base * CFrame.new(0, body.Y / 2, 0), worldColor(uiColor))
 	stationPart:SetAttribute("Open", true) -- a room's station works while the room stands (it's owned)
 	stationPart:SetAttribute("StationId", stationId) -- as the Building's Station_<id> parts carry
 
@@ -931,6 +929,20 @@ local function kitRoom(roomId: string): Model?
 	anchorAll(model)
 
 	local room = Rooms[roomId]
+	-- No room has one of the Building's stations (the pantry's Cocoa and Bath): an old kit room's becomes decor.
+	for _, descendant in model:GetDescendants() do
+		local stationId = string.match(descendant.Name, "^Station_(%w+)$")
+		if stationId and Building.STATIONS[stationId] then
+			warn(
+				"[PlotBuilder] ClinicKit."
+					.. roomId
+					.. "'s "
+					.. descendant.Name
+					.. " is decor now: it is the Building's"
+			)
+			descendant.Name = "Decor_" .. stationId
+		end
+	end
 	for _, stationId in ownStations(roomId) do
 		local station = model:FindFirstChild("Station_" .. stationId, true)
 		if not station then

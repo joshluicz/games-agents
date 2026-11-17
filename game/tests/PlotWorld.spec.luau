@@ -12,7 +12,7 @@
 --   · the rooms are interior fit-outs: each inside its Building.ROOMS rect and its walls, its doorway and the 3 studs
 --     inside it clear, nothing tall in its middle, no roof and no walls, CeramicTiles floors; each room's name sign
 --     upright over its door on the corridor side; nothing z-fights (no two faces in one plane, no thin part inside
---     another); the Cozy Ward's ExamBay_W1 / W2 to contract C2, made like bays 1-6; Station_Bath and Station_Cocoa;
+--     another); the Cozy Ward's ExamBay_W1 / W2 to contract C2, made like bays 1-6; no Station_ part in any room (the tub and a side table are decor);
 --     the Winter Wing's 3-part bed and its fireplace; the Garden
 --   · studs on whole studs, in both studs modes; the palette: no Texture or Decal, no big face at V >= 0.95 (the
 --     plot's own colour aside), no channel above 245
@@ -992,28 +992,33 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 		end
 	end)
 
-	test("the rooms' stations: Station_Bath and Station_Cocoa, open; no room builds the Building's stations", function()
-		local bath = plot.Rooms.Room_BathRoom.Station_Bath
-		local cocoa = plot.Rooms.Room_WinterWing.Station_Cocoa
-		for id, station in { Bath = bath, Cocoa = cocoa } do
-			expect(station:GetAttribute("Open")).toBe(true)
-			expect(station:GetAttribute("StationId")).toBe(id)
-			expect(station.IconGui ~= nil).toBe(true)
-		end
-		expect(bath.Color).toBe(WORLD.Trim)
-		expect(cocoa.Color).toBe(ACCENT.Orange)
+	-- memory-20261117-006 (Joshua: "move the hot cocoa into like a pantry"): bath foam and hot chocolate are taken at
+	-- the Building's pantry now (Station_Bath, Station_Cocoa: tests/Pantry.spec). The rooms keep their look as decor.
+	test("no room has a station: the tub and the side table are decor (no Open, no StationId, no badge)", function()
 		for _, room in plot.Rooms:GetChildren() do
 			for _, d in room:GetDescendants() do
-				local id = string.match(d.Name, "^Station_(%w+)$")
-				if id and Building.STATIONS[id] then
-					error(room.Name .. " builds the Building's " .. d.Name)
+				if string.match(d.Name, "^Station_") then
+					error(room.Name .. " builds " .. d.Name)
+				end
+				if d:GetAttribute("StationId") ~= nil then
+					error(room.Name .. "." .. d.Name .. " carries a StationId")
 				end
 			end
 		end
+		local tub = plot.Rooms.Room_BathRoom.Tub
+		local side = plot.Rooms.Room_WinterWing.SideTable
+		for _, decor in { tub, side } do
+			expect(decor:GetAttribute("Open")).toBeNil()
+			expect(decor:FindFirstChild("IconGui")).toBeNil()
+		end
+		expect(tub.Color).toBe(WORLD.Trim)
+		-- wood like the mantel, never the Cocoa station's orange (that colour means "take it here")
+		expect(side.Color).toBe(WORLD.Beam)
+		expect(side.Material).toBe(Enum.Material.Wood)
 	end)
 
 	test(
-		"the Winter Wing: Bed_1's head on the back wall in a corner, the fireplace glowing, the cocoa by a wall",
+		"the Winter Wing: Bed_1's head on the back wall in a corner, the fireplace glowing, a side table by a wall",
 		function()
 			local winter = plot.Rooms.Room_WinterWing
 			local fLo, fHi = localBox(winter.Floor)
@@ -1031,22 +1036,22 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 			local light = winter.Flame.FireGlow:FindFirstChildWhichIsA("PointLight")
 			expect(light ~= nil and light.Shadows == false and light.Range <= 16).toBe(true)
 			expect(winter.Rug ~= nil).toBe(true)
-			-- the cocoa: a small table flush to a side wall, its front (LookVector) into the room
-			local cocoa = winter.Station_Cocoa
-			local cLo, cHi = localBox(cocoa)
+			-- the side table (decor; it was the Cocoa station): small, flush to a side wall, a mug ON it
+			local side = winter.SideTable
+			local cLo, cHi = localBox(side)
 			expect(near(cLo.X, fLo.X) or near(cHi.X, fHi.X)).toBe(true)
-			expect(cocoa.Size.X * cocoa.Size.Z <= 6 + EPS).toBe(true)
-			local look = pivot:VectorToObjectSpace(cocoa.CFrame.LookVector)
-			local mid = (fLo + fHi) / 2
-			local at = pivot:PointToObjectSpace(cocoa.Position)
-			expect(look.X * (mid.X - at.X) + look.Z * (mid.Z - at.Z) > 0).toBe(true)
+			expect(side.Size.X * side.Size.Z <= 6 + EPS).toBe(true)
+			local mugLo, mugHi = localBox(winter.Mug)
+			expect(near(mugLo.Y, cHi.Y)).toBe(true)
+			expect(mugLo.X >= cLo.X and mugHi.X <= cHi.X and mugLo.Z >= cLo.Z and mugHi.Z <= cHi.Z).toBe(true)
+			expect(winter:FindFirstChild("Pot")).toBeNil() -- the pot is the pantry's
 		end
 	)
 
 	test("the Bath Room: the tub on its tiles against the back wall, its water and bubbles ON it", function()
 		local bath = plot.Rooms.Room_BathRoom
 		local _, fHi = localBox(bath.Floor)
-		local tLo, tHi = localBox(bath.Station_Bath)
+		local tLo, tHi = localBox(bath.Tub)
 		local _, tilesHi = localBox(bath.Tiles)
 		expect(near(tilesHi.Z, fHi.Z) and bath.Tiles.Material == Enum.Material.CeramicTiles).toBe(true)
 		expect(near(tHi.Z, tilesHi.Z - bath.Tiles.Size.Z)).toBe(true)

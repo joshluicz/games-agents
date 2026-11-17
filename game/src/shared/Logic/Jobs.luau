@@ -31,7 +31,7 @@ local Jobs = {}
 Jobs.REST = "Rest"
 Jobs.DEFAULT_DEPT = "Reception"
 -- The Real Clinic: the supply shelf and the dispensary are the Pharmacy's, the Cast Table the X-ray room's (Imaging),
--- the Warm Bath the Bath Room's (Hydro)
+-- the Bath station (the pantry's bath foam, open with the Bath Room) Hydro's
 Jobs.STATIONS = table.freeze({
 	Remedy = "Pharmacy",
 	Plaster = "Pharmacy",

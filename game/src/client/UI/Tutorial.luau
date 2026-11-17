@@ -450,7 +450,7 @@ local SUB_MIN_PX = 60 -- the subtitle never wraps narrower than this
 local SKIP_HIT = Vector2.new(96, 44) -- the Skip chip's hit area (at least 56 x 44)
 local TREAT_SETTLE = 0.6 -- after TreatDone, look again once the game card has closed
 -- The supply shelf's stations (design §8.2): card 4 says "From the supply shelf" for these, "At the dispensary" for
--- a Dispense station, and "Follow the arrows" for the rest (the X-ray room's casts, the bought rooms).
+-- a Dispense station, and "Follow the arrows" for the rest (the X-ray room's casts, the pantry).
 local SHELF: { [string]: boolean } = { Plaster = true, Ice = true, Bandage = true }
 -- The patient attributes the card's words follow (set by Server/Patients): a change re-renders it.
 local PATIENT_ATTRIBUTES = { "Bay", "State", "Case", "Plan", "PlanDone", "Symptom", "QueueIndex" }

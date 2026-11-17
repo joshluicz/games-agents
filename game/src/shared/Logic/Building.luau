@@ -16,10 +16,12 @@
 --            A&E ──│──────────────────── corridor A ──────────────┴─ (its door) ───│   z -12..-5
 --                  │ EXAM BAYS 1-6 (open to corridor A) │ SUPPLY shelf │ X-RAY     │   z -5..3.5
 --                  │──────────────────── corridor B ──────────────────────│ LIFT   │   z 3.5..8.5
---                  │ BATH ROOM │ WINTER WING │ COZY WARD (W1, W2) │ hall + STAIRS  │   z 8.5..20
+--                  │ BATH ROOM │ WINTER WING │ COZY WARD (W1, W2) │ PANTRY, STAIRS │   z 8.5..20
 --   z 20           └──────────────────────────────── Garden door ─────────────────┘
 --   x -32                                                                        x 32
--- The supply shelf's alcove (x 8..17.5) is also the passage between the two corridors. Upstairs is a TOWER over the
+-- The supply shelf's alcove (x 8..17.5) is also the passage between the two corridors; the pantry (hot chocolate, bath
+-- foam: open once the Winter Wing / the Bath Room is owned) stands in the hall just behind it, against the stairs'
+-- rail. The bought rooms have no station: patients never walk into one to be treated. Upstairs is a TOWER over the
 -- back-right part (x -5..32, z -5..20): F1 the Injury Ward, F2 the Rest Ward, F3 the staff room (more Rest beds),
 -- then the roof deck with the helipad. The lift and the dog-leg stairs stack in the same place on every floor.
 --
@@ -50,7 +52,8 @@
 --   Building.stationPromptAt(id): Point?         where the station's E prompt hangs: just off its front face
 --                                                (PROMPT_REACH studs reach; Server/Stations)
 --                                                a station's body, and where the player stands to use it
---   Building.stationOpen(id, level): boolean
+--   Building.stationOpen(id, level, rooms?): boolean   level >= Opens, and for a pantry station (Cocoa, Bath: its
+--                                                Room) that room is owned (rooms = { [RoomId]: boolean }), as bayOpen
 --   Building.wardBeds(level, floor?): { WardBed }   the bed spots on that floor (default F1) at that level, each
 --                                                Functional (a BedSpot_<Index>, with its Ward) or a dressing bed.
 --                                                {} when that floor isn't open
@@ -96,7 +99,14 @@ export type Bay = {
 	Room: string?, -- a RoomId (Data/Rooms): the bay exists only while that room is owned
 	Spot: { X: number, Z: number }?, -- the DoctorSpot when it is not at the foot (bay X)
 }
-export type Station = { X: number, Z: number, Face: number, Opens: number }
+export type Station = {
+	X: number,
+	Z: number,
+	Face: number,
+	Opens: number,
+	Room: string?, -- a RoomId (Data/Rooms): the station is open only while that room is owned (the pantry's)
+	Width: number?, -- along its wall, when it is not STATION_SIZE.Width (the pantry's narrow units)
+}
 export type WardBed = { Index: number, X: number, Z: number, Floor: number, Functional: boolean, Ward: string? }
 export type Door = {
 	X0: number?, -- a door in a wall along x: its span, and the wall's centre plane Z
@@ -221,10 +231,11 @@ Building.BAYS = table.freeze({
 	table.freeze({ Id = "W2", X = 5.6, Z = 15.9, Face = 0, Opens = 1, Kind = "Exam", Room = "Ward" }),
 }) :: { Bay }
 
--- Stations in the Building (Station_<id>). A body is STATION_SIZE (Width along its wall, Depth out from it); the
--- player stands STATION_STAND in front of its centre. Plaster and Ice share the supply alcove's -x wall, Bandage
--- its +x wall; Cast is in the X-ray room; Remedy is the dispensary's counter, behind its hatch onto the lobby.
--- Station_Bath and Station_Cocoa belong to their rooms' fit-outs (PlotBuilder).
+-- Stations in the Building (Station_<id>). A body is STATION_SIZE (Width along its wall, Depth out from it; a
+-- station's own Width wins); the player stands STATION_STAND in front of its centre. Plaster and Ice share the supply
+-- alcove's -x wall, Bandage its +x wall; Cast is in the X-ray room; Remedy is the dispensary's counter, behind its
+-- hatch onto the lobby. Cocoa and Bath are the PANTRY's (below, after the stairs it stands against): they open with
+-- their rooms, and no room has a station of its own any more.
 Building.STATION_SIZE = table.freeze({ Width = 4, Depth = 2.4 })
 Building.STATION_STAND = 2.8
 -- A Building station's prompt hangs PROMPT_OUT off its front face and reaches PROMPT_REACH. On the station's centre
@@ -232,13 +243,13 @@ Building.STATION_STAND = 2.8
 -- stand, and a cast could not be taken (Studio test 2026-11-17). Roblox shows one prompt per key.
 Building.PROMPT_OUT = 0.2
 Building.PROMPT_REACH = 5
-Building.STATIONS = table.freeze({
+local STATIONS: { [string]: Station } = {
 	Plaster = table.freeze({ X = 9.2, Z = -2.7, Face = 270, Opens = 1 }),
 	Ice = table.freeze({ X = 9.2, Z = 1.5, Face = 270, Opens = 2 }),
 	Bandage = table.freeze({ X = 16.3, Z = -0.6, Face = 90, Opens = 2 }),
 	Cast = table.freeze({ X = 20.5, Z = -3.4, Face = 180, Opens = 3 }),
 	Remedy = table.freeze({ X = 13.6, Z = -19, Face = 270, Opens = 1 }),
-}) :: { [string]: Station }
+}
 -- The dispensary: its hatch in the wall it shares with the lobby (the counter is behind it), and the bottle shelves.
 Building.HATCH = table.freeze({ X = 12.2, Z0 = -21.5, Z1 = -16.5 })
 Building.SHELVES = table.freeze({ rect(30, 31.4, -22.4, -13.4), rect(17, 29, -23.4, -22.2) })
@@ -258,6 +269,31 @@ Building.LANE_A = rect(16.4, 28.4, 13.4, 16.4)
 Building.LANE_B = rect(16.4, 28.4, 16.4, 19.4)
 Building.STAIR_MID = rect(28.4, 31.4, 13.4, 19.4)
 Building.STAIRWELL = rect(16.4, 31.4, 13.4, 19.4)
+
+-- The pantry (Joshua, 2026-11-17: "minimise the patients walking around. yes move the hot cocoa into like a pantry or
+-- something"; memory-20261117-006). Hot chocolate and bath foam are taken HERE, in the main building, never in a
+-- bought room: Station_Cocoa opens with the Winter Wing and Station_Bath with the Bath Room (PANTRY_ROOMS; the same
+-- pairs as Data/Rooms Stations, tests/Pantry.spec). It stands in the hall just behind the supply alcove's corridor-B
+-- end, the two units side by side against the stairs' rail, facing the alcove, from the stairs' foot toward the lift
+-- and stopping short of the porters' place. They are PANTRY.Width wide (narrower than the supply shelf's: that is
+-- what the rail has before the porters; never under 3.1 between centres, or one unit's prompt is too near the other's
+-- stand) and PANTRY.Gap apart (no two faces in one plane). Derived from the stairwell, so a bigger building moves the
+-- pantry with it.
+Building.PANTRY = table.freeze({ Width = 3.2, Gap = 0.1 })
+Building.PANTRY_ORDER = table.freeze({ "Cocoa", "Bath" }) -- from the stairs' foot (nearest the supply alcove)
+Building.PANTRY_ROOMS = table.freeze({ Cocoa = "WinterWing", Bath = "BathRoom" }) :: { [string]: string }
+for index, id in Building.PANTRY_ORDER do
+	local well, pantry = Building.STAIRWELL, Building.PANTRY
+	STATIONS[id] = table.freeze({
+		X = well.X0 + index * pantry.Gap + (index - 0.5) * pantry.Width,
+		Z = well.Z0 - Building.STATION_SIZE.Depth / 2,
+		Face = 0,
+		Opens = 1,
+		Room = Building.PANTRY_ROOMS[id],
+		Width = pantry.Width,
+	})
+end
+Building.STATIONS = table.freeze(STATIONS) :: { [string]: Station }
 
 -- The wards upstairs: one row of four bed spots per floor, heads at the tower's street wall, 2.8 between frames,
 -- spot 1 nearest the lift. WARD_BEDS are the functional ones (Floor_<n>.BedSpot_<k>.Bed_<k>); DRESS_BEDS the spots
@@ -435,7 +471,7 @@ function Building.stationRect(id: string): Rect?
 		return nil
 	end
 	local size = Building.STATION_SIZE
-	return facedRect(station.X, station.Z, station.Face, size.Width, size.Depth)
+	return facedRect(station.X, station.Z, station.Face, station.Width or size.Width, size.Depth)
 end
 
 function Building.stationStand(id: string): Point?
@@ -454,9 +490,15 @@ function Building.stationPromptAt(id: string): Point?
 	return ahead(station.X, station.Z, station.Face, Building.STATION_SIZE.Depth / 2 + Building.PROMPT_OUT)
 end
 
-function Building.stationOpen(id: string, level: number): boolean
+function Building.stationOpen(id: string, level: number, rooms: { [string]: boolean }?): boolean
 	local station = Building.STATIONS[id]
-	return station ~= nil and levelOf(level) >= station.Opens
+	if station == nil or levelOf(level) < station.Opens then
+		return false
+	end
+	if station.Room then
+		return type(rooms) == "table" and rooms[station.Room] == true
+	end
+	return true
 end
 
 function Building.bedRect(x: number): Rect
@@ -498,7 +540,8 @@ end
 --                        is off the patients' walks in this building, so two is all there is; the rest wait at the
 --                        station
 --   Porters              beside the lift's ground landing: against the stairwell, across the hall from the lift
---                        door, one straight walk from where its patient waits
+--                        door, one straight walk from where its patient waits (on the lift's side of the landing:
+--                        the pantry stands along the rail on the stairs' side)
 --   Makers               beside the supply shelf: either end of the Bandage shelf, in the alcove
 --   Cheerers             between the waiting seats, at their backs (among the patients they cheer)
 --   Receptionists        behind the reception desk: RECEPTION.Staff first, then either side of it
@@ -567,12 +610,13 @@ local function nursePlaces()
 		table.insert(healers, nurseSpot(wall + Building.NURSE_EDGE, z, 270))
 		z -= Building.NURSE_GAP
 	end
-	-- Porters: against the stairwell's corridor side, level with the lift's landing and one more toward the stairs
+	-- Porters: against the stairwell's corridor side, level with the lift's landing and one more beside it, toward
+	-- the lift (the stairs' side of the landing is the pantry's: its units stand along the rail there)
 	local landing = Building.LANDING
 	local porterZ = Building.STAIRWELL.Z0 - Building.NURSE_EDGE
 	local porters = {
 		nurseSpot(landing.X, porterZ, 0),
-		nurseSpot(landing.X - Building.NURSE_GAP, porterZ, 0),
+		nurseSpot(landing.X + Building.NURSE_GAP, porterZ, 0),
 	}
 	-- Makers: either end of the Bandage shelf, against the alcove's +x wall, looking across at the other shelves
 	local shelf = Building.stationRect("Bandage") :: Rect

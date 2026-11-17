@@ -23,15 +23,10 @@ local LV2 = { BumpedHead = true, Earache = true, Sprain = true }
 local LV3 = { SoreThroat = true, Rash = true, BrokenArm = true }
 
 -- What a clinic at `level` with `rooms` can treat: its level, its rooms, every plan station open (the Building's by
--- level, a room's own when owned) and its exam tool in use (Server/Patients Pure.eligible checks the same).
+-- level, the pantry's with their rooms) and its exam tool in use (Server/Patients Pure.eligible checks the same).
 local function can(level: number, rooms: { [string]: boolean })
 	local function open(id: string): boolean
-		if id == "Bath" then
-			return rooms.BathRoom == true
-		elseif id == "Cocoa" then
-			return rooms.WinterWing == true
-		end
-		return Building.stationOpen(id, level)
+		return Building.stationOpen(id, level, rooms) -- the pantry's Bath and Cocoa: with their rooms
 	end
 	local tools = Visit.unlocked(level, Tools)
 	return function(caseId: string): boolean

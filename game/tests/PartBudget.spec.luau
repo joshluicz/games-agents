@@ -61,8 +61,11 @@ T.describe("Part budget (the built plot)", function()
 		function()
 			local L = Config.Look
 			expect(L.PlotBudget).toBe(640)
-			expect(L.BuildingParts).toBe(420)
-			expect(L.RoomParts).toBe(90)
+			-- the pantry moved the Cocoa and Bath stations into the Building: 20 parts of budget moved from the rooms
+			-- (420 -> 440, 90 -> 70), and the plot's 640 stayed
+			expect(L.BuildingParts).toBe(440)
+			expect(L.RoomParts).toBe(70)
+			expect(L.BuildingParts + L.RoomParts + L.PlotParts).toBe(L.PlotBudget)
 			expect(L.PlotParts).toBe(130)
 			expect(L.BuildingParts + L.RoomParts + L.PlotParts <= L.PlotBudget).toBe(true)
 			expect(L.TownParts).toBe(600)
