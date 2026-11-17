@@ -1100,9 +1100,16 @@ local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
 		elseif bay.Kind == "XRay" then "📸 X-ray"
 		else bay.Id
 	floatText(gui, text, { Size = UDim2.fromScale(0.86, 0.72), Position = UDim2.fromScale(0.07, 0.14) })
-	-- Where the doctor stands, at the foot, looking at the bed.
+	-- Where the doctor stands, at the foot (bay X: at the side), looking at the bed.
 	local spot = B.doctorSpot(bay)
-	marker(bayModel, "DoctorSpot", CFrame.new(spot.X, 0.5, spot.Z) * CFrame.Angles(0, math.rad(bay.Face + 180), 0))
+	local stand = CFrame.new(spot.X, 0.5, spot.Z)
+	marker(
+		bayModel,
+		"DoctorSpot",
+		if bay.Spot
+			then CFrame.lookAt(stand.Position, Vector3.new(bay.X, 0.5, bay.Z))
+			else stand * CFrame.Angles(0, math.rad(bay.Face + 180), 0)
+	)
 	bayModel.Parent = model
 end
 

@@ -109,7 +109,9 @@ local UI_MODULES = {
 -- Feel.CreatureProps is CreatureActing's library. CreatureMotion moves each creature's Root (hops, scale) and
 -- CreatureActing its Motor6Ds (the case acting), so both run on every patient.
 -- Feel.Cutaway (look overhaul): hides the storeys above you while you stand inside your hospital.
-local FEEL_MODULES = { "Sounds", "CureFX", "Atmosphere", "CreatureMotion", "CreatureActing", "HospitalFX", "Cutaway" }
+-- Feel.NearIcons (Real Clinic): a station's icon badge hides while the camera is right next to it.
+local FEEL_MODULES =
+	{ "Sounds", "CureFX", "Atmosphere", "CreatureMotion", "CreatureActing", "HospitalFX", "Cutaway", "NearIcons" }
 -- Server events forwarded to the bus under the same name (build plan §B9; Progression v2 §B9)
 local FORWARDED_EVENTS = { "TreatStart", "NurseNews", "Shout", "Celebrate", "AgencyNews", "MarketNews", "BeltScout" }
 local DATA_NAMES = {

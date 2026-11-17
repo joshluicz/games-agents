@@ -328,15 +328,45 @@ T.describe("Building: seats, bays and stations", function()
 		expect(Rooms.Ward ~= nil).toBe(true)
 	end)
 
-	test("each DoctorSpot is on open floor at the bed's foot, with room for the doctor", function()
+	test(
+		"from each station's stand, the station is nearer than any bay's DoctorSpot (both prompts are on E)",
+		function()
+			-- Roblox shows only the nearest prompt on a key: at the Cast Table the X-ray bay's prompt used to win, so a
+			-- cast could not be taken (Studio test 2026-11-17). A margin of 1.5 studs covers standing a little off.
+			for id in Building.STATIONS do
+				local stand = Building.stationStand(id)
+				local s = Building.STATIONS[id]
+				local own = math.sqrt((stand.X - s.X) ^ 2 + (stand.Z - s.Z) ^ 2)
+				for _, bay in Building.BAYS do
+					local spot = Building.doctorSpot(bay)
+					local other = math.sqrt((stand.X - spot.X) ^ 2 + (stand.Z - spot.Z) ^ 2)
+					if other < own + 1.5 then
+						error(
+							string.format("at %s's stand, bay %s's prompt is %.1f away vs %.1f", id, bay.Id, other, own)
+						)
+					end
+				end
+			end
+		end
+	)
+
+	test("each DoctorSpot is on open floor at the bed's foot (bay X: its side), with room for the doctor", function()
 		for _, bay in Building.BAYS do
 			local spot = Building.doctorSpot(bay)
 			local bed = Building.bayBed(bay)
 			expect(within(spot, bed)).toBe(false)
-			local dx, dz = Building.facing(bay.Face)
-			local gap = (spot.X - bay.X) * dx + (spot.Z - bay.Z) * dz - Building.BAY_BED.Length / 2
-			expect(gap).toBeCloseTo(Building.SPOT_GAP, 6)
-			expect(gap >= 2).toBe(true)
+			if bay.Spot then
+				-- bay X: beside the bed's -z side (Studio test 2026-11-17), 1.5..2.5 studs off it
+				expect(bay.Id).toBe("X")
+				expect(spot.X > bed.X0 and spot.X < bed.X1).toBe(true)
+				local off = bed.Z0 - spot.Z
+				expect(off >= 1.5 and off <= 2.5).toBe(true)
+			else
+				local dx, dz = Building.facing(bay.Face)
+				local gap = (spot.X - bay.X) * dx + (spot.Z - bay.Z) * dz - Building.BAY_BED.Length / 2
+				expect(gap).toBeCloseTo(Building.SPOT_GAP, 6)
+				expect(gap >= 2).toBe(true)
+			end
 			for _, level in LEVELS do
 				if not Building.clear(around(spot, 1), level) then
 					error("bay " .. bay.Id .. "'s DoctorSpot is covered at Lv " .. level)

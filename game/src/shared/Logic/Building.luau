@@ -41,8 +41,8 @@
 --                                                on from and off to (the seat itself is solid)
 --   Building.bay(id): Bay?                       by id: "1".."6", "X", "W1", "W2"
 --   Building.bayBed(bay): Rect                   the bay bed's frame
---   Building.doctorSpot(bay): Point              the bay's DoctorSpot, at the bed's foot: the doctor stands here, and
---                                                a patient hops onto the bed from here
+--   Building.doctorSpot(bay): Point              the bay's DoctorSpot, at the bed's foot (bay X: its Spot, at the
+--                                                bed's side): the doctor stands here, and a patient hops on from here
 --   Building.bayOpen(bay, level, rooms?): boolean   level >= Opens, and for a room's bay that room is owned
 --                                                (rooms = { [RoomId]: boolean })
 --   Building.openBays(level, rooms?): { Bay }    in BAYS order
@@ -85,6 +85,7 @@ export type Bay = {
 	Opens: number,
 	Kind: "Exam" | "XRay",
 	Room: string?, -- a RoomId (Data/Rooms): the bay exists only while that room is owned
+	Spot: { X: number, Z: number }?, -- the DoctorSpot when it is not at the foot (bay X)
 }
 export type Station = { X: number, Z: number, Face: number, Opens: number }
 export type WardBed = { Index: number, X: number, Z: number, Floor: number, Functional: boolean, Ward: string? }
@@ -195,7 +196,18 @@ Building.BAYS = table.freeze({
 	table.freeze({ Id = "4", X = -8.65, Z = -0.4, Face = 0, Opens = 3, Kind = "Exam" }),
 	table.freeze({ Id = "5", X = -2.15, Z = -0.4, Face = 0, Opens = 4, Kind = "Exam" }),
 	table.freeze({ Id = "6", X = 4.35, Z = -0.4, Face = 0, Opens = 5, Kind = "Exam" }),
-	table.freeze({ Id = "X", X = 27.9, Z = 0.9, Face = 90, Opens = 3, Kind = "XRay" }),
+	-- Bay X's doctor stands at the bed's -z side, just inside the door: at the foot (22, 0.9) the bay's prompt was
+	-- nearer than the Cast Table's from where you take a cast, and both are on E, so only the bay's showed (Studio
+	-- test 2026-11-17).
+	table.freeze({
+		Id = "X",
+		X = 27.9,
+		Z = 0.9,
+		Face = 90,
+		Opens = 3,
+		Kind = "XRay",
+		Spot = table.freeze({ X = 27.9, Z = -2.9 }),
+	}),
 	table.freeze({ Id = "W1", X = -1.2, Z = 15.9, Face = 0, Opens = 1, Kind = "Exam", Room = "Ward" }),
 	table.freeze({ Id = "W2", X = 5.6, Z = 15.9, Face = 0, Opens = 1, Kind = "Exam", Room = "Ward" }),
 }) :: { Bay }
@@ -376,6 +388,10 @@ function Building.bayBed(bay: Bay): Rect
 end
 
 function Building.doctorSpot(bay: Bay): Point
+	local spot = bay.Spot
+	if spot then
+		return { X = spot.X, Z = spot.Z }
+	end
 	return ahead(bay.X, bay.Z, bay.Face, Building.BAY_BED.Length / 2 + Building.SPOT_GAP)
 end
 

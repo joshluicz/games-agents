@@ -389,7 +389,8 @@ T.describe("Nurses.Pure: where nurses stand and walk (Logic/Building)", function
 						if not clearAt(spot, level) then
 							error("beside bay " .. bay.Id .. " (" .. index .. ") is blocked at Lv " .. level)
 						end
-						expect(spot.Face).toBe((bay.Face + 180) % 360)
+						-- facing the bed: from its foot, or bay X's from its side (the doctor's spot is there)
+						expect(spot.Face).toBe(if bay.Spot then 180 else (bay.Face + 180) % 360)
 						-- the player's own spot (the DoctorSpot) stays free
 						local doctor = B.doctorSpot(bay)
 						expect(math.abs(spot.X - doctor.X) + math.abs(spot.Z - doctor.Z) > 1).toBe(true)

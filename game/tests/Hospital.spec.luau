@@ -883,7 +883,8 @@ T.describe("Hospital (the built world)", function()
 					expect(hi).toBeCloseTo(H.COUCH, 3)
 					local spot = B.doctorSpot(bay)
 					at(model.DoctorSpot, spot.X, 0.5, spot.Z)
-					facing(model.DoctorSpot, (bay.Face + 180) % 360) -- at the bed
+					-- at the bed: from its foot, or (bay X) from its side, the Studio test's fix
+					facing(model.DoctorSpot, if bay.Spot then 180 else (bay.Face + 180) % 360)
 				end
 			end
 			for id in B.STATIONS do

@@ -508,8 +508,19 @@ end
 function Pure.bedside(bay: any, index: number, level: number): Spot
 	local B = BuildingLogic
 	local spot = B.doctorSpot(bay)
-	local dx, dz = B.facing(bay.Face)
+	-- From the DoctorSpot toward the bed: at the foot that is the bay's Face turned round; bay X's spot is at the
+	-- bed's side (Logic/Building), so its helpers stand along the bed and face it from there.
 	local face = (bay.Face + 180) % 360
+	if bay.Spot then
+		local tx, tz = bay.X - spot.X, bay.Z - spot.Z
+		if math.abs(tx) >= math.abs(tz) then
+			face = if tx > 0 then 270 else 90
+		else
+			face = if tz > 0 then 180 else 0
+		end
+	end
+	local ux, uz = B.facing(face)
+	local dx, dz = -ux, -uz
 	local first = if math.floor(index) % 2 == 1 then 1 else -1
 	for _, side in { first, -first } do
 		local x, z = spot.X - dz * side * Pure.BEDSIDE, spot.Z + dx * side * Pure.BEDSIDE
