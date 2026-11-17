@@ -29,7 +29,7 @@ Config.CreatureSize = 1.6 -- every creature's size multiplier (about a player's 
 Config.CreatureSizeJitter = 0.08 -- each patient is up to 8% smaller or bigger than its species (Logic/CreatureSize)
 Config.SpawnEverySeconds = 13 -- a calm pace for young players (was 7); Lv 1. Data/Levels SpawnSeconds is per level
 Config.RecoverSeconds = 4 -- time in bed (or in place) before the cure lands
-Config.QueuePatienceRate = 0.5 -- patience drains at this speed behind the front of the line (1 = full speed)
+Config.QueuePatienceRate = 0.5 -- patience drains at this speed in the waiting room (Logic/Visit.PATIENCE.Waiting)
 Config.GuestPatienceMultiplier = 1.5 -- regulars and Today's Visitor wait this much longer
 Config.FirstPatientSeconds = 2 -- the first patient arrives this soon after you get your clinic
 
@@ -109,12 +109,14 @@ Config.AdminNames = { "Dandlepeeps" } -- Joshua's brother
 -- so the spawn plaza sits on the street's row-2 half (+z). All of these are offsets from Origin (x, z).
 Config.Town = {
 	Origin = Vector3.new(0, 0, 300),
-	PlotSize = 80, -- was 70: the hospital is 32 wide (Logic/Building.HALF) and the side rooms moved out with it
+	-- The Real Clinic (design §8.1): was 80. The clinic is 64 x 44 (Logic/Building), with a yard on every side: the
+	-- front garden and path, the ambulance bay in the -x side yard, the Sunny Garden behind.
+	PlotSize = 110,
 	Plots = 6,
 	SpawnOffset = Vector3.new(0, 0, 11), -- TownSpawn's centre (an 8 x 8 pad, z 7..15)
 	SpawnSize = 8,
 	Plaza = { X0 = -30, X1 = 30, Z0 = 5.4, Z1 = 17 }, -- the row-2 half of the road (the curb is z 17.2..18)
-	BeltClear = 4.4, -- |z| <= this, x -136.5..136.5: the belt's alone (its bed is +-3.3)
+	BeltClear = 4.4, -- |z| <= this, x -181.5..181.5: the belt's alone (its bed is +-3.3)
 }
 
 -- Background music: Roblox's licensed music library (uploader DistrokidOfficial), free for any experience.
@@ -145,8 +147,9 @@ Config.MiniGame = {
 		{ At = 6, Multiplier = 1.5 },
 		{ At = 10, Multiplier = 2 },
 	},
-	-- Server plausibility: a report sooner than Slack x the games' minimum time is rated all OK.
-	MinSeconds = { Pour = 1.2, Patch = 1, Scrub = 1.5, Cool = 1.5 },
+	-- Server plausibility: a report sooner than Slack x the games' minimum time is rated all OK. By ENGINE: a game
+	-- with no MinSeconds of its own in Games takes its engine's.
+	MinSeconds = { Pour = 1.2, Patch = 1, Scrub = 1.5, Cool = 1.5, Pick = 0.6 },
 	SimpleMinSeconds = 0.25, -- Simple mode: one tap per game
 	Slack = 0.8,
 	-- A session nobody reports on settles as all OK after SessionSeconds + PerGameSeconds x games.
@@ -157,33 +160,66 @@ Config.MiniGame = {
 	Patch = { Spots = 3, Seconds = 4.5, Good = 2 }, -- tap the sore spots
 	Scrub = { Seconds = 4, Perfect = 6, Good = 3 }, -- pop the bubbles
 	Cool = { Blows = 3, Good = 2, PulseSeconds = 1.2, Window = 0.3 }, -- blow when the steam ring is biggest
+	Pick = { Good = 1 }, -- wrong taps before the right one: 0 Perfect, up to Good -> Good, more -> OK
+	-- The Real Clinic (build plan contract C5): one tuning row per GameId, each a new look on the engine named in
+	-- Logic/MiniGame.ENGINE (the four rows above are the engines' defaults). Every beat stays about 2-5 seconds
+	-- (design §2), and no MinSeconds is under its engine's rule above.
+	Games = {
+		-- exam tools
+		Listen = { Spots = 3, Seconds = 4.5, Good = 2, MinSeconds = 1 }, -- 🩺 tap the 3 glowing spots on the chest
+		Temp = { FillSeconds = 2.4, BandMin = 0.68, BandMax = 0.86, GoodSlack = 0.12, MinSeconds = 1.2 }, -- 🌡️
+		Light = { Blows = 3, Good = 2, PulseSeconds = 1.1, Window = 0.3, MinSeconds = 1.5 }, -- 🔦 ear or throat check
+		Look = { Spots = 2, Seconds = 4, Good = 1, MinSeconds = 1 }, -- 🔍 find the 2 sore spots
+		XRay = { Blows = 3, Good = 2, PulseSeconds = 1.2, Window = 0.3, MinSeconds = 1.5 }, -- 🩻 the scanner bar
+		-- supplies
+		Plaster = { Spots = 3, Seconds = 4.5, Good = 2, MinSeconds = 1 }, -- 🩹 today's Patch
+		Ice = { FillSeconds = 2.4, BandMin = 0.7, BandMax = 0.86, GoodSlack = 0.12, MinSeconds = 1.2 }, -- 🧊 hold till cool
+		Bandage = { Blows = 3, Good = 2, PulseSeconds = 1.1, Window = 0.3, MinSeconds = 1.5 }, -- 🧻 wrap, 3 beats
+		Cast = { Blows = 4, Good = 3, PulseSeconds = 1, Window = 0.3, MinSeconds = 2 }, -- 🦴 wrap, 4 beats
+		Bath = { Seconds = 4, Perfect = 6, Good = 3, MinSeconds = 1.5 }, -- 🛁 today's Scrub
+		Cocoa = { Blows = 3, Good = 2, PulseSeconds = 1.2, Window = 0.3, MinSeconds = 1.5 }, -- ☕ today's Cool
+		-- the dispensary
+		Dose = { FillSeconds = 2.2, BandMin = 0.7, BandMax = 0.86, GoodSlack = 0.12, MinSeconds = 1.2 }, -- the cup
+		Pick = { Good = 1, MinSeconds = 0.6 }, -- the right tool or bottle
+	},
 }
+
+-- The visit (Logic/Visit): the right exam tool glows for a player's first ExamsGlow exams (and always in Simple
+-- mode), so nobody is stuck on their first patients.
+Config.Visit = { ExamsGlow = 3 }
+
+-- The dispensary (Station_Remedy; design §9): the dispensing card offers up to Options medicines that bay patients
+-- still need (the oldest first), then shows Bottles bottles to pick from (the right one and Bottles - 1 others).
+-- ExpertBand: the Pharmacy2 rebirth unlock ("Expert Dispensing") makes Games.Dose's Perfect band this much wider.
+Config.Dispensary = { Options = 3, Bottles = 4, ExpertBand = 1.5 }
 
 -- The treat flow (Server/Treatment)
 Config.Treat = {
-	ItemPatience = 0.25, -- each recipe item given back fills this share of the patient's patience
-	Distance = 20, -- studs from the Counter: a TreatResult from farther away is rated all OK
+	ItemPatience = 0.25, -- each plan step given fills this share of the patient's patience
+	-- Studs from the patient's bay (a Dispense session: from the dispensary counter): a TreatResult from farther
+	-- away is rated all OK
+	Distance = 20,
 }
 
 -- The Nurse Belt: one shared conveyor along the town's main street (memory-20261116-012/-013/-017, Logic/Belt,
 -- Server/NurseBelt). Cash only. Every odd, event odds included, is printed on the belt's sign and in the 🎲 popup.
 -- Where (Joshua, 2026-11-17, memory-20261117-001 #3: the belt runs down the road's CENTRE line): on z = 0, from just
--- inside the east welcome arch (x = +135 from Town.Origin) to just inside the west one (x = -135), past every plot's
--- gate (the arches stand at x = +-147 since the plots grew to 80 x 80). The spawn plaza moved off it
--- (Config.Town.SpawnOffset / Plaza; nothing else solid stands within Config.Town.BeltClear of the centre line).
--- Riders move west, toward the Hall of Fame end (it stays clear: x < -152), and face the plaza (+z). The conveyor is
--- low enough to step over anywhere.
+-- inside the east welcome arch (x = +180 from Town.Origin) to just inside the west one (x = -180), past every plot's
+-- gate (the street runs x -197..197 and the arches stand 5 inside its ends since the plots grew to 110 x 110, 8
+-- apart). The spawn plaza moved off it (Config.Town.SpawnOffset / Plaza; nothing else solid stands within
+-- Config.Town.BeltClear of the centre line). Riders move west, toward the Hall of Fame end (it stays clear, past the
+-- street's end), and face the plaza (+z). The conveyor is low enough to step over anywhere.
 -- How often (memory-20261116-017, his brother: rarer than the belt games, so a rare nurse feels earned): one nurse
 -- about every 40 s, base odds 75 / 20 / 4.5 / 0.5, a Rare+ guaranteed within 15 arrivals; Mythic only in Night Rush
 -- and Secret only in Golden Hour. Epic and up ride for everyone but need hospital Lv 3 to hire (MinLevel); their
 -- first-rebirth gate for Mythic and Secret waits for rebirths (design §7).
 Config.Belt = {
-	Offset = Vector3.new(135, 0, 0), -- the belt's start (the nurse house at the east end, z = 0) from Town.Origin
+	Offset = Vector3.new(180, 0, 0), -- the belt's start (the nurse house at the east end, z = 0) from Town.Origin
 	Heading = 180, -- degrees about Y from world +X that riders move: 180 = toward -X (west)
-	Length = 270, -- studs, start to end (was 240 on the 70-stud plots' street)
+	Length = 360, -- studs, start to end (was 270 on the 80-stud plots' street)
 	SignOffset = Vector3.new(-24, 0, 11), -- the odds sign from Town.Origin: the plaza's west end, facing TownSpawn
 	ArriveSeconds = 40, -- a nurse steps on this often
-	RideSeconds = 100, -- start to end (2.7 studs a second); with one every 40 s, two or three ride at once
+	RideSeconds = 133, -- start to end (2.7 studs a second, as before); with one every 40 s, three or four ride at once
 	ReplaceSeconds = 8, -- a hire that leaves no other nurse on the belt (Common or Rare) brings the next this soon
 	Odds = { Common = 75, Rare = 20, Epic = 4.5, Legendary = 0.5 }, -- percent
 	MinLevel = { Epic = 3, Legendary = 3, Mythic = 3, Secret = 3 }, -- the hospital level that may hire them
@@ -256,7 +292,7 @@ Config.Abilities = {
 
 -- Rebirths: "🏢 Open a new branch" (Logic/Rebirth). Optional, never pushed.
 Config.Rebirth = {
-	MinLevel = 5, -- a Mega Hospital
+	MinLevel = 5, -- a City Hospital
 	Cost = { 50000, 75000, 110000, 170000, 250000, 380000, 570000, 850000, 1300000, 1900000 }, -- R1..R10
 	Growth = 1.5, -- past the table: x1.5 a rebirth, rounded to 2 significant figures
 	CashPerRebirth = 0.25, -- +25% cure cash a rebirth, ADDED (R4 = x2), counted up to MaxBonusRebirths (§E12)
@@ -317,6 +353,8 @@ Config.AE = {
 Config.VIP = { EverySeconds = 300, Jitter = 0.2, CashMultiplier = 4, Stars = 3 } -- the air ambulance (R2 + Lv 5)
 Config.Triage = { Seconds = 4, RightBonus = 0.1 }
 Config.Escort = { CashBonus = 0.2, RecoverFactor = 0.5 }
+-- The Real Clinic removes the hot tub and the Pharmacy's crafting (design §7, §8.3). These two rows stay only until
+-- the code that still reads them is rewritten (Server/Patients, Stations, Boosts, PlotBuilder; UI/Guide).
 Config.Hydro = { Spots = 2, CashBonus = 0.25, RecoverFactor = 0.5 }
 Config.Pharmacy = { HoldSeconds = 3, Tier2Factor = 0.5 }
 Config.WardComfort = { RecoverPerLevel = 0.2, CashPerLevel = 0.05 }
@@ -340,17 +378,19 @@ Config.Look = {
 	-- Transparency ~0.85) replaces the GrassB tiles. "" = the tiles are parts.
 	CheckerTexture = "",
 	TownParts = 600, -- ClinicTown (the lawn, road, plaza, trees, lamps, arches; not the belt, kiosks, boards or plots)
-	PlotBudget = 400, -- one plot at Lv 5 with every room, any theme, no creatures, nurses or decor
-	BuildingParts = 160, -- its share: the Building, any level, any theme
-	RoomParts = 90, -- its share: every room model on the plot (the Stand floor + annexes + the Garden)
-	-- Its share: everything else on the plot (pad, edging, path, Counter, markers, slots, sign, fence, gate, mailbox,
-	-- trees, bushes, queue lane).
-	PlotParts = 115,
-	SurfaceGuisPerBuilding = 12,
-	GlassPerBuilding = 6, -- see-through parts (Transparency strictly between 0 and 1)
-	WardFloorBeds = 7, -- beds you can see on the Wards floor (F1), Lv 2..5: functional + dressing
-	Lv1Beds = 2, -- beds you can see at Lv 1: Bed_1 + one dressing bed
-	Sleepers = { Lv1 = 1, Ward = 2 }, -- sleeping stand-ins on dressing beds
+	-- The Real Clinic (design §8.5): the whole clinic stands from Lv 1, so the budgets grew. Six plots plus the town
+	-- stay under 4,500 parts.
+	PlotBudget = 640, -- one plot at Lv 5 with every room, any theme, no creatures, nurses or decor (was 400)
+	BuildingParts = 420, -- its share: the Building, any level, any theme (was 160)
+	RoomParts = 90, -- its share: every room model on the plot (interior fit-outs, no walls or roofs, + the Garden)
+	-- Its share: everything else on the plot (pad, edging, path, Counter, markers, sign, fence, gate, mailbox, trees,
+	-- bushes).
+	PlotParts = 130,
+	SurfaceGuisPerBuilding = 24, -- each with a MaxDistance
+	GlassPerBuilding = 10, -- see-through parts (Transparency strictly between 0 and 1)
+	WardFloorBeds = 4, -- bed spots on each upper floor (Logic/Building.wardBeds): functional + dressing
+	Lv1Beds = 0, -- ward beds you can use at Lv 1 (F1 stands closed; the exam bays' beds aren't ward beds)
+	Sleepers = { Lv1 = 0, Ward = 1 }, -- sleeping stand-ins on dressing beds, per upper floor
 }
 
 -- The tutorial's guide (UI/Wayfinder, UI/Tutorial, Server/Tutorial; tutorial-ux §5.5).

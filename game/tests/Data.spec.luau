@@ -1,11 +1,16 @@
 --!strict
--- Content checks for the Lune-safe Data modules (Task 0). Stations and Ailments use Color3, so they are
--- checked by id lists here instead of being required.
+-- Content checks for the Lune-safe Data modules (Task 0). Stations uses Color3, so it is checked from its source
+-- text here instead of being required. The Real Clinic (build plan contract C3): cases, tools, items, stations,
+-- levels and departments are checked against the design's tables; the patient, regular and acting checks further
+-- down still speak of ailments until Data/Patients, Data/Regulars and Data/CaseActing follow (build plan Task 3).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
 
 local Items = require("../src/shared/Data/Items")
+local Cases = require("../src/shared/Data/Cases")
+local Tools = require("../src/shared/Data/Tools")
+local MiniGame = require("../src/shared/Logic/MiniGame")
 local Patients = require("../src/shared/Data/Patients")
 local Regulars = require("../src/shared/Data/Regulars")
 local Rooms = require("../src/shared/Data/Rooms")
@@ -28,7 +33,7 @@ local Levels = require("../src/shared/Data/Levels")
 local Badges = require("../src/shared/Data/Badges")
 local fs = require("@lune/fs")
 
-local STATIONS = { Remedy = true, Plaster = true, Bath = true, Cocoa = true, Pharmacy = true }
+local STATIONS = { Remedy = true, Plaster = true, Ice = true, Bandage = true, Cast = true, Bath = true, Cocoa = true }
 local AILMENTS = {
 	Hiccups = "Remedy",
 	Sneezes = "Remedy",
@@ -88,7 +93,10 @@ local TREE_EFFECTS = {
 	Bargain = true,
 	LuckyStock = true,
 }
-local GAMES = { Pour = true, Patch = true, Scrub = true, Cool = true }
+local GAMES = {} -- the GameIds (Logic/MiniGame.ENGINE)
+for game in MiniGame.ENGINE do
+	GAMES[game] = true
+end
 
 local function source(path: string): string
 	for _, prefix in { "", "game/", "../" } do
@@ -99,26 +107,16 @@ local function source(path: string): string
 	error("could not find " .. path)
 end
 
--- Data/Ailments uses Color3 (Roblox-only), so its recipes are read from the file's text: one entry per line,
---   Hiccups = ailment("Hiccups", "❗", "Remedy", { "Potion" }),
-local function ailmentRecipes(): { [string]: { string } }
-	local source: string? = nil
-	for _, path in
-		{ "src/shared/Data/Ailments.luau", "game/src/shared/Data/Ailments.luau", "../src/shared/Data/Ailments.luau" }
-	do
-		if fs.isFile(path) then
-			source = fs.readFile(path)
-			break
+-- Data/Stations uses Color3 (Roblox-only), so its rows are read from the file's text: one station per line,
+--   Plaster = { Name = "Plasters", Icon = "🩹", Item = "Plaster", Color = Candy.Pink },
+local function stationRows(): { [string]: { Item: string, Dispense: boolean } }
+	local out = {}
+	for line in string.gmatch(source("src/shared/Data/Stations.luau"), "[^\n]+") do
+		local id, body = string.match(line, "^\t(%w+) = {(.*)},%s*$")
+		local item = if body then string.match(body, 'Item = "(%w*)"') else nil
+		if id and item then
+			out[id] = { Item = item, Dispense = string.find(body, "Dispense = true", 1, true) ~= nil }
 		end
-	end
-	assert(source, "could not find Data/Ailments.luau")
-	local out: { [string]: { string } } = {}
-	for id, items in string.gmatch(source, "(%w+) = ailment%([^{}]-{([^}]*)}%)") do
-		local recipe = {}
-		for item in string.gmatch(items, '"(%w+)"') do
-			table.insert(recipe, item)
-		end
-		out[id] = recipe
 	end
 	return out
 end
@@ -151,6 +149,8 @@ T.describe("Data", function()
 		for name, module in
 			{
 				Items = Items,
+				Cases = Cases,
+				Tools = Tools,
 				Patients = Patients,
 				Regulars = Regulars,
 				Rooms = Rooms,
@@ -358,76 +358,279 @@ T.describe("Data", function()
 		end
 	end)
 
-	test("items come from known stations", function()
-		for _, item in Items do
-			expect(STATIONS[item.Station]).toBe(true)
-		end
-	end)
-
-	test("medicines: two known plain ingredients, a tier, made at the Pharmacy (build plan §B5)", function()
-		local medicines = {}
+	test("items: supplies with a game from their own station, medicines from the dispensary with a bottle", function()
+		local supplies, medicines = {}, {}
 		for _, id in Items.Order do
 			local item = Items[id]
-			if item.Medicine then
-				medicines[id] = { item.Medicine[1], item.Medicine[2], item.Tier }
-				expect(item.Station).toBe("Pharmacy")
-				for _, part in item.Medicine do
-					expect(Items[part] ~= nil and Items[part].Medicine == nil).toBe(true)
-				end
+			expect(STATIONS[item.Station]).toBe(true)
+			expect(type(item.Name) == "string" and item.Name ~= "").toBe(true)
+			expect(type(item.Icon) == "string" and item.Icon ~= "").toBe(true)
+			expect(string.match(id, "^%w+$") ~= nil).toBe(true) -- the Carry attribute joins ids with commas
+			if item.Kind == "Supply" then
+				table.insert(supplies, id)
+				expect(GAMES[item.Game]).toBe(true)
+				expect(item.Bottle).toBeNil()
+				expect(item.Station ~= "Remedy").toBe(true)
 			else
-				expect(item.Tier).toBeNil()
+				expect(item.Kind).toBe("Medicine")
+				table.insert(medicines, id)
+				expect(item.Station).toBe("Remedy")
+				expect(item.Game).toBeNil() -- handing a medicine over plays no game
+				expect(string.match(item.Bottle, "^#%x%x%x%x%x%x$") ~= nil).toBe(true)
 			end
 		end
-		expect(medicines).toEqual({
-			WarmTonic = { "Potion", "Cocoa", 1 },
-			SoapyPatch = { "Bubbles", "Plaster", 1 },
-			SuperSyrup = { "Potion", "Plaster", 2 },
-			CocoaFizz = { "Cocoa", "Bubbles", 2 },
+		expect(supplies).toEqual({ "Plaster", "Ice", "Bandage", "Cast", "Bubbles", "Cocoa" })
+		expect(medicines).toEqual({ "CoughSyrup", "FeverMeds", "EarDrops", "Lozenges", "Cream", "PainRelief" })
+		expect({ Items.Bubbles.Name, Items.Cocoa.Name }).toEqual({ "Bath foam", "Hot chocolate" })
+		expect({ Items.Plaster.Game, Items.Ice.Game, Items.Bandage.Game, Items.Cast.Game }).toEqual({
+			"Plaster",
+			"Ice",
+			"Bandage",
+			"Cast",
 		})
+		expect({ Items.Bubbles.Game, Items.Cocoa.Game }).toEqual({ "Bath", "Cocoa" })
+		-- every medicine's bottle is its own colour, so the dispensing game can tell them apart
+		local bottles = {}
+		for _, id in medicines do
+			expect(bottles[Items[id].Bottle]).toBeNil()
+			bottles[Items[id].Bottle] = true
+		end
+		-- the potion and the crafted medicines are gone
+		for _, gone in { "Potion", "WarmTonic", "SoapyPatch", "SuperSyrup", "CocoaFizz" } do
+			expect(rawget(Items :: any, gone)).toBeNil()
+		end
 	end)
 
-	test("the Pharmacy station (read from the source: Stations uses Color3)", function()
+	test("the stations (read from the source: Stations uses Color3): one per supply, and the dispensary", function()
+		local rows = stationRows()
 		local text = source("src/shared/Data/Stations.luau")
 		expect(
 			string.find(
 				text,
-				'Pharmacy = { Name = "Pharmacy", Icon = "💊", Item = "", Craft = true, Color = Candy.',
+				'local ORDER = { "Remedy", "Plaster", "Ice", "Bandage", "Cast", "Bath", "Cocoa" }',
 				1,
 				true
 			) ~= nil
 		).toBe(true)
-		expect(string.find(text, 'local ORDER = { "Remedy", "Plaster", "Bath", "Cocoa", "Pharmacy" }', 1, true) ~= nil).toBe(
-			true
-		)
-	end)
-
-	test("every ailment has a recipe of 1-3 known items, led by its station's item", function()
-		local recipes = ailmentRecipes()
-		local wingSize = { Starter = 1, Bath = 2, Winter = 2, Night = 2, Sunny = 2, Sky = 3 }
-		for ailmentId, station in AILMENTS do
-			local recipe = recipes[ailmentId]
-			if not recipe then
-				error("no recipe found for " .. ailmentId)
-			end
-			expect(#recipe >= 1 and #recipe <= 3).toBe(true)
-			expect(Items[recipe[1]].Station).toBe(station)
-			for _, item in recipe do
-				expect(Items[item] ~= nil).toBe(true)
+		expect(sorted(keys(rows))).toEqual(sorted(keys(STATIONS)))
+		expect(rows.Remedy).toEqual({ Item = "", Dispense = true })
+		expect(string.find(text, 'Remedy = { Name = "Dispensary"', 1, true) ~= nil).toBe(true)
+		expect(rows.Pharmacy).toBeNil() -- the crafting station is gone
+		for id, row in rows do
+			expect(string.match(id, "^%w+$") ~= nil).toBe(true) -- parts are named Station_<id>
+			if id ~= "Remedy" then
+				expect(row.Dispense).toBe(false)
+				expect(Items[row.Item].Station).toBe(id)
+				expect(Items[row.Item].Kind).toBe("Supply")
 			end
 		end
-		-- By wing (design §1): the ailment's patients set its recipe length.
-		for _, patientId in Patients.Order do
-			local patient = Patients[patientId]
-			local recipe = recipes[patient.Ailment]
-			if #recipe ~= wingSize[patient.Wing] then
-				error(patientId .. " (" .. patient.Wing .. ") has a " .. #recipe .. "-item recipe")
+		-- and every item's station is one of them
+		for _, id in Items.Order do
+			expect(rows[Items[id].Station] ~= nil).toBe(true)
+		end
+		expect(string.find(text, "Craft", 1, true)).toBeNil()
+	end)
+
+	test("tools: the five of the design, each with a game; the X-ray is a machine from Lv 3", function()
+		expect(Tools.ORDER).toEqual({ "Stethoscope", "Thermometer", "Light", "Magnifier", "XRay" })
+		expect(Tools.Order).toBe(Tools.ORDER)
+		local rows = {}
+		for _, id in Tools.ORDER do
+			local tool = Tools[id]
+			rows[id] = { tool.Icon, tool.Game }
+			expect(GAMES[tool.Game]).toBe(true)
+			expect(type(tool.Name) == "string" and tool.Name ~= "").toBe(true)
+			expect(tool.Machine == true).toBe(id == "XRay")
+			expect(tool.Level).toBe(if id == "XRay" then 3 else nil)
+		end
+		expect(rows).toEqual({
+			Stethoscope = { "🩺", "Listen" },
+			Thermometer = { "🌡️", "Temp" },
+			Light = { "🔦", "Light" },
+			Magnifier = { "🔍", "Look" },
+			XRay = { "🩻", "XRay" },
+		})
+		expect(Tools.XRay.Level).toBe(Departments.Imaging.Opens)
+	end)
+
+	test("cases: the twelve of the design, each with a known tool and a plan of 1-3 known items", function()
+		expect(Cases.ORDER).toEqual({
+			"Cough",
+			"Fever",
+			"CutKnee",
+			"BumpedHead",
+			"Earache",
+			"Sprain",
+			"SoreThroat",
+			"Rash",
+			"BrokenArm",
+			"SoreMuscles",
+			"Chills",
+			"BrokenLeg",
+		})
+		expect(Cases.Order).toBe(Cases.ORDER)
+		local rows = {}
+		for _, id in Cases.ORDER do
+			local case = Cases[id]
+			expect(Tools[case.Tool] ~= nil).toBe(true)
+			expect(#case.Plan >= 1 and #case.Plan <= 3).toBe(true)
+			local seen = {}
+			for _, item in case.Plan do
+				expect(Items[item] ~= nil).toBe(true)
+				expect(STATIONS[Items[item].Station]).toBe(true)
+				expect(seen[item]).toBeNil() -- no step twice
+				seen[item] = true
 			end
-			-- Night patients come to every clinic: First-Aid Stand items only.
-			if patient.Night then
-				for _, item in recipe do
-					expect(item == "Potion" or item == "Plaster").toBe(true)
+			expect(case.Level >= 1 and case.Level <= #Levels).toBe(true)
+			expect(case.Room == nil or Rooms[case.Room] ~= nil).toBe(true)
+			expect(case.Stay == nil or case.Stay == "Wards" or case.Stay == "Rest").toBe(true)
+			expect(type(case.Name) == "string" and case.Name ~= "").toBe(true)
+			-- the symptom bubble: the case's icon, then two words at most
+			expect(string.sub(case.Bubble, 1, #case.Icon)).toBe(case.Icon)
+			expect(words(case.Bubble) <= 3).toBe(true)
+			-- a case that needs a machine opens no sooner than the machine
+			expect(case.Level >= (Tools[case.Tool].Level or 1)).toBe(true)
+			rows[id] = { case.Tool, table.concat(case.Plan, ","), case.Stay or "", case.Level, case.Room or "" }
+		end
+		expect(rows).toEqual({
+			Cough = { "Stethoscope", "CoughSyrup", "", 1, "" },
+			Fever = { "Thermometer", "FeverMeds", "Rest", 1, "" },
+			CutKnee = { "Magnifier", "Plaster", "", 1, "" },
+			BumpedHead = { "Magnifier", "Ice", "", 1, "" },
+			Earache = { "Light", "EarDrops", "", 1, "" },
+			Sprain = { "Magnifier", "Ice,Bandage", "", 2, "" },
+			SoreThroat = { "Light", "Lozenges,CoughSyrup", "", 2, "" },
+			Rash = { "Magnifier", "Cream,Ice", "", 2, "" },
+			BrokenArm = { "XRay", "Cast,PainRelief", "Wards", 3, "" },
+			SoreMuscles = { "Magnifier", "Bubbles,PainRelief", "", 1, "BathRoom" },
+			Chills = { "Thermometer", "Cocoa,FeverMeds", "Rest", 1, "WinterWing" },
+			BrokenLeg = { "XRay", "Cast,PainRelief,Bandage", "Wards", 5, "" },
+		})
+		-- a room's case starts with that room's own supply, so the room's station is always used
+		expect(Items[Cases.SoreMuscles.Plan[1]].Station).toBe("Bath")
+		expect(Items[Cases.Chills.Plan[1]].Station).toBe("Cocoa")
+		-- every item and every tool is used by some case
+		local used = {}
+		for _, id in Cases.ORDER do
+			used[Cases[id].Tool] = true
+			for _, item in Cases[id].Plan do
+				used[item] = true
+			end
+		end
+		for _, id in Items.Order do
+			expect(used[id]).toBe(true)
+		end
+		for _, id in Tools.ORDER do
+			expect(used[id]).toBe(true)
+		end
+	end)
+
+	test("a Lv 1 clinic can treat every Lv 1 case: its plan's first step comes from a station open at Lv 1", function()
+		local lv1 = { Remedy = true, Plaster = true, Ice = true }
+		local n = 0
+		for _, id in Cases.ORDER do
+			local case = Cases[id]
+			if case.Level == 1 and not case.Room then
+				n += 1
+				for _, item in case.Plan do
+					expect(lv1[Items[item].Station]).toBe(true)
 				end
 			end
+		end
+		expect(n).toBe(5)
+	end)
+
+	test("case pools: one per wing, every id a case; the Night pool is Lv 1 cases only", function()
+		expect(sorted(keys(Cases.POOLS))).toEqual(sorted(table.clone(Wings.Order)))
+		for wing, pool in Cases.POOLS do
+			expect(#pool >= 1).toBe(true)
+			for _, id in pool do
+				if Cases[id] == nil then
+					error(wing .. " pool: " .. tostring(id) .. " is not a case")
+				end
+			end
+		end
+		for _, id in Cases.POOLS.Night do
+			expect(Cases[id].Level).toBe(1)
+			expect(Cases[id].Room).toBeNil()
+		end
+		expect(Cases.POOLS.Night).toEqual({ "Cough", "Fever", "Earache" })
+		expect(Cases.POOLS.Starter).toEqual({
+			"Cough",
+			"Fever",
+			"CutKnee",
+			"BumpedHead",
+			"Earache",
+			"Sprain",
+			"SoreThroat",
+			"Rash",
+			"BrokenArm",
+		})
+		expect(Cases.POOLS.Sunny).toEqual({ "Rash", "Sprain", "CutKnee" })
+		expect(Cases.POOLS.Sky).toEqual({ "BrokenLeg" })
+		-- Bath and Winter: their own room's case (the likeliest), then the Starter pool
+		for wing, own in { Bath = "SoreMuscles", Winter = "Chills" } do
+			local pool = Cases.POOLS[wing]
+			expect(pool[1]).toBe(own)
+			local rest = {}
+			for _, id in pool do
+				if id ~= own then
+					table.insert(rest, id)
+				end
+			end
+			expect(rest).toEqual(Cases.POOLS.Starter)
+		end
+		-- every case is in some pool, and a room's case only in its own wing's
+		local pooled = {}
+		for wing, pool in Cases.POOLS do
+			for _, id in pool do
+				pooled[id] = true
+				if Cases[id].Room then
+					expect(Rooms[Cases[id].Room].Wing).toBe(wing)
+				end
+			end
+		end
+		for _, id in Cases.ORDER do
+			expect(pooled[id]).toBe(true)
+		end
+		expect(table.isfrozen(Cases.POOLS) and table.isfrozen(Cases.POOLS.Starter)).toBe(true)
+	end)
+
+	test("gentle words only: no item, case or tool says cure or needle (or anything scary)", function()
+		local banned = { "cure", "needle", "blood", "surgery", "inject", "syringe", "scalpel" }
+		local function check(what: string, text: string)
+			local lower = string.lower(text)
+			for _, word in banned do
+				if string.find(lower, word, 1, true) then
+					error(what .. " says " .. word .. ": " .. text)
+				end
+			end
+		end
+		for _, id in Items.Order do
+			check("item " .. id, id)
+			check("item " .. id, Items[id].Name)
+		end
+		for _, id in Cases.ORDER do
+			check("case " .. id, id)
+			check("case " .. id, Cases[id].Name)
+			check("case " .. id, Cases[id].Bubble)
+		end
+		for _, id in Tools.ORDER do
+			check("tool " .. id, id)
+			check("tool " .. id, Tools[id].Name)
+		end
+		for id, row in stationRows() do
+			check("station " .. id, id)
+		end
+		check("stations", (string.gsub(source("src/shared/Data/Stations.luau"), "%-%-[^\n]*", "")))
+		for _, row in Levels do
+			check("level", row.Name)
+			for _, chip in row.Unlocks do
+				check("level chip", chip)
+			end
+		end
+		for _, id in Departments.Order do
+			check("department " .. id, Departments[id].Name)
 		end
 	end)
 
@@ -555,33 +758,69 @@ T.describe("Data", function()
 		expect(rawget(Jobs :: any, "Rest")).toBeNil() -- "Rest" is never a job
 	end)
 
-	test("departments: the §B5 table; opens agree with Data/Levels; stations and wings map to them", function()
-		local rows = {}
-		for _, id in Departments.Order do
-			local dept = Departments[id]
-			rows[id] = { dept.Opens, dept.Floor, dept.Team2 and dept.Team2.Value, dept.Team3 and dept.Team3.Value }
-			for level, row in Levels do
-				expect(table.find(row.Departments, id) ~= nil).toBe(level >= dept.Opens)
+	test(
+		"departments: the Real Clinic's eight; opens agree with Data/Levels; stations and wings map to them",
+		function()
+			expect(Departments.Order).toEqual({
+				"Reception",
+				"Pharmacy",
+				"Hydro",
+				"AE",
+				"Wards",
+				"Imaging",
+				"Rest",
+				"Roof",
+			})
+			local rows = {}
+			for _, id in Departments.Order do
+				local dept = Departments[id]
+				rows[id] = { dept.Opens, dept.Floor, dept.Team2 and dept.Team2.Value, dept.Team3 and dept.Team3.Value }
+				for level, row in Levels do
+					local listed = table.find(row.Departments, id) ~= nil
+					if dept.Room then
+						expect(listed).toBe(false) -- it comes with its room, not with a level
+						expect(Rooms[dept.Room] ~= nil).toBe(true)
+					else
+						expect(listed).toBe(level >= dept.Opens)
+					end
+				end
 			end
+			expect(rows).toEqual({
+				Reception = { 1, 0, 0.1, 0.2 },
+				Pharmacy = { 1, 0, 0.2, 0.4 },
+				Hydro = { 1, 0, 0.2, 0.4 },
+				AE = { 2, 0, 0.25, 0.5 },
+				Wards = { 2, 1, 0.25, 0.5 },
+				Imaging = { 3, 0 },
+				Rest = { 3, 2 },
+				Roof = { 5, 4 },
+			})
+			expect(Departments.Hydro.Room).toBe("BathRoom")
+			expect(Departments.Hydro.Team3.Stations).toEqual({ "Bath" })
+			-- the Pharmacy team speeds up the supply shelf (and the Cocoa Corner); nobody speeds up dispensing
+			expect(Departments.Pharmacy.Team3.Stations).toEqual({ "Plaster", "Ice", "Bandage", "Cocoa" })
+			expect(Departments.Pharmacy.Team2.Stations).toEqual(Departments.Pharmacy.Team3.Stations)
+			-- every station has a department, and only stations do
+			expect(sorted(keys(Departments.Stations))).toEqual(sorted(keys(STATIONS)))
+			for stationId, dept in Departments.Stations do
+				expect(STATIONS[stationId]).toBe(true)
+				expect(Departments[dept] ~= nil).toBe(true)
+			end
+			expect(Departments.Stations.Remedy).toBe("Pharmacy")
+			expect(Departments.Stations.Cast).toBe("Imaging")
+			expect(Departments.Stations.Bath).toBe("Hydro")
+			for _, wingId in Wings.Order do
+				expect(Departments[Departments.Wings[wingId]] ~= nil).toBe(true)
+			end
+			-- the lift's button for a floor is the first department in Order on it
+			local onFloor = {}
+			for _, id in Departments.Order do
+				local floor = Departments[id].Floor
+				onFloor[floor] = onFloor[floor] or id
+			end
+			expect({ onFloor[1], onFloor[2], onFloor[4] }).toEqual({ "Wards", "Rest", "Roof" })
 		end
-		expect(rows).toEqual({
-			Reception = { 1, 0, 0.1, 0.2 },
-			AE = { 2, 0, 0.25, 0.5 },
-			Wards = { 2, 1, 0.25, 0.5 },
-			Hydro = { 3, 2, 0.2, 0.4 },
-			Pharmacy = { 4, 3, 0.2, 0.4 },
-			Roof = { 5, 4 },
-		})
-		expect(Departments.Hydro.Team3.Stations).toEqual({ "Bath" })
-		expect(Departments.Pharmacy.Team3.Stations).toEqual({ "Cocoa", "Pharmacy" })
-		for stationId, dept in Departments.Stations do
-			expect(STATIONS[stationId]).toBe(true)
-			expect(Departments[dept] ~= nil).toBe(true)
-		end
-		for _, wingId in Wings.Order do
-			expect(Departments[Departments.Wings[wingId]] ~= nil).toBe(true)
-		end
-	end)
+	)
 
 	test("abilities: the §B5 table; values grow with the nurse; known kinds and games", function()
 		local rows = {}
@@ -744,13 +983,6 @@ T.describe("Creatures", function()
 			end
 			expect(#(look.Bits or {}) <= 4).toBe(true)
 		end)
-	end)
-
-	test("the new ailments: their stations and recipes (build plan §B5)", function()
-		local recipes = ailmentRecipes()
-		expect(recipes.Pollen).toEqual({ "Potion", "Bubbles" })
-		expect(recipes.Prickles).toEqual({ "Plaster", "Cocoa" })
-		expect(recipes.Airsick).toEqual({ "Potion", "Cocoa", "Plaster" })
 	end)
 
 	test("every ailment acts something out, with only things the client can play", function()

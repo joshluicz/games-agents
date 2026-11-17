@@ -1,31 +1,32 @@
 --!strict
--- Hospital levels: the building grows (memory-20261116-008; depth-update design §3, build plan §B5). Lune-safe.
--- An ARRAY: Levels[level], 1..5. Logic/Levels reads it; Server/Levels sells the next one.
+-- Hospital levels: the clinic's open parts grow (memory-20261116-008; Real Clinic build plan, contract C3; design
+-- §10 and §15 #3). Lune-safe. An ARRAY: Levels[level], 1..5. Logic/Levels reads it; Server/Levels sells the next one.
+-- The whole building stands from Lv 1 (Logic/Building): a level opens bays, rooms and floors that are already there.
 --
 --   Name, Icon   what the Shop's Hospital tab and the level-up celebration show
---   Stars        the Clinic Stars needed: a GATE, not spent (like rooms; open point §E1 in the build plan)
+--   Stars        the Clinic Stars needed: a GATE, not spent (like rooms)
 --   Cash         spent
---   Beds         beds in the hospital, the Stand's own bed included (PlotBuilder adds Beds - 1 in Building: from Lv 2
---                they are the Wards upstairs, Progression v2 §B4)
---   Queue        patients in line: 3 at every level (Config.MaxQueue, Joshua 2026-11-16: one treated + 2 waiting,
---                on the queue lane's three spots). Server/Patients caps it at Config.MaxQueue too. A level's bigger
---                throughput comes from SpawnSeconds instead, so the Shop never promises a longer line
---   RecipeCap    recipes are cut to this many items (Logic/Recipe.effective): "Bath wing recipes" arrive at Lv 2
---   SpawnSeconds a new patient comes about this often (Server/Patients, ±15%): a bigger hospital is a busier one,
---                so a level-up raises what a clinic can earn (with nurses to keep up). Lv 1 = Config.SpawnEverySeconds
---   Floors       walkable floors above the ground (0 = the open-air Stand; at Lv 5 the 4th is the roof)
---   Departments  the departments open at this level, cumulatively (Data/Departments; each one's Opens agrees)
+--   Bays         open exam bays in the row of six (Logic/Building.BAYS 1..6: 2, 3, 4, 5, 6). The X-ray bay (Lv 3)
+--                and the Cozy Ward's two (a bought room) come on top
+--   Beds         ward beds upstairs, for patients who stay (Logic/Building.WARD_BEDS): 3 in the Injury Ward (F1,
+--                Lv 2), +2 in the Rest Ward (F2, Lv 3), +2 in the staff room (F3, Lv 4)
+--   Queue        patients waiting for a bay: 3 at every level (Config.MaxQueue, Joshua 2026-11-16). The waiting room
+--                is the line. A level's bigger throughput comes from Bays and SpawnSeconds instead
+--   RecipeCap    a case's plan is cut to this many steps (Logic/Visit.plan): a Lv 1 player always sees one
+--   SpawnSeconds a new patient comes about this often (Server/Patients, ±15%): a bigger hospital is a busier one.
+--                Lv 1 = Config.SpawnEverySeconds
+--   Floors       OPEN floors above the ground (the 4th at Lv 5 is the roof deck with the helipad)
+--   Departments  the departments open at this level, cumulatively (Data/Departments; each one's Opens agrees). Hydro
+--                isn't listed: it comes with the Bath Room, not with a level
 --   Unlocks      short chips for the Shop: an emoji, then two or three words
--- The Lv 3 "Golden capsule" of the first design became the belt (memory-20261116-012), so Lv 3 opens the Garden.
--- Progression v2 (build plan §B5): Slots is gone (every nurse you own works: Config.Roster); the ambulance bay moves
--- to Lv 2 with the Wards upstairs and the lift (§E10); costs, ⭐ gates, recipe caps, the line and spawn seconds are
--- unchanged.
+-- The Stars gates, cash costs, the line and the spawn seconds are unchanged from Progression v2.
 
 export type Level = {
 	Name: string,
 	Icon: string,
 	Stars: number,
 	Cash: number,
+	Bays: number,
 	Beds: number,
 	Queue: number,
 	RecipeCap: number,
@@ -37,69 +38,74 @@ export type Level = {
 
 local LEVELS: { Level } = {
 	{
-		Name = "First-Aid Stand",
-		Icon = "🧰", -- a kit, not the helmet emoji (it carries a white cross on red: look plan, original only)
+		Name = "Clinic",
+		Icon = "🏠",
 		Stars = 0,
 		Cash = 0,
-		Beds = 1,
+		Bays = 2,
+		Beds = 0,
 		Queue = 3,
 		RecipeCap = 1,
 		SpawnSeconds = 13,
 		Floors = 0,
-		Departments = { "Reception" },
+		Departments = { "Reception", "Pharmacy" },
 		Unlocks = {},
 	},
 	{
-		Name = "Clinic",
-		Icon = "🏠",
+		Name = "Medical Centre",
+		Icon = "🏬",
 		Stars = 15,
 		Cash = 400,
+		Bays = 3,
 		Beds = 3,
 		Queue = 3,
 		RecipeCap = 2,
 		SpawnSeconds = 11,
 		Floors = 1,
-		Departments = { "Reception", "AE", "Wards" },
-		Unlocks = { "🚑 A&E ambulances", "🛏️ Wards upstairs", "🛗 Lift", "🧪 2-item recipes" },
+		Departments = { "Reception", "Pharmacy", "AE", "Wards" },
+		Unlocks = { "🚑 A&E ambulances", "🛏️ Injury Ward upstairs", "🧻 Bandages", "📋 2-step plans" },
 	},
 	{
 		Name = "Hospital",
 		Icon = "🏥",
 		Stars = 45,
 		Cash = 1500,
-		Beds = 3,
+		Bays = 4,
+		Beds = 5,
 		Queue = 3,
 		RecipeCap = 3,
 		SpawnSeconds = 10,
 		Floors = 2,
-		Departments = { "Reception", "AE", "Wards", "Hydro" },
-		Unlocks = { "🛁 Hydro hot tub", "🔀 Pick the floor", "🐾 Big sign", "🌻 Garden" },
+		Departments = { "Reception", "Pharmacy", "AE", "Wards", "Imaging", "Rest" },
+		Unlocks = { "🩻 X-ray room", "😴 Rest Ward", "🔀 Pick the ward", "📋 3-step plans", "🌻 Garden" },
 	},
 	{
-		Name = "Big Hospital",
+		Name = "General Hospital",
 		Icon = "🏨",
 		Stars = 100,
 		Cash = 5000,
-		Beds = 4,
+		Bays = 5,
+		Beds = 7,
 		Queue = 3,
 		RecipeCap = 3,
 		SpawnSeconds = 9,
 		Floors = 3,
-		Departments = { "Reception", "AE", "Wards", "Hydro", "Pharmacy" },
-		Unlocks = { "💊 Pharmacy", "🛏️ 4 beds", "🏢 3 floors" },
+		Departments = { "Reception", "Pharmacy", "AE", "Wards", "Imaging", "Rest" },
+		Unlocks = { "🛋️ Staff room", "🛏️ 7 ward beds", "🚪 5 exam bays" },
 	},
 	{
-		Name = "Mega Hospital",
+		Name = "City Hospital",
 		Icon = "🏙️",
 		Stars = 200,
 		Cash = 15000,
-		Beds = 4,
+		Bays = 6,
+		Beds = 7,
 		Queue = 3,
 		RecipeCap = 3,
 		SpawnSeconds = 8,
 		Floors = 4,
-		Departments = { "Reception", "AE", "Wards", "Hydro", "Pharmacy", "Roof" },
-		Unlocks = { "🚁 Helipad", "🗼 Tower", "✨ Neon sign", "🏢 New branches" },
+		Departments = { "Reception", "Pharmacy", "AE", "Wards", "Imaging", "Rest", "Roof" },
+		Unlocks = { "🚁 Helipad", "🚪 6 exam bays", "✨ Neon sign", "🏢 New branches" },
 	},
 }
 

@@ -2,10 +2,11 @@
 -- Shared type names for every task (build plan §B). Types only: requiring this returns an empty table.
 --   local Types = require(ReplicatedStorage.Shared.Types)
 --   local function f(data: Types.Data) ... end
--- Data row types (Ailment, Room, Decor, ...) are exported by each Data module too; these match them.
+-- Data row types (Case, Room, Decor, ...) are exported by each Data module too; these match them.
 
 -- Ids are plain strings. These aliases document which table an id belongs to.
-export type AilmentId = string -- Data/Ailments
+export type CaseId = string -- Data/Cases: what is wrong with a patient (they replaced the ailments)
+export type ToolId = string -- Data/Tools: "Stethoscope" | "Thermometer" | "Light" | "Magnifier" | "XRay"
 export type StationId = string -- Data/Stations
 export type ItemId = string -- Data/Items
 export type PatientId = string -- Data/Patients (or a RegularId: regulars use their own id as creature id)
@@ -23,29 +24,57 @@ export type Rarity = "Common" | "Rare" | "Epic" | "Legendary" | "Mythic" | "Secr
 export type NurseRole = "Maker" | "Healer" | "Cheerer" -- a nurse's default job (Data/Nurses Role)
 -- Progression v2 (docs/plan/2026-11-16-progression-v2-build-plan.md §B3)
 export type JobId = string -- Data/Jobs: "Maker" | "Healer" | "Cheerer" | "Receptionist" | "Porter" | "Medic"
-export type DeptId = string -- Data/Departments: "Reception" | "AE" | "Wards" | "Hydro" | "Pharmacy" | "Roof"
+-- Data/Departments: "Reception" | "Pharmacy" | "Hydro" | "AE" | "Wards" | "Imaging" | "Rest" | "Roof"
+export type DeptId = string
 export type AbilityId = string -- Data/Abilities
 export type PerkId = string -- Data/Perks (the Fallback card is "TreePoints")
 export type NodeId = string -- Data/Tree.Nodes
 export type ThemeId = string -- Data/Themes
 export type JournalMark = "Seen" | "Hired" -- Data.NurseIndex: a silhouette until seen, full colour once hired
-export type Rating = "OK" | "Good" | "Perfect" -- a mini-game's rating (Logic/MiniGame); OK still cures
-export type GameId = "Pour" | "Patch" | "Scrub" | "Cool" -- the mini-game for Potion (and every medicine), Plaster,
--- Bubbles, Cocoa
+export type Rating = "OK" | "Good" | "Perfect" -- a mini-game's rating (Logic/MiniGame); OK still treats
+-- A mini-game (Logic/MiniGame.ENGINE says which engine plays it): an exam tool's (Data/Tools Game), a supply's
+-- (Data/Items Game), the dispensary's Dose, and Pick (choose the right tool or bottle)
+export type GameId =
+	"Listen"
+	| "Temp"
+	| "Light"
+	| "Look"
+	| "XRay"
+	| "Plaster"
+	| "Ice"
+	| "Bandage"
+	| "Cast"
+	| "Bath"
+	| "Cocoa"
+	| "Dose"
+	| "Pick"
+export type GameEngine = "Pour" | "Patch" | "Scrub" | "Cool" | "Pick" -- the five games the client can draw
 
 ------------------------------------------------------------------------------------------------------------------
 -- Data rows (match Shared/Data)
 ------------------------------------------------------------------------------------------------------------------
-export type Ailment = {
+export type Case = {
 	Name: string,
 	Icon: string,
-	Color: Color3,
-	Station: StationId,
-	Recipe: { ItemId }, -- 1-3 items, item 1 = the station's own item; cut by the hospital level (Logic/Recipe)
+	Bubble: string, -- the symptom shown before the exam
+	Tool: ToolId, -- the exam tool that finds it
+	Plan: { ItemId }, -- 1-3 steps in order; cut by the hospital level (Logic/Visit.plan)
+	Stay: ("Wards" | "Rest")?, -- rests upstairs after the plan (Logic/Visit.stayWard)
+	Level: number, -- the hospital level it comes from
+	Room: RoomId?, -- a room the clinic must own as well
 }
-export type Station = { Name: string, Icon: string, Item: ItemId, Craft: boolean?, Color: Color3 }
--- Medicine/Tier: a Pharmacy medicine (Progression v2): its two ingredients and its tier (2 from R2)
-export type Item = { Name: string, Icon: string, Station: StationId, Medicine: { ItemId }?, Tier: number? }
+export type Tool = { Name: string, Icon: string, Game: GameId, Machine: boolean?, Level: number? }
+-- Item "" + Dispense: the dispensary (medicines, the player only)
+export type Station = { Name: string, Icon: string, Item: ItemId, Color: Color3, Dispense: boolean? }
+-- A supply has a Game (played at the bay); a medicine (station "Remedy") has a Bottle colour (hex) and no game
+export type Item = {
+	Name: string,
+	Icon: string,
+	Station: StationId,
+	Kind: "Supply" | "Medicine",
+	Game: GameId?,
+	Bottle: string?,
+}
 export type Look = {
 	Shape: string, -- "Ball" | "Bean" | "Blob" | "Box" | "Drop"
 	Body: string, -- hex colour, e.g. "#A8DB8F"
@@ -56,18 +85,18 @@ export type Look = {
 	Scale: number, -- the species' size, 0.75..1.25 (Logic/CreatureSize)
 	Bits: { string }?, -- small accessories (Data/Patients lists them)
 }
-export type Patient = { Name: string, Ailment: AilmentId, Wing: WingId, Night: boolean?, Look: Look }
+-- A species has no case of its own: each visit rolls one from its wing's pool (Data/Cases.POOLS)
+export type Patient = { Name: string, Wing: WingId, Night: boolean?, Look: Look }
 export type Beat = { Emote: string, Bubble: string }
 export type Regular = {
 	Name: string,
 	Patient: PatientId,
-	Ailment: AilmentId,
+	Case: CaseId, -- their one fixed case (a Lv 1 case, so every clinic can treat it)
 	Wing: WingId,
 	UnlockStars: number,
 	Beats: { Beat },
 	Reward: string, -- DecorId or RoomId
 	RewardKind: "Decor" | "Room",
-	Recipe: { ItemId }, -- their own recipe (First-Aid Stand items only)
 	Look: Look,
 }
 export type Room = {
@@ -132,11 +161,12 @@ export type LevelRow = {
 	Icon: string,
 	Stars: number, -- the Clinic Stars needed (a gate, not spent)
 	Cash: number, -- spent
-	Beds: number, -- beds in the hospital (the Stand's own bed included; from Lv 2 the rest are the Wards upstairs)
-	Queue: number, -- patients in line
-	RecipeCap: number, -- recipes are cut to this many items
+	Bays: number, -- open exam bays in the row of six (the X-ray bay and the Cozy Ward's two come on top)
+	Beds: number, -- ward beds upstairs, for patients who stay
+	Queue: number, -- patients in the waiting room
+	RecipeCap: number, -- a case's plan is cut to this many steps
 	SpawnSeconds: number, -- seconds between new patients (a busier clinic at each level)
-	Floors: number, -- walkable floors above the ground (the 4th at Lv 5 is the roof)
+	Floors: number, -- open floors above the ground (the 4th at Lv 5 is the roof)
 	Departments: { DeptId }, -- open at this level, cumulatively
 	Unlocks: { string }, -- short chips for the Shop: an emoji and two or three words
 }
@@ -146,6 +176,7 @@ export type Department = {
 	Name: string,
 	Icon: string,
 	Opens: number,
+	Room: RoomId?, -- it comes with this bought room, not with a level (Hydro: the Bath Room)
 	Floor: number,
 	Team2: TeamEffect?,
 	Team3: TeamEffect?,
@@ -333,20 +364,35 @@ export type DayReportInfo = {
 
 export type PurchaseKind = "Upgrade" | "Room" | "Decor" | "Level" -- "Level": Economy.Purchased only (LevelUp)
 
--- The treat flow (depth-update build plan §B3). TreatStart (server -> the treating player):
+-- The treat flow (depth-update build plan §B3; Real Clinic build plan, contract C5). A visit is three kinds of
+-- session, all on the same two remotes. TreatStart (server -> the playing player):
+--   Kind "Exam"      at a bay, before the case is known. Games = { "Pick", <the answer tool's game> }: pick the right
+--                    tool out of Tools (Answer is the right one; it glows when Glow), then play its game. Items = {}.
+--                    Settling it reveals the case (TreatOutcome.Case), whatever the ratings
+--   Kind "Treat"     at a bay, giving supplies: one game per item in Items (Data/Items Game). Medicines are handed
+--                    over with no session at all
+--   Kind "Dispense"  at the dispensary. Options = the medicines bay patients still need (up to 3, the oldest first).
+--                    Games = { "Pick", "Dose" }: find the chosen medicine's bottle, measure the dose. The report's
+--                    Choice names the medicine; the outcome's Item is what went into the player's hands
+-- TreatResult(session: number, ratings: { Rating }, choice: ItemId?) -> ok, message, TreatOutcome?
 export type TreatSession = {
 	Session: number, -- the only id TreatResult accepts (one open session per player)
-	PatientId: PatientId,
-	Items: { ItemId }, -- what is being given now, in recipe order
-	Games: { GameId }, -- one per item
+	PatientId: PatientId, -- the patient's species ("" for a Dispense session)
+	Items: { ItemId }, -- Treat: what is being given now, in plan order; {} for Exam and Dispense
+	Games: { GameId }, -- the games to play, in order
 	Simple: boolean, -- the client shows one tap per game; the server rates each Good
 	Combo: number, -- the player's combo before this session
-	Position: Vector3, -- above the patient
+	Position: Vector3, -- above the patient (Dispense: above the dispensary counter)
 	Timeout: number, -- seconds; then the server settles the session as all OK by itself
-	-- Progression v2 (optional until Server/Treatment sends them)
-	Kind: ("Treat" | "Soak")?, -- Soak: the Hydro hot tub's 🫧 game (Items = {}, Games = { "Scrub" }, a tip only)
+	Kind: ("Exam" | "Treat" | "Dispense")?, -- nil = "Treat"
 	Auto: { boolean }?, -- per game: an ability made it PERFECT (the client shows ✨ and skips it)
 	Ease: number?, -- 1..1.3: 🎯 Steady Hands widens the Perfect windows (client only, never checked)
+	-- The Real Clinic
+	Tools: { ToolId }?, -- Exam: the 3 tools on the card (Logic/Visit.examTools)
+	Answer: ToolId?, -- Exam: the right one (the server picked it; knowing it early wins nothing but the tip)
+	Glow: boolean?, -- Exam: the right tool glows (a player's first exams, and Simple mode: Logic/Visit.glow)
+	Options: { ItemId }?, -- Dispense: the medicines to choose from
+	Case: CaseId?, -- Treat: the case being treated (it is known by then). Never sent with an Exam
 }
 -- TreatResult's third return value when ok
 export type TreatOutcome = {
@@ -354,6 +400,8 @@ export type TreatOutcome = {
 	Tip: number,
 	Combo: number,
 	Complete: boolean,
+	Case: CaseId?, -- Exam: the case the exam revealed ("🩺 It's a cough!")
+	Item: ItemId?, -- Dispense: the medicine now in the player's hands (nil: the choice wasn't on offer)
 	-- Progression v2: pick a floor for this patient now (Lv 3+, no Receptionist); Seconds for a soft bar, no digits
 	Triage: { Options: { DeptId }, Seconds: number }?,
 }
@@ -469,10 +517,10 @@ export type Plot = {
 	Index: number,
 	Model: Model,
 	Owner: Player?,
-	Counter: BasePart,
-	QueueStart: BasePart,
-	Spawn: BasePart, -- the PatientSpawn marker
-	Exit: BasePart, -- the PatientExit marker
+	Counter: BasePart, -- the reception desk, in the lobby (Logic/Building.RECEPTION.Desk)
+	Spawn: BasePart, -- the PatientSpawn marker, at the gate
+	Exit: BasePart, -- the PatientExit marker, at the gate
+	-- The Real Clinic: no QueueStart and no queue lane. The waiting room is the line (the Building has WaitSeat_<n>).
 }
 
 export type CureCtx = {
@@ -504,7 +552,8 @@ export type TeamEffects = { Cash: number, Urgent: number, Recover: number, Make:
 -- Client (Main.client ctx, build plan Task 0)
 ------------------------------------------------------------------------------------------------------------------
 export type ClientData = {
-	Ailments: { [AilmentId]: Ailment },
+	Cases: { [CaseId]: Case }, -- with .ORDER and .POOLS
+	Tools: { [ToolId]: Tool }, -- with .ORDER
 	Stations: { [StationId]: Station },
 	Items: { [ItemId]: Item },
 	Patients: { [PatientId]: Patient },

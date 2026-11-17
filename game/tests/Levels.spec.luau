@@ -1,6 +1,6 @@
 --!strict
 -- Hospital levels (depth-update build plan §B5/§B7; Progression v2 build plan §B5: slots are gone, departments and
--- the ward floor at Lv 2).
+-- the ward floor at Lv 2; Real Clinic build plan contract C3 and design §10: the new names, Bays, Beds = ward beds).
 
 local T = require("./expect")
 local expect, test = T.expect, T.test
@@ -28,15 +28,31 @@ T.describe("Levels", function()
 			rows[index] = { row.Stars, row.Cash, row.Floors, row.Beds, row.Queue, row.RecipeCap }
 			expect((row :: any).Slots).toBeNil() -- Progression v2: every nurse you own works
 		end
+		-- the gates, costs, floors, line and plan caps are unchanged; Beds now counts ward beds upstairs
 		expect(rows).toEqual({
-			{ 0, 0, 0, 1, 3, 1 },
+			{ 0, 0, 0, 0, 3, 1 },
 			{ 15, 400, 1, 3, 3, 2 },
-			{ 45, 1500, 2, 3, 3, 3 },
-			{ 100, 5000, 3, 4, 3, 3 },
-			{ 200, 15000, 4, 4, 3, 3 },
+			{ 45, 1500, 2, 5, 3, 3 },
+			{ 100, 5000, 3, 7, 3, 3 },
+			{ 200, 15000, 4, 7, 3, 3 },
 		})
-		expect(LevelsData[1].Name).toBe("First-Aid Stand")
-		expect(LevelsData[5].Name).toBe("Mega Hospital")
+	end)
+
+	test("the Real Clinic's names and open bays (design §10)", function()
+		local names, bays = {}, {}
+		for index, row in LevelsData do
+			names[index] = row.Name
+			bays[index] = row.Bays
+			expect(type(row.Icon) == "string" and row.Icon ~= "").toBe(true)
+			expect(row.Icon ~= "🧰").toBe(true) -- the kit went with the First-Aid Stand
+		end
+		expect(names).toEqual({ "Clinic", "Medical Centre", "Hospital", "General Hospital", "City Hospital" })
+		expect(bays).toEqual({ 2, 3, 4, 5, 6 })
+		-- a bigger clinic never has fewer bays or beds
+		for index = 2, #LevelsData do
+			expect(LevelsData[index].Bays > LevelsData[index - 1].Bays).toBe(true)
+			expect(LevelsData[index].Beds >= LevelsData[index - 1].Beds).toBe(true)
+		end
 	end)
 
 	test("departments open level by level (Progression v2 §B5), and Schema.MAX_LEVEL is the top", function()
@@ -45,34 +61,49 @@ T.describe("Levels", function()
 			opened[index] = Levels.departments(LevelsData, index)
 		end
 		expect(opened).toEqual({
-			{ "Reception" },
-			{ "Reception", "AE", "Wards" },
-			{ "Reception", "AE", "Wards", "Hydro" },
-			{ "Reception", "AE", "Wards", "Hydro", "Pharmacy" },
-			{ "Reception", "AE", "Wards", "Hydro", "Pharmacy", "Roof" },
+			{ "Reception", "Pharmacy" }, -- the supply shelf and the dispensary are open from the start
+			{ "Reception", "Pharmacy", "AE", "Wards" },
+			{ "Reception", "Pharmacy", "AE", "Wards", "Imaging", "Rest" },
+			{ "Reception", "Pharmacy", "AE", "Wards", "Imaging", "Rest" },
+			{ "Reception", "Pharmacy", "AE", "Wards", "Imaging", "Rest", "Roof" },
 		})
 		expect(Schema.MAX_LEVEL).toBe(Levels.max(LevelsData))
 		-- a copy: changing it never changes Data
 		local copy = Levels.departments(LevelsData, 1)
 		table.insert(copy, "Junk")
-		expect(#Levels.departments(LevelsData, 1)).toBe(1)
+		expect(#Levels.departments(LevelsData, 1)).toBe(2)
 	end)
 
-	test("the unlock chips of Progression v2 (the ambulance bay and the lift at Lv 2)", function()
+	test("the unlock chips: what each level opens (design §10)", function()
+		expect(LevelsData[1].Unlocks).toEqual({})
 		expect(LevelsData[2].Unlocks).toEqual({
 			"🚑 A&E ambulances",
-			"🛏️ Wards upstairs",
-			"🛗 Lift",
-			"🧪 2-item recipes",
+			"🛏️ Injury Ward upstairs",
+			"🧻 Bandages",
+			"📋 2-step plans",
 		})
 		expect(LevelsData[3].Unlocks).toEqual({
-			"🛁 Hydro hot tub",
-			"🔀 Pick the floor",
-			"🐾 Big sign",
+			"🩻 X-ray room",
+			"😴 Rest Ward",
+			"🔀 Pick the ward",
+			"📋 3-step plans",
 			"🌻 Garden",
 		})
-		expect(LevelsData[4].Unlocks).toEqual({ "💊 Pharmacy", "🛏️ 4 beds", "🏢 3 floors" })
-		expect(LevelsData[5].Unlocks).toEqual({ "🚁 Helipad", "🗼 Tower", "✨ Neon sign", "🏢 New branches" })
+		expect(LevelsData[4].Unlocks).toEqual({ "🛋️ Staff room", "🛏️ 7 ward beds", "🚪 5 exam bays" })
+		expect(LevelsData[5].Unlocks).toEqual({
+			"🚁 Helipad",
+			"🚪 6 exam bays",
+			"✨ Neon sign",
+			"🏢 New branches",
+		})
+		-- a chip never promises what the level doesn't have, and never says "cure"
+		expect(LevelsData[4].Beds).toBe(7)
+		expect({ LevelsData[4].Bays, LevelsData[5].Bays }).toEqual({ 5, 6 })
+		for _, row in LevelsData do
+			for _, chip in row.Unlocks do
+				expect(string.find(string.lower(chip), "cure", 1, true)).toBeNil()
+			end
+		end
 	end)
 
 	test("unlock chips are short", function()
@@ -92,7 +123,8 @@ T.describe("Levels", function()
 		expect(Levels.clamp(LevelsData, 9)).toBe(5)
 		expect(Levels.clamp(LevelsData, "x")).toBe(1)
 		expect(Levels.row(LevelsData, 3).Name).toBe("Hospital")
-		expect((Levels.nextRow(LevelsData, 1) :: any).Name).toBe("Clinic")
+		expect(Levels.row(LevelsData, 1).Name).toBe("Clinic")
+		expect((Levels.nextRow(LevelsData, 1) :: any).Name).toBe("Medical Centre")
 		expect(Levels.nextRow(LevelsData, 5)).toBeNil()
 	end)
 
@@ -117,7 +149,8 @@ T.describe("Levels", function()
 		expect(Levels.floors(LevelsData, 1)).toBe(0)
 		expect(Levels.floors(LevelsData, 5)).toBe(4)
 		expect(Levels.floors(LevelsData, 99)).toBe(4)
-		expect(Levels.beds(LevelsData, 4)).toBe(4)
+		expect(Levels.beds(LevelsData, 1)).toBe(0)
+		expect(Levels.beds(LevelsData, 4)).toBe(7)
 		expect(Levels.queue(LevelsData, 5)).toBe(3) -- the line is 3 at every level (Config.MaxQueue)
 		expect(Levels.recipeCap(LevelsData, 1)).toBe(1)
 		expect(Levels.recipeCap(LevelsData, 2)).toBe(2)
