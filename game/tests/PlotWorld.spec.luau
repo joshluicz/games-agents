@@ -382,7 +382,7 @@ T.describe("Plot: the Stand at Shared/Logic/Building's spots", function()
 		expect(near(localBox(plot.MascotSpot).Y, 0)).toBe(true) -- it rests on the pad
 	end)
 
-	test("decor slot 2 stands on the porch's pad; slot 1 on the Stand's floor", function()
+	test("decor slot 2 stands on the front pad; slot 1 on the Stand's floor", function()
 		local floorTop = select(2, localBox(stand.Floor)).Y
 		expect(near(localBox(stand.DecorSlot_2).Y, 0)).toBe(true)
 		expect(near(localBox(stand.DecorSlot_1).Y, floorTop)).toBe(true)

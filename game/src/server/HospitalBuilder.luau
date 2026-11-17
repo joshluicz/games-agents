@@ -35,9 +35,9 @@
 --   Lv 5  the walkable roof (Floor_4): the helipad and HeliSpot, planters, the lift tower with the NEON paw-heart
 --         facing the street and a beacon
 -- THE WARDS (Joshua: "more beds, wards should look full"). F1 holds 7 beds: the main ward (z -3..7) has the three
--- BedSpot spots (3.1 studs between frames), pillows at a glass partition (z -3), feet in the back aisle (z 6, a
--- straight walk from the landing); the front ward (z -13..-3) has 4 made-up beds (2.8 between frames), heads at the
--- street window, 2 with sleepers the street sees.
+-- BedSpot spots (3.1 studs between frames), pillows hard against a glass partition (z -3), feet in the 3-stud back
+-- aisle (foot spots at z 5.6, a straight walk from the landing); the front ward (z -13..-3) has 4 made-up beds (2.8
+-- between frames, 2.7 from their feet to the partition), heads at the street window, 2 with sleepers the street sees.
 -- Made-up beds are Wards.Dressing.DressBed_<n> (Base + Headboard; never named Bed_* or BedSpot_*, so no system ever
 -- picks one). A sleeper is DressBed_<n>.Sleeper (Head + Blanket + a 💤 billboard): soft, never moving, no faces.
 -- The usable beds are exactly Data/Levels.Beds - 1 (BedSpot_<n>.Bed_<n>, Floor = 1): no gameplay change.
@@ -47,7 +47,8 @@
 -- part whose Storey is above the floor you stand on and fades your floor's parts with Outer = true:
 --   Podium (0)       the street face at every level: WallFascia (the name), the Pier frames, GlassDisplay, the
 --                    studded WallFrontLeft/WallFrontRight beside the windows and the main door, the BandFascia
---                    stripe, RoofCanopy + TrimCanopy over the Counter and the main door, the waiting Bench
+--                    stripe, RoofCanopy + TrimCanopy over the Counter and the main door, the waiting Bench, and
+--                    two FloorSide plank strips that carry the Stand's floor on to the side walls
 --   PodiumShell (0)  Lv 1 only: the side walls with their side doors, the back wall, RoofPodium (Storey 1), the
 --                    floor strip and the made-up bed with its sleeper (Dressing.DressBed_1)
 --   Hall (0)         Lv 2+: the ground's sides and back with the A&E, lift-lobby and corridor doors, the A&E canopy,
@@ -56,7 +57,8 @@
 --   Lift (0)         the glass Shaft (solid: it is the wall at that corner), the Car (soft, the plot colour,
 --                    studded; its DoorsGui faces the landings, +z); attributes Ride, Rider, RideAt; tag HospitalLift
 --   Stairs (0)       one collidable wedge per storey, Flight_<k> (Storey k), alternating the atrium's two lanes:
---                    24 long, rising 12 (G -> 1) or 11, with a 3.4-stud landing at each lane end
+--                    24 long, rising 12 (G -> 1) or 11, with a 3.4-stud landing at each lane end (lane A is 3
+--                    wide, lane B the 2.4 inside the back wall)
 --   Floor_<n> (n)    the slab (Slab is the part with the landing; plank, 0.6 thick), the Landing (Floor = n), the
 --                    storey's studded walls (Wall*, Outer), its front glass band with the floor's icon, dark ribbon
 --                    windows (Window*, Outer), a department dado band and the atrium rails. Floor_4 is the roof
@@ -141,6 +143,10 @@ Pure.LIFT_HEAD = 2.5 -- Lv 2-4: the lift's head box on the top roof
 Pure.PAINT = 0.05 -- the hall's painted plank floor (walk-through: Landing_0 and the patients stand at 0)
 Pure.STAND_TOP = 0.6 -- the Stand room's floor top when the plot has no Room_Stand to measure (PlotBuilder.SLOTS)
 Pure.STAND_BACK = 1 -- the Stand room's back edge (PlotBuilder.SLOTS.Stand): the hall's floor starts there
+Pure.STAND_HALF = 15 -- the Stand room's floor is x ±15 (PlotBuilder.SLOTS.Stand): FloorSide fills on to the walls
+-- The street face under the fascia stands this far proud of the façade's plane: the Stand's plank floor runs under
+-- it to z = FRONT, and coplanar faces flicker.
+Pure.PROUD = 0.05
 Pure.DECOR_HALF = 2 -- a decor slot is 4 x 4 (PlotBuilder's DecorSlot markers): the Lv 1 bed stays off slot 1
 Pure.RAIL = { Height = 3, Thick = 0.3 } -- the atrium rails (inside the open lane, along its edges)
 Pure.PARAPET = 1.2
@@ -165,11 +171,14 @@ Pure.BED = {
 -- A sleeper: a head on the pillow and a blanket over the foot two-thirds. Blocky like every creature now
 -- (memory-20261117-004); set Blocky = false for the round stand-in the plan first drew.
 Pure.SLEEPER = { Width = 2, Height = 1.8, Depth = 1.8, Blocky = true, Blanket = 0.5 }
--- Hydro (F2, the room x -11..15.4 beside the shaft): the hot tub in the middle (about 10 studs of floor from the
--- shaft to its rim, 7 to the towel shelf), and its two spots on the landing's side so a soaker's approach
--- (TUB_SHORT short of its spot, on the line from the landing: Server/Patients.shortOf) stays outside the tub.
-Pure.TUB = { X = 3.5, Z = 2.4, Diameter = 8, Rim = 1.6 }
-Pure.TUB_SPOTS = { { X = 1.2, Z = 0.8 }, { X = 1.2, Z = 4 } }
+-- Hydro (F2, the room x -11..15.4 beside the shaft): the hot tub in the middle (11 studs of floor from the shaft
+-- to its rim, 7.5 to the towel shelf), and its two spots on the landing's side so a soaker's approach (TUB_SHORT
+-- short of its spot, on the line from the landing: Server/Patients.shortOf) stays outside the tub. The tub stands
+-- back against the F2 -> 3 flight (lane A, from z 7), which leaves TUB_PASS studs of floor between its rim and the
+-- front wall: the way round to the room's +x half (the towel shelf, the plant).
+Pure.TUB = { X = 3.5, Z = 3.4, Diameter = 7, Rim = 1.6 }
+Pure.TUB_SPOTS = { { X = 1.7, Z = 1.8 }, { X = 1.7, Z = 5 } }
+Pure.TUB_PASS = 2.2
 Pure.TUB_SHORT = 3
 -- The Pharmacy (F3): the station in the middle of the room (hold it from the street side, z ~2.5: a straight walk
 -- from the landing) and the bench by the front glass, off to the landing's side.
@@ -204,7 +213,9 @@ function Pure.lane(B: any, which: string): Rect
 	if which == "A" then
 		return { X0 = a.X0, X1 = a.X1, Z0 = a.Z0, Z1 = a.Z1 }
 	end
-	return { X0 = a.X0, X1 = a.X1, Z0 = a.Z1, Z1 = B.ATRIUM.Z1 }
+	-- Lane B stops at the back wall's inner face: its flights and rails never share the wall's outer plane (they
+	-- z-fought through it from the yard), and the slab runs on under the wall.
+	return { X0 = a.X0, X1 = a.X1, Z0 = a.Z1, Z1 = math.min(B.ATRIUM.Z1, B.BACK - B.WALL) }
 end
 
 -- Flight_k, floor k up to k + 1: it stands in the lane floor k + 1 leaves open, rising toward +x when k is even
@@ -771,6 +782,8 @@ local function buildPodium(model: Model, style: Style, standTop: number, name: s
 	-- Under the fascia, from -x to +x: a warm corner frame (-16..-15), the display window (-15..-9), a studded wall
 	-- (-9..-7), a warm frame (-7..-6.5), the reception window, a warm frame (6.5..7), the main door (7..11), a studded
 	-- wall (11..15) and the other corner frame (15..16). The studded walls are whole studs across; the frames are trim.
+	-- All of them stand Pure.PROUD in front of the façade's plane, so the Stand floor's front edge hides behind them.
+	local face = f - Pure.PROUD
 	local pier = doors.Main.X0 - doors.Reception.X1 -- the frames either side of the reception window
 	local corner = doors.Display.X0 + h -- the corner frames: as wide as the display window's offset from the corner
 	for _, x in
@@ -782,10 +795,10 @@ local function buildPodium(model: Model, style: Style, standTop: number, name: s
 		}
 	do
 		local name0 = if x[1] == -h or x[2] == h then "PierCorner" else "Pier"
-		painted(box(podium, name0, x[1], x[2], 0, Pure.DOOR, f, f + w, style.Trim), "Trim")
+		painted(box(podium, name0, x[1], x[2], 0, Pure.DOOR, face, f + w, style.Trim), "Trim")
 	end
-	outerWall(podium, "WallFrontLeft", doors.Display.X1, doors.Reception.X0 - pier, 0, Pure.DOOR, f, f + w, style)
-	outerWall(podium, "WallFrontRight", doors.Main.X1, h - corner, 0, Pure.DOOR, f, f + w, style)
+	outerWall(podium, "WallFrontLeft", doors.Display.X1, doors.Reception.X0 - pier, 0, Pure.DOOR, face, f + w, style)
+	outerWall(podium, "WallFrontRight", doors.Main.X1, h - corner, 0, Pure.DOOR, face, f + w, style)
 	glass(podium, "GlassDisplay", doors.Display.X0, doors.Display.X1, 0, Pure.DOOR, f + 0.1, f + w - 0.1)
 	-- The fascia stripe (a theme's roof band), just proud of the façade.
 	local stripe = painted(
@@ -836,6 +849,25 @@ local function buildPodium(model: Model, style: Style, standTop: number, name: s
 		WORLD.Plank,
 		Enum.Material.WoodPlanks
 	)
+	-- The Stand room's floor stops at x ±STAND_HALF (its slot: Server/Patients' walkways are measured from it); the
+	-- side walls' inner faces are 0.4 further out. A plank strip each side carries the floor on to the wall, under
+	-- the bench and the Lv 1 made-up bed.
+	for _, side in { -1, 1 } do
+		local inner = side * Pure.STAND_HALF
+		local wall = side * (h - w)
+		box(
+			podium,
+			"FloorSide",
+			math.min(inner, wall),
+			math.max(inner, wall),
+			0,
+			standTop,
+			f + w,
+			Pure.STAND_BACK,
+			WORLD.FloorA,
+			Enum.Material.WoodPlanks
+		)
+	end
 end
 
 -- Lv 1: the podium's sides (a side door in each), its back, its dark flat roof and the made-up bed with a sleeper.

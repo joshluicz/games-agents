@@ -149,13 +149,13 @@ T.describe("Building: the shape", function()
 end)
 
 T.describe("Building: the Stand's spots", function()
-	test("the spots (spread over the wider podium; decor 2 on the porch; the mascot by the Counter)", function()
+	test("the spots (spread over the wider podium; decor 2 on the front pad; the mascot by the Counter)", function()
 		local s = Building.STAND
 		expect(s.Remedy).toEqual({ X = -6, Z = -1.3 })
 		expect(s.Plaster).toEqual({ X = 1, Z = -1.3 })
 		expect(s.Bed).toEqual({ X = 9, Z = -4.8 })
 		expect(s.Decor[1]).toEqual({ X = -12, Z = -10.2 })
-		expect(s.Decor[2]).toEqual({ X = -12.5, Z = -17.5 })
+		expect(s.Decor[2]).toEqual({ X = -12.5, Z = -22.5 })
 		expect(s.Mascot).toEqual({ X = -8.5, Z = -14.8 })
 		expect(s.Bench).toEqual(rect(14.5, 15.4, -8, -3.5))
 		-- Bed_1 is on the bedRoute's line: past the Counter (SideStep) and inside the Stand, so Patients walk
@@ -194,9 +194,21 @@ T.describe("Building: the Stand's spots", function()
 		expect(s.Decor[1].Z > Building.FRONT).toBe(true) -- slot 1 is inside, behind the display window
 		expect(s.Decor[1].X > Building.DOORS.Display.X0 and s.Decor[1].X < Building.DOORS.Display.X1).toBe(true)
 		expect(s.Bench.X1 <= Building.HALF - Building.WALL + 1e-9).toBe(true)
-		-- neither porch spot is on the line or the gate path (|x| < 5.1)
+		-- neither front spot is on the line or the gate path (|x| < 5.1)
 		expect(math.abs(s.Decor[2].X) - 2 >= 5.1).toBe(true)
 		expect(math.abs(s.Mascot.X) - 1 >= 5.1).toBe(true)
+	end)
+
+	test("decor slot 2 (4 x 4) is off the patients' line along the front of the queue, by half a creature", function()
+		-- Patients.bedRoute's first leg runs from the front of the line (0, LANE_Z) along z = LANE_Z to a walkway
+		-- (x = ±17.5); a creature is about 5 studs wide.
+		local slot = Building.STAND.Decor[2]
+		local half = 2
+		expect(math.abs(slot.X) - half < WALKWAY).toBe(true) -- it is beside that leg, so its z must clear it
+		expect(math.abs(slot.Z - LANE_Z) - half >= 2.5).toBe(true)
+		-- and off the façade and the canopy's shade, on the pad in front of the display window
+		expect(slot.Z + half <= Building.CANOPY.Z0).toBe(true)
+		expect(slot.X > Building.DOORS.Display.X0 and slot.X < Building.DOORS.Display.X1).toBe(true)
 	end)
 end)
 
@@ -307,7 +319,7 @@ T.describe("Building.reach: Patients' routes cross no wall, shaft, bed or stairs
 	-- Patients.bedFoot: 1.6 past the mattress's foot (Bed_1 is 6.6 long, its pillow to +z)
 	local bed1Foot = pt(stand.Bed.X, stand.Bed.Z - 3.3 - 1.6)
 
-	test("ground beds: the bedRoute at x = 7.6 from the line through the main door, at every level", function()
+	test("ground beds: the bedRoute at x = 9 from the line through the main door, at every level", function()
 		for _, level in LEVELS do
 			expect(Building.reach(pt(BED_ROUTE_X, LANE_Z), bed1Foot, level)).toBe(true)
 			expect(Building.reach(bed1Foot, pt(BED_ROUTE_X, LANE_Z), level)).toBe(true) -- and back out
@@ -354,7 +366,7 @@ T.describe("Building.reach: Patients' routes cross no wall, shaft, bed or stairs
 			expect(#beds).toBe(3) -- the main ward always shows three beds
 			for _, bed in beds do
 				local x, z = Building.bedFoot(bed.X)
-				expect(z).toBe(6.0)
+				expect(z).toBe(5.6)
 				if not Building.reach(landing, pt(x, z), level, Building.WARD_FLOOR) then
 					error(string.format("Lv %d: BedSpot_%d's foot isn't reachable from the landing", level, bed.Index))
 				end
@@ -452,6 +464,11 @@ T.describe("Building: the wards look full (Joshua, memory-20261117-002)", functi
 		expect(inside - (front.Xs[#front.Xs] + Building.BED_HALF) >= 2).toBe(true)
 		-- the main ward's pillows are at the partition; the front ward's heads at the street window
 		expect(Building.BED_Z0 > Building.PARTITION_Z).toBe(true)
+		-- wide aisles (Joshua: "cramped"): 3 studs from the main ward's bed feet to the atrium's rail, 2.5+ from the
+		-- front ward's feet to the partition; the depth is fixed, so the beds stand hard against the partition
+		expect(Building.ATRIUM.Z0 - Building.BED_Z1 >= 3).toBe(true)
+		expect(Building.BED_Z0).toBeCloseTo(Building.PARTITION_Z + Building.WALL / 2, 6)
+		expect(Building.PARTITION_Z - Building.WALL / 2 - front.Z1 >= 2.5).toBe(true)
 		expect(front.Z0 > Building.FRONT).toBe(true)
 		expect(front.Z1 < Building.PARTITION_Z).toBe(true)
 	end)

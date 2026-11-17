@@ -52,7 +52,7 @@
 --                each side, and a disc in the plot's colour at each place in line with its number floating on it
 --   Rooms        no awnings, walls in pale tints or plaques. The Stand has NO shell (the hospital podium is its
 --                building, HospitalBuilder's): a plank floor, the stations, Bed_1 and the decor slots at
---                Shared/Logic/Building's spots (decor slot 2 sits on the pad, on the porch). The Bath Room (Cyan),
+--                Shared/Logic/Building's spots (decor slot 2 sits on the pad, out front). The Bath Room (Cyan),
 --                Cozy Ward (Purple) and Winter Wing (Blue) are single-storey ANNEXES: a plank floor, three studded
 --                walls in the room colour (inside: the colour as a dado band, warm upper walls above a wood rail,
 --                drawn on), a dark flat roof with a warm-white trim edge and the room's name floating on it, and the
@@ -200,7 +200,7 @@ end
 
 -- Where things go inside each placeholder room (room-local x, z; y is ignored). Counts match Data/Rooms.
 -- The Stand's spots are Shared/Logic/Building's (plot-local; the hospital is built round them), moved into the
--- Stand slot's own space: Remedy and Plaster clear of the lift shaft, decor slot 2 on the porch.
+-- Stand slot's own space: Remedy and Plaster clear of the lift shaft, decor slot 2 on the front pad.
 type Layout = { Stations: { [string]: Vector3 }, Beds: { Vector3 }, Decor: { Vector3 } }
 
 local STAND_AT = PlotBuilder.SLOTS.Stand.Offset
@@ -339,7 +339,7 @@ end
 
 -- A decor slot: the invisible 4 x 4 marker (Plots puts decor on its bottom face) and a warm-white spot that shows
 -- where decor goes. `floorTop` is the height under it in room space: a slot off the room's floor (the Stand's decor
--- slot 2, on the porch) stands on the pad instead.
+-- slot 2, out front) stands on the pad instead.
 local function buildDecorSlot(model: Model, index: number, at: Vector3, floorTop: number)
 	marker(model, "DecorSlot_" .. index, CFrame.new(at.X, floorTop + 0.5, at.Z), Vector3.new(4, 1, 4))
 	paint(cylinder(model, "DecorSpot", 0.06, 3.4, CFrame.new(at.X, floorTop + 0.03, at.Z), COLORS.Trim))

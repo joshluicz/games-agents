@@ -145,7 +145,9 @@ T.describe("Hospital (layout)", function()
 	test("the open lanes alternate (F1 and F3 lane A, F2 and the roof lane B)", function()
 		expect({ H.holeLane(1), H.holeLane(2), H.holeLane(3), H.holeLane(4) }).toEqual({ "A", "B", "A", "B" })
 		expect(H.lane(B, "A")).toEqual(rect(-12, 12, 7, 10))
-		expect(H.lane(B, "B")).toEqual(rect(-12, 12, 10, 13))
+		-- lane B stops at the back wall's inner face (no flight or rail in the wall's outer plane)
+		expect(H.lane(B, "B")).toEqual(rect(-12, 12, 10, B.BACK - B.WALL))
+		expect(H.lane(B, "B").Z1).toBe(12.4)
 	end)
 
 	test(
@@ -231,6 +233,11 @@ T.describe("Hospital (layout)", function()
 		end
 		local a, b = H.TUB_SPOTS[1], H.TUB_SPOTS[2]
 		expect(math.sqrt((a.X - b.X) ^ 2 + (a.Z - b.Z) ^ 2) >= 3).toBe(true) -- two soakers side by side
+		-- the F2 -> 3 flight stands behind the tub (lane A), so the way round to the room's +x half is in front of
+		-- it: a player (2 studs wide) walks between its rim and the front wall
+		expect(H.flight(B, 2).Z0).toBe(B.ATRIUM.Z0)
+		expect(H.TUB_PASS >= 2.2).toBe(true)
+		expect(tub.Z0 - (B.TOWER_FRONT + B.WALL) >= H.TUB_PASS - 1e-9).toBe(true)
 	end)
 
 	test("a soaker's approach (Patients.shortOf from the landing) is outside the tub, a straight walk away", function()
@@ -988,6 +995,65 @@ T.describe("Hospital (the built world)", function()
 			expect(bad).toEqual({})
 		end
 	)
+
+	test(
+		"no coplanar faces: the stairs and rails stay inside the back wall; the street face hides the Stand floor's edge",
+		function()
+			for level = 1, 5 do
+				local building = build(level)
+				for _, p in world.parts(building) do
+					local r = boxOf(p)
+					if p:FindFirstAncestor("Stairs") or string.match(p.Name, "^Rail") then
+						if r.Z1 > B.BACK - B.WALL + 1e-4 then
+							error(
+								string.format("Lv %d: %s reaches into the back wall (z %.2f)", level, fullName(p), r.Z1)
+							)
+						end
+					end
+				end
+				-- under the fascia, everything but the inset display glass stands proud of z = FRONT, where the Stand
+				-- room's plank floor ends
+				for _, p in building.Podium:GetChildren() do
+					if p:IsA("BasePart") and (string.match(p.Name, "^WallFront") or string.match(p.Name, "^Pier")) then
+						local r = boxOf(p)
+						expect(r.Z0 <= B.FRONT - H.PROUD + 1e-4).toBe(true)
+						expect(r.Z1).toBeCloseTo(B.FRONT + B.WALL, 3)
+					end
+				end
+				expect(boxOf(building.Podium.GlassDisplay).Z0 > B.FRONT).toBe(true)
+			end
+		end
+	)
+
+	test("the Stand's floor is carried on to both side walls (FloorSide), at every level", function()
+		for level = 1, 5 do
+			local building = build(level)
+			local sides = {}
+			for _, p in building.Podium:GetChildren() do
+				if p.Name == "FloorSide" then
+					local r, lo, hi = boxOf(p)
+					table.insert(sides, r)
+					expect(lo).toBeCloseTo(0, 3)
+					expect(hi).toBeCloseTo(H.STAND_TOP, 3)
+					expect(r.Z0).toBeCloseTo(B.FRONT + B.WALL, 3)
+					expect(r.Z1).toBeCloseTo(H.STAND_BACK, 3)
+					expect(p.CanCollide).toBe(true)
+				end
+			end
+			table.sort(sides, function(a, b)
+				return a.X0 < b.X0
+			end)
+			expect(#sides).toBe(2)
+			local inner = B.HALF - B.WALL
+			expect(sides[1].X0).toBeCloseTo(-inner, 3)
+			expect(sides[1].X1).toBeCloseTo(-H.STAND_HALF, 3)
+			expect(sides[2].X0).toBeCloseTo(H.STAND_HALF, 3)
+			expect(sides[2].X1).toBeCloseTo(inner, 3)
+			-- what stands on the floor by the walls is carried: the bench, and at Lv 1 the made-up bed
+			expect(B.STAND.Bench.X1 <= inner + 1e-9).toBe(true)
+			expect(B.LV1_DRESSING.X0 >= -inner - 1e-9).toBe(true)
+		end
+	end)
 
 	test("stairs: each flight's wedge runs from its floor's top up to the next, in its own lane", function()
 		local building = build(5)

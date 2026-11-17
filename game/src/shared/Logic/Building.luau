@@ -7,7 +7,8 @@
 -- x = 9 and its straight-line walk upstairs). T3's own interior layout lives in HospitalBuilder.Pure.
 -- The wide hospital (Joshua, 2026-11-17: "cramped ... wider ... a little taller per storey"): the footprint is 32
 -- wide (was 23), the ground storey 12 tall (was 11) and every upper storey 11 (was 9); the depth is unchanged. The
--- extra width is SPACE: 2.8+ studs between bed frames, 2.8+ round the stations, 3.4-stud stair landings.
+-- extra width is SPACE: 2.8+ studs between bed frames, 3+ round the stations, 3.4-stud stair landings, and a
+-- 3-stud back aisle at the main ward's bed feet (the beds stand hard against the partition).
 --
 -- Plot-local studs: x right as you face the street, -z is the street, y = 0 is the pad's top.
 --
@@ -58,9 +59,11 @@ Building.MAX_LEVEL = 5
 Building.SHAFT = table.freeze({ X0 = -16, X1 = -11, Z0 = -3, Z1 = 2 }) :: Rect
 Building.LANDING = table.freeze({ X = -13.5, Z = 4, Size = 4 }) -- Landing_0 and Floor_<n>.Landing, at each slab top
 
--- The stair atrium (hospital doc §3.2): two 3-wide lanes, the flights alternating between them. On the ground the
--- G -> 1 flight stands in lane A; upstairs the whole atrium is stairs or a stairwell. A flight runs 24 studs (it
--- rises 12 or 11: a slope of 1 in 2 or under), and each lane end keeps a 3.4-stud landing inside the side wall.
+-- The stair atrium (hospital doc §3.2): two lanes, the flights alternating between them (lane A is 3 wide; lane B
+-- is the 2.4 between it and the back wall's inner face: HospitalBuilder.Pure.lane, so no flight or rail shares the
+-- wall's outer plane). On the ground the G -> 1 flight stands in lane A; upstairs the whole atrium is stairs or a
+-- stairwell. A flight runs 24 studs (it rises 12 or 11: a slope of 1 in 2 or under), and each lane end keeps a
+-- 3.4-stud landing inside the side wall.
 Building.ATRIUM = table.freeze({ X0 = -12, X1 = 12, Z0 = 7, Z1 = 13 }) :: Rect
 Building.LANE_A = table.freeze({ X0 = -12, X1 = 12, Z0 = 7, Z1 = 10 }) :: Rect
 
@@ -81,12 +84,15 @@ Building.CANOPY = table.freeze({ X0 = -12, X1 = 12, Z0 = -17, Z1 = -13, Y = 10.5
 
 -- The Stand's spots (the building is built round them; T4's Stand room uses them).
 Building.STAND = table.freeze({
-	Remedy = table.freeze({ X = -6, Z = -1.3 }), -- 2.9 clear of the lift shaft (a station's body is 4.2 wide)
-	Plaster = table.freeze({ X = 1, Z = -1.3 }), -- 2.8 between the two stations
-	Bed = table.freeze({ X = 9, Z = -4.8 }), -- Bed_1: in line with the main door, 3.7 from Plaster, 3.3 from the bench
+	Remedy = table.freeze({ X = -6, Z = -1.3 }), -- 3 clear of the lift shaft (a station's Top is 4 wide: PlotBuilder)
+	Plaster = table.freeze({ X = 1, Z = -1.3 }), -- 3 between the two stations
+	Bed = table.freeze({ X = 9, Z = -4.8 }), -- Bed_1: in line with the main door, 3.8 from Plaster, 3.3 from the bench
 	Decor = table.freeze({
 		table.freeze({ X = -12, Z = -10.2 }), -- slot 1: behind the display window
-		table.freeze({ X = -12.5, Z = -17.5 }), -- slot 2: on the porch, in front of the display window
+		-- slot 2: on the front pad, out from the display window. Its 4 x 4 square (z -24.5..-20.5) stays 2.5 clear
+		-- of the patients' line along the front of the queue (z = -18: Patients.bedRoute's first leg to the -x
+		-- walkway, and an ambulance patient's walk from the bay), so a 5-wide creature never hops through the decor.
+		table.freeze({ X = -12.5, Z = -22.5 }),
 	}),
 	Mascot = table.freeze({ X = -8.5, Z = -14.8 }), -- MascotSpot: beside the Counter's -x end
 	Bench = table.freeze({ X0 = 14.5, X1 = 15.4, Z0 = -8, Z1 = -3.5 }), -- the waiting bench, along the +x wall
@@ -96,9 +102,11 @@ Building.STAND_BED_FRAME = table.freeze({ Width = 4.4, Length = 7 }) -- Bed_1's 
 -- The main ward (F1, the tower part): the functional bed spots, pillows toward the glass partition at z = -3.
 Building.WARD_FLOOR = 1
 Building.BED_HALF = 2.2 -- a bed frame is 4.4 wide ...
-Building.BED_Z0 = -2.4 -- ... and runs z -2.4..4.6 (the pillow end is -z)
-Building.BED_Z1 = 4.6
-Building.BED_FOOT_Z = 6.0 -- the foot spot: in the back aisle, beside the landing
+-- ... and runs z -2.7..4 (the pillow end is -z): the headboard stands against the partition's back face and the
+-- frame ends with the mattress, which leaves a 3-stud back aisle from the bed feet to the atrium's rail (z 7).
+Building.BED_Z0 = -2.7
+Building.BED_Z1 = 4
+Building.BED_FOOT_Z = 5.6 -- the foot spot (1.6 past the mattress): in the back aisle, beside the landing
 Building.PARTITION_Z = -3 -- the glass partition between the two wards (glass above, headboards below)
 -- BedSpot_<n>: its x, and the level from which it is FUNCTIONAL. Spot 3 holds a dressing bed at Lv 2-3.
 Building.WARD_BEDS = table.freeze({
@@ -106,16 +114,17 @@ Building.WARD_BEDS = table.freeze({
 	table.freeze({ X = 1.5, Since = 2 }), -- 3.1 between frames
 	table.freeze({ X = 9, Since = 4 }), -- its +x edge (11.2) stops short of the partition's doorway
 })
--- The front ward (F1, over the podium): 4 dressing beds, heads at the street window, 2.8 between frames. Patients
--- never go there.
-Building.FRONT_WARD = table.freeze({ Xs = table.freeze({ -10.8, -3.6, 3.6, 10.8 }), Z0 = -12.6, Z1 = -5.6 })
+-- The front ward (F1, over the podium): 4 dressing beds, heads at the street window, 2.8 between frames and a
+-- 2.7-stud aisle from their feet to the partition. Patients never go there.
+Building.FRONT_WARD = table.freeze({ Xs = table.freeze({ -10.8, -3.6, 3.6, 10.8 }), Z0 = -12.6, Z1 = -6 })
 -- Lv 1 only: one dressing bed (with a sleeper) along the -x wall, clear of the side door, decor slot 1 and Remedy.
 Building.LV1_DRESSING = table.freeze({ X0 = -15.4, X1 = -11, Z0 = -8, Z1 = -1 }) :: Rect
 
--- reach() lets a straight walk skim a solid corner by less than this. The plan's own numbers need it: the line from
--- the landing's centre (-13.5, 4) to BedSpot_3's foot (9, 6.0) passes 0.13 studs inside the foot corner of bed 1's
--- frame (x from -8.2, z up to 4.6). A patient is about 5 studs wide, so nobody can see that; a real crossing (a bed, the shaft, a
--- wall) is always deeper than this.
+-- reach() lets a straight walk skim a solid corner by less than this. The plan's first numbers needed it (the line
+-- from the landing to BedSpot_3's foot clipped the foot corner of bed 1's frame by 0.13); today that line passes
+-- 0.38 clear of it (z 4.38 at x = -8.2, over a frame that ends at z 4), and the allowance stays for corners. A
+-- patient is about 5 studs wide, so nobody can see a skim; a real crossing (a bed, the shaft, a wall) is always
+-- deeper than this.
 Building.SKIM = 0.3
 
 ------------------------------------------------------------------------------------------------------------------
