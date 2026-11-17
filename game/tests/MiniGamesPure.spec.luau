@@ -1080,10 +1080,11 @@ T.describe("The dispensary's prescription match (Joshua's playtest 2026-11-17)",
 				return out
 			end
 			local most = Config.Dispensary.Bottles
-			-- Lv 1 (Joshua: "need it simple especially at the start"): cough syrup, fever medicine, ear drops. 3, not 4.
+			-- Lv 1 (Joshua: "need it simple especially at the start"; memory-20261117-006): cough syrup and fever
+			-- medicine, the two Lv 1 cases' medicines (the earache and its ear drops are Lv 2).
 			local shelf, count = Pure.shelf("CoughSyrup", pool, Cases, 1, Levels, most)
-			expect(ids(shelf)).toEqual({ "CoughSyrup", "EarDrops", "FeverMeds" })
-			expect(count).toBe(3)
+			expect(ids(shelf)).toEqual({ "CoughSyrup", "FeverMeds" })
+			expect(count).toBe(2)
 			-- each of them is in the plan (cut to the level's RecipeCap) of a case from that level
 			for _, entry in shelf do
 				local used = false
@@ -1099,13 +1100,13 @@ T.describe("The dispensary's prescription match (Joshua's playtest 2026-11-17)",
 			-- higher levels: more medicines, never more than Config.Dispensary.Bottles bottles
 			for level = 2, 5 do
 				local wider, n = Pure.shelf("Lozenges", pool, Cases, level, Levels, most)
-				assert(#wider > 3, "Lv " .. level .. " uses more medicines")
+				assert(#wider > 2, "Lv " .. level .. " uses more medicines")
 				expect(n).toBe(math.min(#wider, most))
 			end
 			-- the answer is always on it, even one no case at that level uses
 			local odd, oddCount = Pure.shelf("PainRelief", pool, Cases, 1, Levels, most)
 			assert(table.find(ids(odd), "PainRelief"), "the answer is on the shelf")
-			expect(oddCount).toBe(4)
+			expect(oddCount).toBe(3)
 			-- at least ShelfMin: a clinic whose cases use one medicine still gets a second bottle
 			local one = { Only = { Plan = { "EarDrops" }, Level = 1 } }
 			local small, two = Pure.shelf("EarDrops", pool, one, 1, Levels, most)

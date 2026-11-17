@@ -78,8 +78,10 @@ T.describe("Levels", function()
 		expect(LevelsData[1].Unlocks).toEqual({})
 		expect(LevelsData[2].Unlocks).toEqual({
 			"🚑 A&E ambulances",
-			"🛏️ Injury Ward upstairs",
+			"🧊 Ice packs", -- simple start (memory-20261117-006): the Ice chest and the Light open at Lv 2
+			"🔦 Ear checks",
 			"🧻 Bandages",
+			"🛏️ Injury Ward upstairs",
 			"📋 2-step plans",
 		})
 		expect(LevelsData[3].Unlocks).toEqual({

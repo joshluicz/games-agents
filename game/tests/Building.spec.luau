@@ -462,7 +462,10 @@ T.describe("Building: seats, bays and stations", function()
 				end
 			end
 		end
-		expect(opens).toEqual({ Plaster = 1, Ice = 1, Bandage = 2, Cast = 3, Remedy = 1 })
+		-- simple start (memory-20261117-006): Lv 1 has only the Plaster shelf and the dispensary
+		expect(opens).toEqual({ Plaster = 1, Ice = 2, Bandage = 2, Cast = 3, Remedy = 1 })
+		expect(Building.stationOpen("Ice", 1)).toBe(false)
+		expect(Building.stationOpen("Ice", 2)).toBe(true)
 		expect(Building.stationOpen("Bandage", 1)).toBe(false)
 		expect(Building.stationOpen("Bandage", 2)).toBe(true)
 		expect(Building.stationOpen("Cast", 2)).toBe(false)

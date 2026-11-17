@@ -6,7 +6,9 @@
 --
 --   Name    the reveal after the exam ("It's a cough!") and the Guide
 --   Icon    the case's own picture
---   Bubble  the symptom a waiting patient shows BEFORE the exam (the case itself stays hidden until then)
+--   Bubble  the symptom a waiting patient shows BEFORE the exam (the case itself stays hidden until then): its
+--           Icon, then two words. An X-ray case's starts with 🦴 instead (Cases.BONE), so the player sees it needs the
+--           X-ray room before sending it there
 --   Tool    the exam tool that finds it (Data/Tools)
 --   Plan    the treatment, 1-3 ItemIds in order (Data/Items). The hospital level cuts it (Data/Levels.RecipeCap,
 --           Logic/Visit.plan), so a Lv 1 player always sees one step
@@ -16,10 +18,16 @@
 --   Room    a RoomId (Data/Rooms) the clinic must own as well
 -- A clinic only ever gets a case it can treat: its level, its rooms, and every plan item's station open
 -- (Logic/Visit.canTreat).
+-- Simple at the start (memory-20261117-006, simple-start design §1): Lv 1 has three cases, one per exam tool there
+-- (Cough 🩺, Cut knee 🔍, Fever 🌡️), from the two Lv 1 places (the dispensary and the Plaster shelf). Lv 2 adds
+-- Bumped head, Earache and Sprain (the Ice chest, the 🔦 Light, Bandages); Lv 3 Sore throat, Rash and Broken arm
+-- (the X-ray); Lv 5 Broken leg. A room's case (Sore muscles, Chills) comes with its bought room.
 --
 -- Cases.POOLS: a patient's case is rolled each visit from its WING's pool (Data/Wings ids), cut to what that clinic
 -- can treat (Logic/Visit.rollCase). An id listed more than once is that much likelier: a Bath or Winter patient
--- usually brings its own room's case. Night patients come to every clinic, so their pool is Lv 1 cases only.
+-- usually brings its own room's case. Night patients come to every clinic, so their pool is Lv 1 cases only. Every
+-- pool has a Lv 1 case without a room in it except Sky (its patients come only by helicopter, at Lv 5), so a clinic
+-- of any level gets someone (tests/SimpleStart.spec).
 -- Regulars have one fixed case each (Data/Regulars).
 
 export type CaseId = string
@@ -66,7 +74,7 @@ local ENTRIES: { [CaseId]: Case } = {
 		Bubble = "💫 bonk",
 		Tool = "Magnifier",
 		Plan = { "Ice" },
-		Level = 1,
+		Level = 2, -- with the Ice chest (Logic/Building.STATIONS Ice Opens = 2)
 	},
 	Earache = {
 		Name = "Earache",
@@ -74,7 +82,7 @@ local ENTRIES: { [CaseId]: Case } = {
 		Bubble = "👂 ow ow",
 		Tool = "Light",
 		Plan = { "EarDrops" },
-		Level = 1,
+		Level = 2, -- with the 🔦 Light (Data/Tools)
 	},
 	Sprain = {
 		Name = "Sprained ankle",
@@ -91,7 +99,7 @@ local ENTRIES: { [CaseId]: Case } = {
 		Bubble = "🗣️ scratchy",
 		Tool = "Light",
 		Plan = { "Lozenges", "CoughSyrup" },
-		Level = 2,
+		Level = 3,
 	},
 	Rash = {
 		Name = "Itchy rash",
@@ -99,12 +107,12 @@ local ENTRIES: { [CaseId]: Case } = {
 		Bubble = "😖 itchy",
 		Tool = "Magnifier",
 		Plan = { "Cream", "Ice" },
-		Level = 2,
+		Level = 3,
 	},
 	BrokenArm = {
 		Name = "Broken arm",
 		Icon = "💢",
-		Bubble = "💢 my arm",
+		Bubble = "🦴 my arm",
 		Tool = "XRay",
 		Plan = { "Cast", "PainRelief" },
 		Stay = "Wards",
@@ -132,7 +140,7 @@ local ENTRIES: { [CaseId]: Case } = {
 	BrokenLeg = { -- the helicopter's VIP
 		Name = "Broken leg",
 		Icon = "💢",
-		Bubble = "💢 my leg",
+		Bubble = "🦴 my leg",
 		Tool = "XRay",
 		Plan = { "Cast", "PainRelief", "Bandage" },
 		Stay = "Wards",
@@ -168,7 +176,7 @@ end
 
 local POOLS: { [string]: { CaseId } } = {
 	Starter = STARTER,
-	Night = { "Cough", "Fever", "Earache" },
+	Night = { "Cough", "Fever", "CutKnee" },
 	Bath = withStarter("SoreMuscles"),
 	Winter = withStarter("Chills"),
 	Sunny = { "Rash", "Sprain", "CutKnee" },
@@ -185,10 +193,13 @@ local function freeze(t: any): any
 end
 
 type Module = {
+	BONE: string,
 	ORDER: { CaseId },
 	Order: { CaseId },
 	POOLS: { [string]: { CaseId } },
 	[CaseId]: Case,
 }
 local order = freeze(ORDER)
-return freeze(setmetatable(ENTRIES, { __index = { ORDER = order, Order = order, POOLS = freeze(POOLS) } })) :: Module
+return freeze(
+	setmetatable(ENTRIES, { __index = { ORDER = order, Order = order, POOLS = freeze(POOLS), BONE = "🦴" } })
+) :: Module

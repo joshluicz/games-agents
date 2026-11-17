@@ -233,7 +233,7 @@ Building.PROMPT_OUT = 0.2
 Building.PROMPT_REACH = 5
 Building.STATIONS = table.freeze({
 	Plaster = table.freeze({ X = 9.2, Z = -2.7, Face = 270, Opens = 1 }),
-	Ice = table.freeze({ X = 9.2, Z = 1.5, Face = 270, Opens = 1 }),
+	Ice = table.freeze({ X = 9.2, Z = 1.5, Face = 270, Opens = 2 }),
 	Bandage = table.freeze({ X = 16.3, Z = -0.6, Face = 90, Opens = 2 }),
 	Cast = table.freeze({ X = 20.5, Z = -3.4, Face = 180, Opens = 3 }),
 	Remedy = table.freeze({ X = 13.6, Z = -19, Face = 270, Opens = 1 }),

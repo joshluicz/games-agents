@@ -5,7 +5,8 @@
 --   Game     the tool's own short game, a GameId (Logic/MiniGame.ENGINE says which engine plays it)
 --   Machine  true: not a hand tool on a bay's tray but a machine in its own room. A case that needs it goes to an
 --            "XRay" bay (Logic/Visit.nextForBay)
---   Level    the hospital level it works from (nil = 1): the X-ray room opens at Lv 3
+--   Level    the hospital level it works from (nil = 1): the 🔦 Light from Lv 2 (with the earache), the X-ray room
+--            at Lv 3. A Lv 1 clinic has exactly three (🩺 🌡️ 🔍), so the exam card shows all of them (memory-20261117-006)
 -- The exam card shows 3 tools; the player picks the one that fits the symptom (Logic/Visit.examTools).
 
 export type ToolId = string
@@ -20,7 +21,7 @@ export type Tool = {
 local ENTRIES: { [ToolId]: Tool } = {
 	Stethoscope = { Name = "Stethoscope", Icon = "🩺", Game = "Listen" }, -- listen to the chest
 	Thermometer = { Name = "Thermometer", Icon = "🌡️", Game = "Temp" }, -- take a temperature
-	Light = { Name = "Light", Icon = "🔦", Game = "Light" }, -- an ear or throat check
+	Light = { Name = "Light", Icon = "🔦", Game = "Light", Level = 2 }, -- an ear or throat check
 	Magnifier = { Name = "Magnifier", Icon = "🔍", Game = "Look" }, -- look at the sore spots
 	XRay = { Name = "X-ray", Icon = "📸", Game = "XRay", Machine = true, Level = 3 },
 }
