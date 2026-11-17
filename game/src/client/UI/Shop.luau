@@ -358,10 +358,11 @@ function Pure.visible(state: any, data: any, branch: boolean?): { [string]: bool
 	return shown
 end
 
--- The unlock chips on a phone (568 x 320, the floor): each chip's width at 18 px (a generous guess: 11 px a letter,
--- 24 an emoji, 12 padding each side) and how many rows they wrap into across `width`. tests/Agency.spec checks the
--- six Lv 2 chips fit the narrowest Shop page in three rows or fewer, and that no chip is wider than the page.
-Pure.CHIP_LETTER = 11
+-- The unlock chips on a phone (568 x 320, the floor): each chip's width at 18 px (a generous guess: 10 px a letter,
+-- FredokaOne averages about 9; 24 an emoji; 12 padding each side) and how many rows they wrap into across `width`.
+-- tests/Agency.spec checks no chip is wider than the narrowest Shop page, the six Lv 2 chips wrap into four rows or
+-- fewer there (two or three a row) and three or fewer at 1280 x 720.
+Pure.CHIP_LETTER = 10
 Pure.CHIP_EMOJI = 24
 Pure.CHIP_PAD = 12
 
@@ -406,10 +407,10 @@ local TEXT_LEFT = PAD + TILE + PAD -- the name and the fact start here
 local EARNED_HOW: { [string]: string } = {
 	Book = "Finish a Book set",
 	Story = "A friend's thank-you",
-	Referral = "A friend's gift",
+	Referral = "Friend gift",
 	Playtime = "A Doctor rank",
-	Journal = "Fill the Journal",
-	Rebirth = "Open a branch",
+	Journal = "Finish a Journal set", -- a Nurse Journal rarity group (Data/Decor)
+	Rebirth = "A Branch Trophy", -- rebirths 6 to 10 (Data/Decor)
 }
 
 type Row = {
@@ -958,7 +959,7 @@ function Shop.init(ctx: Types.Ctx)
 				Name = slot.Key,
 				Kind = "Icon",
 				Icon = if here then here.Icon else decor.Icon,
-				Caption = room.Name .. " " .. slot.N,
+				Caption = room.Icon .. " " .. slot.N,
 				LayoutOrder = if slot.Placed then 100 + index else index, -- empty spots first
 				ZIndex = 5,
 				Parent = slotGrid,
@@ -1047,8 +1048,6 @@ function Shop.init(ctx: Types.Ctx)
 		for decorId, row in decorRows do
 			local decor = data.Decor[decorId]
 			local mine = owned[decorId] == true
-			-- R0: an earned-only piece is listed once you have it (no row for a thing you can't buy).
-			row.Frame.Visible = mine or decor.Price ~= nil
 			if mine then
 				local placed = placedSlotOf(state, decorId) ~= nil
 				row.Note.Text = if placed then "In your clinic" else "In storage"
@@ -1058,9 +1057,15 @@ function Shop.init(ctx: Types.Ctx)
 				row.Note.Text = ""
 				setRowState(row, "Open")
 				style(row.Buy, if (state.Cash or 0) >= decor.Price then "Buy" else "Poor", Pure.price(decor.Price))
+			else
+				-- Earned, not bought: how to earn it, in words (no bullet emoji), and 🔒 alone on the button.
+				row.Note.Text = EARNED_HOW[decor.EarnedBy or ""] or "Earned, not bought"
+				setRowState(row, "Locked")
+				style(row.Buy, "Locked", Icons.State.Locked)
 			end
-			-- Owned first, then what you can buy, cheapest first (Data/Decor's order).
-			row.Frame.LayoutOrder = (if mine then 0 else 100) + (table.find(data.Decor.Order, decorId) or 0)
+			-- Owned first, then what you can buy (cheapest first, Data/Decor's order), then what you earn.
+			row.Frame.LayoutOrder = (if mine then 0 elseif decor.Price then 100 else 200)
+				+ (table.find(data.Decor.Order, decorId) or 0)
 		end
 	end
 

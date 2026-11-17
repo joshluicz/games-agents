@@ -378,3 +378,386 @@ T.describe("T1 Nurses: the source draws what the pure block decides", function()
 		eq(Icons.count(Pure.metaText(42)), 0)
 	end)
 end)
+
+------------------------------------------------------------------------------------------------------------------
+-- The panel built for real (no Studio here): tests/Chrome.spec's calm world (tests/worldmock Instances, stand-in
+-- services, ReduceEffects so nothing tweens), with Kit, Modal and NursePanel loaded WHOLE and Hud / BeltView
+-- stubbed. It catches nil calls and wrong structure in the builders, not a misspelt property (the mock stores any).
+------------------------------------------------------------------------------------------------------------------
+local World = require("./worldmock")
+
+local function panelWorld(): any
+	local world = World.new()
+	local roblox = World.roblox
+	local function signal(): any
+		local listeners = {}
+		local self = {}
+		function self:Connect(fn)
+			table.insert(listeners, fn)
+			return {
+				Disconnect = function()
+					local at = table.find(listeners, fn)
+					if at then
+						table.remove(listeners, at)
+					end
+				end,
+			}
+		end
+		function self:Once(fn)
+			return self:Connect(fn)
+		end
+		function self:Fire(...)
+			for _, fn in table.clone(listeners) do
+				fn(...)
+			end
+		end
+		return self
+	end
+	local function new(className: string): any
+		local instance = world.new(className)
+		instance.ZIndex = 1
+		instance.Visible = true
+		instance.Enabled = true
+		instance.Interactable = true
+		instance.AbsoluteSize = roblox.Vector2.new(0, 0)
+		instance.AbsolutePosition = roblox.Vector2.new(0, 0)
+		if className == "TextButton" then
+			for _, event in { "Activated", "InputBegan", "InputEnded", "MouseEnter", "MouseLeave", "SelectionLost" } do
+				instance[event] = signal()
+			end
+		end
+		return instance
+	end
+	local player = world.new("Player")
+	player:SetAttribute("ReduceEffects", true)
+	local playerGui = world.new("Folder")
+	playerGui.Name = "PlayerGui"
+	playerGui.Parent = player
+	local workspace = {
+		GetAttribute = function()
+			return nil
+		end,
+		GetAttributeChangedSignal = function()
+			return signal()
+		end,
+		FindFirstChild = function()
+			return nil
+		end,
+		GetServerTimeNow = function()
+			return 0
+		end,
+	}
+	local services = {
+		Players = { LocalPlayer = player },
+		GuiService = { ReducedMotionEnabled = false, SelectedObject = nil },
+		UserInputService = { PreferredInput = roblox.Enum.PreferredInput.Touch },
+		Workspace = workspace,
+		TweenService = {
+			Create = function()
+				error("nothing tweens in calm mode")
+			end,
+		},
+		ContextActionService = {
+			BindActionAtPriority = function() end,
+			UnbindAction = function() end,
+		},
+	}
+	local SHARED = {
+		Palette = "src/shared/Palette.luau",
+		Signal = "src/shared/Signal.luau",
+		Types = "src/shared/Types.luau",
+		Data = { Rarities = "src/shared/Data/Rarities.luau" },
+		Logic = {
+			Belt = "src/shared/Logic/Belt.luau",
+			Nurse = "src/shared/Logic/Nurse.luau",
+			Jobs = "src/shared/Logic/Jobs.luau",
+			Abilities = "src/shared/Logic/Abilities.luau",
+			Tutorial = "src/shared/Logic/Tutorial.luau",
+		},
+	}
+	local function folder(map: any): any
+		return {
+			WaitForChild = function(_, name: string)
+				local found = map[name]
+				assert(found, "panelWorld has no Shared." .. name)
+				return if type(found) == "table" then folder(found) else found
+			end,
+		}
+	end
+	local modules: { [any]: any } = {}
+	local UI: { [string]: any } = {
+		Theme = "src/client/UI/Theme.luau",
+		Icons = "src/client/UI/Icons.luau",
+		Kit = "src/client/UI/Kit.luau",
+		Modal = "src/client/UI/Modal.luau",
+	}
+	local WHOLE = { ["/UI/Kit.luau"] = true, ["/UI/Modal.luau"] = true, ["/UI/NursePanel.luau"] = true }
+	local function load(path: any): any
+		if type(path) == "table" then
+			return path -- a stub (Hud, BeltView)
+		end
+		if modules[path] ~= nil then
+			return modules[path]
+		end
+		local whole = false
+		for tail in WHOLE do
+			whole = whole or string.sub(path, -#tail) == tail
+		end
+		if not whole then
+			modules[path] = world.load(path)
+			return modules[path]
+		end
+		local env: { [string]: any } = {
+			game = {
+				GetService = function(_, name: string)
+					if name == "ReplicatedStorage" then
+						return folder({ Shared = SHARED })
+					end
+					return assert(services[name], "panelWorld has no " .. name)
+				end,
+			},
+			script = { Parent = UI },
+			require = load,
+			Instance = { new = new },
+			TweenInfo = {
+				new = function(...)
+					return { ... }
+				end,
+			},
+			task = require("@lune/task"),
+			warn = function(...)
+				error(table.concat({ ... }, " ")) -- a builder that warns is a failure here
+			end,
+			typeof = function(value: any): string
+				if type(value) == "table" and value.ClassName ~= nil then
+					return "Instance"
+				end
+				return typeof(value)
+			end,
+		}
+		for key, value in roblox do
+			if env[key] == nil and key ~= "Instance" then
+				env[key] = value
+			end
+		end
+		modules[path] = luau.load(source(path), { debugName = path, environment = env })()
+		return modules[path]
+	end
+	local Kit = load(UI.Kit)
+	local Modal = load(UI.Modal)
+	local popped = {}
+	UI.Hud = {
+		modal = Modal.modal,
+		portrait = function()
+			return new("Frame")
+		end,
+		ask = function()
+			return false, ""
+		end,
+		shake = function() end,
+		pop = function(gui)
+			table.insert(popped, gui)
+		end,
+		sound = function() end,
+		target = function()
+			return nil
+		end,
+	}
+	UI.BeltView = { Pure = BeltPure }
+	return {
+		Kit = Kit,
+		Modal = Modal,
+		NursePanel = load("src/client/UI/NursePanel.luau"),
+		playerGui = playerGui,
+		roblox = roblox,
+	}
+end
+
+-- A client ctx: the bus (fire reaches on), the Snapshot, toasts.
+local function panelCtx(state: any): any
+	local handlers: { [string]: { (...any) -> () } } = {}
+	local ctx
+	ctx = {
+		Data = {
+			Nurses = Nurses,
+			Rarities = Rarities,
+			Jobs = Jobs,
+			Departments = Departments,
+			Abilities = Abilities,
+			Decor = require("../src/shared/Data/Decor"),
+		},
+		Config = Config,
+		State = state,
+		Remotes = { SetJob = {}, ClaimBranchNurse = {}, GetMarket = {} },
+		fired = {},
+		toasts = {},
+		on = function(name: string, fn: (...any) -> ())
+			handlers[name] = handlers[name] or {}
+			table.insert(handlers[name], fn)
+		end,
+		onState = function(fn)
+			ctx.on("__state", fn)
+		end,
+		fire = function(name: string, ...: any)
+			table.insert(ctx.fired, { name, ... })
+			for _, fn in table.clone(handlers[name] or {}) do
+				fn(...)
+			end
+		end,
+		toast = function(text: string)
+			table.insert(ctx.toasts, text)
+		end,
+	}
+	return ctx
+end
+
+local function find(root: any, name: string): any
+	for _, node in root:GetDescendants() do
+		if node.Name == name then
+			return node
+		end
+	end
+	return nil
+end
+
+-- Shown on screen: it and every GuiObject above it inside the panel are Visible.
+local function shown(node: any): boolean
+	local at = node
+	while at and at.ClassName ~= "Folder" do
+		if at.Visible == false then
+			return false
+		end
+		at = at.Parent
+	end
+	return true
+end
+
+local function buttonsIn(root: any): { any }
+	local out = {}
+	for _, node in root:GetDescendants() do
+		if node.ClassName == "TextButton" and node:GetAttribute("KitKind") ~= nil and shown(node) then
+			table.insert(out, node)
+		end
+	end
+	return out
+end
+
+T.describe("T1 Nurses: the panel built for real (Kit, Modal and NursePanel whole)", function()
+	test("a fresh save: the Team page alone, no tab column, no links, the empty card", function()
+		local W = panelWorld()
+		local ctx = panelCtx(snap())
+		W.NursePanel.init(ctx)
+		ctx.fire("Open", "Nurses")
+		local team = nil
+		for _, node in W.playerGui:GetDescendants() do
+			if node.ClassName == "ScrollingFrame" and node.Name == "Team" then
+				team = node
+			end
+		end
+		assert(team and team.Visible, "the Team page shows")
+		expect(find(team, "Links").Visible).toBe(false)
+		expect(find(team, "Empty").Visible).toBe(true)
+		for _, rarity in Rarities.Order do
+			expect(find(W.playerGui, "Tab_" .. rarity).Visible).toBe(false)
+		end
+		ctx.fire("ModalClosed", "Nurses")
+	end)
+
+	test("one nurse: its card has the one job button and nothing else to press", function()
+		local W = panelWorld()
+		local ctx = panelCtx(snap({ Nurses = own({ "PuffPup" }), NurseIndex = { PuffPup = "Hired" } }))
+		W.NursePanel.init(ctx)
+		ctx.fire("Open", "Nurses")
+		local cardFrame = find(find(W.playerGui, "Cards"), "PuffPup")
+		assert(cardFrame, "PuffPup's Team card")
+		local buttons = buttonsIn(cardFrame)
+		expect(#buttons).toBe(1)
+		expect(buttons[1].Name).toBe("Job")
+		expect(buttons[1]:GetAttribute("KitKind")).toBe("Secondary")
+		expect(buttons[1].Text).toBe("🧪 Maker")
+		expect(find(cardFrame, "Xp").Visible).toBe(false)
+		expect(find(cardFrame, "More").Visible).toBe(false)
+		expect(find(cardFrame, "NurseName").Text).toBe("Puff Pup")
+		-- the one button opens the job picker: a row per job, ✅ on the one it works, the Lv 2 jobs gated
+		buttons[1].Activated:Fire()
+		local jobs = nil
+		for _, node in W.playerGui:GetDescendants() do
+			if node.ClassName == "ScrollingFrame" and node.Name == "Jobs" then
+				jobs = node
+			end
+		end
+		assert(jobs, "the job picker's list")
+		expect(find(find(jobs, "Maker"), "Caption").Text).toBe(Icons.State.Done)
+		expect(find(find(jobs, "Porter"), "Caption").Text).toBe("🏥 Lv 2")
+		expect(find(find(jobs, "Healer"), "JobName").Text).toBe("Healer  +40%")
+		ctx.fire("ModalClosed", "Nurses")
+	end)
+
+	test("two nurses and one resting: More shows; 💤 on the resting portrait, Pick a job", function()
+		local W = panelWorld()
+		local nurses = own({ "PuffPup", "MintMouse", "BeanBear" }, { Level = 2, XP = 5 })
+		nurses.DewDuck = { Level = 1, XP = 0, Copies = 1, Job = "Rest" }
+		local index = { PuffPup = "Hired", MintMouse = "Hired", BeanBear = "Hired", DewDuck = "Hired" }
+		local ctx = panelCtx(snap({ Nurses = nurses, NurseIndex = index }))
+		W.NursePanel.init(ctx)
+		ctx.fire("Open", "Nurses")
+		local cards = find(W.playerGui, "Cards")
+		local puff = find(cards, "PuffPup")
+		local filledCount = 0
+		for _, button in buttonsIn(puff) do
+			if FILLED[button:GetAttribute("KitKind")] then
+				filledCount += 1
+			end
+		end
+		expect(filledCount).toBe(1)
+		expect(find(puff, "More").Visible).toBe(true)
+		expect(find(puff, "More"):GetAttribute("KitKind")).toBe("Quiet")
+		expect(find(puff, "Xp").Visible).toBe(true)
+		local dew = find(cards, "DewDuck")
+		expect(find(dew, "Job").Text).toBe("Pick a job")
+		local badge = find(find(dew, "Face"), "State")
+		assert(badge, "the resting nurse wears its State badge")
+		expect(find(badge, "Icon").Text).toBe(Icons.State.Resting)
+		-- the roster is full: the Agency link shows (the Market waits for the Agency to be opened)
+		local links = find(W.playerGui, "Links")
+		expect(links.Visible).toBe(true)
+		expect(find(links, "Agency").Visible).toBe(true)
+		expect(find(links, "Market").Visible).toBe(false)
+		ctx.fire("Open", "Agency")
+		ctx.fire("__state", ctx.State)
+		expect(find(links, "Market").Visible).toBe(true)
+		ctx.fire("ModalClosed", "Nurses")
+	end)
+
+	test("two rarities seen: the Journal's tabs arrive and a page draws without an outline on its cards", function()
+		local W = panelWorld()
+		local ctx = panelCtx(snap({
+			Nurses = own({ "PuffPup" }),
+			NurseIndex = { PuffPup = "Hired", JamJelly = "Seen" },
+		}))
+		W.NursePanel.init(ctx)
+		ctx.fire("Open", "Nurses", "Common")
+		local page = find(W.playerGui, "Common")
+		assert(page and page.Visible, "the Common page shows")
+		local puff = find(page, "PuffPup")
+		expect(find(puff, "Info").Text).toBe("Lv 1 · Maker")
+		-- R2: no shape outline on the page but a candy button's (Collect) and the rarity frame / the nurse cap.
+		local CANDY = { Primary = true, Collect = true, Destructive = true }
+		local strokes = 0
+		for _, node in page:GetDescendants() do
+			if
+				node.ClassName == "UIStroke"
+				and node.Enabled ~= false
+				and node.ApplyStrokeMode ~= W.roblox.Enum.ApplyStrokeMode.Contextual
+				and node.Name ~= "TextOutline"
+				and node.Name ~= "RarityFrame"
+				and node.Parent.Name ~= "Cap"
+				and not CANDY[node.Parent:GetAttribute("KitKind")]
+			then
+				strokes += 1
+			end
+		end
+		expect(strokes).toBe(0)
+		ctx.fire("ModalClosed", "Nurses")
+	end)
+end)

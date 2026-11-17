@@ -1648,6 +1648,8 @@ function NursePanel.init(ctx: Types.Ctx)
 	local giftRow = Kit.card({
 		Name = "Gift",
 		LayoutOrder = 2,
+		Size = UDim2.new(1, 0, 0, Theme.Calm.ArtTile + 2 * CARD), -- fixed: its parts sit by scale
+		AutomaticSize = Enum.AutomaticSize.None,
 		Visible = false,
 		Parent = teamScroll,
 	})

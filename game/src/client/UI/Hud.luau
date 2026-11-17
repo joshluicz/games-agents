@@ -1890,7 +1890,7 @@ function Hud.init(ctx: Types.Ctx)
 	Kit.stroke(comboSticker, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a sticker over the world)
 	Kit.textLimit(comboSticker, Theme.TextSize.Body)
 
-	-- ⭐: the count. (Its old thin bar followed star milestones and said "Everything unlocked!" while the next level
+	-- ⭐: the count. (Its old thin bar followed star milestones and said all was unlocked while the next level
 	-- still had to be bought: the level row below is the ONE bar now.)
 	local starsRow, starsText = walletUnit("Stars", Icons.Unit.Stars, 2)
 	starsRow.Visible = false
@@ -1901,7 +1901,7 @@ function Hud.init(ctx: Types.Ctx)
 	-- to see my level?"; Logic/LevelBar). "Lv 1 Clinic", the navy bar that counts both the ⭐ and the 💰 the next
 	-- level needs, and under it what is still needed ("⭐ 12/15" "💰 300/400": two Units) or "Level up!". The whole
 	-- row is ONE tap target: ready = the Shop opens on its Hospital tab and the Level up button bounces; not ready
-	-- = a toast says what the next level is and needs. In-game cash only: nothing here is Robux.
+	-- = a toast says what the next level is and needs. In-game cash only: nothing here costs real money.
 	local levelButton = Instance.new("TextButton")
 	levelButton.Name = "Level"
 	levelButton.Text = ""

@@ -146,7 +146,16 @@ local TreeLogic = require("../src/shared/Logic/Tree")
 local Levels = require("../src/shared/Data/Levels")
 local Rooms = require("../src/shared/Data/Rooms")
 local Decor = require("../src/shared/Data/Decor")
-local Stations = require("../src/shared/Data/Stations")
+-- Data/Stations needs Roblox (its colours): the names the room notes read, as Data/Stations has them.
+local Stations = {
+	Remedy = { Name = "Dispensary" },
+	Plaster = { Name = "Plasters" },
+	Ice = { Name = "Ice Packs" },
+	Bandage = { Name = "Bandages" },
+	Cast = { Name = "Cast Table" },
+	Bath = { Name = "Bath Foam" },
+	Cocoa = { Name = "Cocoa Corner" },
+}
 local Rarities = require("../src/shared/Data/Rarities")
 
 local Icons = UiRules.Icons
@@ -377,32 +386,33 @@ T.describe("Shop: calm rows, gates and the level-up", function()
 		end
 	end)
 
-	test(
-		"the Lv 2 card's six unlock chips wrap in three rows or fewer on a 568 x 320 phone, none wider than the page",
-		function()
-			expect(#Levels[2].Unlocks).toBe(6)
-			-- The narrowest page: the modal at 94% of 568, its 16 px panel padding each side, the tab column (88 + 4 + 4)
-			-- and its 8 px gap, the page's 12 px scroll margin, and the card's 12 px padding each side.
-			local width = math.floor(568 * 0.94) - 16 * 2 - (88 + 8) - 8 - 12 - 12 * 2
-			expect(width > 300).toBe(true)
-			for level = 2, #Levels do
-				local texts = Levels[level].Unlocks
-				for _, text in texts do
-					assert(ShopPure.chipWidth(text) <= width, "chip wider than the phone page: " .. text)
-					assert(emoji(text) == 1, "one Art emoji per chip: " .. text)
-				end
-				assert(ShopPure.chipRows(texts, width, 8) <= 3, "Lv " .. level .. " chips take more than 3 rows")
-			end
-			-- the chip row really wraps (UIListLayout.Wraps), so it never runs off the card
-			assert(string.find(source("src/client/UI/Shop.luau"), "chipList.Wraps = true", 1, true))
+	test("the Lv 2 card's six unlock chips wrap cleanly at 568 x 320 (4 rows at most) and 1280 x 720 (3)", function()
+		expect(#Levels[2].Unlocks).toBe(6)
+		-- The page: the modal at 94% of the screen up to its 680 px MaxSize, its 16 px panel padding each side, the tab
+		-- column (88 + 4 + 4) and its 8 px gap, the page's 12 px scroll margin, and the card's 12 px padding each side.
+		local function pageWidth(screen: number): number
+			return math.min(math.floor(screen * 0.94), 680) - 16 * 2 - (88 + 8) - 8 - 12 - 12 * 2
 		end
-	)
+		local phone, desktop = pageWidth(568), pageWidth(1280)
+		expect(phone > 300).toBe(true)
+		for level = 2, #Levels do
+			local texts = Levels[level].Unlocks
+			for _, text in texts do
+				assert(ShopPure.chipWidth(text) <= phone, "chip wider than the phone page: " .. text)
+				assert(emoji(text) == 1, "one Art emoji per chip: " .. text)
+			end
+			assert(ShopPure.chipRows(texts, phone, 8) <= 4, "Lv " .. level .. " chips take more than 4 rows on a phone")
+			assert(ShopPure.chipRows(texts, desktop, 8) <= 3, "Lv " .. level .. " chips take more than 3 rows at 1280")
+		end
+		-- the chip row really wraps (UIListLayout.Wraps), so it never runs off the card
+		assert(string.find(source("src/client/UI/Shop.luau"), "chipList.Wraps = true", 1, true))
+	end)
 
 	test("the source: a title in words, the cash meta as a Unit, no 'Soon' row, nothing loud, nothing Robux", function()
 		local text = source("src/client/UI/Shop.luau")
 		assert(string.find(text, 'Title = "Shop",', 1, true), "the title is words only")
 		assert(string.find(text, "modal.setMeta(Hud.format(state.Cash or 0), Icons.Unit.Cash)", 1, true))
-		expect(string.find(text, "Soon", 1, true)).toBeNil()
+		expect(string.find(text, '"❄️', 1, true)).toBeNil() -- no "❄️ Soon" row or note
 		expect(string.find(text, "Robux", 1, true) ~= nil).toBe(true) -- only the header's "Nothing here is Robux"
 		expect(string.find(text, "MarketplaceService", 1, true)).toBeNil()
 		expect(string.find(text, "Kit.shine(", 1, true)).toBeNil()

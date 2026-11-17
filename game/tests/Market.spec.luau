@@ -161,3 +161,61 @@ T.describe("Market listing and buying", function()
 		expect((Market.canBuy(buyer(), atCap, false, Config, Nurses))).toBe(true)
 	end)
 end)
+
+------------------------------------------------------------------------------------------------------------------
+-- The Market panel's calm UI (T3: UI direction §4 #8; memory-20261117-007). UI/MarketPanel's PURE block on its own.
+------------------------------------------------------------------------------------------------------------------
+
+local fs = require("@lune/fs")
+local luau = require("@lune/luau")
+local UiRules = require("./uirules")
+local Icons = UiRules.Icons
+
+local function source(path: string): string
+	for _, prefix in { "", "game/" } do
+		if fs.isFile(prefix .. path) then
+			return fs.readFile(prefix .. path)
+		end
+	end
+	error("can't find " .. path .. " (run from game/)")
+end
+
+local MP = (function()
+	local text = source("src/client/UI/MarketPanel.luau")
+	local first = string.find(text, "-- PURE-BEGIN", 1, true)
+	local last = string.find(text, "-- PURE-END", 1, true)
+	assert(first and last and last > first, "no PURE block in MarketPanel")
+	local block = string.sub(text, first, last - 1) .. "\nreturn Pure\n"
+	return luau.load(block, { debugName = "MarketPanel (pure)", environment = { MarketLogic = Market } })()
+end)()
+
+T.describe("Market panel: the calm UI", function()
+	test("the confirms: the verb as a word title, the question with its price, the verb alone on Yes", function()
+		local buy = MP.buyConfirm("🐶", 7, 420, "Sam")
+		expect(buy.Title).toBe("Buy?")
+		expect(buy.Yes).toBe("Buy")
+		expect(buy.Line).toBe("Buy 🐶 Lv 7 for 💰420?\nby Sam")
+		local list = MP.listConfirm("🐶", 7, 420, MP.payout(420, Config))
+		expect(list.Title).toBe("List?")
+		expect(list.Yes).toBe("List")
+		for _, spec in { buy, list } do
+			expect(Icons.count(spec.Title) + Icons.count(spec.Yes)).toBe(0)
+		end
+	end)
+
+	test(
+		"the panel: a word title, one Soft rules line (no badges), cards without lines, the List button says List",
+		function()
+			local text = source("src/client/UI/MarketPanel.luau")
+			assert(string.find(text, 'Title = "Market",', 1, true), "the title is words only")
+			assert(string.find(text, '"This server only · No swaps · No chat"', 1, true), "the rules in one line")
+			expect(string.find(text, '"Badge"', 1, true)).toBeNil()
+			assert(string.find(text, 'listButton.Text = if ok then "List" else text', 1, true))
+			-- the nurse cap keeps its heart (never a cross) and nothing is Robux
+			assert(string.find(text, '"♥"', 1, true))
+			expect(string.find(text, "MarketplaceService", 1, true)).toBeNil()
+			local over = UiRules.ratchet({ "src/client/UI/MarketPanel.luau" }, {})
+			assert(#over == 0, "\n" .. table.concat(over, "\n"))
+		end
+	)
+end)
