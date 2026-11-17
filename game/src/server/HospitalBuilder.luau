@@ -29,6 +29,8 @@
 --       markers by the desk. The desk itself is the plot's Counter (Server/PlotBuilder): its rect is left clear
 --     the dispensary: its glass hatch onto the lobby, Station_Remedy (the counter behind it, with drawers, bottles
 --       and a measuring cup), bottle shelves
+--     the nurses' station (NurseStation): a small desk at corridor A's far end, past the X-ray door, where Healers and
+--       idle nurses wait (Logic/Building.NURSE_STATION)
 --     the exam bays 1-6 in a row (ExamBay_<id>: a couch, a curtain, a tool tray, a number sign, the DoctorSpot)
 --     the supply alcove between the two corridors: Station_Plaster (a supply cabinet with a box of plasters),
 --       Station_Ice (a freezer chest with ice cubes on its lid), Station_Bandage (an open shelf of bandage rolls)
@@ -165,6 +167,9 @@ Pure.STATION = {
 	Remedy = 3, -- the dispensary counter's body (its countertop on it)
 }
 Pure.TOP = 0.3 -- a countertop's (and the freezer lid's) thickness
+-- The nurses' station's desk (Logic/Building.NURSE_STATION.Desk): its body's height (counter height, like the
+-- dispensary's), with a countertop and a clipboard on it. Three parts: the Building was near its budget.
+Pure.NURSE_DESK = 3
 Pure.BADGE = 1.6 -- a station's icon badge floats this far over its furniture's highest point
 Pure.SEAT = { Height = 1.6, Back = 0.6, BackHeight = 4 } -- a waiting-room chair: the seat, its back
 Pure.PANEL = 0.2 -- a door panel's thickness, in its wall's middle
@@ -1292,6 +1297,20 @@ local function buildDispensary(model: Model, level: number)
 	buildStation(model, "Remedy", level)
 end
 
+-- The nurses' station (Logic/Building.NURSE_STATION; Joshua 2026-11-17: "nurses look like theyre in the middle of
+-- nowhere"): a small desk at corridor A's far end, where Healers and idle nurses wait. Like the station furniture: a
+-- calm blue body (solid: Logic/Building's NurseDesk obstacle), a white countertop overhanging the corridor side, and a
+-- clipboard on it. No sign, no emblem. Three parts.
+local function buildNurseStation(model: Model)
+	local station = piece(model, "NurseStation", 1, 0)
+	local d = B.NURSE_STATION.Desk
+	local h, t = Pure.NURSE_DESK, Pure.TOP
+	box(station, "Desk", d.X0, d.X1, 0, h, d.Z0, d.Z1, tame(ACCENT.Blue))
+	soft(box(station, "Countertop", d.X0 - 0.15, d.X1, h, h + t, d.Z0, d.Z1, WORLD.Trim))
+	local cx, cz = (d.X0 + d.X1) / 2, (d.Z0 + d.Z1) / 2
+	tiny(soft(box(station, "Clipboard", cx - 0.3, cx + 0.3, h + t, h + t + 0.08, cz - 0.4, cz + 0.4, WORLD.PlankAlt)))
+end
+
 -- One exam bay: ExamBay_<id> (Bed, Pillow, Curtain, Tray, Sign, DoctorSpot). `signAt` is its number sign's
 -- middle, on the corridor side of the wall over its mouth.
 local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
@@ -2249,6 +2268,7 @@ local function placeholderBuilding(
 	end
 	buildWaiting(model, style)
 	buildDispensary(model, level)
+	buildNurseStation(model)
 	buildBays(model, level)
 	for _, id in { "Plaster", "Ice", "Bandage" } do
 		buildStation(model, id, level) -- the supply alcove

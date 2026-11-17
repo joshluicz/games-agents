@@ -62,16 +62,22 @@
 --   Building.obstacles(level, floor?): { Obstacle }   everything solid at walking height on that floor: the walls
 --                                                (their open doorways left out, a door that opens at a later level
 --                                                kept shut), the lift shaft, the stairs, seats, beds, stations, the
---                                                desk, shelves. NOT modelled: the bought rooms' own fit-outs (their
---                                                doors count as open; Server/PlotBuilder keeps a fit-out inside its
---                                                ROOMS rect and off the door)
+--                                                desk, the nurses' desk, shelves. NOT modelled: the bought rooms' own
+--                                                fit-outs (their doors count as open; Server/PlotBuilder keeps a
+--                                                fit-out inside its ROOMS rect and off the door)
 --   Building.clear(rect, level): boolean         nothing solid on the GROUND touches that rectangle
 --   Building.reach(fromXZ, toXZ, level, floor?): boolean   the straight walk from one { X, Z } to another on that
 --                                                floor (0 unless given) crosses nothing solid. A path may skim a
 --                                                corner by under SKIM studs
 --   Building.path(fromXZ, toXZ, level, floor?): { Point }?   the walk as waypoints (`to` last, `from` left out),
---                                                each leg a reach(): straight when it can be, else through NODES and
---                                                the doors. nil when a shut door or a wall is in the way
+--                                                each leg a reach(): straight when it can be, else through NODES,
+--                                                the doors and the nurses' station's mouth. nil when a shut door or a
+--                                                wall is in the way
+--   Building.NURSE_STATION, NURSE_PLACES         where nurses stand (see "Where nurses stand" below): the nurses'
+--                                                station (its Desk is solid) and the places a job has of its own
+--   Building.nurseSlot(job, k, counts?): NurseSpot   where nurse number k of a job waits; counts = nurses per job
+--                                                at the plot, so jobs sharing the station never share a slot
+--   Building.stationRank(job, k, counts?): number?   its slot at the station (nil: at its own place)
 
 local Building = {}
 
@@ -476,6 +482,163 @@ function Building.wardBeds(level: number, floor: number?): { WardBed }
 	return beds
 end
 
+------------------------------------------------------------------------------------------------------------------
+-- Where nurses stand (Server/Nurses reads these; tests/NurseSpots.spec). Joshua, 2026-11-17, after playing: "nurses
+-- look like theyre in the middle of nowhere". Every hired nurse now has a place that means something, all of it
+-- derived from the rooms, doors, seats and stations above (so a bigger building moves them with it):
+--   the nurses' station  a small desk at corridor A's far (+x) end, past the X-ray door, its back to the dispensary
+--                        wall: Healers wait there, and so does anyone idle (Porters, Medics, any job without a place
+--                        of its own, and the nurses past their own place's last slot). Its slots: two columns behind
+--                        the desk looking down the corridor at the bays, then a row along the dispensary wall
+--   Makers               beside the supply shelf: either end of the Bandage shelf, in the alcove
+--   Cheerers             between the waiting seats, at their backs (among the patients they cheer)
+--   Receptionists        behind the reception desk: RECEPTION.Staff first, then either side of it
+-- A slot is a NurseSpot (plot-local studs and the FACE the nurse looks at). Nobody stands in a corridor's middle, on
+-- a patient's walk, in a doorway, on a station's stand or under its prompt (tests/NurseSpots.spec checks it all).
+------------------------------------------------------------------------------------------------------------------
+
+export type NurseSpot = { X: number, Z: number, Face: number }
+
+Building.NURSE_FOOT = 0.8 -- half a nurse's footprint: this much round its spot is clear of anything solid
+Building.NURSE_GAP = 2.2 -- between two nurses standing side by side
+Building.NURSE_EDGE = 1 -- a nurse's spot is this far off the wall or the desk behind it
+Building.NURSE_DESK = table.freeze({ Depth = 0.9, Length = 2.6 }) -- the station's desk (HospitalBuilder builds it)
+
+local function nurseSpot(x: number, z: number, face: number): NurseSpot
+	return table.freeze({ X = x, Z = z, Face = face })
+end
+
+-- The nurses' station: Desk (solid, in obstacles as "NurseDesk"), Slots (in order: the first nurse takes the first)
+-- and Mouth (a waypoint just past the desk's open end, so path() gets the nurses behind it out).
+local function nurseStation()
+	local hall = Building.ROOMS.CorridorA
+	local gap, edge = Building.NURSE_GAP, Building.NURSE_EDGE
+	local back = hall.Z0 -- the dispensary's wall along corridor A
+	local outer = Building.HALF_X - Building.WALL - edge -- the column against the end wall
+	local inner = outer - gap -- the column just behind the desk
+	local deskX1 = inner - edge
+	local size = Building.NURSE_DESK
+	local desk = rect(deskX1 - size.Depth, deskX1, back, back + size.Length)
+	local row = back + edge
+	local slots = {
+		nurseSpot(inner, row, 90), -- behind the desk, looking down corridor A at the bays
+		nurseSpot(inner, row + gap, 90),
+		nurseSpot(outer, row, 90),
+		nurseSpot(outer, row + gap, 90),
+		nurseSpot(outer, row + 2 * gap, 90),
+	}
+	for n = 1, 3 do -- along the dispensary wall, beside the desk, facing into the corridor
+		table.insert(slots, nurseSpot(desk.X0 - edge - Building.NURSE_FOOT / 2 - (n - 1) * gap, row, 180))
+	end
+	return table.freeze({
+		Desk = desk,
+		Slots = table.freeze(slots),
+		Mouth = table.freeze({ X = (desk.X0 + desk.X1) / 2, Z = desk.Z1 + 1.2 }),
+	})
+end
+Building.NURSE_STATION = nurseStation()
+
+-- The places a job has of its own (Makers, Cheerers, Receptionists), each a list of slots in order.
+local function nursePlaces()
+	-- Makers: either end of the Bandage shelf, against the alcove's +x wall, looking across at the other shelves
+	local shelf = Building.stationRect("Bandage") :: Rect
+	local reach = Building.NURSE_EDGE + 0.1
+	local x = shelf.X1 - Building.NURSE_FOOT - 0.1 -- tucked against the wall: patients cut through the alcove
+	local makers = { nurseSpot(x, shelf.Z0 - reach, 90), nurseSpot(x, shelf.Z1 + reach, 90) }
+	-- Cheerers: in the gap between two seats of a row (same line, same facing), half a stud back toward the wall,
+	-- looking the way the seats do. Nearest the lobby first.
+	local cheerers = {}
+	local seats = Building.SEATS
+	for index = 1, #seats - 1 do
+		local a, b = seats[index], seats[index + 1]
+		if a.Face == b.Face and math.abs(a.Z - b.Z) < 1e-6 then
+			local dx, dz = Building.facing(a.Face)
+			table.insert(cheerers, nurseSpot((a.X + b.X) / 2 - dx * 0.5, (a.Z + b.Z) / 2 - dz * 0.5, a.Face))
+		end
+	end
+	-- Receptionists: behind the desk, the staff spot first, then one each side (inside the desk's length)
+	local staff, desk = Building.RECEPTION.Staff, Building.RECEPTION.Desk
+	local receptionists = { nurseSpot(staff.X, staff.Z, 0) }
+	for _, side in { 1, -1 } do
+		local at = staff.X + side * Building.NURSE_GAP
+		if at - Building.NURSE_FOOT >= desk.X0 and at + Building.NURSE_FOOT <= desk.X1 then
+			table.insert(receptionists, nurseSpot(at, staff.Z, 0))
+		end
+	end
+	return table.freeze({
+		Maker = table.freeze(makers),
+		Cheerer = table.freeze(cheerers),
+		Receptionist = table.freeze(receptionists),
+	})
+end
+Building.NURSE_PLACES = nursePlaces() :: { [string]: { NurseSpot } }
+
+-- The jobs that wait at the nurses' station, in the order they take its slots; any other job without a place of its
+-- own comes next (by name), then the nurses past their own place's last slot (Makers, Cheerers, Receptionists).
+Building.NURSE_STATION_ORDER = table.freeze({ "Healer", "Medic", "Porter" })
+local OVERFLOW_ORDER = { "Maker", "Cheerer", "Receptionist" }
+
+local function whole(value: any, min: number): number
+	if type(value) ~= "number" or value ~= value then
+		return min
+	end
+	return math.clamp(math.floor(value), min, 99)
+end
+
+-- The jobs in the order they take the station's slots, for this plot's head count (`counts`: nurses per job).
+local function stationOrder(counts: { [string]: number }): { string }
+	local order = table.clone(Building.NURSE_STATION_ORDER)
+	local others = {}
+	for job in counts do
+		if
+			type(job) == "string"
+			and not table.find(Building.NURSE_STATION_ORDER, job)
+			and not Building.NURSE_PLACES[job]
+		then
+			table.insert(others, job)
+		end
+	end
+	table.sort(others)
+	for _, job in others do
+		table.insert(order, job)
+	end
+	for _, job in OVERFLOW_ORDER do
+		table.insert(order, job)
+	end
+	return order
+end
+
+-- Which of the station's slots nurse number `k` of `job` takes (1 = the first), or nil when it stands at its job's
+-- own place. `counts` = nurses per job at this plot (the jobs earlier in the station's order take the first slots;
+-- without it, as if no other job were there). Past the last slot it starts again from the first.
+function Building.stationRank(job: string, k: number, counts: { [string]: number }?): number?
+	local index = whole(k, 1)
+	local own = Building.NURSE_PLACES[job]
+	if own and index <= #own then
+		return nil
+	end
+	local before = 0
+	if counts then
+		for _, other in stationOrder(counts) do
+			if other == job then
+				break
+			end
+			local n = whole(counts[other], 0)
+			local place = Building.NURSE_PLACES[other]
+			before += if place then math.max(0, n - #place) else n
+		end
+	end
+	local slots = #Building.NURSE_STATION.Slots
+	return (before + index - (if own then #own else 0) - 1) % slots + 1
+end
+
+-- Where nurse number `k` of `job` waits: its job's own place, else the nurses' station (Building.stationRank).
+function Building.nurseSlot(job: string, k: number, counts: { [string]: number }?): NurseSpot
+	local rank = Building.stationRank(job, k, counts)
+	local slot = if rank then Building.NURSE_STATION.Slots[rank] else Building.NURSE_PLACES[job][whole(k, 1)]
+	return { X = slot.X, Z = slot.Z, Face = slot.Face }
+end
+
 local DOOR_SIDE = 2 -- a door's two sides stand this far off its wall's plane
 
 -- Which side of each walk-through door is "inside" (+1 = the +z or +x side of its wall): inside the building for
@@ -600,6 +763,7 @@ local function ground(list: { Obstacle }, lv: number)
 		addRect(list, "WaitSeat_" .. index, Building.seatRect(seat))
 	end
 	addRect(list, "Planter", Building.PLANTER)
+	addRect(list, "NurseDesk", Building.NURSE_STATION.Desk)
 
 	-- The exam bays: a back wall, the thin dividers between them and the wall at bay 6's +x side
 	local bays = rooms.Bays
@@ -738,10 +902,12 @@ function Building.reach(from: Point, to: Point, level: number, floor: number?): 
 	return reachIn(Building.obstacles(level, floor or 0), from, to)
 end
 
--- The waypoints on a floor: its NODES, and on the ground both sides of every walk-through door.
+-- The waypoints on a floor: its NODES, and on the ground both sides of every walk-through door and the nurses'
+-- station's mouth.
 local function waypoints(floor: number): { Point }
 	local nodes: { Point } = table.clone(Building.NODES[if floor <= 0 then 0 else 1])
 	if floor <= 0 then
+		table.insert(nodes, Building.NURSE_STATION.Mouth)
 		for name in INSIDE do
 			local inside, outside = Building.doorPoints(name)
 			if inside and outside then

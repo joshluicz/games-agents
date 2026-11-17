@@ -92,7 +92,7 @@
 --                Station_<id> (Open ~= false) under the Building (Plaster, Ice, Bandage, Cast) or the Rooms (Bath in
 --                the Bath Room, Cocoa in the Winter Wing). Never the dispensary (Remedy): medicines are the player's
 --                job. It walks to that station, works for its Every seconds, and puts the item in the tray
---   Healer       waits in corridor A by the bays; at most every Every seconds, when the front bay patient (or, with 👯
+--   Healer       waits at the nurses' station; at most every Every seconds, when the front bay patient (or, with 👯
 --                Twin Counters, the next one when the front can't be helped) needs its exam
 --                (a nurse examines: no game, no tip) or a supply the tray holds, walks to that bay's side and fires Heal
 --                (target "Front"). A front patient whose only missing steps are medicines gets nothing from a nurse.
@@ -100,10 +100,10 @@
 --   Cheerer      stands in the waiting room and cheers while patients wait (CheerPatience, CheerTip: the best one)
 --   Receptionist stands behind the reception desk and greets arrivals ("Greeting"): patients come sooner and, from
 --                Lv 3, a Stay patient's ward is picked at once (Reception, Triage)
---   Medic        waits in the A&E yard; while a 🚑/🚁 patient waits for the doctor in a bay it goes to that bay
+--   Medic        waits at the nurses' station; while a 🚑/🚁 patient waits for the doctor in a bay it goes to that bay
 --                ("Treating") and fires Heal (target "Urgent") when it needs its exam or a supply the tray holds
 --                (MedicPatience: they wait longer)
---   Porter       idles by the ground landing until Patients claims it to ride a Stay patient upstairs ("Escorting")
+--   Porter       idles at the nurses' station until Patients claims it to ride a Stay patient upstairs ("Escorting")
 -- Nurses work only while the owner is in the server (their plot is released when they leave): no offline income.
 -- Never requires Treatment, Abilities, Agency, Market or Rebirth (some of them require this). Patients requires this
 -- module too, so it is required LAZILY (at call time, from a worker, never while loading) for Patients.bayView, and
@@ -193,7 +193,6 @@ Pure.REMEDY = "Remedy" -- the dispensary: medicines are the player's job (design
 Pure.WAITING = table.freeze({ Waiting = true, ToBay = true, AtBay = true, Planned = true }) :: { [string]: boolean }
 Pure.ARRIVING = table.freeze({ Arriving = true, Waiting = true }) :: { [string]: boolean } -- the Receptionist greets
 Pure.BUSY = table.freeze({ Examining = true, Treating = true }) :: { [string]: boolean } -- in a mini-game right now
-Pure.SPACING = 2.6 -- studs between nurses of one job standing side by side
 Pure.BEDSIDE = 2.2 -- a Healer or Medic stands this far beside a bay's DoctorSpot (the player's spot stays free)
 Pure.STATION_SIDE = 1.3 -- a Maker stands this far beside a station's stand spot (the player's)
 
@@ -473,34 +472,16 @@ function Pure.any(states: { any }, set: { [string]: boolean }): boolean
 	return false
 end
 
--- Where nurse number `index` of a job waits when there's nothing to do (Logic/Building's rooms):
---   Healer        corridor A by the exam bays, facing them
---   Maker         corridor A at the supply alcove's mouth, facing it
---   Cheerer       the waiting room, facing the seats
---   Receptionist  behind the reception desk (RECEPTION.Staff), facing the lobby
---   Medic         the A&E yard beside the StretcherSpot, facing the side door
---   Porter        corridor B beside the lift's landing, facing the lift
-function Pure.home(job: string, index: number): Spot
-	local B = BuildingLogic
-	local rooms = B.ROOMS
-	local k = if type(index) == "number" and index == index then math.clamp(math.floor(index), 1, 99) else 1
-	if job == "Healer" then
-		return { X = rooms.Bays.X1 - 10 - (k - 1) * Pure.SPACING, Z = rooms.CorridorA.Z0 + 1.5, Face = 180 }
-	elseif job == "Cheerer" then
-		return { X = rooms.Waiting.X1 - 3.5 - (k - 1) * 2.4, Z = rooms.Waiting.Z1 - 3, Face = 0 }
-	elseif job == "Receptionist" then
-		local staff = B.RECEPTION.Staff
-		return { X = staff.X + Pure.SPACING - (k - 1) * Pure.SPACING, Z = staff.Z, Face = 0 }
-	elseif job == "Medic" then
-		-- between the van and the wall, off the walk from the StretcherSpot to the side door (either side of it)
-		local stretcher = B.BAY_AMBULANCE.Stretcher
-		local off = 3 + math.floor((k - 1) / 2) * 2.2
-		return { X = stretcher.X + 0.9, Z = stretcher.Z + (if k % 2 == 1 then -off else off), Face = 270 }
-	elseif job == "Porter" then
-		local landing = B.LANDING
-		return { X = landing.X - landing.Size / 2 - 2 - (k - 1) * 2.4, Z = landing.Z + 1.5, Face = 270 }
-	end
-	return { X = rooms.Supply.X0 + 5 + (k - 1) * 2.3, Z = rooms.CorridorA.Z0 + 2.5, Face = 180 } -- a Maker
+-- Where nurse number `index` of a job waits when there's nothing to do: Logic/Building.nurseSlot (all of it data
+-- there, derived from the rooms; Joshua 2026-11-17: "nurses look like theyre in the middle of nowhere"):
+--   Maker         beside the supply shelf (either end of the Bandage shelf)
+--   Cheerer       between the waiting seats, facing the room
+--   Receptionist  behind the reception desk (RECEPTION.Staff first), facing the lobby
+--   Healer, Medic, Porter (and any other job, and those past their own place's slots)
+--                 the nurses' station at corridor A's far end, looking down it at the bays
+-- `counts` (nurses per job at this plot) keeps the jobs that share the station off each other's slots.
+function Pure.home(job: string, index: number, counts: { [string]: number }?): Spot
+	return BuildingLogic.nurseSlot(job, index, counts)
 end
 
 -- Where a Healer or Medic stands to help the patient on `bay` (a Logic/Building bay): BEDSIDE beside its DoctorSpot,
@@ -1158,8 +1139,17 @@ local function at(work: Work, spot: Spot): CFrame
 	return CFrame.lookAt(ground, ground + flat(origin:VectorToWorldSpace(Vector3.new(dx, 0, dz))))
 end
 
+-- Nurses per job at this plot, so the jobs that wait at the nurses' station take distinct slots (Pure.home).
+local function headCount(work: Work): { [string]: number }
+	local counts: { [string]: number } = {}
+	for _, w in work.Workers do
+		counts[w.Job] = (counts[w.Job] or 0) + 1
+	end
+	return counts
+end
+
 local function homeFor(work: Work, job: string, index: number): CFrame
-	return at(work, Pure.home(job, index))
+	return at(work, Pure.home(job, index, headCount(work)))
 end
 
 -- Beside a bay's DoctorSpot (Pure.bedside), facing the bed; nil for an unknown bay.
@@ -1612,7 +1602,7 @@ local function receptionistLoop(work: Work, w: Worker)
 end
 
 -- A Medic goes to the 🚑/🚁 bay patient waiting for the doctor (Pure.urgentRow) and helps it when it can (its exam, or
--- a supply the tray holds); with none, it waits in the A&E yard.
+-- a supply the tray holds); with none, it waits at the nurses' station.
 local function medicLoop(work: Work, w: Worker)
 	local nextAt = os.clock() + everyFor(work, w) * rng:NextNumber(0.25, 0.6)
 	local nextIdle = os.clock() + rng:NextNumber(3, 6)

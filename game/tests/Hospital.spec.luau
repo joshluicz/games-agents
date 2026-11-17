@@ -1187,6 +1187,38 @@ T.describe("Hospital (the built world)", function()
 		end
 	end)
 
+	test(
+		"the nurses' station: a three-part desk on Logic/Building's NurseDesk, from Lv 1, no sign or emblem",
+		function()
+			for _, level in { 1, 5 } do
+				local building = build(level)
+				local station = building:FindFirstChild("NurseStation")
+				expect(station ~= nil).toBe(true)
+				expect(station:GetAttribute("Since")).toBe(1)
+				expect(station:GetAttribute("Storey")).toBe(0)
+				local parts = world.parts(station)
+				expect(#parts).toBe(3)
+				local desk = station:FindFirstChild("Desk")
+				local r, y0, y1 = boxOf(desk)
+				local want = B.NURSE_STATION.Desk
+				expect(near(r.X0, want.X0) and near(r.X1, want.X1) and near(r.Z0, want.Z0) and near(r.Z1, want.Z1)).toBe(
+					true
+				)
+				expect(near(y0, 0)).toBe(true)
+				expect(near(y1, HospitalBuilder.Pure.NURSE_DESK)).toBe(true)
+				expect(solid(desk)).toBe(true)
+				for _, p in parts do
+					if p ~= desk then
+						expect(solid(p)).toBe(false) -- the countertop and the clipboard are walk-through
+					end
+				end
+				for _, d in station:GetDescendants() do
+					expect(d.ClassName ~= "SurfaceGui" and d.ClassName ~= "BillboardGui").toBe(true)
+				end
+			end
+		end
+	)
+
 	test("everything solid at walking height is inside Logic/Building.obstacles (reach tells the truth)", function()
 		own({}) -- every bought room's door shut: those (and only those) are solid outside obstacles
 		local bad = {}
