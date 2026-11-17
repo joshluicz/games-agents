@@ -28,6 +28,9 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
         HUD side rails, navy panels, the tutorial floor beam with Skip and Replay, blocky creatures.
       - 1439 specs pass.
       - Progression v2 ships with it.
+- [x] **Claude:** the wide hospital (Joshua: "cramped... wider... a little taller per storey"). The building is 32 wide
+      (was 23), with storeys 12 / 11 (were 11 / 9). Plots are 80 (were 70). Run in Studio
+      (`logs/playtests/2026-11-17-wide-hospital.md`). 1450 specs pass. The Building is at 158 of its 160-part budget.
 - [ ] **Joshua + brother:** play it in Studio (or a private server), then **both say yes** before publishing (red
       line 4). Pick the First-Aid Stand icon and Golden Hour's icon (`2026-11-17-look-overhaul.md`, "Still open").
 - [ ] **Claude, next:**
@@ -49,6 +52,18 @@ and contracts: `docs/plan/2026-11-16-creature-clinic-build-plan.md`. Slices 1-2 
 Joshua: code, accounts, money · Brother: world, feel, players (`context/team.md`).
 
 ## Recent sessions
+- **2026-11-17 (later, Joshua's PC, Claude + a 7-agent workflow). The wide hospital.**
+  - Joshua: "much better but the hospital is cramped. it should be wider. and a little taller per storey else the head
+    will be too near".
+  - Claude's calls:
+    - x ±16 (32 wide), depth unchanged;
+    - storeys 12 / 11 (slab tops 12, 23, 34, 45);
+    - plots 70 -> 80, so the side rooms keep their size;
+    - the extra width goes to space (beds about 3 apart, longer stairs), with no gameplay change.
+  - The workflow had Fable on the foundation, integrator, reviewers and fixer. The reviewers found 8 issues and all
+    were fixed. It was merged by fast-forward (`af26994`).
+  - Studio: a clean boot, Lv 2 and Lv 5 look right, and the wards have headroom.
+  - Decor slot 2 moved from the porch to the front pad.
 - **2026-11-17 (Joshua's PC, Claude + workflows, Joshua away). Progression v2, the Market fix and the look overhaul,
   all merged and run in Studio.**
   - **Progression v2** merged (`c9e4d1c`). Its Fable review led to the Market save fix (`3bf1fc3`): a sold nurse can't
