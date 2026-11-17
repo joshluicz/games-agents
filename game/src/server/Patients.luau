@@ -10,7 +10,8 @@
 --      (Levels.queueCap, never past Config.MaxQueue = 3) are in the waiting room. Patients in a bay don't count: the
 --      open bays are the level's throughput. It walks in from the gate (PatientSpawn) through the front doors
 --      (Logic/Building.DOORS.Front), stops at reception (RECEPTION.Stop), then sits on a free WaitSeat_<n> with its
---      symptom bubble ("😷 cough cough") over it.
+--      symptom bubble ("😷 cough cough") over it, even when a bay stands free (Joshua, 2026-11-17); every seat taken:
+--      it waits standing.
 --      Who comes, in order: a regular whose story beat is due (Story.dueRegular; their own fixed Case), Today's
 --      Visitor (Daily.visitorFor, a ⭐ on the badge), otherwise any species that may come here, weighted toward night
 --      patients at night and new Book pages. Its CASE is rolled each visit from its wing's pool (Data/Cases.POOLS,
@@ -24,7 +25,8 @@
 --      night (and in 🦉 Night Owl's morning); 🌻 Sunny from R1; 🚁 Sky only by air ambulance (Pure.wingOpen).
 --   2. To a bay. Every tick each usable empty bay (an ExamBay_<id> under the Building or Rooms whose
 --      Logic/Building.bayOpen holds) takes the checked-in patient who has waited longest and fits it
---      (Logic/Visit.nextForBay: an X-ray case only the X-ray bay, every other case only an exam bay). It gets up,
+--      (Logic/Visit.nextForBay: an X-ray case only the X-ray bay, every other case only an exam bay), once it has sat
+--      Config.Visit.SeatSeconds (Pure.mayCall; a 🚑/🚁 patient at once, straight from its door). It gets up,
 --      walks there (Logic/Building.path: round the walls and through open doors, never a shut one) and sits on the
 --      bay's Bed.
 --   3. Examine. The bay's BayPrompt (on its DoctorSpot, tag TreatPrompt) says "Examine": Treatment.open Kind "Exam"
@@ -239,6 +241,8 @@ K.ITEM_PATIENCE = Config.Treat.ItemPatience -- each plan step given (and the exa
 K.BAY_REFILL = math.clamp(tonumber(Config.Visit and (Config.Visit :: any).BayRefill) or 1, 0, 1)
 K.ROOM_BED_FOOT = 1.6 -- a room bed's foot spot: this far past the mattress (as a ward bed's)
 K.CHECK_IN_SECONDS = 0.6 -- a patient stands at reception this long before it sits down
+-- ... and sits in the waiting room at least this long before it's called to a bay, even with one free (Pure.mayCall)
+K.SEAT_SECONDS = math.max(tonumber(Config.Visit and (Config.Visit :: any).SeatSeconds) or 3, 0)
 K.URGENT_HEAD = 1e6 -- seconds an urgent patient counts as having waited already: it takes the next free bay
 K.LAYOUT_SECONDS = 3 -- the bays, stations and ward beds are looked up again at least this often
 K.RAY_UP = 3.5 -- the floor under a point is found with a ray from this far above that floor's slab
@@ -384,6 +388,9 @@ type Patient = {
 	Phase: string,
 	CheckedIn: boolean, -- past reception (or in by the A&E door, or down from the roof): it may take a bay
 	Since: number, -- os.clock() it checked in (urgent: URGENT_HEAD earlier): who takes the next bay
+	-- os.clock() it first settled in the waiting room (sat down, or stood with every seat taken); nil = not yet. A
+	-- bay may call it K.SEAT_SECONDS later (Pure.mayCall). Kept all visit: one whose bay closed needn't sit again
+	SeatedAt: number?,
 	BaySince: number, -- os.clock() it sat on its bay bed: who is the front patient
 	Seat: number?,
 	OnSeat: boolean,
@@ -853,6 +860,22 @@ function Pure.assign(free: { { Id: string, Kind: string } }, waiting: { any }): 
 		end
 	end
 	return out
+end
+
+-- Whether a bay may call this patient now (Joshua, 2026-11-17: "when the patient first arrives, he should sit down
+-- at the chair"). A 🚑/🚁 patient (`urgent`) always: it goes straight to its bay. Anyone else only once it has
+-- settled in the waiting room (`seatedAt`: os.clock() it sat down, or stood with every seat taken; nil = not yet)
+-- at least `seconds` ago (Config.Visit.SeatSeconds), even with a bay free. Settled once counts for the whole visit,
+-- so a patient whose bay closed may take the next free bay at once.
+function Pure.mayCall(now: number, seatedAt: number?, urgent: boolean, seconds: number): boolean
+	if urgent == true then
+		return true
+	end
+	if type(now) ~= "number" or type(seatedAt) ~= "number" then
+		return false
+	end
+	local wait = if type(seconds) == "number" and seconds == seconds then math.max(seconds, 0) else 0
+	return now - seatedAt >= wait
 end
 
 -- The bay patients who need the doctor, the front first (Logic/Visit.front, then the next, ...). rows = { { Id,
@@ -2419,10 +2442,13 @@ local function arrive(p: Patient): boolean
 	return alive(p)
 end
 
--- To its seat, or straight to a bay: the free bays are handed out here and now (assignBays, the same rule as every
--- tick: the longest wait first), so a patient who has just checked in while a bay stands free never walks to the
--- waiting room and back (a 🚑 one goes from the A&E door to its bay, a 🚁 one from the lift to the X-ray bay). A
--- patient whose bay closed gets up first. No free seat: it waits standing where it is.
+-- To its seat (Joshua, 2026-11-17: "when the patient first arrives, he should sit down at the chair"): a walk-in
+-- sits down first, even with a bay free, and a bay calls it no sooner than Config.Visit.SeatSeconds after it sat
+-- (Pure.mayCall in assignBays; patience drains at the waiting room's rate meanwhile). The free bays are handed out
+-- here and now to those who may go (the same rule as every tick: the longest wait first), so a 🚑 patient goes from
+-- the A&E door straight to its bay and a 🚁 one from the lift to the X-ray bay, and one whose bay closed (it sat
+-- once already) takes another free bay without sitting again; it gets up first. No free seat: it waits standing
+-- where it is (settled from then on).
 local assignBays: (state: PlotState) -> ()
 local function findSeat(p: Patient): boolean
 	local state = p.Plot
@@ -2461,11 +2487,15 @@ local function findSeat(p: Patient): boolean
 			return false
 		end
 		p.OnSeat = true
+		p.NextIdle = os.clock() + rng:NextNumber(2.5, 4.5) -- it sits still a moment before its first little hop
 	end
 	if p.Phase ~= "Arriving" then
 		return alive(p)
 	end
 	p.Phase = "Seated"
+	if p.SeatedAt == nil then
+		p.SeatedAt = os.clock() -- settled: a bay may call it SEAT_SECONDS from now
+	end
 	setState(p, "Waiting")
 	if p.Regular and not p.Examined then
 		showSymptom(p) -- it said hello on the way in; now its symptom
@@ -3427,6 +3457,7 @@ local function spawnPatient(
 		Phase = "Arriving",
 		CheckedIn = false,
 		Since = math.huge,
+		SeatedAt = nil,
 		BaySince = math.huge,
 		Seat = nil,
 		OnSeat = false,
@@ -3915,7 +3946,42 @@ local function refreshLayout(state: PlotState, now: number)
 	end
 end
 
--- Each usable empty bay takes the checked-in patient who has waited longest and fits it (Pure.assign).
+-- Whether a bay may call this patient now: checked in and waiting (on its seat, standing in the waiting room, or
+-- still walking there), with no bay yet, and Pure.mayCall (it has sat SEAT_SECONDS; a 🚑/🚁 one at once).
+function U.canCall(p: Patient, now: number): boolean
+	return p.Bay == nil
+		and (p.Phase == "Seated" or (p.Phase == "Arriving" and p.CheckedIn))
+		and Pure.mayCall(now, p.SeatedAt, p.Urgent ~= "", K.SEAT_SECONDS)
+end
+
+-- THE step from the waiting room to a bay: calls patient `p` to bay `bayId`. Today the tick (assignBays) is its only
+-- caller; it checks everything itself, so a player's tap may call it too (any input: false = nothing changed). The
+-- patient is this plot's and U.canCall holds; the bay is built, open and empty (bayUsable) and fits its case
+-- (Logic/Visit.nextForBay: an X-ray case only the X-ray bay, every other case only an exam bay). Never yields: the
+-- patient's own thread gets it up and walks it there (waitSeated -> goToBay; one still walking to its seat turns
+-- round at the seat's front: findSeat).
+function U.callToBay(state: PlotState, p: Patient, bayId: string): boolean
+	if type(p) ~= "table" or p.Plot ~= state or state.ById[p.Id] ~= p or type(bayId) ~= "string" then
+		return false
+	end
+	local info = Building.bay(bayId)
+	if not info or state.BayOf[bayId] ~= nil or not bayUsable(state, bayId) or not U.canCall(p, os.clock()) then
+		return false
+	end
+	if Visit.nextForBay({ { Id = p.Id, Since = p.Since, Tool = p.Case.Tool } }, info.Kind :: any) ~= p.Id then
+		return false
+	end
+	p.Bay = bayId
+	state.BayOf[bayId] = p
+	p.Model:SetAttribute("Bay", bayId)
+	if p.Phase == "Seated" then
+		p.Phase = "ToBay"
+	end
+	return true
+end
+
+-- The automatic call (every tick, and as a patient checks in): each usable empty bay calls the patient who has waited
+-- longest and fits it (Pure.assign), among those U.canCall allows, through U.callToBay.
 assignBays = function(state: PlotState)
 	local free: { { Id: string, Kind: string } } = {}
 	for _, info in Building.BAYS do
@@ -3926,9 +3992,10 @@ assignBays = function(state: PlotState)
 	if #free == 0 then
 		return
 	end
+	local now = os.clock()
 	local waiting: { any } = {}
 	for p in state.All do
-		if p.Bay == nil and (p.Phase == "Seated" or (p.Phase == "Arriving" and p.CheckedIn)) then
+		if U.canCall(p, now) then
 			table.insert(waiting, { Id = p.Id, Since = p.Since, Tool = p.Case.Tool })
 		end
 	end
@@ -3938,12 +4005,7 @@ assignBays = function(state: PlotState)
 	for _, pick in Pure.assign(free, waiting) do
 		local p = state.ById[pick.Patient]
 		if p then
-			p.Bay = pick.Bay
-			state.BayOf[pick.Bay] = p
-			p.Model:SetAttribute("Bay", pick.Bay)
-			if p.Phase == "Seated" then
-				p.Phase = "ToBay"
-			end
+			U.callToBay(state, p, pick.Bay)
 		end
 	end
 end

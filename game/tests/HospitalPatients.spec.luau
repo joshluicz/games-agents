@@ -2,10 +2,10 @@
 -- The visit's server rules (Real Clinic build plan, Task 4; Progression v2 build plan §C T7): the PURE-BEGIN..PURE-END
 -- block of Server/Patients, loaded on its own (the rest of the module needs Roblox) against the real Logic/Recipe,
 -- Logic/Hospital, Logic/Visit, Logic/Building, Shared/Config (tests/config.luau) and the Lune-safe Data (Cases, Items,
--- Tools, Levels, Wings). Which case comes (Review Focus 1), who takes which bay, the front patient, re-seating after a
--- rebuild (Review Focus 2), the owner leaving (Review Focus 4), the ward stay and its pick, escort and pay, the urgent
--- plan and its 🧊 pad, patience and timers, variants and wing gates. The session side is TreatmentSessions.spec. Run
--- from game/ with the rest:  lune run tests/run
+-- Tools, Levels, Wings). Which case comes (Review Focus 1), who takes which bay and when (a walk-in sits first:
+-- Pure.mayCall), the front patient, re-seating after a rebuild (Review Focus 2), the owner leaving (Review Focus 4),
+-- the ward stay and its pick, escort and pay, the urgent plan and its 🧊 pad, patience and timers, variants and wing
+-- gates. The session side is TreatmentSessions.spec. Run from game/ with the rest:  lune run tests/run
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
@@ -242,6 +242,78 @@ T.describe("Patients.Pure: bays and the front patient", function()
 			{ Id = 9, Since = 50 - 1e6, Tool = "Light" },
 		}
 		expect(P.assign({ { Id = "4", Kind = "Exam" } }, waiting)).toEqual({ { Bay = "4", Patient = 9 } })
+	end)
+
+	-- Joshua, 2026-11-17: "when the patient first arrives, he should sit down at the chair".
+	test("mayCall: a walk-in sits Config.Visit.SeatSeconds first, even with a bay free", function()
+		local seconds = Config.Visit.SeatSeconds
+		expect(seconds).toBe(3)
+		expect(P.mayCall(100, nil, false, seconds)).toBe(false) -- still walking in to its seat: never
+		expect(P.mayCall(100, 100, false, seconds)).toBe(false) -- just sat down
+		expect(P.mayCall(102.9, 100, false, seconds)).toBe(false)
+		expect(P.mayCall(103, 100, false, seconds)).toBe(true)
+		expect(P.mayCall(160, 100, false, seconds)).toBe(true)
+	end)
+
+	test("mayCall: a 🚑/🚁 patient goes straight to its bay, seated or not", function()
+		expect(P.mayCall(100, nil, true, 3)).toBe(true)
+		expect(P.mayCall(100, 100, true, 3)).toBe(true)
+		expect(P.mayCall(100, nil, true, 1e9)).toBe(true)
+	end)
+
+	test("mayCall: settled once counts all visit (its bay closed: the next free bay at once, no second sit)", function()
+		-- SeatedAt is kept when a bay closes under it (Phase Requeue), so the old sit still counts.
+		expect(P.mayCall(500, 100, false, 3)).toBe(true)
+	end)
+
+	test("mayCall: junk never calls; a junk or negative wait counts as no wait", function()
+		expect(P.mayCall(100, "100", false, 3)).toBe(false)
+		expect(P.mayCall(nil, 100, false, 3)).toBe(false)
+		expect(P.mayCall(100, 100, "yes", 3)).toBe(false) -- only `true` is urgent
+		expect(P.mayCall(100, 100, false, nil)).toBe(true)
+		expect(P.mayCall(100, 100, false, 0 / 0)).toBe(true)
+		expect(P.mayCall(100, 100, false, -5)).toBe(true)
+		expect(P.mayCall(100, 100, false, 0)).toBe(true) -- SeatSeconds = 0: called the moment it sits
+	end)
+
+	test("a tick (assignBays): only those a bay may call are handed out, the longest wait first", function()
+		local SEAT = Config.Visit.SeatSeconds
+		-- Since = checked in; SeatedAt = sat down (nil: still walking to its seat). Lv 1: bays 1 and 2.
+		local patients = {
+			{ Id = 1, Since = 10, SeatedAt = 12, Urgent = false, Tool = "Stethoscope" },
+			{ Id = 2, Since = 13, SeatedAt = 15, Urgent = false, Tool = "Light" },
+			{ Id = 3, Since = 16, SeatedAt = nil, Urgent = false, Tool = "Magnifier" },
+		}
+		local function tick(now: number, free: any): any
+			local waiting = {}
+			for _, row in patients do
+				if P.mayCall(now, row.SeatedAt, row.Urgent, SEAT) then
+					table.insert(waiting, { Id = row.Id, Since = row.Since, Tool = row.Tool })
+				end
+			end
+			return P.assign(free or bays(1), waiting)
+		end
+		-- Both bays free, nobody has sat long enough: nobody is called, so each one sits down first.
+		expect(tick(14)).toEqual({})
+		-- Patient 1 has sat 3 s: bay 1. Patient 2 sat 2 s ago, so bay 2 stays empty for now.
+		expect(tick(15)).toEqual({ { Bay = "1", Patient = 1 } })
+		-- Later both may go; the longest wait (Since) takes the first bay; 3 is still walking in.
+		expect(tick(18)).toEqual({ { Bay = "1", Patient = 1 }, { Bay = "2", Patient = 2 } })
+		-- A 🚑 patient that just came in by the A&E door (URGENT_HEAD: counts as waiting much longer) goes first,
+		-- without sitting.
+		table.insert(patients, { Id = 9, Since = 19 - 1e6, SeatedAt = nil, Urgent = true, Tool = "Light" })
+		expect(tick(19, { { Id = "2", Kind = "Exam" } })).toEqual({ { Bay = "2", Patient = 9 } })
+	end)
+
+	test("the tutorial's first patient sits SeatSeconds, then takes bay 1 ('PATIENT IN BAY 1')", function()
+		local row = { Id = 1, Since = 5, Tool = "Stethoscope" }
+		local function call(now: number, seatedAt: number?): any
+			local waiting = if P.mayCall(now, seatedAt, false, Config.Visit.SeatSeconds) then { row } else {}
+			return P.assign(bays(1), waiting)
+		end
+		expect(call(5, nil)).toEqual({}) -- checked in, on its way to a seat
+		expect(call(7, 6)).toEqual({}) -- on its seat
+		expect(call(9, 6)).toEqual({ { Bay = "1", Patient = 1 } })
 	end)
 
 	test("the Cozy Ward's two bays work from Lv 1 once the room is owned", function()

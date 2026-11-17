@@ -192,7 +192,9 @@ Config.MiniGame = {
 -- BayRefill: the share of its patience a patient gets back when it sits down on a bay bed. A visit is three beats
 -- now (about 25 s for one doctor), so the wait in the waiting room (x0.5) must not eat the wait for the doctor too:
 -- a patient who reaches a bay starts that wait full.
-Config.Visit = { ExamsGlow = 3, BayRefill = 1 }
+-- SeatSeconds: every walk-in sits down in the waiting room first (Joshua, 2026-11-17) and is called to a bay no
+-- sooner than this after it sat, even with a bay free. 🚑/🚁 patients go straight to their bay (Server/Patients).
+Config.Visit = { ExamsGlow = 3, BayRefill = 1, SeatSeconds = 3 }
 
 -- The dispensary (Station_Remedy; design §9): the dispensing card offers up to Options medicines that bay patients
 -- still need (the oldest first), then shows Bottles bottles to pick from (the right one and Bottles - 1 others).
@@ -397,20 +399,24 @@ Config.Look = {
 
 -- The tutorial's guide (UI/Wayfinder, UI/Tutorial, Server/Tutorial; tutorial-ux §5.5).
 Config.Tutorial = {
-	-- the guide beam
-	BeamLift = 1.75,
-	BeamEndLift = 0.25,
-	BeamWidth = 1.6,
+	-- the guide beam: a flat strip ON the floor from your feet to the target (Joshua 2026-11-17: the arrows sit on it)
+	BeamLift = 0.15, -- the strip floats this far over the floor all the way: your feet, every knee, the target's base
+	BeamWidth = 2.8, -- the strip's darker edges (the wide layer)
+	BeamCoreWidth = 2, -- its brighter middle (a narrower layer on top), so it reads as a path
 	BeamTextureLength = 2,
 	BeamSpeed = 1.5,
 	BeamMaxSpans = 4,
-	BeamTexture = "", -- our own chevron strip once uploaded ("" = a solid tinted strip)
-	NearStuds = 6, -- the beam and the chevrons hide this close to the target (flat distance)
-	-- the floor chevrons (support)
-	ChevronStuds = 4,
-	ChevronGap = 6,
-	MaxChevrons = 6,
-	FirstChevron = 3,
+	BeamTexture = "", -- an optional texture id for the strip's middle, e.g. "rbxassetid://123" ("" = solid colour)
+	NearStuds = 6, -- the strip and the arrows hide this close to the target (flat distance)
+	-- the floor arrows, lying on the strip (support)
+	ChevronStuds = 2.8, -- an arrow's length, tail to tip (its outline adds a little)
+	ChevronWidth = 2.2, -- its head's width
+	ChevronGap = 5, -- studs between arrows along the route
+	MaxChevrons = 6, -- 6 parts each: keep MaxChevrons x 6 within a few dozen
+	FirstChevron = 3, -- none closer to your feet than this
+	ChevronHop = 0.6, -- the march: an arrow hops this far toward the target as the pulse passes (none when calm)
+	ChevronPulse = 1.8, -- seconds between pulses
+	ChevronWave = 24, -- studs between pulses along the row (the pulse runs at ChevronWave / ChevronPulse studs a second)
 	GlowSeconds = 1.6, -- the glow's pulse
 	NudgeSeconds = 20, -- "Psst! Follow the arrows" (a hint, never shown as a number)
 	SuccessHold = 0.8, -- the tick beat before the next card
