@@ -128,8 +128,9 @@ exact list; a builder may tune names and icons but not add needles or blood.)**
 - **Night patients** come to every clinic at night, so their cases use only Lv 1 cases (Cough, Fever, Earache).
 - **Ambulance (A&E) patients** get a random case open at that clinic with at least 2 steps, padded with a 🧊 Ice pack
   if needed (replacing today's Potion/Plaster pad).
-- **Every creature species keeps its Patient ID** (the Book's key) and gets a new `Case` instead of its old
-  `Ailment` (mapping in §11). The species list, looks and Book are unchanged.
+- **Every creature species keeps its Patient ID** (the Book's key), its wing and its look. **A patient's case is
+  rolled each visit** from its wing's case pool, cut to the cases open at that clinic (§15 #2). The species list and
+  the Book are unchanged.
 
 ## 7. Tools, supplies, medicines
 
@@ -187,10 +188,9 @@ green band is wider (call).
 - **Lift and stairs** at the back, as now.
 
 ### 8.3 Upper floors
-- **F1 Wards** (Lv 2): recovery beds for Stay cases (`BedSpot_<n>`, today's triage, escort and lift code), and the
-  **Cozy Ward** (bought room) as a room on this floor.
-- **F2** (Lv 4): the staff room and a second ward wing (more Stay beds). (call: it was the Pharmacy; the dispensary
-  is now on the ground floor.)
+- **F1 Injury Ward** (Lv 2): recovery beds for Stay cases (`BedSpot_<n>`, today's triage, escort and lift code).
+- **F2 Rest Ward** (Lv 3) and **F3 staff room** with more Rest beds (Lv 4) (§15 #3). The Cozy Ward is on the ground
+  floor (§15 #5).
 - **Roof** (Lv 5): the helipad, as now.
 - The hot tub and its Soak game go away; the Bath Room's bath replaces it.
 
@@ -224,9 +224,9 @@ green band is wider (call).
 | Lv | Name | Open bays | Opens | Plan steps |
 |---|---|---|---|---|
 | 1 | Clinic | 2 | ground floor, supply shelf (plaster, ice), dispensary | 1 |
-| 2 | Medical Centre | 3 | F1 Wards, the A&E ambulance, bandages | 2 |
-| 3 | Hospital | 4 | the X-ray room and casts | 3 |
-| 4 | General Hospital | 5 | F2 | 3 |
+| 2 | Medical Centre | 3 | F1 Injury Ward, the A&E ambulance, bandages | 2 |
+| 3 | Hospital | 4 | the X-ray room and casts, F2 Rest Ward, the ward pick | 3 |
+| 4 | General Hospital | 5 | F3 staff room and more Rest beds | 3 |
 | 5 | City Hospital | 6 | the helipad | 3 |
 
 - The ⭐ gates, cash costs, spawn seconds and queue (3) stay as they are in `Data/Levels` (call). `Beds` becomes the
@@ -245,10 +245,9 @@ green band is wider (call).
   pruned by `Daily.prune`, which already exists.
 - No `Schema.VERSION` bump is needed unless a builder changes a saved field's shape. If one does, bump to 5 and
   migrate in `Schema.reconcile` the way v3 -> v4 did.
-- **Patient -> case mapping** (call): each species takes the case nearest its old ailment (Hiccups/Sneezes -> Cough,
-  Cough -> Cough, Bump -> Bumped head, Scrape -> Cut knee, the Bath wing -> Sore muscles, Winter -> Chills, the Sunny
-  wing -> Itchy rash / Sprained ankle, Sky -> Broken leg, LostGlow -> Fever). The builder writes the exact table.
-  Regulars keep their stories; their own recipes become plans from the table above.
+- **Cases by wing** (call; §15 #2): a species no longer has one ailment. Its wing has a case pool and each visit
+  rolls one case from it that the clinic can treat (its level and rooms). Regulars keep their stories and get one
+  fixed case each from the table above.
 
 ## 12. Words
 - Every player-visible "cure" becomes "treat": the goal card ("Treat 3"), mail goals, the tutorial cards, badge
@@ -271,7 +270,56 @@ Seven short cards, the floor beam pointing at each target: (1) welcome, Doctor; 
   lands; then the full run: a fresh save through the tutorial, Lv 1 to Lv 5, every case once, the dispensary, a ward
   stay, the ambulance, night, a phone-sized view.
 
-## 15. Left to the builder
+## 15. Calls made after the builder check (Claude, 2026-11-17)
+A fresh reviewer read this design as a builder and asked five questions. Joshua delegated the rest ("your call for
+the rest"), so these are Claude's calls. Where they disagree with an earlier section, they win.
+
+1. **Nurses.**
+   - **Healers and Medics can examine** (no game, no tip; the case is revealed) **and hand over anything in the nurse
+     tray.**
+   - **Makers stock supplies into the tray** (plaster, ice, bandage, cast, bath foam, hot chocolate). They never
+     dispense.
+   - **Medicine steps always need the player**, until the future Pharmacist job (Joshua: "for now the player
+     dispenses"). This keeps the player at the heart of every visit while nurses still clear exams and supplies.
+   - **Abilities are special.** Miracle (`CureLine`) and the other abilities may finish whole visits, medicine
+     included, because they are rare and earned.
+   - Nurse prices and ability numbers are unchanged; re-tune after play data.
+2. **Cases roll per visit from the wing's pool**, filtered by what the clinic can treat (level and rooms):
+
+   | Wing | Pool |
+   |---|---|
+   | Starter | Cough, Fever, Cut knee, Bumped head, Earache (Lv 1) + Sprained ankle, Sore throat, Itchy rash (Lv 2) + Broken arm (Lv 3) |
+   | Night | Cough, Fever, Earache |
+   | Bath | Sore muscles (+ the Starter pool) |
+   | Winter | Chills (+ the Starter pool) |
+   | Sunny (R1) | Itchy rash, Sprained ankle, Cut knee |
+   | Sky (R2, heli) | Broken leg |
+
+   This puts Joshua's broken arm in the everyday game from Lv 3 and keeps the Book sets as they are (no species gets
+   gated by level). Data/AilmentActing is re-keyed by case.
+3. **Departments.**
+   - **Hydro** becomes the **Bath Room** (the Bath station and Sore-muscles patients).
+   - **Pharmacy** becomes the **supply shelf and dispensary** (Makers stocking supplies; the future Pharmacist).
+   - **Wards** stays.
+   - No specialty is left without a home.
+   - **The floors:** F1 is the **Injury Ward** (Lv 2: sprains, broken bones). F2 is the **Rest Ward** (Lv 3: fever,
+     chills). F3 is the **staff room** with more Rest beds (Lv 4). The roof keeps the helipad (Lv 5).
+   - **The Lv 3 floor pick** stays, as "Injury Ward or Rest Ward?" for a Stay patient, with the same +10% for the
+     right pick and the Receptionist's instant pick. The §8.3 floor list and the §10 "Opens" column follow this.
+4. **Release order.** The live game is Update 1 (schema v3). Progression v2, the look overhaul and the wide hospital
+   are merged but unpublished.
+   - **This update joins that pending release**, so the hot tub and the Pharmacy crafting are simply removed.
+   - **Saves:** live v3 saves migrate through the existing v3 -> v4 step. v4 saves (Studio play without FreshSave)
+     load as they are.
+   - **Building and merging:** it is built in a worktree branch and merged into the working branch only when it is
+     green and Studio-tested, so the working branch stays publishable at every moment.
+   - If Joshua publishes the current build first, nothing breaks: none of the removed features were saved, and
+     `Pharmacy2` keeps its id.
+5. **The Cozy Ward** moves to the **ground floor** and **adds 2 exam bays** that work from Lv 1 (`ExamBay_W1`,
+   `ExamBay_W2`). Buying it still means more patients at once, as its beds did before. Its price and gate are
+   unchanged.
+
+## 16. Left to the builder
 - Exact coordinates, room sizes and the furniture inside the budget.
 - Mini-game tuning numbers (within today's minimum-time rules).
 - Colours and icons within the palette and the no-cross rule.
