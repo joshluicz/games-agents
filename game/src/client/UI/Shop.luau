@@ -1,18 +1,25 @@
 --!strict
 -- Shop (build plan Task 6): spend cash on ⚡ Upgrades, 🏠 Rooms and 🌸 Decor, and place decor in your rooms.
--- Depth update (T5): the 🏥 Hospital tab, your hospital level and the next one (what it costs, what it unlocks,
--- Level up), and rooms that need a higher level ("🏥 Lv 3", which leads to the Hospital tab).
+-- Depth update (T5): the Hospital tab, your hospital level and the next one (what it costs, what it unlocks, Level
+-- up), and rooms that need a higher level (their note says "Needs 🏥 Lv 3"; a tap leads to the Hospital tab).
 --   init(ctx)   opens on ctx.fire("Open", "Shop", tab?) with tab "Upgrades" | "Rooms" | "Decor" | "Hospital"
 --   Shop.upgradeButton(upgradeId): TextButton?   that upgrade row's buy button (UI/Tutorial points at it)
 --   Shop.tabButton(tabId): TextButton?           a tab ("Upgrades" | "Rooms" | "Decor" | "Hospital")
 --   Shop.levelUpButton(): TextButton?            the Hospital tab's Level up button (for pointers)
---   Shop.Pure                                    the pure helpers below (tests/BranchUI.spec loads the block)
--- Progression v2 (T5, build plan §C): gated upgrades show "🏥 Lv 2" (tap: the Hospital tab) or "🏢 R4" (Logic/Progress
--- .canBuyUpgrade); the level card lists the departments open at your level (not nurse slots); and the 🏥 tab has a
--- calm 🏢 Branch card: at hospital Lv 5 "🏢 New branch" with its cost and "Look 👀" (→ Open("Branch", "Open"), the
--- keep/reset screen), and once you have branches (or a reward waits) 🃏 🌳 🎨 buttons into UI/BranchPanel plus a line
--- for a card to pick or tree points to spend. No dot, shine or breathing for "you can open a branch" (red line 3):
--- the 🏥 tab's dot is a level-up you can afford or a branch reward to claim (Hud.shopNews.Branch).
+--   Shop.Pure                                    the pure helpers below (tests/BranchUI.spec and tests/Agency.spec
+--                                                load the block)
+-- THE ENTRY POINTS (who opens which tab). Every one is the bus "Open" with a tab name; a tab that is still hidden
+-- (R0 below) is shown first, then selected, and stays shown:
+--   · the HUD's 🛒 door: ctx.fire("Open", "Shop", shopTab) with Hud's shopTab ("Rooms" | "Decor" | "Hospital" | nil,
+--     the tab its dot is about; nil = the tab you had). T2's level badge uses the same path with "Hospital":
+--     ctx.fire("Open", "Shop", "Hospital") opens the Shop straight on the Hospital tab, whatever the save
+--   · the tutorial: "Upgrades" · a room or upgrade gated by the hospital level: its tap selects "Hospital"
+-- Progression v2 (T5, build plan §C): gated upgrades say Logic/Progress.canBuyUpgrade's gate in their note ("Needs
+-- 🏥 Lv 2" opens the Hospital tab on a tap; "Needs 🏢 R4" just says so); the Hospital tab has a calm Branch card: at
+-- hospital Lv 5 "New branch" with its cost and Look (→ Open("Branch", "Open"), the keep/reset screen), and once you
+-- have branches (or a reward waits) Quiet links into UI/BranchPanel plus a line for a card to pick or tree points to
+-- spend. No dot, shine or breathing for "you can open a branch" (red line 3): the Hospital tab's dot is a level-up
+-- you can afford or a branch reward to claim (Hud.shopNews.Branch).
 -- Every price, lock and level shown here is read from the Snapshot and Shared/Data, for display only. Buying calls
 -- Purchase(kind, id), placing calls PlaceDecor(slotKey, decorId?) and levelling up calls LevelUp(); the server
 -- checks everything and answers (ok, message), which is shown as a toast (a level-up's yes is the server's Celebrate
@@ -20,12 +27,21 @@
 -- server's next Snapshot.
 -- Bus: fires "Purchased" (kind, id) and "DecorPlaced" (slotKey, decorId?) after the server says yes (a level-up is
 -- kind "Level", id "<new level>").
--- Look (the look overhaul's template, look build plan §B8; ux audit §3.2-3.3): UI/Modal's navy header with the
--- "💰 726" meta chip, Modal.tabs down the left, and tinted cards on flat paper. Each row: a neutral icon tile (Well),
--- the name, one info line and one action. Buy and Level up are Primary (orange, never shining: nothing loud points
--- at spending); "can't yet" is the grey Disabled look with the gate on it ("🏥 Lv 3", "⭐ 12", the price); Place is
--- Secondary; done is a quiet "✅". Colour means one thing: the hospital ladder's gold (now) and green (done). Nothing
--- here is Robux: every price is in-game 💰.
+-- THE CALM UI (docs/plan/2026-11-17-ui-direction.md §4 #7, R0; Joshua, memory-20261117-007 and -006):
+--   R0  only what you can use now (Pure.visible): Upgrades always; Rooms once a room's gates are met (or one level
+--       away) or you own one; Decor once you can afford the cheapest or own one; Hospital from Lv 2, once the next
+--       level's ⭐ is met, or with a branch line (Lv 5). One tab showing = no tab column at all. Winter rooms aren't
+--       listed out of season. The Branch card only from Lv 5 (or with branches)
+--   Rows are a Kit.card with one Kit.artTile (the item's own Art from Shared/Data), the name (Kit.name) and ONE Soft
+--       fact in words ("3 beds · 2 decor spots"). The price button (Icons.unit("Cash", price)) is the only button:
+--       Primary when you can buy, the Disabled grey when short (a tap says how much more). A gate is the note
+--       (Icons.needs(3), "Needs ⭐ 25") and the button shows the State badge 🔒 alone. Done is a Quiet ✅
+--   The Hospital tab: the level now (its Art, name, a navy Kit.bar up the five levels, one fact line), the next level
+--       (its unlocks as calm chips that wrap on a phone, then what it asks: ⭐ and 💰 as two Units) and Level up (the
+--       view's one Primary; disabled it says why: "Needs ⭐ 15", or the price on grey)
+--   The header meta is your cash: modal.setMeta(Hud.format(cash), Icons.Unit.Cash)
+-- Buy and Level up are Primary (orange, never shining: nothing loud points at spending). Nothing here is Robux: every
+-- price is in-game 💰.
 
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -39,6 +55,7 @@ local ProgressLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Progres
 local RebirthLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Rebirth"))
 local TreeLogic = require(Shared:WaitForChild("Logic"):WaitForChild("Tree"))
 local Hud = require(script.Parent.Hud)
+local Icons = require(script.Parent.Icons)
 local Kit = require(script.Parent.Kit)
 local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
@@ -47,25 +64,34 @@ local Shop = {}
 
 ------------------------------------------------------------------------------------------------------------------
 -- Pure helpers (Progression v2): no Roblox services or types, only RebirthLogic and TreeLogic. tests/BranchUI.spec
--- loads the block between the PURE markers on its own, so keep it that way.
+-- loads the block between the PURE markers on its own, so keep it that way. The calm helpers read UI/Icons through
+-- Pure.use (the file hands it in below; a spec hands in the same file).
 ------------------------------------------------------------------------------------------------------------------
 -- PURE-BEGIN
 local Pure = {}
+
+local I: any = nil -- UI/Icons (Pure.use)
+
+function Pure.use(icons: any)
+	I = icons
+end
 
 export type BranchCard = {
 	Show: boolean, -- at hospital Lv 5, with branches, or a reward waiting
 	Title: string,
 	Sub: string,
-	Look: boolean, -- "Look 👀" (the keep/reset screen): at hospital Lv 5 only
-	Links: boolean, -- 🃏 🌳 🎨: once there's anything to see there
+	Look: boolean, -- "Look" (the keep/reset screen): at hospital Lv 5 only
+	Links: boolean, -- Cards, Tree, Themes: once there's anything to see there
 	Lines: { string }, -- a reward to claim: a card to pick, tree points to spend
 }
 
+-- The branch card's words. NewBranch, YourBranches and CardWaits keep the 🏢 / 🃏 tests/BranchUI.spec pins (T5's);
+-- the card draws its title without the emoji (Icons.words), the 🏢 being its art tile.
 Pure.TEXT = {
-	NewBranch = "🏢 New branch",
-	YourBranches = "🏢 Your branches",
-	Look = "Look 👀",
-	CardWaits = "🃏 A card to pick!",
+	NewBranch = "🏢 New branch", -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec; drawn as words)
+	YourBranches = "🏢 Your branches", -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec; drawn as words)
+	Look = "Look",
+	CardWaits = "🃏 A card to pick!", -- uirules: allow TypedEmoji, uirules: allow LeadEmoji (pinned by tests/BranchUI.spec)
 }
 
 local function count(value: any): number
@@ -93,7 +119,7 @@ function Pure.short(n: any): string
 	return commas(value)
 end
 
--- The 🏥 tab's branch card. It says what a branch costs and where to look, never "you can open one now".
+-- The Hospital tab's branch card. It says what a branch costs and where to look, never "you can open one now".
 function Pure.branchCard(state: any, cfg: any, treeData: any): BranchCard
 	local rebirth = if type(state) == "table" and type(state.Rebirth) == "table" then state.Rebirth else {}
 	local branches = count(rebirth.Count)
@@ -117,12 +143,12 @@ function Pure.branchCard(state: any, cfg: any, treeData: any): BranchCard
 		table.insert(lines, Pure.TEXT.CardWaits)
 	end
 	if spendable then
-		table.insert(lines, "🌳 " .. points .. (if points == 1 then " point" else " points") .. " to spend")
+		table.insert(lines, "🌳 " .. points .. (if points == 1 then " point" else " points") .. " to spend") -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec)
 	end
 	-- "Need": what a branch asks for, not a price (a rebirth starts ALL cash fresh; the Branch panel shows how much).
-	local sub = if atTop then "Need 💰" .. Pure.short(RebirthLogic.cost(branches, cfg)) else ""
+	local sub = if atTop then "Need 💰" .. Pure.short(RebirthLogic.cost(branches, cfg)) else "" -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec)
 	if branches > 0 then
-		sub = (if sub ~= "" then sub .. "  ·  " else "") .. "🏢 R" .. branches
+		sub = (if sub ~= "" then sub .. "  ·  " else "") .. "🏢 R" .. branches -- uirules: allow TypedEmoji (pinned by tests/BranchUI.spec)
 	end
 	return {
 		Show = atTop or branches > 0 or offer or spendable,
@@ -134,12 +160,14 @@ function Pure.branchCard(state: any, cfg: any, treeData: any): BranchCard
 	}
 end
 
--- A gated upgrade's button: "Needs 🏥 Lv 2" -> "🏥 Lv 2" (Logic/Progress.canBuyUpgrade's words).
+-- A gated upgrade's short gate: "Needs 🏥 Lv 2" -> "🏥 Lv 2" (Logic/Progress.canBuyUpgrade's words). Kept for
+-- tests/BranchUI.spec; the calm row shows the whole message as its note instead (Pure.gateNote).
 function Pure.gateText(message: string): string
 	return (string.gsub(message, "^Needs ", ""))
 end
 
--- A level's line on the Hospital card: its departments' icons, then 🩺 exam bays, 🛏️ ward beds and 📋 the plan's size.
+-- A level's icons line (departments, 🩺 bays, 🛏️ beds, 📋 plan size). Kept for tests/BranchUI.spec; the calm card
+-- says it in words instead (Pure.levelFacts).
 function Pure.levelLine(row: any, departments: any): string
 	local icons: { string } = {}
 	for _, deptId in (if type(row) == "table" and type(row.Departments) == "table" then row.Departments else {}) do
@@ -153,35 +181,242 @@ function Pure.levelLine(row: any, departments: any): string
 	local recipe = if type(row) == "table" then count(row.RecipeCap) else 0
 	return table.concat(icons, " ") .. "   🩺 " .. bays .. "   🛏️ " .. beds .. "   📋 " .. recipe
 end
+
+------------------------------------------------------------------------------------------------------------------
+-- The calm Shop (UI direction §4 #7, R0). Everything below reads UI/Icons through Pure.use.
+------------------------------------------------------------------------------------------------------------------
+
+Pure.TABS = { "Upgrades", "Rooms", "Decor", "Hospital" }
+
+local function plural(n: number, one: string, many: string): string
+	return tostring(n) .. " " .. (if n == 1 then one else many)
+end
+
+-- "3 beds · 2 decor spots": what a room adds, in words. `stations` is Data/Stations (their Names); a room's Adds
+-- (the Cozy Ward's "+2 exam bays") replaces its beds, which are the bays' own.
+function Pure.roomNote(room: any, stations: any): string
+	if type(room) ~= "table" then
+		return ""
+	end
+	local parts: { string } = {}
+	for _, stationId in (if type(room.Stations) == "table" then room.Stations else {}) do
+		local station = if type(stations) == "table" then rawget(stations, stationId) else nil
+		if type(station) == "table" and type(station.Name) == "string" then
+			table.insert(parts, station.Name)
+		end
+	end
+	if type(room.Adds) == "string" and room.Adds ~= "" then
+		table.insert(parts, room.Adds)
+	elseif count(room.Beds) > 0 then
+		table.insert(parts, plural(count(room.Beds), "bed", "beds"))
+	end
+	if count(room.DecorSlots) > 0 then
+		table.insert(parts, plural(count(room.DecorSlots), "decor spot", "decor spots"))
+	end
+	return table.concat(parts, " · ")
+end
+
+-- A level in words: "3 exam bays · 3 ward beds · 2-step plans" (beds and plans only once there are any).
+function Pure.levelFacts(row: any): string
+	if type(row) ~= "table" then
+		return ""
+	end
+	local parts = { plural(count(row.Bays), "exam bay", "exam bays") }
+	if count(row.Beds) > 0 then
+		table.insert(parts, plural(count(row.Beds), "ward bed", "ward beds"))
+	end
+	if count(row.RecipeCap) > 1 then
+		table.insert(parts, tostring(count(row.RecipeCap)) .. "-step plans")
+	end
+	return table.concat(parts, " · ")
+end
+
+-- The price on a button: "💰 300" (THE Unit glued to its number).
+function Pure.price(n: any): string
+	return I.unit("Cash", Pure.short(n))
+end
+
+-- What a Stars gate says: "Needs ⭐ 25".
+function Pure.needsStars(n: any): string
+	return "Needs " .. I.unit("Stars", Pure.short(n))
+end
+
+-- A row as the Shop draws it: its Style (Buy | Poor | Gate | Done | Place | Locked), the button's text and the one
+-- fact line. A gate is the note plus 🔒 alone on the button; the price button is the only button.
+export type RowView = { Style: string, Text: string, Note: string, Hidden: boolean }
+
+function Pure.upgradeRow(level: any, max: any, price: any, hint: any, gateOk: boolean, gateMessage: any): RowView
+	local have, top = count(level), count(max)
+	local hintText = if type(hint) == "string" then hint else ""
+	local step = if top > 1 then "Lv " .. math.min(have, top) .. "/" .. top else ""
+	local note = if step ~= "" and hintText ~= "" then step .. " · " .. hintText else step .. hintText
+	if price == nil then
+		return { Style = "Done", Text = I.State.Done, Note = "MAX · " .. hintText, Hidden = false }
+	end
+	if not gateOk then
+		return { Style = "Gate", Text = I.State.Locked, Note = tostring(gateMessage or ""), Hidden = false }
+	end
+	return { Style = "Buy", Text = Pure.price(price), Note = note, Hidden = false }
+end
+
+-- A room row in the server's order (Logic/Progress.canBuyRoom): built, out of season (not listed), the hospital level,
+-- the ⭐ gate, then the price. `cash` only picks Buy or Poor.
+function Pure.roomRow(room: any, state: any, stations: any): RowView
+	local s = if type(state) == "table" then state else {}
+	local owned = type(s.Rooms) == "table" and s.Rooms[room.Id] == true
+	if owned then
+		return { Style = "Done", Text = I.State.Done, Note = Pure.roomNote(room, stations), Hidden = false }
+	end
+	if room.Season == "Winter" and s.IsWinter ~= true then
+		return { Style = "Locked", Text = "", Note = "", Hidden = true }
+	end
+	local need = count(room.Level or 1)
+	if need > math.max(1, count(s.Level)) then
+		return { Style = "Gate", Text = I.State.Locked, Note = I.needs(need), Hidden = false }
+	end
+	if count(s.Stars) < count(room.StarsNeeded) then
+		return { Style = "Locked", Text = I.State.Locked, Note = Pure.needsStars(room.StarsNeeded), Hidden = false }
+	end
+	return {
+		Style = if count(s.Cash) >= count(room.Price) then "Buy" else "Poor",
+		Text = Pure.price(room.Price),
+		Note = Pure.roomNote(room, stations),
+		Hidden = false,
+	}
+end
+
+-- The Level up button and what the next level asks for: Style (Buy | Poor | Locked), the button's Text (the reason
+-- when it can't: "Needs ⭐ 15", "No clinic yet"), and the two Units shown beside it (⭐ have / need, 💰 price).
+export type LevelView = { Style: string, Text: string, Stars: string, StarsMet: boolean, Cash: string }
+
+function Pure.levelUp(state: any, nextRow: any): LevelView?
+	if type(nextRow) ~= "table" then
+		return nil
+	end
+	local s = if type(state) == "table" then state else {}
+	local have, need, cash = count(s.Stars), count(nextRow.Stars), count(nextRow.Cash)
+	local met = have >= need
+	local view = {
+		Style = "Buy",
+		Text = "Level up",
+		Stars = if met then Pure.short(need) else Pure.short(have) .. " / " .. Pure.short(need),
+		StarsMet = met,
+		Cash = Pure.short(cash),
+	}
+	if s.PlotIndex == nil then
+		view.Style, view.Text = "Locked", "No clinic yet"
+	elseif not met then
+		view.Style, view.Text = "Locked", Pure.needsStars(need)
+	elseif count(s.Cash) < cash then
+		view.Style, view.Text = "Poor", Pure.price(cash)
+	end
+	return view
+end
+
+-- R0: which tabs show for this save (one tab showing = no column). `data` is Shared/Data (Rooms, Decor, Levels);
+-- `branch` is Pure.branchCard(...).Show. Proposals (UI direction "What a Lv 1 player sees"), as data:
+--   Upgrades  always (the tutorial's first buy)
+--   Rooms     you own a bought room, or one in season has its ⭐ gate met at your level or the next
+--   Decor     you own decor, or you can afford the cheapest decor for sale
+--   Hospital  Lv 2 and up, the next level's ⭐ is met, or a branch line shows
+function Pure.visible(state: any, data: any, branch: boolean?): { [string]: boolean }
+	local s = if type(state) == "table" then state else {}
+	local d = if type(data) == "table" then data else {}
+	local level = math.max(1, count(s.Level))
+	local shown = { Upgrades = true, Rooms = false, Decor = false, Hospital = false }
+	local rooms = d.Rooms
+	if type(rooms) == "table" and type(rooms.Order) == "table" then
+		for _, roomId in rooms.Order do
+			local room = rawget(rooms, roomId)
+			if type(room) == "table" and count(room.Price) > 0 then
+				local owned = type(s.Rooms) == "table" and s.Rooms[roomId] == true
+				local season = room.Season ~= "Winter" or s.IsWinter == true
+				local near = count(room.Level or 1) <= level + 1 and count(s.Stars) >= count(room.StarsNeeded)
+				if owned or (season and near) then
+					shown.Rooms = true
+				end
+			end
+		end
+	end
+	local decor = d.Decor
+	local owned = if type(s.Decor) == "table" and type(s.Decor.Owned) == "table" then s.Decor.Owned else {}
+	if next(owned) ~= nil then
+		shown.Decor = true
+	elseif type(decor) == "table" and type(decor.Order) == "table" then
+		for _, decorId in decor.Order do
+			local item = rawget(decor, decorId)
+			if type(item) == "table" and type(item.Price) == "number" and count(s.Cash) >= item.Price then
+				shown.Decor = true
+			end
+		end
+	end
+	local levels = d.Levels
+	local nextRow = if type(levels) == "table" then levels[level + 1] else nil
+	shown.Hospital = level > 1
+		or branch == true
+		or (type(nextRow) == "table" and count(s.Stars) >= count(nextRow.Stars))
+	return shown
+end
+
+-- The unlock chips on a phone (568 x 320, the floor): each chip's width at 18 px (a generous guess: 11 px a letter,
+-- 24 an emoji, 12 padding each side) and how many rows they wrap into across `width`. tests/Agency.spec checks the
+-- six Lv 2 chips fit the narrowest Shop page in three rows or fewer, and that no chip is wider than the page.
+Pure.CHIP_LETTER = 11
+Pure.CHIP_EMOJI = 24
+Pure.CHIP_PAD = 12
+
+function Pure.chipWidth(text: string): number
+	local emoji = I.count(text)
+	local letters = utf8.len(I.words(text)) or #text
+	return Pure.CHIP_PAD * 2 + emoji * Pure.CHIP_EMOJI + (if emoji > 0 then 4 else 0) + letters * Pure.CHIP_LETTER
+end
+
+function Pure.chipRows(texts: { string }, width: number, gap: number): number
+	local rows, used = 0, 0
+	for _, text in texts do
+		local w = Pure.chipWidth(text)
+		if rows == 0 or used + gap + w > width then
+			rows += 1
+			used = w
+		else
+			used += gap + w
+		end
+	end
+	return rows
+end
 -- PURE-END
 
+Pure.use(Icons)
 Shop.Pure = Pure
 
 local TABS = {
 	{ Id = "Upgrades", Icon = "⚡", Caption = "Upgrades" },
 	{ Id = "Rooms", Icon = "🏠", Caption = "Rooms" },
 	{ Id = "Decor", Icon = "🌸", Caption = "Decor" },
-	{ Id = "Hospital", Icon = "🏥", Caption = "Hospital" }, -- depth update
+	{ Id = "Hospital", Icon = Icons.Unit.Level, Caption = "Hospital" }, -- depth update
 }
 local LEVEL_BUTTON_WIDTH = 200
-local LADDER_TILE = 40
-local TILE = 60 -- a row's icon tile
-local ROW_HEIGHT = 84
-local BUY_WIDTH = 132
-local TEXT_LEFT = Theme.Space.PadCard + TILE + Theme.Space.PadCard -- the name and info line start here
+local TILE = Theme.Calm.ArtTile -- a row's art tile (56)
+local PAD = Theme.Space.PadCard -- 12: inside a card and between cards
+local NAME_HEIGHT = Theme.TextSize.Body + Theme.Space.Tight
+local FACT_HEIGHT = Theme.TextSize.Caption + Theme.Space.Tight
+local ROW_HEIGHT = PAD + NAME_HEIGHT + Theme.Space.Tight + FACT_HEIGHT + PAD + Theme.Space.Line -- 80
+local BUY_WIDTH = 120
+local TEXT_LEFT = PAD + TILE + PAD -- the name and the fact start here
 local EARNED_HOW: { [string]: string } = {
-	Book = "📖 Finish a Book set",
-	Story = "💌 A friend's thank-you",
-	Referral = "🤝 Friend gift",
-	Playtime = "🩺 A Doctor rank",
+	Book = "Finish a Book set",
+	Story = "A friend's thank-you",
+	Referral = "A friend's gift",
+	Playtime = "A Doctor rank",
+	Journal = "Fill the Journal",
+	Rebirth = "Open a branch",
 }
 
 type Row = {
 	Frame: Frame,
 	Tile: Frame,
-	Icon: TextLabel,
+	Icon: TextLabel?,
 	Title: TextLabel,
-	Pips: Frame,
 	Note: TextLabel,
 	Buy: TextButton,
 }
@@ -193,11 +428,11 @@ local STYLES: { [string]: Style } = {
 	Buy = { Role = "Primary", Active = true },
 	Poor = { Role = "Disabled", Active = true }, -- the price on grey: a tap says how much more
 	Done = { Role = "Quiet", Active = false },
-	Locked = { Role = "Disabled", Active = false },
+	Locked = { Role = "Disabled", Active = true }, -- 🔒 on grey: a tap says what it waits for
 	Place = { Role = "Secondary", Active = true },
 	Busy = { Role = "Secondary", Active = false },
-	-- Progression v2: an upgrade for later branches ("🏢 R4") or a higher level ("🏥 Lv 2"): grey with its gate on
-	-- it, and a tap says why (a level gate also opens the Hospital tab).
+	-- Progression v2: an upgrade for later branches or a higher level: 🔒 on grey, its gate in the note, and a tap
+	-- says why (a level gate also opens the Hospital tab).
 	Gate = { Role = "Disabled", Active = true },
 }
 
@@ -236,120 +471,68 @@ local function page(parent: Instance, name: string): ScrollingFrame
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 	scroll.ScrollBarThickness = 8
-	scroll.ScrollBarImageColor3 = Theme.Colors.Stroke
+	scroll.ScrollBarImageColor3 = Theme.Colors.InkSoft
 	scroll.Selectable = false
 	scroll.Visible = false
-	local list = Kit.list(scroll, Enum.FillDirection.Vertical, Theme.Space.Gap)
+	local list = Kit.list(scroll, Enum.FillDirection.Vertical, Theme.Space.PadCard)
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, Theme.Space.Step[1])
-	pad.PaddingBottom = UDim.new(0, Theme.Space.Gap)
-	pad.PaddingLeft = UDim.new(0, Theme.Space.Step[1]) -- scrolling frames clip: keep the cards' outlines whole
-	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
+	pad.PaddingTop = UDim.new(0, Theme.Space.Tight)
+	pad.PaddingBottom = UDim.new(0, Theme.Space.PadCard)
+	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard) -- clear of the scroll bar
 	pad.Parent = scroll
 	scroll.Parent = parent
 	return scroll
 end
 
--- A tinted card on the paper (the template's card: Card fill, a Fine CardLine stroke).
-local function card(parent: Instance, name: string, order: number): Frame
-	local frame = Instance.new("Frame")
-	frame.Name = name
-	frame.LayoutOrder = order
-	frame.Size = UDim2.fromScale(1, 0)
-	frame.AutomaticSize = Enum.AutomaticSize.Y
-	frame.BackgroundColor3 = Theme.Colors.Card
-	frame.BorderSizePixel = 0
-	Kit.corner(frame, Theme.Radius.Medium)
-	Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
-	frame.Parent = parent
-	return frame
+-- The art tile's emoji label (Kit.artTile makes it when given an Icon).
+local function tileIcon(tile: Frame): TextLabel?
+	local found = tile:FindFirstChild("Icon")
+	return if found and found:IsA("TextLabel") then found else nil
 end
 
--- A neutral icon tile (Well): the emoji on a calm square. Colour is never the row's identity; the icon is.
-local function iconTile(parent: Instance, name: string, size: number, icon: string): (Frame, TextLabel)
-	local tile = Instance.new("Frame")
-	tile.Name = name
-	tile.Size = UDim2.fromOffset(size, size)
-	tile.BackgroundColor3 = Theme.Colors.Well
-	tile.BorderSizePixel = 0
-	Kit.corner(tile, if size >= TILE then Theme.Radius.Medium else Theme.Radius.Small)
-	tile.Parent = parent
-	local label = Kit.label({
-		Name = "Icon",
-		Text = icon,
-		TextScaled = true,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.72, 0.72),
-		Parent = tile,
-	})
-	return tile, label
-end
-
--- "Open" = the plain card · "Owned" = a faint green card (green = done) · "Locked" = the tile goes grey.
+-- "Open" = the plain card · "Owned" = a faint green card (green = done) · "Locked" = the art fades a little.
 local function setRowState(row: Row, state: string)
 	row.Frame.BackgroundColor3 = if state == "Owned" then Kit.lighten(Theme.Colors.Collect, 0.86) else Theme.Colors.Card
-	row.Tile.BackgroundColor3 = if state == "Locked" then Theme.Colors.Disabled else Theme.Colors.Well
-	row.Icon.TextTransparency = if state == "Locked" then 0.35 else 0
+	if row.Icon then
+		row.Icon.TextTransparency = if state == "Locked" then 0.35 else 0
+	end
 end
 
+-- THE row: a Kit.card (no line), the item's art tile, its name, one Soft fact, and the one button on the right.
 local function makeRow(parent: Instance, order: number, icon: string, title: string): Row
-	local frame = Instance.new("Frame")
-	frame.Name = "Row" .. order
-	frame.LayoutOrder = order
-	frame.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
-	frame.BackgroundColor3 = Theme.Colors.Card
-	frame.BorderSizePixel = 0
-	Kit.corner(frame, Theme.Radius.Medium)
-	Kit.stroke(frame, Theme.Colors.CardLine, Theme.Stroke.Fine)
-
-	local tile, iconLabel = iconTile(frame, "Tile", TILE, icon)
-	tile.AnchorPoint = Vector2.new(0, 0.5)
-	tile.Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0)
-
-	-- The name (22) and one info line (18).
-	local titleLabel = Kit.label({
-		Name = "Title",
-		Text = title,
-		Font = Theme.DisplayFont,
-		TextScaled = true,
-		TextWrapped = false,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(TEXT_LEFT, Theme.Space.PadCard),
-		Size = UDim2.new(1, -(TEXT_LEFT + BUY_WIDTH + Theme.Space.Step[5]), 0, 28),
+	local frame = Kit.card({
+		Name = "Row" .. order,
+		LayoutOrder = order,
+		Pad = false,
+		AutomaticSize = Enum.AutomaticSize.None,
+		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
+	})
+	local tile = Kit.artTile({
+		Icon = icon,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, PAD, 0.5, 0),
 		Parent = frame,
 	})
-	Kit.textLimit(titleLabel, Theme.TextSize.Body)
-
-	local pips = Instance.new("Frame")
-	pips.Name = "Pips"
-	pips.BackgroundTransparency = 1
-	pips.Position = UDim2.fromOffset(TEXT_LEFT, 46)
-	pips.Size = UDim2.fromOffset(0, 24)
-	pips.AutomaticSize = Enum.AutomaticSize.X
-	pips.Parent = frame
-	local pipList = Kit.list(pips, Enum.FillDirection.Horizontal, 6)
-	pipList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-
-	local note = Kit.label({
+	local textWidth = -(TEXT_LEFT + BUY_WIDTH + PAD * 2)
+	local titleLabel = Kit.name({
+		Text = title,
+		Position = UDim2.fromOffset(TEXT_LEFT, PAD),
+		Size = UDim2.new(1, textWidth, 0, NAME_HEIGHT),
+		Parent = frame,
+	})
+	local note = Kit.fact({
 		Name = "Note",
 		Text = "",
-		TextScaled = true,
-		TextWrapped = false,
-		TextColor3 = Theme.Colors.InkSoft,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(TEXT_LEFT, 46),
-		Size = UDim2.new(1, -(TEXT_LEFT + BUY_WIDTH + Theme.Space.Step[5]), 0, 24),
+		Position = UDim2.fromOffset(TEXT_LEFT, PAD + NAME_HEIGHT + Theme.Space.Tight),
+		Size = UDim2.new(1, textWidth, 0, FACT_HEIGHT),
 		Parent = frame,
 	})
-	Kit.textLimit(note, Theme.TextSize.Caption)
-
 	local buy = Kit.button({
 		Name = "Buy",
 		Kind = "Primary",
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -Theme.Space.PadCard, 0.5, 0),
+		Position = UDim2.new(1, -PAD, 0.5, 0),
 		Size = UDim2.fromOffset(BUY_WIDTH, Theme.Size.ButtonHeight),
 		TextScaled = true, -- the chunky display font is wide: a long price shrinks to fit, never below 18
 		Parent = frame,
@@ -359,35 +542,11 @@ local function makeRow(parent: Instance, order: number, icon: string, title: str
 	return {
 		Frame = frame,
 		Tile = tile,
-		Icon = iconLabel,
+		Icon = tileIcon(tile),
 		Title = titleLabel,
-		Pips = pips,
 		Note = note,
 		Buy = buy,
 	}
-end
-
--- Level dots (●●○) at the start of the note line; the note moves right to make room.
-local function setPips(row: Row, level: number, max: number)
-	for _, child in row.Pips:GetChildren() do
-		if child:IsA("Frame") then
-			child:Destroy()
-		end
-	end
-	for i = 1, max do
-		local dot = Instance.new("Frame")
-		dot.Name = "Pip" .. i
-		dot.LayoutOrder = i
-		dot.Size = UDim2.fromOffset(12, 12) -- 12 + a 2 px outline each side, 6 apart: the same 18 px pitch
-		dot.BackgroundColor3 = if i <= level then Theme.Colors.Star else Theme.Colors.Paper
-		dot.BorderSizePixel = 0
-		Kit.corner(dot, Theme.Radius.Round)
-		Kit.stroke(dot, Theme.Colors.Stroke, Theme.Stroke.Fine)
-		dot.Parent = row.Pips
-	end
-	local shift = if max > 0 then max * 18 + 6 else 0
-	row.Note.Position = UDim2.fromOffset(TEXT_LEFT + shift, 46)
-	row.Note.Size = UDim2.new(1, -(TEXT_LEFT + shift + BUY_WIDTH + Theme.Space.Step[5]), 0, 24)
 end
 
 local function usesDirectionalFocus(): boolean
@@ -411,7 +570,8 @@ function Shop.levelUpButton(): TextButton?
 	return levelButton
 end
 
--- An unlock chip: an emoji and a couple of words on a calm Well pill.
+-- An unlock chip (Data/Levels Unlocks: one Art emoji and two or three words) on a calm Well fill, no line. The chip
+-- row wraps (UIListLayout.Wraps), so six chips sit in rows on a phone instead of running off the card.
 local function chip(parent: Instance, order: number, text: string)
 	local pill = Instance.new("Frame")
 	pill.Name = "Chip" .. order
@@ -425,7 +585,7 @@ local function chip(parent: Instance, order: number, text: string)
 	pad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
 	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
 	pad.Parent = pill
-	Kit.label({
+	local label = Kit.label({
 		Name = "Text",
 		Text = text,
 		TextSize = Theme.TextSize.Caption,
@@ -434,25 +594,54 @@ local function chip(parent: Instance, order: number, text: string)
 		Size = UDim2.fromOffset(0, 36),
 		Parent = pill,
 	})
+	Kit.voice(label, "Soft")
+	label.TextColor3 = Theme.Colors.Ink -- an unlock is a noun, not a hint: ink, at the Soft size
 	pill.Parent = parent
+end
+
+-- A head row inside a card: the art tile, the name and one fact beside it.
+local function headRow(parent: Instance, order: number, icon: string): (Frame, Frame, TextLabel, TextLabel)
+	local head = Instance.new("Frame")
+	head.Name = "Head"
+	head.LayoutOrder = order
+	head.BackgroundTransparency = 1
+	head.Size = UDim2.new(1, 0, 0, TILE)
+	head.Parent = parent
+	local tile = Kit.artTile({ Icon = icon, Parent = head })
+	local left = TILE + PAD
+	local name = Kit.name({
+		Text = "",
+		Position = UDim2.fromOffset(left, Theme.Space.Tight),
+		Size = UDim2.new(1, -left, 0, NAME_HEIGHT),
+		Parent = head,
+	})
+	local fact = Kit.fact({
+		Text = "",
+		Position = UDim2.fromOffset(left, Theme.Space.Tight + NAME_HEIGHT + Theme.Space.Tight),
+		Size = UDim2.new(1, -left, 0, FACT_HEIGHT),
+		Parent = head,
+	})
+	return head, tile, name, fact
 end
 
 function Shop.init(ctx: Types.Ctx)
 	local data = ctx.Data :: any
 	local modal = Hud.modal(ctx, {
 		Name = "Shop",
-		Title = "🛒 Shop",
+		Title = "Shop",
 		MaxSize = Vector2.new(680, 560),
 	})
 
 	--------------------------------------------------------------------------------------------------------------
-	-- THE tabs (Modal.tabs) down the left (landscape phones are short, so the list gets the height), pages beside
+	-- THE tabs (Modal.tabs) down the left (landscape phones are short, so the list gets the height), pages beside.
+	-- R0: a tab shows once it has something in it (Pure.visible), and stays shown; one tab = no column.
 	--------------------------------------------------------------------------------------------------------------
 	local pages: { [string]: ScrollingFrame } = {}
 	local current = "Upgrades"
+	local revealed: { [string]: boolean } = { Upgrades = true }
 	local tabSpecs = {}
 	for _, tab in TABS do
-		table.insert(tabSpecs, { Id = tab.Id, Icon = tab.Icon, Caption = tab.Caption })
+		table.insert(tabSpecs, { Id = tab.Id, Icon = tab.Icon, Caption = tab.Caption, Hidden = not revealed[tab.Id] })
 	end
 	local tabView = Modal.tabs(modal, tabSpecs, function(id: string)
 		if not pages[id] then
@@ -470,8 +659,16 @@ function Shop.init(ctx: Types.Ctx)
 		tabs[tab.Id] = tabButtons[tab.Id]
 		pages[tab.Id] = page(pagesArea, tab.Id)
 	end
+	local function reveal(id: string)
+		if pages[id] and not revealed[id] then
+			revealed[id] = true
+			tabView.setVisible(id, true)
+		end
+	end
+	-- Selects a tab, showing it first when it was hidden (the HUD may open the Shop on any tab).
 	local function selectTab(id: string)
 		if pages[id] then
+			reveal(id)
 			tabView.select(id)
 		end
 	end
@@ -489,17 +686,17 @@ function Shop.init(ctx: Types.Ctx)
 		end
 		busy = true
 		local before = lookOf(button)
-		style(button, "Busy", "⏳")
+		style(button, "Busy", Icons.State.Waiting)
 		local ok, message = Hud.ask(remote, ...)
 		busy = false
 		-- Put the button back as it was; refresh restyles the rows from the newest Snapshot.
 		setLook(button, before)
 		if ok then
 			if not quiet then
-				ctx.toast(if message ~= "" then message else "🎉 Yay!")
+				ctx.toast(if message ~= "" then message else "Done!")
 				Hud.sound("Chime")
 			end
-			Hud.fly(button, "✨", nil, 6)
+			Hud.fly(button, Icons.Party.Sparkle, nil, 6)
 		else
 			ctx.toast(if message ~= "" then message else "Oops! Try again.")
 			Hud.shake(button)
@@ -514,7 +711,7 @@ function Shop.init(ctx: Types.Ctx)
 
 	local function needMore(button: TextButton, price: number)
 		local short = price - (ctx.State.Cash or 0)
-		ctx.toast("Need 💰" .. Hud.format(short) .. " more!")
+		ctx.toast("Need " .. Icons.unit("Cash", Hud.format(short)) .. " more!")
 		Hud.shake(button)
 	end
 
@@ -560,24 +757,17 @@ function Shop.init(ctx: Types.Ctx)
 		for upgradeId, row in upgradeRows do
 			local upgrade = data.Upgrades[upgradeId]
 			local level = (state.Upgrades or {})[upgradeId] or 0
-			local max = #upgrade.Prices
 			local price = Prices.upgradePrice(data.Upgrades, upgradeId, level)
-			setPips(row, math.min(level, max), max)
-			row.Note.Text = upgrade.Hint
+			-- Same order as the server (Economy checks Logic/Progress.canBuyUpgrade first).
 			local gateOk, gateMessage = ProgressLogic.canBuyUpgrade(state, upgradeId, data.Upgrades)
-			setRowState(row, if not price then "Owned" elseif gateOk then "Open" else "Locked")
-			if not price then
-				style(row.Buy, "Done", "✅ Max")
-			elseif not gateOk then
-				-- Same order as the server (Economy checks Logic/Progress.canBuyUpgrade first): the hospital level
-				-- (grey with a 🔒, tap: the Hospital tab), then the branches (grey, no 🔒).
-				local levelGate = string.find(gateMessage, ProgressLogic.LEVEL_ICON, 1, true) ~= nil
-				style(row.Buy, if levelGate then "Poor" else "Gate", Pure.gateText(gateMessage))
-			elseif (state.Cash or 0) >= price then
-				style(row.Buy, "Buy", "💰 " .. Hud.format(price))
-			else
-				style(row.Buy, "Poor", "💰 " .. Hud.format(price))
+			local view = Pure.upgradeRow(level, #upgrade.Prices, price, upgrade.Hint, gateOk, gateMessage)
+			row.Note.Text = view.Note
+			setRowState(row, if view.Style == "Done" then "Owned" elseif view.Style == "Gate" then "Locked" else "Open")
+			local styleName = view.Style
+			if styleName == "Buy" and (state.Cash or 0) < (price or 0) then
+				styleName = "Poor"
 			end
+			style(row.Buy, styleName, view.Text)
 		end
 	end
 
@@ -594,16 +784,21 @@ function Shop.init(ctx: Types.Ctx)
 			row.Buy.Activated:Connect(function()
 				local state = ctx.State
 				if state.PlotIndex == nil then
-					ctx.toast("🏠 You need a clinic first!")
+					ctx.toast("You need a clinic first!")
 					Hud.shake(row.Buy)
 					return
 				end
 				local needLevel = room.Level or 1
 				if needLevel > (state.Level or 1) then
 					-- A room for a bigger hospital: show the way there.
-					ctx.toast("Needs 🏥 Lv " .. needLevel .. "!")
+					ctx.toast(Icons.needs(needLevel))
 					Hud.shake(row.Buy)
 					selectTab("Hospital")
+					return
+				end
+				if (state.Stars or 0) < room.StarsNeeded then
+					ctx.toast(Pure.needsStars(room.StarsNeeded))
+					Hud.shake(row.Buy)
 					return
 				end
 				if (state.Cash or 0) < room.Price then
@@ -620,58 +815,22 @@ function Shop.init(ctx: Types.Ctx)
 		end
 	end
 
-	-- What a room adds, in icons: its stations, a 🛏️ per bed and a 🌸 per decor slot.
-	local function roomGifts(room: any): string
-		local parts = {}
-		for _, stationId in room.Stations do
-			local station = data.Stations[stationId]
-			if station then
-				table.insert(parts, station.Icon)
-			end
-		end
-		if type(room.Adds) == "string" and room.Adds ~= "" then
-			table.insert(parts, room.Adds) -- e.g. the Cozy Ward's "+2 exam bays" (its beds are the bays' own)
-		elseif room.Beds > 0 then
-			table.insert(parts, string.rep("🛏️", room.Beds))
-		end
-		if room.DecorSlots > 0 then
-			table.insert(parts, string.rep("🌸", room.DecorSlots))
-		end
-		return table.concat(parts, " ")
-	end
-
 	local function refreshRooms(state: Types.Snapshot)
-		local stars = state.Stars or 0
 		for roomId, row in roomRows do
-			local room = data.Rooms[roomId]
-			local owned = state.Rooms and state.Rooms[roomId] == true
-			setPips(row, 0, 0)
-			if owned then
-				row.Note.Text = roomGifts(room)
-				setRowState(row, "Owned")
-				style(row.Buy, "Done", "✅ Built")
-			elseif room.Season == "Winter" and not state.IsWinter then
-				row.Note.Text = "❄️ Winter only"
-				setRowState(row, "Locked")
-				style(row.Buy, "Locked", "❄️ Soon")
-			elseif (room.Level or 1) > (state.Level or 1) then
-				-- Same order as the server (Logic/Progress.canBuyRoom): the level before the ⭐ gate. Grey and
-				-- locked, but tappable: it opens the Hospital tab.
-				row.Note.Text = "🔒 🏥 Lv " .. room.Level
-				setRowState(row, "Locked")
-				style(row.Buy, "Poor", "🏥 Lv " .. room.Level)
-			elseif stars < room.StarsNeeded then
-				row.Note.Text = "⭐ " .. stars .. " / " .. room.StarsNeeded
-				setRowState(row, "Locked")
-				style(row.Buy, "Locked", "⭐ " .. room.StarsNeeded) -- the 🔒 is the button's badge
-			else
-				row.Note.Text = roomGifts(room)
-				setRowState(row, "Open")
-				style(
-					row.Buy,
-					if (state.Cash or 0) >= room.Price then "Buy" else "Poor",
-					"💰 " .. Hud.format(room.Price)
-				)
+			local room = table.clone(data.Rooms[roomId])
+			room.Id = roomId
+			local view = Pure.roomRow(room, state, data.Stations)
+			row.Frame.Visible = not view.Hidden -- out of season: not listed (no "Soon" row)
+			row.Note.Text = view.Note
+			setRowState(
+				row,
+				if view.Style == "Done"
+					then "Owned"
+					elseif view.Style == "Gate" or view.Style == "Locked" then "Locked"
+					else "Open"
+			)
+			if not view.Hidden then
+				style(row.Buy, view.Style, view.Text)
 			end
 		end
 	end
@@ -697,18 +856,15 @@ function Shop.init(ctx: Types.Ctx)
 		ZIndex = 5,
 		Parent = placeView,
 	})
-	local placeTitle = Kit.label({
+	local placeTitle = Kit.name({
 		Name = "Title",
 		Text = "",
-		Font = Theme.DisplayFont,
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(Theme.Size.ButtonHeight + Theme.Space.PadCard, Theme.Space.Gap),
-		Size = UDim2.new(1, -(Theme.Size.ButtonHeight * 2 + Theme.Space.Step[6]), 0, 40),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromOffset(Theme.Size.ButtonHeight + PAD, Theme.Size.ButtonHeight / 2),
+		Size = UDim2.new(1, -(Theme.Size.ButtonHeight * 2 + PAD * 3), 0, NAME_HEIGHT),
 		ZIndex = 5,
 		Parent = placeView,
 	})
-	Kit.textLimit(placeTitle, Theme.TextSize.Title)
 	local storeButton = Kit.button({
 		Name = "PutAway",
 		Kind = "Secondary",
@@ -716,7 +872,7 @@ function Shop.init(ctx: Types.Ctx)
 		TextSize = Theme.TextSize.Title,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.fromScale(1, 0),
-		Size = UDim2.fromOffset(Theme.Size.ButtonHeight + 12, Theme.Size.ButtonHeight),
+		Size = UDim2.fromOffset(Theme.Size.ButtonHeight + PAD, Theme.Size.ButtonHeight),
 		ZIndex = 5,
 		Parent = placeView,
 	})
@@ -724,23 +880,23 @@ function Shop.init(ctx: Types.Ctx)
 	slotGrid.Name = "Slots"
 	slotGrid.BackgroundTransparency = 1
 	slotGrid.BorderSizePixel = 0
-	slotGrid.Position = UDim2.fromOffset(0, Theme.Size.ButtonHeight + 10)
-	slotGrid.Size = UDim2.new(1, 0, 1, -(Theme.Size.ButtonHeight + 10))
+	slotGrid.Position = UDim2.fromOffset(0, Theme.Size.ButtonHeight + PAD)
+	slotGrid.Size = UDim2.new(1, 0, 1, -(Theme.Size.ButtonHeight + PAD))
 	slotGrid.CanvasSize = UDim2.new()
 	slotGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	slotGrid.ScrollBarThickness = 8
-	slotGrid.ScrollBarImageColor3 = Theme.Colors.Stroke
+	slotGrid.ScrollBarImageColor3 = Theme.Colors.InkSoft
 	slotGrid.Selectable = false
 	slotGrid.ZIndex = 5
 	slotGrid.Parent = placeView
 	local grid = Instance.new("UIGridLayout")
 	grid.CellSize = UDim2.fromOffset(96, 96)
-	grid.CellPadding = UDim2.fromOffset(Theme.Space.PadCard, Theme.Space.PadCard)
+	grid.CellPadding = UDim2.fromOffset(PAD, PAD)
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
 	grid.Parent = slotGrid
 	local gridPad = Instance.new("UIPadding")
-	gridPad.PaddingTop = UDim.new(0, 6)
-	gridPad.PaddingLeft = UDim.new(0, 6)
+	gridPad.PaddingTop = UDim.new(0, Theme.Space.Line)
+	gridPad.PaddingLeft = UDim.new(0, Theme.Space.Line)
 	gridPad.Parent = slotGrid
 	local emptyNote = Kit.label({
 		Name = "Empty",
@@ -778,7 +934,7 @@ function Shop.init(ctx: Types.Ctx)
 			return
 		end
 		local decor = data.Decor[decorId]
-		placeTitle.Text = decor.Icon .. " Pick a spot!"
+		placeTitle.Text = "Where does " .. decor.Name .. " go?"
 		storeButton.Visible = placedSlotOf(state, decorId) ~= nil
 
 		for _, child in slotGrid:GetChildren() do
@@ -788,24 +944,31 @@ function Shop.init(ctx: Types.Ctx)
 		end
 		local slots = if state.PlotIndex ~= nil then Hud.decorSlots(data, state) else {}
 		emptyNote.Visible = #slots == 0
-		emptyNote.Text = if state.PlotIndex == nil then "🏠 No clinic yet!" else "🏠 Buy a room first!"
+		emptyNote.Text = if state.PlotIndex == nil then "No clinic yet" else "Buy a room first"
 
 		local first: GuiObject? = nil
 		for index, slot in slots do
 			local room = data.Rooms[slot.RoomId]
 			local here = slot.Placed and rawget(data.Decor, slot.Placed)
 			local mine = slot.Placed == decorId
-			-- Every spot is an Icon plate: an empty one shows ➕, a spot with other decor (a swap) shows it, and where
-			-- this one is now wears the selected tab's navy (Kit.tab) and takes no tap.
+			-- Every spot is an Icon plate: an empty one shows this decor's own art (it goes here), a spot with other
+			-- decor (a swap) shows that one, and where this one is now wears the selected tab's navy (Kit.tab) and
+			-- takes no tap.
 			local button = Kit.iconButton({
 				Name = slot.Key,
 				Kind = "Icon",
-				Icon = if here then here.Icon else "➕",
-				Caption = room.Icon .. " " .. slot.N,
+				Icon = if here then here.Icon else decor.Icon,
+				Caption = room.Name .. " " .. slot.N,
 				LayoutOrder = if slot.Placed then 100 + index else index, -- empty spots first
 				ZIndex = 5,
 				Parent = slotGrid,
 			})
+			if not here then
+				local icon = button:FindFirstChild("Icon")
+				if icon and icon:IsA("TextLabel") then
+					icon.TextTransparency = 0.5 -- an empty spot: its art faded
+				end
+			end
 			if mine then
 				Kit.tab(button, true)
 				button.Interactable = false
@@ -862,6 +1025,7 @@ function Shop.init(ctx: Types.Ctx)
 			end
 			local price = decor.Price
 			if not price then
+				ctx.toast(EARNED_HOW[decor.EarnedBy or ""] or "Earned, not bought")
 				return
 			end
 			if (state.Cash or 0) < price then
@@ -882,104 +1046,45 @@ function Shop.init(ctx: Types.Ctx)
 		local owned = (state.Decor and state.Decor.Owned) or {}
 		for decorId, row in decorRows do
 			local decor = data.Decor[decorId]
-			setPips(row, 0, 0)
-			if owned[decorId] == true then
+			local mine = owned[decorId] == true
+			-- R0: an earned-only piece is listed once you have it (no row for a thing you can't buy).
+			row.Frame.Visible = mine or decor.Price ~= nil
+			if mine then
 				local placed = placedSlotOf(state, decorId) ~= nil
-				row.Note.Text = if placed then "📍 In your clinic" else "📦 In storage"
+				row.Note.Text = if placed then "In your clinic" else "In storage"
 				setRowState(row, "Owned")
-				style(row.Buy, "Place", "📍 Place")
+				style(row.Buy, "Place", "Place")
 			elseif decor.Price then
 				row.Note.Text = ""
 				setRowState(row, "Open")
-				style(
-					row.Buy,
-					if (state.Cash or 0) >= decor.Price then "Buy" else "Poor",
-					"💰 " .. Hud.format(decor.Price)
-				)
-			else
-				row.Note.Text = EARNED_HOW[decor.EarnedBy or ""] or "🏆 Earned"
-				setRowState(row, "Locked")
-				style(row.Buy, "Locked", "🏆")
+				style(row.Buy, if (state.Cash or 0) >= decor.Price then "Buy" else "Poor", Pure.price(decor.Price))
 			end
-			-- Owned first, then what you can buy, then what you earn.
-			row.Frame.LayoutOrder = (if owned[decorId] == true then 0 elseif decor.Price then 100 else 200)
-				+ (table.find(data.Decor.Order, decorId) or 0)
+			-- Owned first, then what you can buy, cheapest first (Data/Decor's order).
+			row.Frame.LayoutOrder = (if mine then 0 else 100) + (table.find(data.Decor.Order, decorId) or 0)
 		end
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- Hospital (depth update): your level, the ladder to the Mega Hospital, and the next level's cost and unlocks
+	-- Hospital (depth update): your level, the way up the five levels, and the next level's cost and unlocks
 	--------------------------------------------------------------------------------------------------------------
 	local levels = data.Levels
 	local maxLevel = LevelsLogic.max(levels)
 
-	-- The "now" card: the level's icon, its name, the five-step ladder and what it gives you.
-	local nowCard = card(pages.Hospital, "Now", 1)
-	nowCard.AutomaticSize = Enum.AutomaticSize.None
-	nowCard.Size = UDim2.new(1, 0, 0, 150)
-	local nowTile, nowIcon = iconTile(nowCard, "Tile", 80, "")
-	nowTile.Position = UDim2.fromOffset(Theme.Space.PadCard, Theme.Space.PadCard)
-	local nowTitle = Kit.label({
-		Name = "Title",
-		Text = "",
-		Font = Theme.DisplayFont,
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(104, Theme.Space.PadCard),
-		Size = UDim2.new(1, -116, 0, 36),
-		Parent = nowCard,
-	})
-	Kit.textLimit(nowTitle, Theme.TextSize.Title)
-	local ladder = Instance.new("Frame")
-	ladder.Name = "Ladder"
-	ladder.BackgroundTransparency = 1
-	ladder.Position = UDim2.fromOffset(104, 54)
-	ladder.Size = UDim2.new(1, -116, 0, LADDER_TILE)
-	ladder.Parent = nowCard
-	local ladderList = Kit.list(ladder, Enum.FillDirection.Horizontal, 6)
-	ladderList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	local steps: { { Tile: Frame, Icon: TextLabel } } = {}
-	for level = 1, maxLevel do
-		local tile, icon = iconTile(ladder, "Step" .. level, LADDER_TILE, levels[level].Icon)
-		tile.LayoutOrder = level
-		steps[level] = { Tile = tile, Icon = icon }
-	end
-	local nowStats = Kit.label({
-		Name = "Stats",
-		Text = "",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(Theme.Space.PadCard, 104),
-		Size = UDim2.new(1, -Theme.Space.Step[5], 0, 34),
-		Parent = nowCard,
-	})
-	Kit.textLimit(nowStats, Theme.TextSize.Body)
+	-- The "now" card: the level's art, its name, a navy bar up the levels and what it gives you, in words.
+	local nowCard = Kit.card({ Name = "Now", LayoutOrder = 1, Parent = pages.Hospital })
+	local nowList = Kit.list(nowCard, Enum.FillDirection.Vertical, Theme.Space.Line)
+	nowList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	nowList.VerticalAlignment = Enum.VerticalAlignment.Top
+	local _, nowTile, nowTitle, nowLevel = headRow(nowCard, 1, levels[1].Icon)
+	local _, setLadder = Kit.bar({ Name = "Ladder", LayoutOrder = 2, Parent = nowCard })
+	local nowStats = Kit.fact({ Name = "Stats", Text = "", LayoutOrder = 3, Parent = nowCard })
 
 	-- The "next" card: the next level, its unlock chips, what it needs, and Level up (the view's one Primary).
-	local nextCard = card(pages.Hospital, "Next", 2)
-	Kit.pad(nextCard, Theme.Space.PadCard)
-	local nextList = Kit.list(nextCard, Enum.FillDirection.Vertical, Theme.Space.Gap)
+	local nextCard = Kit.card({ Name = "Next", LayoutOrder = 2, Parent = pages.Hospital })
+	local nextList = Kit.list(nextCard, Enum.FillDirection.Vertical, Theme.Space.PadCard)
 	nextList.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	nextList.VerticalAlignment = Enum.VerticalAlignment.Top
-
-	local nextHead = Instance.new("Frame")
-	nextHead.Name = "Head"
-	nextHead.LayoutOrder = 1
-	nextHead.BackgroundTransparency = 1
-	nextHead.Size = UDim2.new(1, 0, 0, 60)
-	nextHead.Parent = nextCard
-	local nextTile, nextIcon = iconTile(nextHead, "Tile", 60, "")
-	local nextTitle = Kit.label({
-		Name = "Title",
-		Text = "",
-		Font = Theme.DisplayFont,
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(72, 0),
-		Size = UDim2.new(1, -72, 1, 0),
-		Parent = nextHead,
-	})
-	Kit.textLimit(nextTitle, Theme.TextSize.Title)
+	local _, nextTile, nextTitle, nextLevelFact = headRow(nextCard, 1, levels[1].Icon)
 
 	local chips = Instance.new("Frame")
 	chips.Name = "Chips"
@@ -988,59 +1093,64 @@ function Shop.init(ctx: Types.Ctx)
 	chips.Size = UDim2.fromScale(1, 0)
 	chips.AutomaticSize = Enum.AutomaticSize.Y
 	chips.Parent = nextCard
-	local chipList = Kit.list(chips, Enum.FillDirection.Horizontal, Theme.Space.Gap)
+	local chipList = Kit.list(chips, Enum.FillDirection.Horizontal, Theme.Space.Line)
 	chipList.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	chipList.VerticalAlignment = Enum.VerticalAlignment.Top
-	chipList.Wraps = true
+	chipList.Wraps = true -- six chips on a 568 px phone: rows, never off the card
+
+	-- What it asks: ⭐ (a gate, not spent) and 💰 (spent), each a Unit glued to its number.
+	local needs = Instance.new("Frame")
+	needs.Name = "Needs"
+	needs.LayoutOrder = 3
+	needs.BackgroundTransparency = 1
+	needs.Size = UDim2.new(1, 0, 0, Theme.TextSize.Body + Theme.Space.Line)
+	needs.Parent = nextCard
+	local needsList = Kit.list(needs, Enum.FillDirection.Horizontal, Theme.Space.Section)
+	needsList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	needsList.VerticalAlignment = Enum.VerticalAlignment.Center
+	local starsUnit, starsAmount = Kit.unit({ Name = "Stars", Icon = Icons.Unit.Stars, Parent = needs })
+	starsUnit.LayoutOrder = 1
+	local cashUnit, cashAmount = Kit.unit({ Name = "Cash", Icon = Icons.Unit.Cash, Parent = needs })
+	cashUnit.LayoutOrder = 2
 
 	local foot = Instance.new("Frame")
 	foot.Name = "Foot"
-	foot.LayoutOrder = 3
+	foot.LayoutOrder = 4
 	foot.BackgroundTransparency = 1
 	foot.Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight)
 	foot.Parent = nextCard
-	local cost = Kit.label({
-		Name = "Cost",
-		Text = "",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Size = UDim2.new(1, -(LEVEL_BUTTON_WIDTH + Theme.Space.PadCard), 1, 0),
-		Parent = foot,
-	})
-	Kit.textLimit(cost, Theme.TextSize.Body)
 	local levelUp = Kit.button({
 		Name = "LevelUp",
 		Kind = "Primary", -- never shines: nothing loud points at spending
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.fromScale(1, 0.5),
-		Size = UDim2.fromOffset(LEVEL_BUTTON_WIDTH, Theme.Size.ButtonHeight),
+		Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight),
 		TextScaled = true,
 		Parent = foot,
 	})
 	Kit.textLimit(levelUp, Theme.TextSize.Body)
+	local levelLimit = Instance.new("UISizeConstraint")
+	levelLimit.MaxSize = Vector2.new(LEVEL_BUTTON_WIDTH, Theme.Size.ButtonHeight)
+	levelLimit.Parent = levelUp
 	levelButton = levelUp
 
 	local shownChipsFor = -1 -- the level whose chips are on the card
 
-	local function starsText(n: number): string
-		return "⭐ " .. Hud.format(n)
+	local function setTile(tile: Frame, icon: string)
+		local label = tileIcon(tile)
+		if label then
+			label.Text = icon
+		end
 	end
 
 	local function refreshHospital(state: Types.Snapshot)
 		local level = LevelsLogic.clamp(levels, state.Level)
 		local row = LevelsLogic.row(levels, level)
-		nowIcon.Text = row.Icon
-		nowTitle.Text = "Lv " .. level .. " · " .. row.Name
-		-- Progression v2: the departments open at this level (nurse slots are gone: Config.Roster), beds, recipe size.
-		nowStats.Text = Pure.levelLine(row, data.Departments)
-		for index, step in steps do
-			local done = index <= level
-			step.Tile.BackgroundColor3 = if index == level
-				then Theme.Colors.Cash
-				elseif done then Theme.Colors.Collect
-				else Theme.Colors.Well
-			step.Icon.TextTransparency = if done then 0 else 0.55
-		end
+		setTile(nowTile, row.Icon)
+		nowTitle.Text = row.Name
+		nowLevel.Text = Icons.level(level) .. " of " .. maxLevel
+		setLadder(if maxLevel > 1 then (level - 1) / (maxLevel - 1) else 1, level >= maxLevel)
+		nowStats.Text = Pure.levelFacts(row)
 
 		local nextRow = LevelsLogic.nextRow(levels, level)
 		local nextLevel = level + 1
@@ -1057,32 +1167,23 @@ function Shop.init(ctx: Types.Ctx)
 				end
 			end
 		end
-		chips.Visible = nextRow ~= nil
+		chips.Visible = nextRow ~= nil and #nextRow.Unlocks > 0
+		needs.Visible = nextRow ~= nil
 		foot.Visible = nextRow ~= nil
-		if not nextRow then
-			nextIcon.Text = "🏆"
-			nextTitle.Text = "Max level!"
-			nextTile.BackgroundColor3 = Theme.Colors.Cash
+		local view = Pure.levelUp(state, nextRow)
+		if not nextRow or not view then
+			setTile(nextTile, Icons.State.Done)
+			nextTitle.Text = "Top level"
+			nextLevelFact.Text = "Your hospital is as big as it gets"
 			return
 		end
-		nextIcon.Text = nextRow.Icon
-		nextTitle.Text = "⬆️ Lv " .. nextLevel .. " · " .. nextRow.Name
-		nextTile.BackgroundColor3 = Theme.Colors.Well
-
-		local have = state.Stars or 0
-		local starText = if have >= nextRow.Stars
-			then starsText(nextRow.Stars) .. " ✅"
-			else starsText(have) .. " / " .. Hud.format(nextRow.Stars)
-		cost.Text = starText .. "   💰 " .. Hud.format(nextRow.Cash)
-		if state.PlotIndex == nil then
-			style(levelUp, "Locked", "🏠")
-		elseif have < nextRow.Stars then
-			style(levelUp, "Locked", starsText(nextRow.Stars)) -- ⭐ is a gate: keep curing
-		elseif (state.Cash or 0) < nextRow.Cash then
-			style(levelUp, "Poor", "💰 " .. Hud.format(nextRow.Cash))
-		else
-			style(levelUp, "Buy", "⬆️ Level up!")
-		end
+		setTile(nextTile, nextRow.Icon)
+		nextTitle.Text = nextRow.Name
+		nextLevelFact.Text = "Next: " .. Icons.level(nextLevel)
+		starsAmount.Text = view.Stars
+		starsAmount.TextColor3 = if view.StarsMet then Theme.Colors.Ink else Theme.Colors.InkSoft
+		cashAmount.Text = view.Cash
+		style(levelUp, view.Style, view.Text)
 	end
 
 	levelUp.Activated:Connect(function()
@@ -1092,8 +1193,14 @@ function Shop.init(ctx: Types.Ctx)
 		if not nextRow or busy then
 			return
 		end
+		local view = Pure.levelUp(state, nextRow)
 		if state.PlotIndex == nil then
-			ctx.toast("🏠 You need a clinic first!")
+			ctx.toast("You need a clinic first!")
+			Hud.shake(levelUp)
+			return
+		end
+		if view and not view.StarsMet then
+			ctx.toast(view.Text .. " (treat more patients)") -- ⭐ is a gate, not spent
 			Hud.shake(levelUp)
 			return
 		end
@@ -1109,59 +1216,21 @@ function Shop.init(ctx: Types.Ctx)
 		end
 	end)
 
-	-- The 🏢 Branch card (Progression v2): calm. At Lv 5 what a new branch costs and "Look 👀" (the keep/reset screen);
-	-- with branches, the way into the cards, the tree and the themes, and a line for any reward waiting there.
-	local branchCard = card(pages.Hospital, "Branch", 3)
-	Kit.pad(branchCard, Theme.Space.PadCard)
-	local branchList = Kit.list(branchCard, Enum.FillDirection.Vertical, Theme.Space.Gap)
+	-- The Branch card (Progression v2): calm. At Lv 5 what a new branch costs and Look (the keep/reset screen); with
+	-- branches, Quiet links into the cards, the tree and the themes, and a line for any reward waiting there.
+	local branchCard = Kit.card({ Name = "Branch", LayoutOrder = 3, Parent = pages.Hospital })
+	local branchList = Kit.list(branchCard, Enum.FillDirection.Vertical, Theme.Space.Line)
 	branchList.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	branchList.VerticalAlignment = Enum.VerticalAlignment.Top
-	local branchHead = Instance.new("Frame")
-	branchHead.Name = "Head"
-	branchHead.LayoutOrder = 1
-	branchHead.BackgroundTransparency = 1
-	branchHead.Size = UDim2.new(1, 0, 0, 60)
-	branchHead.Parent = branchCard
-	iconTile(branchHead, "Tile", 60, "🏢")
-	local branchTitle = Kit.label({
-		Name = "Title",
-		Text = "",
-		Font = Theme.DisplayFont,
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(72, 0),
-		Size = UDim2.new(1, -72, 0, 32),
-		Parent = branchHead,
-	})
-	Kit.textLimit(branchTitle, Theme.TextSize.Title)
-	local branchSub = Kit.label({
-		Name = "Sub",
-		Text = "",
-		TextScaled = true,
-		TextColor3 = Theme.Colors.InkSoft,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(72, 34),
-		Size = UDim2.new(1, -72, 0, 24),
-		Parent = branchHead,
-	})
-	Kit.textLimit(branchSub, Theme.TextSize.Body)
-	local branchLines = Kit.label({
-		Name = "Lines",
-		Text = "",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		LayoutOrder = 2,
-		Size = UDim2.new(1, 0, 0, 28),
-		Parent = branchCard,
-	})
-	Kit.textLimit(branchLines, Theme.TextSize.Body)
+	local _, _, branchTitle, branchSub = headRow(branchCard, 1, Icons.Door.Branches)
+	local branchLines = Kit.fact({ Name = "Lines", Text = "", LayoutOrder = 2, Parent = branchCard })
 	local branchButtons = Instance.new("Frame")
 	branchButtons.Name = "Buttons"
 	branchButtons.LayoutOrder = 3
 	branchButtons.BackgroundTransparency = 1
 	branchButtons.Size = UDim2.new(1, 0, 0, Theme.Size.ButtonHeight)
 	branchButtons.Parent = branchCard
-	local branchButtonList = Kit.list(branchButtons, Enum.FillDirection.Horizontal, Theme.Space.Gap)
+	local branchButtonList = Kit.list(branchButtons, Enum.FillDirection.Horizontal, Theme.Space.Line)
 	branchButtonList.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	local function branchButton(name: string, order: number, kind: string, text: string, width: number): TextButton
 		local button = Kit.button({
@@ -1176,11 +1245,11 @@ function Shop.init(ctx: Types.Ctx)
 		Kit.textLimit(button, Theme.TextSize.Body)
 		return button
 	end
-	-- All Secondary: a calm way in, never a call to spend (red line 3).
-	local lookButton = branchButton("Look", 1, "Secondary", Pure.TEXT.Look, 150)
-	local perksLink = branchButton("Perks", 2, "Secondary", "🃏", 64)
-	local treeLink = branchButton("Tree", 3, "Secondary", "🌳", 64)
-	local themesLink = branchButton("Themes", 4, "Secondary", "🎨", 64)
+	-- One Secondary way in (Look) and Quiet links: a calm way in, never a call to spend (red line 3).
+	local lookButton = branchButton("Look", 1, "Secondary", Pure.TEXT.Look, 110)
+	local perksLink = branchButton("Perks", 2, "Quiet", "Cards", 88)
+	local treeLink = branchButton("Tree", 3, "Quiet", "Tree", 72)
+	local themesLink = branchButton("Themes", 4, "Quiet", "Themes", 96)
 	lookButton.Activated:Connect(function()
 		ctx.fire("Open", "Branch", "Open")
 	end)
@@ -1197,16 +1266,16 @@ function Shop.init(ctx: Types.Ctx)
 	local function refreshBranch(state: Types.Snapshot)
 		local view = Pure.branchCard(state, ctx.Config, data.Tree)
 		branchCard.Visible = view.Show and state.PlotIndex ~= nil
-		branchTitle.Text = view.Title
+		branchTitle.Text = Icons.words(view.Title)
 		branchSub.Text = view.Sub
-		branchSub.Visible = view.Sub ~= ""
-		branchLines.Text = table.concat(view.Lines, "   ")
+		branchLines.Text = table.concat(view.Lines, " · ")
 		branchLines.Visible = #view.Lines > 0
 		lookButton.Visible = view.Look
 		perksLink.Visible = view.Links
 		treeLink.Visible = view.Links
 		themesLink.Visible = view.Links
 		branchButtons.Visible = view.Look or view.Links
+		return view.Show and state.PlotIndex ~= nil
 	end
 
 	-- The tab's dot: a room you can buy right now (its level too), or the next level is ready.
@@ -1238,9 +1307,15 @@ function Shop.init(ctx: Types.Ctx)
 		refreshRooms(state)
 		refreshDecor(state)
 		refreshHospital(state)
-		refreshBranch(state)
-		-- The header's meta chip: your 💰 (the one number every row here is about).
-		modal.setMeta("💰 " .. Hud.format(state.Cash or 0))
+		local branchShown = refreshBranch(state)
+		-- R0: a tab arrives once it has something in it, and stays (no tab ever vanishes under you).
+		for id, shown in Pure.visible(state, data, branchShown) do
+			if shown then
+				reveal(id)
+			end
+		end
+		-- The header's meta: your cash (the one number every row here is about), the Unit as its own label.
+		modal.setMeta(Hud.format(state.Cash or 0), Icons.Unit.Cash)
 		local news = Hud.shopNews(data, state)
 		Kit.setDot(tabButtons.Rooms, roomReady(state))
 		Kit.setDot(tabButtons.Decor, news.Decor)
@@ -1257,8 +1332,9 @@ function Shop.init(ctx: Types.Ctx)
 			return
 		end
 		exitPlace()
-		selectTab(if type(tab) == "string" and pages[tab] then tab else current)
 		refresh(ctx.State)
+		-- The HUD's shopTab ("Hospital" from the level badge too) opens straight on that tab, shown if it was hidden.
+		selectTab(if type(tab) == "string" and pages[tab] then tab else current)
 		modal.open()
 	end)
 

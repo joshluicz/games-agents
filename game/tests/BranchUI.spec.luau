@@ -20,6 +20,8 @@ local Tree = require("../src/shared/Data/Tree")
 local Themes = require("../src/shared/Data/Themes")
 local Nurses = require("../src/shared/Data/Nurses")
 local Config = require("./config")
+local Icons = require("../src/client/UI/Icons")
+local UiRules = require("./uirules")
 
 local function source(path: string): string
 	for _, prefix in { "", "game/" } do
@@ -43,6 +45,7 @@ local Pure = pureBlock("src/client/UI/BranchPanel.luau", {
 	RebirthLogic = RebirthLogic,
 	TreeLogic = TreeLogic,
 	NurseLogic = NurseLogic,
+	Icons = Icons,
 })
 local ShopPure = pureBlock("src/client/UI/Shop.luau", {
 	RebirthLogic = RebirthLogic,
@@ -92,8 +95,8 @@ end
 
 T.describe("BranchPanel (pure): the keep/reset screen", function()
 	test("words counts tokens with letters only", function()
-		eq(Pure.words("🏙️ Lv 5 ✅  ·  💰50,000 ✅"), 1)
-		eq(Pure.words("✋ Hold the button to open"), 5)
+		eq(Pure.words("🏥 Lv 5  ·  💰50,000"), 1)
+		eq(Pure.words("Hold the button to open"), 5)
 		eq(Pure.words(""), 0)
 		eq(Pure.words(nil), 0)
 	end)
@@ -116,10 +119,10 @@ T.describe("BranchPanel (pure): the keep/reset screen", function()
 		end
 		local all = snap({ Rebirth = { Perks = { "SeedMoney", "WarmUp", "ClinicStart", "BathReady", "BigHands" } } })
 		eq(texts(Pure.resetRows(all, Perks)), {
-			"💰 Cash · 💰 Seed Money",
-			"⚡ Upgrades · ⚡ Warm Up",
-			"🏥 Hospital level · 🏠 Clinic Start",
-			"🏠 Rooms · 🛁 Bath Ready",
+			"💰 Cash · Seed Money",
+			"⚡ Upgrades · Warm Up",
+			"🏥 Hospital level · Clinic Start",
+			"🏠 Rooms · Bath Ready",
 		})
 		-- every RESET kind exists among the perks, so each note can show
 		for _, kind in Pure.RESET_KINDS do
@@ -134,13 +137,13 @@ T.describe("BranchPanel (pure): the keep/reset screen", function()
 	end)
 	test("the cash row says ALL cash starts fresh, with the real numbers (not the cost taken off)", function()
 		local rich = snap({ Level = 5, Cash = 180000 })
-		eq(texts(Pure.resetRows(rich, Perks, Config))[1], "💰 Cash: 💰180,000 → 💰0")
+		eq(texts(Pure.resetRows(rich, Perks, Config))[1], "💰 Cash: 180,000 → 0")
 		local seeded = snap({ Level = 5, Cash = 1.3e6, Rebirth = { Perks = { "SeedMoney" } } })
 		local seed = RebirthLogic.startCash(seeded, Config, Perks)
 		eq(seed, rawget(Perks, "SeedMoney").Value)
 		eq(
 			texts(Pure.resetRows(seeded, Perks, Config))[1],
-			"💰 Cash: 💰1.3M → 💰" .. Pure.short(seed) .. " · 💰 Seed Money"
+			"💰 Cash: 1.3M → " .. Pure.short(seed) .. " · Seed Money"
 		)
 		-- the other rows are unchanged
 		eq(Pure.resetRows(rich, Perks, Config)[2].Text, RebirthLogic.RESET[2].Text)
@@ -218,25 +221,38 @@ T.describe("BranchPanel (pure): the keep/reset screen", function()
 			"🃏 A perk card",
 		})
 	end)
-	test("status: the cost and the level, ✅ when met, the same yes/no as Logic/Rebirth.canRebirth", function()
+	test("status: what it takes (one Unit), the hint says what's missing, the same yes/no as canRebirth", function()
 		local low = Pure.status(snap({ Level = 4, Cash = 1e9 }), Config)
 		eq(low.Ok, false)
-		eq(low.Message, "Need 🏙️ Lv 5")
+		eq(low.Message, "Needs 🏥 Lv 5")
+		eq(low.Message, Icons.needs(5)) -- THE gate note's words (Logic/Rebirth says the same)
 		eq(low.LevelOk, false)
 		eq(low.CashOk, true)
-		eq(low.Line, "Need 🏙️ Lv 5  ·  💰50,000 ✅")
+		eq(low.Line, "Needs 🏥 Lv 5  ·  50,000 cash")
+		eq(low.Hint, "Not yet: hospital level")
 		local poor = Pure.status(snap({ Level = 5, Cash = 49999 }), Config)
 		eq(poor.Ok, false)
 		eq(poor.Message, "Need 💰50,000")
-		eq(poor.Line, "Need 🏙️ Lv 5 ✅  ·  💰50,000")
+		eq(poor.Line, "Needs 🏥 Lv 5  ·  50,000 cash")
+		eq(poor.Hint, "Not yet: more cash")
+		eq(Pure.status(snap({ Level = 1 }), Config).Hint, "Not yet: level and cash")
 		local ready = Pure.status(snap({ Level = 5, Cash = 50000 }), Config)
 		eq(ready.Ok, true)
 		eq(ready.Next, 1)
-		eq(ready.Line, "Need 🏙️ Lv 5 ✅  ·  💰50,000 ✅")
+		eq(ready.Line, "Needs 🏥 Lv 5  ·  50,000 cash")
+		eq(ready.Hint, Pure.TEXT.HoldHint)
 		local second = Pure.status(snap({ Level = 5, Cash = 0, Rebirth = { Count = 1 } }), Config)
 		eq(second.Cost, 75000)
 		eq(second.Next, 2)
-		eq(Pure.status(snap({ Rebirth = { Count = 8 } }), Config).Line, "Need 🏙️ Lv 5  ·  💰1.3M")
+		eq(Pure.status(snap({ Rebirth = { Count = 8 } }), Config).Line, "Needs 🏥 Lv 5  ·  1.3M cash")
+		-- one emoji at most on every line the head card shows (the emoji rules: one per label)
+		for count = 0, 25 do
+			for _, level in { 1, 5 } do
+				local status = Pure.status(snap({ Level = level, Cash = 1e7, Rebirth = { Count = count } }), Config)
+				assert(Icons.count(status.Line) <= 1, status.Line)
+				eq(Icons.count(status.Hint), 0)
+			end
+		end
 		for count = 0, 25 do
 			local status = Pure.status(snap({ Level = 5, Rebirth = { Count = count } }), Config)
 			eq(status.Cost, RebirthLogic.cost(count, Config))
@@ -249,13 +265,14 @@ T.describe("BranchPanel (pure): the keep/reset screen", function()
 		)
 		eq(waiting.Ok, false)
 		eq(waiting.CardWaits, true)
-		eq(waiting.Message, "🃏 Pick your card first!")
+		eq(waiting.Message, "Pick your card first")
+		eq(waiting.Hint, "Pick your card first")
 		local picked = Pure.status(snap({ Level = 5, Cash = 1e6, Rebirth = { Count = 1, Offer = {} } }), Config)
 		eq(picked.Ok, true)
 		eq(picked.CardWaits, false)
-		-- the server's message is the same text (Server/Rebirth MSG.PickCard)
+		-- the server's message says the same words (Server/Rebirth MSG.PickCard)
 		local src = source("src/server/Rebirth.luau")
-		eq(string.find(src, '"🃏 Pick your card first!"', 1, true) ~= nil, true)
+		eq(string.find(src, "Pick your card first", 1, true) ~= nil, true)
 	end)
 	test("short and percent", function()
 		eq(Pure.short(50000), "50,000")
@@ -283,19 +300,19 @@ T.describe("BranchPanel (pure): perks", function()
 		eq(Pure.offerCards(snap(), Perks), {})
 	end)
 	test("the odds in words: every card left equally likely", function()
-		eq(Pure.oddsText(snap(), Perks), "🎲 All 12 cards equally likely")
+		eq(Pure.oddsText(snap(), Perks), "All 12 cards equally likely")
 		eq(
 			Pure.oddsText(snap({ Rebirth = { Perks = { "BigHands", "SeedMoney" } } }), Perks),
-			"🎲 All 10 cards equally likely"
+			"All 10 cards equally likely"
 		)
 		local eleven = table.clone(Perks.Order)
 		table.remove(eleven)
-		eq(Pure.oddsText(snap({ Rebirth = { Perks = eleven } }), Perks), "🎲 1 card left")
+		eq(Pure.oddsText(snap({ Rebirth = { Perks = eleven } }), Perks), "1 card left")
 		eq(
 			Pure.oddsText(snap({ Rebirth = { Perks = table.clone(Perks.Order) } }), Perks),
-			"🌳 Every card owned: +2 tree points"
+			"Every card owned: +2 tree points"
 		)
-		eq(Pure.randomText(Config), "🎲 3 random cards, never repeats")
+		eq(Pure.randomText(Config), "3 random cards, never repeats")
 	end)
 	test("every perk in Data order, ✅ when owned", function()
 		local list = Pure.perkList(snap({ Rebirth = { Perks = { "NightOwl" } } }), Perks)
@@ -335,10 +352,10 @@ T.describe("BranchPanel (pure): the tree", function()
 		eq(some.Max, 3)
 		local maxed = Pure.nodeView(snap({ Rebirth = { Points = 3, Tree = { GentleWords = 3 } } }), "GentleWords", Tree)
 		eq(maxed.State, "Max")
-		eq(maxed.Button, "✅ Max")
+		eq(maxed.Button, "MAX") -- the word: ⭐ is Stars only, ✅ is a State badge
 		local locked = Pure.nodeView(snap({ Rebirth = { Points = 9 } }), "TwinCounters", Tree)
 		eq(locked.State, "Locked")
-		eq(locked.Button, "6 🌳 in Care")
+		eq(locked.Button, "Needs 🌳 6 in Care")
 		eq(locked.Capstone, true)
 		-- 6 points in Care opens it; 1 point isn't enough for its Cost 2
 		local six = { GentleWords = 3, ThankYou = 3 }
@@ -368,7 +385,7 @@ T.describe("BranchPanel (pure): the tree", function()
 	end)
 	test("branch heads and their nodes", function()
 		local care = Pure.branchView(snap({ Rebirth = { Tree = { GentleWords = 2, LuckyCoins = 1 } } }), "Care", Tree)
-		eq(care.Head, "💗 Care  ·  🌳 2")
+		eq(care.Head, "Care  ·  🌳 2")
 		eq(care.Nodes, { "GentleWords", "ThankYou", "SteadyHands", "TwinCounters" })
 		eq(#Pure.branchView(snap(), "Speed", Tree).Nodes, 4)
 		eq(#Pure.branchView(snap(), "Fortune", Tree).Nodes, 4)
@@ -394,11 +411,11 @@ T.describe("BranchPanel (pure): themes and opening", function()
 		local cards = Pure.themeCards(snap(), Themes)
 		eq(#cards, #Themes.Order)
 		eq(cards[1].State, "On")
-		eq(cards[1].Text, "✅ On")
+		eq(cards[1].Text, "On")
 		for index = 2, #cards do
 			eq(cards[index].State, "Locked")
-			eq(cards[index].Text, "🏢 R" .. rawget(Themes, cards[index].Id).Rebirths)
-			assert(not string.find(cards[index].Text, "🔒", 1, true), "no lock icon")
+			eq(cards[index].Text, "From branch " .. rawget(Themes, cards[index].Id).Rebirths)
+			eq(Icons.count(cards[index].Text), 0) -- no lock icon, no 🏢
 		end
 	end)
 	test("themes at R2 on Arctic: Arctic on, Candy and Jungle to pick, Space locked", function()
@@ -409,9 +426,9 @@ T.describe("BranchPanel (pure): themes and opening", function()
 		end
 		eq(byId.Arctic.State, "On")
 		eq(byId.Candy.State, "Pick")
-		eq(byId.Candy.Text, "🎨 Pick")
+		eq(byId.Candy.Text, "Pick")
 		eq(byId.Jungle.State, "Pick")
-		eq(byId.Space.Text, "🏢 R3")
+		eq(byId.Space.Text, "From branch 3")
 		-- a theme the save can't show yet falls back to Candy (Logic/Rebirth.theme)
 		local cheat = Pure.themeCards(snap({ Rebirth = { Count = 0, Theme = "Royal" } }), Themes)
 		eq(cheat[1].State, "On")
@@ -426,7 +443,7 @@ T.describe("BranchPanel (pure): themes and opening", function()
 				assert(value == "" or string.match(value, "^#%x%x%x%x%x%x$"), themeId .. "." .. key .. ": " .. value)
 			end
 		end
-		eq(Pure.TEXT.WallsStay, "🎨 Walls stay your colour")
+		eq(Pure.TEXT.WallsStay, "Walls stay your colour")
 	end)
 	test("the tree reset asks through THE confirm: Destructive, its own words, no hold", function()
 		eq(Pure.resetConfirm(), {
@@ -439,7 +456,8 @@ T.describe("BranchPanel (pure): themes and opening", function()
 		assert(Pure.words(Pure.TEXT.ResetTitle) <= 2, "a confirm title is two words at most")
 	end)
 	test("firstTab: the tab asked for, else a card, else tree points, else Open", function()
-		eq(Pure.firstTab("Themes", snap(), Tree), "Themes")
+		eq(Pure.firstTab("Themes", snap({ Rebirth = { Count = 1 } }), Tree), "Themes")
+		eq(Pure.firstTab("Themes", snap(), Tree), "Open") -- R0: no Themes tab before the first branch
 		eq(Pure.firstTab("Nope", snap(), Tree), "Open")
 		eq(Pure.firstTab(nil, snap({ Rebirth = { Offer = { "BigHands" } } }), Tree), "Perks")
 		eq(Pure.firstTab(nil, snap({ Rebirth = { Points = 3 } }), Tree), "Tree")

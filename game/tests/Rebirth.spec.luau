@@ -85,12 +85,12 @@ T.describe("Rebirth cost and checks", function()
 		expect(Rebirth.cost(-3, Config)).toBe(50000)
 	end)
 
-	test("canRebirth: a 🏙️ City Hospital (Lv 5), then the cash", function()
+	test("canRebirth: a 🏥 City Hospital (Lv 5), then the cash", function()
 		local data = richSave()
 		expect({ Rebirth.canRebirth(data, Config) }).toEqual({ true, "" })
 		data.Level = 4
-		expect({ Rebirth.canRebirth(data, Config) }).toEqual({ false, "Need 🏙️ Lv 5" })
-		expect({ Levels[5].Icon, Levels[5].Name }).toEqual({ "🏙️", "City Hospital" }) -- the level the message names
+		expect({ Rebirth.canRebirth(data, Config) }).toEqual({ false, "Needs 🏥 Lv 5" })
+		expect({ Levels[5].Icon, Levels[5].Name }).toEqual({ "🏥", "City Hospital" }) -- the level the message names
 		data.Level = 5
 		data.Cash = 49999
 		expect({ Rebirth.canRebirth(data, Config) }).toEqual({ false, "Need 💰50,000" })

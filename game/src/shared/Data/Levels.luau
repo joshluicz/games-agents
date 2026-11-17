@@ -41,7 +41,7 @@ export type Level = {
 local LEVELS: { Level } = {
 	{
 		Name = "Clinic",
-		Icon = "🏠",
+		Icon = "🏥",
 		Stars = 0,
 		Cash = 0,
 		Bays = 2,
@@ -104,7 +104,7 @@ local LEVELS: { Level } = {
 	},
 	{
 		Name = "City Hospital",
-		Icon = "🏙️",
+		Icon = "🏥",
 		Stars = 200,
 		Cash = 15000,
 		Bays = 6,

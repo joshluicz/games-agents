@@ -1,7 +1,8 @@
 --!strict
--- The 🏢 Branch panel: open a new branch, perk cards, the Branch Ability Tree and themes (Progression v2 build plan
--- §B3/§B5/§B9, §C T5; design §7/§8, memory-20261116-017/-019). OWNER: T5.
---   init(ctx)   opens on ctx.fire("Open", "Branch", "Open" | "Perks" | "Tree" | "Themes") (the Shop's 🏥 tab; "Perks"
+-- The Branch panel: open a new branch, perk cards, the Branch Ability Tree and themes (Progression v2 build plan
+-- §B3/§B5/§B9, §C T5; design §7/§8, memory-20261116-017/-019). OWNER: T5. The calm UI (docs/plan/2026-11-17-ui-
+-- direction.md §4 #6; Joshua, memory-20261117-007): headings in words, one Primary, cards without lines, no 🏙️.
+--   init(ctx)   opens on ctx.fire("Open", "Branch", "Open" | "Perks" | "Tree" | "Themes") (the Shop's level tab; "Perks"
 --               after the Rebirth celebration). With no tab it opens where a reward waits (a perk card, then tree
 --               points), else on Open. Asks OpenBranch(true), ChoosePerk(perkId), BuyNode(nodeId), ResetTree(),
 --               SetTheme(themeId) and ClaimBranchNurse() through Hud.ask; the server checks everything and the next
@@ -9,22 +10,26 @@
 --               Hud: Whoosh, Nope).
 --   BranchPanel.Pure   the pure helpers below (tests/BranchUI.spec loads the block on its own)
 --
--- Inside (a Hud.modal Panel on the one template: the navy header, Modal.tabs down the left, neutral cards, buttons by
--- role; look build plan §B8, §D T7):
---   🏢 Open    the keep/reset screen: what you keep (Logic/Rebirth.KEEP ✅), what starts fresh (RESET 🔄, with the
---             start-of-branch perk you own beside its row) and what you get (GET 🎁: +25% 💰⭐ while they still add
---             up, +3 🌳, a card, +1 nurse slot until the roster's Max, the next theme by name and the next R-unlocks,
---             Golden with its odds), the cost (Logic/Rebirth.cost) and the hospital level with ✅ when met. A big
---             "Not now" is the default focus; "🏢 Open branch!" is a Kit.holdButton (1.5 s) that asks
---             OpenBranch(true). A tap without the hold says "✋ Hold the button down!" (or what's still needed).
---   🃏 Perks   the offered cards (tap one, then ✅ Take it), "🎲 3 random cards, never repeats" and how many are
---             left (every card equally likely), or "No cards waiting"; every perk with ✅ owned; the 🎁 gift row
+-- Inside (a Hud.modal Panel: the navy header with the title in words, Modal.tabs down the left, Kit.card cards):
+--   R0 (Pure.visible; memory-20261117-006): only the tabs with something in them. Before the first branch the panel
+--             is the Open page alone (no tab column); Perks, Tree and Themes join with the first branch.
+--   Open      a head card (Kit.name "Open a new branch", the Soft line "Needs 🏥 Lv 5 · 50,000 cash" and one Soft
+--             hint: how to open, or what is still missing), then three cards with a Soft word heading each: You keep
+--             (Logic/Rebirth.KEEP), Starts fresh (RESET, with the start-of-branch perk you own beside its row by
+--             name) and You get (GET: +25% cash and stars while they still add up, +3 tree points, a card, +1 nurse
+--             slot until the roster's Max, the next theme by name, the next R-unlocks, Golden with its odds). Each
+--             row is its Art apart and its words. A big "Not now" is the default focus; "Open branch" (the view's one
+--             Primary) is a Kit.holdButton (1.5 s) that asks OpenBranch(true). A tap without the hold says "Hold the
+--             button down" (or what's still needed).
+--   Perks     the offered cards (tap one: the ✅ State badge; then Take it), "3 random cards, never repeats" and how
+--             many are left (every card equally likely), or "No cards waiting"; every perk, ✅ owned; the gift row
 --             when a rebirth-only nurse waits (Claim).
---   🌳 Tree    the points to spend, three branch columns (stacked on a phone) of node tiles with rank pips, the
---             capstone lock "6 🌳 in Care", and 🔄 Reset (free, every point back) behind THE confirm (Hud.confirm).
---   🎨 Themes  every theme: ✅ On, 🎨 Pick (unlocked) or "🏢 R3" (locked: no lock icon, no "hurry"), with its Roof and
---             Trim swatches and "🎨 Walls stay your colour" (a theme recolours only the trim and the roof band: look
---             build plan §G4).
+--   Tree      the points to spend (🌳 3 points), three branch cards (stacked on a phone) of node tiles with a rank
+--             bar (Kit.bar: navy, gold at MAX), the capstone note "Needs 🌳 6 in Care", and Reset (a quiet button:
+--             free, every point back) behind THE confirm (Hud.confirm, Destructive).
+--   Themes    every theme: On (the ✅ badge), Pick (unlocked) or "From branch 3" (locked: no lock icon, no "hurry"),
+--             with its Roof and Trim swatches and "Walls stay your colour" (a theme recolours only the trim and the
+--             roof band: look build plan §G4).
 -- No pressure (red line 3): no dots on the Open tab, no breathing or shine on Open branch, no timers. The Perks and
 -- Tree tabs dot only for a reward waiting (a card to pick, points a node can take). Every motion honours
 -- Kit.reducedMotion() (Kit and Hud do the tweens). Words on screen ≤ 6 (Pure.TEXT and every row; BranchUI.spec).
@@ -42,12 +47,13 @@ local Hud = require(script.Parent.Hud)
 local Kit = require(script.Parent.Kit)
 local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
+local Icons = require(script.Parent.Icons)
 
 local BranchPanel = {}
 
 ------------------------------------------------------------------------------------------------------------------
 -- Pure helpers: no Roblox services or types; only RebirthLogic, TreeLogic and NurseLogic (the shared Logic
--- modules). tests/BranchUI.spec loads the block between the PURE markers on its own, so keep it that way.
+-- modules) and UI/Icons (a pure library). tests/BranchUI.spec loads the block between the PURE markers on its own, so keep it that way.
 ------------------------------------------------------------------------------------------------------------------
 -- PURE-BEGIN
 local Pure = {}
@@ -63,6 +69,7 @@ export type Status = {
 	Ok: boolean,
 	Message: string,
 	Line: string,
+	Hint: string,
 	CardWaits: boolean, -- a perk card still waits: Server/Rebirth refuses OpenBranch until it's picked
 }
 export type PerkCard = { Id: string, Icon: string, Name: string, Text: string, Owned: boolean }
@@ -86,47 +93,53 @@ export type Gift = { NurseId: string, Room: boolean }
 Pure.TABS = { "Open", "Perks", "Tree", "Themes" }
 Pure.HOLD_SECONDS = 1.5
 
--- Every fixed label on the panel (BranchUI.spec checks each is ≤ 6 words).
+-- Every fixed label on the panel (BranchUI.spec checks each is ≤ 6 words). Words only (UI direction, the emoji
+-- rules: no emoji as a bullet, in a heading or in a button; Joshua, memory-20261117-007).
 Pure.TEXT = {
-	Title = "🏢 Branches",
+	Title = "Branches",
 	TabOpen = "Open",
 	TabPerks = "Perks",
 	TabTree = "Tree",
 	TabThemes = "Themes",
-	OpenHead = "🏢 Open a new branch",
-	Keep = "✅ You keep",
-	Reset = "🔄 Starts fresh",
-	Get = "🎁 You get",
+	OpenHead = "Open a new branch",
+	Keep = "You keep",
+	Reset = "Starts fresh",
+	Get = "You get",
 	NotNow = "Not now",
-	OpenButton = "🏢 Open branch!",
-	HoldHint = "✋ Hold the button to open",
-	HoldTip = "✋ Hold the button down!",
-	PickCard = "🃏 Pick a card!",
-	PickCardFirst = "🃏 Pick your card first!",
-	NoCards = "🃏 No cards waiting",
-	NoCardsNote = "🏢 A card each new branch",
-	Take = "✅ Take it",
-	TapCard = "👆 Tap a card",
-	AllCards = "🃏 Every card",
-	TreeReset = "🔄 Reset",
-	ResetTitle = "🔄 Reset tree?",
-	ResetNote = "🌳 Every point comes back",
-	ResetYes = "🔄 Reset",
-	NothingToReset = "🌳 Nothing to reset",
-	ThemesHead = "🎨 Pick a look",
-	GiftHead = "🎁 A nurse waits!",
-	Claim = "🎁 Claim",
+	OpenButton = "Open branch",
+	HoldHint = "Hold the button to open",
+	HoldTip = "Hold the button down",
+	NotYet = "Not ready yet",
+	PickCard = "Pick a card",
+	PickCardFirst = "Pick your card first",
+	NoCards = "No cards waiting",
+	NoCardsNote = "A card each new branch",
+	Take = "Take it",
+	TapCard = "Tap a card",
+	AllCards = "Every card",
+	TreeReset = "Reset",
+	ResetTitle = "Reset tree?",
+	ResetNote = "Every point comes back",
+	ResetYes = "Reset",
+	NothingToReset = "Nothing to reset",
+	ThemesHead = "Pick a look",
+	GiftHead = "A nurse waits",
+	Claim = "Claim",
 	RosterFull = "Roster full: sell or list one",
-	Busy = "⏳",
+	Busy = Icons.State.Waiting, -- alone in place of a button's label while the server answers
 	Oops = "Oops! Try again.",
-	WallsStay = "🎨 Walls stay your colour",
+	WallsStay = "Walls stay your colour",
+	Max = "MAX",
+	On = "On",
+	Pick = "Pick",
 }
 
 -- The theme card's swatches: a theme recolours only the trim and the roof band; the walls stay the plot's colour
 -- (look build plan §G4, §F6).
 Pure.SWATCHES = { "Roof", "Trim" }
 
--- The 🔄 Reset confirm (Hud.confirm; "Not now" stays the default). Reset is a Destructive role (look build plan §B8).
+-- The tree's Reset confirm (Hud.confirm; "Not now" stays the default). Reset is a Destructive role (look build plan
+-- §B8).
 function Pure.resetConfirm(): { Title: string, Line: string, Yes: string, Kind: string, Hold: number }
 	return {
 		Title = Pure.TEXT.ResetTitle,
@@ -140,9 +153,9 @@ end
 -- The keep/reset screen's RESET rows that a start-of-branch perk softens (by the row's icon; BranchUI.spec checks
 -- every RESET row is here).
 Pure.RESET_KINDS = {
-	["💰"] = "StartCash",
+	[Icons.Unit.Cash] = "StartCash",
 	["⚡"] = "StartUpgrades",
-	["🏥"] = "StartLevel",
+	[Icons.Unit.Level] = "StartLevel",
 	["🏠"] = "StartRoom",
 } :: { [string]: string }
 
@@ -231,17 +244,18 @@ end
 
 function Pure.pointsText(points: any): string
 	local n = whole(points)
-	return "🌳 " .. n .. (if n == 1 then " point" else " points")
+	return Icons.unit("Tree", n) .. (if n == 1 then " point" else " points")
 end
 
 function Pure.randomText(cfg: any): string
 	local s = if type(cfg) == "table" and type(cfg.Rebirth) == "table" then cfg.Rebirth else {}
 	local size = math.clamp(whole(s.OfferSize or RebirthLogic.MAX_OFFER), 1, RebirthLogic.MAX_OFFER)
-	return "🎲 " .. size .. " random cards, never repeats"
+	return size .. " random cards, never repeats"
 end
 
--- The Open page's facts: the next rebirth's cost, the hospital level it needs, and whether each is met (✅). The
--- line never says "hurry": only what it costs.
+-- The Open page's facts: the next rebirth's cost and the hospital level it needs (Line: one Unit, the level; the
+-- cash in words), whether each is met, and the Soft hint under it (Hint: how to open, or what is still missing).
+-- The line never says "hurry": only what it takes.
 function Pure.status(state: any, cfg: any): Status
 	local count = countOf(state)
 	local cost = RebirthLogic.cost(count, cfg)
@@ -257,14 +271,16 @@ function Pure.status(state: any, cfg: any): Status
 	if ok and cardWaits then
 		ok, message = false, Pure.TEXT.PickCardFirst
 	end
-	-- "Need": a requirement, not a price. A rebirth doesn't take the cost off: ALL cash starts fresh (resetRows says
+	-- "Needs": a requirement, not a price. A rebirth doesn't take the cost off: ALL cash starts fresh (resetRows says
 	-- how much).
-	local line = "Need 🏙️ Lv "
-		.. minLevel
-		.. (if levelOk then " ✅" else "")
-		.. "  ·  💰"
-		.. Pure.short(cost)
-		.. (if cashOk then " ✅" else "")
+	local line = Icons.needs(minLevel) .. "  ·  " .. Pure.short(cost) .. " cash"
+	local hint = if ok
+		then Pure.TEXT.HoldHint
+		elseif cardWaits then Pure.TEXT.PickCardFirst
+		elseif not levelOk and not cashOk then "Not yet: level and cash"
+		elseif not levelOk then "Not yet: hospital level"
+		elseif not cashOk then "Not yet: more cash"
+		else Pure.TEXT.NotYet
 	return {
 		Count = count,
 		Next = count + 1,
@@ -275,11 +291,12 @@ function Pure.status(state: any, cfg: any): Status
 		Ok = ok,
 		Message = message,
 		Line = line,
+		Hint = hint,
 		CardWaits = cardWaits,
 	}
 end
 
--- ✅ What you keep: Logic/Rebirth.KEEP as it is.
+-- What you keep: Logic/Rebirth.KEEP as it is.
 function Pure.keepRows(): { Row }
 	local out: { Row } = {}
 	for _, r in RebirthLogic.KEEP do
@@ -288,9 +305,9 @@ function Pure.keepRows(): { Row }
 	return out
 end
 
--- 🔄 What starts fresh: Logic/Rebirth.RESET, each with the start-of-branch perk you own beside it ("🏠 Rooms ·
--- 🛁 Bath Ready"). With `cfg`, the cash row says exactly what happens to your cash: ALL of it starts fresh, not the
--- cost taken off ("💰 Cash: 💰180,000 → 💰0", or → Seed Money's amount).
+-- What starts fresh: Logic/Rebirth.RESET, each with the start-of-branch perk you own beside it by name ("🏠 Rooms ·
+-- Bath Ready": one emoji per row, the row's own). With `cfg`, the cash row says exactly what happens to your cash:
+-- ALL of it starts fresh, not the cost taken off ("💰 Cash: 180,000 → 0", or → Seed Money's amount).
 function Pure.resetRows(state: any, perks: any, cfg: any?): { Row }
 	local owned = listOf(rebirthOf(state).Perks)
 	local out: { Row } = {}
@@ -300,21 +317,21 @@ function Pure.resetRows(state: any, perks: any, cfg: any?): { Row }
 		for _, perkId in owned do
 			local perk = row(perks, perkId)
 			if perk and kind and perk.Kind == kind then
-				note = perk.Icon .. " " .. perk.Name
+				note = perk.Name
 			end
 		end
 		local text = r.Text
 		if kind == "StartCash" and cfg ~= nil then
 			local cash = if type(state) == "table" then state.Cash else 0
 			local start = RebirthLogic.startCash(state, cfg, perks)
-			text ..= ": 💰" .. Pure.short(cash) .. " → 💰" .. Pure.short(start)
+			text ..= ": " .. Pure.short(cash) .. " → " .. Pure.short(start)
 		end
 		table.insert(out, { Icon = r.Icon, Text = text, Note = note })
 	end
 	return out
 end
 
--- 🎁 What the next rebirth gives: Logic/Rebirth.GET (the cash and stars rows only while the bonus still adds up,
+-- What the next rebirth gives: Logic/Rebirth.GET (the cash and stars rows only while the bonus still adds up,
 -- the slot row only below the roster's Max, the look row as the new theme by name or not at all), then the
 -- unlocks new at that count (Golden with its odds).
 function Pure.getRows(state: any, cfg: any, themes: any): { Row }
@@ -323,14 +340,14 @@ function Pure.getRows(state: any, cfg: any, themes: any): { Row }
 	local s = if type(cfg) == "table" and type(cfg.Rebirth) == "table" then cfg.Rebirth else {}
 	local out: { Row } = {}
 	for _, r in RebirthLogic.GET do
-		if r.Icon == "💰" or r.Icon == "⭐" then
-			local kind = if r.Icon == "⭐" then "Stars" else "Cash"
+		if r.Icon == Icons.Unit.Cash or r.Icon == Icons.Unit.Stars then
+			local kind = if r.Icon == Icons.Unit.Stars then "Stars" else "Cash"
 			local gain = RebirthLogic.multiplier(nextCount, cfg, kind) - RebirthLogic.multiplier(count, cfg, kind)
 			if gain > 1e-9 then
 				local word = if kind == "Stars" then "stars" else "cash"
 				table.insert(out, { Icon = r.Icon, Text = "+" .. math.floor(gain * 100 + 0.5) .. "% " .. word })
 			end
-		elseif r.Icon == "🌳" then
+		elseif r.Icon == Icons.Unit.Tree then
 			local points = whole(s.PointsPerRebirth)
 			if points > 0 then
 				table.insert(
@@ -338,7 +355,7 @@ function Pure.getRows(state: any, cfg: any, themes: any): { Row }
 					{ Icon = r.Icon, Text = "+" .. points .. (if points == 1 then " tree point" else " tree points") }
 				)
 			end
-		elseif r.Icon == "👩‍⚕️" then
+		elseif r.Icon == Icons.Door.Nurses then
 			if NurseLogic.rosterCap(nextCount, cfg) > NurseLogic.rosterCap(count, cfg) then
 				table.insert(out, { Icon = r.Icon, Text = r.Text })
 			end
@@ -366,13 +383,18 @@ function Pure.getRows(state: any, cfg: any, themes: any): { Row }
 	return out
 end
 
--- A row as one line: "🏠 Rooms · 🛁 Bath Ready".
-function Pure.rowText(r: Row): string
-	local text = r.Icon .. " " .. r.Text
+-- A row's words: "Rooms · Bath Ready" (the panel draws the row's Icon apart, in its own column).
+function Pure.rowWords(r: Row): string
+	local text = r.Text
 	if r.Note and r.Note ~= "" then
 		text ..= " · " .. r.Note
 	end
 	return text
+end
+
+-- A row as one line: "🏠 Rooms · Bath Ready" (one emoji: the row's own).
+function Pure.rowText(r: Row): string
+	return r.Icon .. " " .. Pure.rowWords(r)
 end
 
 -- The cards waiting to be chosen (the Fallback "TreePoints" card too); unknown ids are skipped, and an offer with no
@@ -415,7 +437,7 @@ function Pure.perkList(state: any, perks: any): { PerkCard }
 	return out
 end
 
--- The odds, in words: every card you don't own is equally likely (Logic/Rebirth.offer picks evenly).
+-- The odds, in words: every card you don't own is equally likely (Logic/Rebirth.offer picks evenly). Words only.
 function Pure.oddsText(state: any, perks: any): string
 	local owned = listOf(rebirthOf(state).Perks)
 	local left = 0
@@ -425,18 +447,17 @@ function Pure.oddsText(state: any, perks: any): string
 		end
 	end
 	if left >= 2 then
-		return "🎲 All " .. left .. " cards equally likely"
+		return "All " .. left .. " cards equally likely"
 	elseif left == 1 then
-		return "🎲 1 card left"
+		return "1 card left"
 	end
 	local fallback = if type(perks) == "table" then perks.Fallback else nil
-	local icon = if type(fallback) == "table" then fallback.Icon else "🌳"
 	local text = if type(fallback) == "table" then fallback.Text else "+2 tree points"
-	return icon .. " Every card owned: " .. text
+	return "Every card owned: " .. text
 end
 
 -- One node tile: its rank, and what tapping it does now. Buy · Poor (not enough points) · Locked (a capstone
--- before 6 points in its branch: "6 🌳 in Care") · Max.
+-- before 6 points in its branch: "Needs 🌳 6 in Care") · Max ("MAX", the word). Button is a Soft line: one Unit.
 function Pure.nodeView(state: any, nodeId: string, treeData: any): NodeView?
 	local nodes = if type(treeData) == "table" then treeData.Nodes else nil
 	local def = row(nodes, nodeId)
@@ -453,14 +474,17 @@ function Pure.nodeView(state: any, nodeId: string, treeData: any): NodeView?
 	local branch = row(if type(treeData) == "table" then treeData.Branches else nil, def.Branch)
 	local kind: string, button: string = "Poor", ""
 	if rank >= max then
-		kind, button = "Max", "✅ Max"
+		kind, button = "Max", Pure.TEXT.Max
 	elseif ok then
-		kind, button = "Buy", "🌳 " .. cost
+		kind, button = "Buy", Icons.unit("Tree", cost)
 	elseif def.Capstone == true and TreeLogic.spent(ranks, nodes, def.Branch) < TreeLogic.CAPSTONE_NEEDS then
 		kind = "Locked"
-		button = TreeLogic.CAPSTONE_NEEDS .. " 🌳 in " .. (if branch then branch.Name else tostring(def.Branch))
+		button = "Needs "
+			.. Icons.unit("Tree", TreeLogic.CAPSTONE_NEEDS)
+			.. " in "
+			.. (if branch then branch.Name else tostring(def.Branch))
 	else
-		kind, button = "Poor", "🌳 " .. cost
+		kind, button = "Poor", Icons.unit("Tree", cost)
 	end
 	return {
 		Id = nodeId,
@@ -477,7 +501,7 @@ function Pure.nodeView(state: any, nodeId: string, treeData: any): NodeView?
 	}
 end
 
--- A branch column's head ("💗 Care · 🌳 4" spent) and its nodes in Data order.
+-- A branch column's head ("Care · 🌳 4" spent: the name in words, one Unit) and its nodes in Data order.
 function Pure.branchView(state: any, branchId: string, treeData: any): BranchView
 	local nodes = if type(treeData) == "table" then treeData.Nodes else nil
 	local branch = row(if type(treeData) == "table" then treeData.Branches else nil, branchId)
@@ -496,12 +520,12 @@ function Pure.branchView(state: any, branchId: string, treeData: any): BranchVie
 		Icon = icon,
 		Name = name,
 		Spent = spent,
-		Head = icon .. " " .. name .. "  ·  🌳 " .. spent,
+		Head = name .. "  ·  " .. Icons.unit("Tree", spent),
 		Nodes = ids,
 	}
 end
 
--- 🔄 Reset is offered once anything (even a node that no longer exists) would come back.
+-- Reset is offered once anything (even a node that no longer exists) would come back.
 function Pure.canReset(state: any, treeData: any): boolean
 	local rebirth = rebirthOf(state)
 	local nodes = if type(treeData) == "table" then treeData.Nodes else nil
@@ -524,7 +548,8 @@ function Pure.treeNews(state: any, treeData: any): boolean
 	return false
 end
 
--- Every theme: "On" (shown now: Logic/Rebirth.theme) · "Pick" (unlocked) · "Locked" ("🏢 R3": no lock icon).
+-- Every theme: "On" (shown now: Logic/Rebirth.theme) · "Pick" (unlocked) · "Locked" ("From branch 3": words, no
+-- lock icon, no hurry).
 function Pure.themeCards(state: any, themes: any): { ThemeCard }
 	local count = countOf(state)
 	local current = RebirthLogic.theme(state, themes)
@@ -533,7 +558,10 @@ function Pure.themeCards(state: any, themes: any): { ThemeCard }
 		local theme = row(themes, themeId)
 		local needs = whole(theme.Rebirths)
 		local kind = if themeId == current then "On" elseif needs <= count then "Pick" else "Locked"
-		local text = if kind == "On" then "✅ On" elseif kind == "Pick" then "🎨 Pick" else "🏢 R" .. needs
+		local text = if kind == "On"
+			then Pure.TEXT.On
+			elseif kind == "Pick" then Pure.TEXT.Pick
+			else "From branch " .. needs
 		table.insert(out, { Id = themeId, Icon = theme.Icon, Name = theme.Name, State = kind, Text = text })
 	end
 	return out
@@ -554,9 +582,23 @@ function Pure.gift(state: any, roster: any, cfg: any): Gift?
 	return nil
 end
 
--- Where the panel opens: the tab asked for, else where a reward waits (a card, then tree points), else Open.
+-- R0 (UI direction; memory-20261117-006 "simple, especially at the start"): only the tabs with something in them.
+-- Before the first branch there is only Open (no tab column at all: Modal.tabs drops it under two tabs). Perks
+-- once a branch is open or a card or a gift waits; Tree once a branch is open or points wait; Themes once a branch
+-- is open (Candy is the only look before that). A save that already has any of these keeps its tab.
+function Pure.visible(state: any): { [string]: boolean }
+	local rebirth = rebirthOf(state)
+	local opened = countOf(state) > 0
+	local perks = opened or #listOf(rebirth.Offer) > 0 or #listOf(rebirth.Pending) > 0 or #listOf(rebirth.Perks) > 0
+	local tree = opened or whole(rebirth.Points) > 0 or next(listOf(rebirth.Tree)) ~= nil
+	return { Open = true, Perks = perks, Tree = tree, Themes = opened }
+end
+
+-- Where the panel opens: the tab asked for (when it shows), else where a reward waits (a card, then tree points),
+-- else Open.
 function Pure.firstTab(tab: any, state: any, treeData: any): string
-	if type(tab) == "string" and table.find(Pure.TABS, tab) then
+	local shown = Pure.visible(state)
+	if type(tab) == "string" and table.find(Pure.TABS, tab) and shown[tab] then
 		return tab
 	end
 	if #listOf(rebirthOf(state).Offer) > 0 then
@@ -567,59 +609,25 @@ function Pure.firstTab(tab: any, state: any, treeData: any): string
 	end
 	return "Open"
 end
--- PURE-END
-
-BranchPanel.Pure = Pure
 
 ------------------------------------------------------------------------------------------------------------------
--- Look helpers: the one template (look build plan §B8). Neutral cards on white paper, buttons by role, radii,
--- strokes and text sizes from Theme; the panel has no colour of its own.
+-- Look helpers: the calm UI (docs/plan/2026-11-17-ui-direction.md; Joshua, memory-20261117-007): Kit.card (a fill,
+-- no line), Kit.name once per card, Kit.fact for the rest, one Kit.artTile per card, Kit.bar for a rank, buttons by
+-- role. No shape here draws an outline (R2): only Kit's candy buttons do.
 ------------------------------------------------------------------------------------------------------------------
 
 local BUTTON = Theme.Size.ButtonHeight
-local GAP = Theme.Space.Gap
-local ROW_HEIGHT = 24 -- a keep/reset/get row's least height (it grows to fit its words)
-local NODE_HEIGHT = 150 -- room for a two-line name and two lines of words at the 18 px floor
+local GAP = Theme.Space.PadCard -- between cards (R4)
+local ROW_ICON = 28 -- a keep/reset/get row's icon column
+local NODE_HEIGHT = 160 -- the art, a two-line name, two lines of words, the rank bar and what a tap does
 local PERK_HEIGHT = 124
 local OFFER_HEIGHT = 160
 local THEME_HEIGHT = 166
 local SWATCH = 26
-local TABS: { Modal.TabSpec } = {
-	{ Id = "Open", Icon = "🏢", Caption = Pure.TEXT.TabOpen },
-	{ Id = "Perks", Icon = "🃏", Caption = Pure.TEXT.TabPerks },
-	{ Id = "Tree", Icon = "🌳", Caption = Pure.TEXT.TabTree },
-	{ Id = "Themes", Icon = "🎨", Caption = Pure.TEXT.TabThemes },
-}
+-- The 🎨 tab icon is the Themes tab's own Art (not a chrome Door: it appears nowhere else).
+local THEMES_ICON = "🎨"
 -- The Candy theme keeps the building's own trim and roof (Data/Themes ""): the warm trim and the dark roof.
 local DEFAULT_SWATCH: { [string]: Color3 } = { Roof = Palette.World.Roof, Trim = Palette.World.Trim }
-
--- A button's role after it was made (Kit.button reads its Kind once): the role's fill, and white outlined text on a
--- strong fill or ink on a light one. "Disabled" is the gated grey; it stays tappable, so a tap can still say why.
-local ROLE_FILL: { [string]: Color3 } = {
-	Primary = Theme.Colors.Primary,
-	Collect = Theme.Colors.Collect,
-	Destructive = Theme.Colors.Destructive,
-	Secondary = Theme.Colors.Secondary,
-	Disabled = Theme.Colors.Disabled,
-}
-local function setRole(button: TextButton, role: string)
-	local fill = ROLE_FILL[role] or Theme.Colors.Secondary
-	local light = role == "Secondary" or role == "Disabled"
-	button.BackgroundColor3 = fill
-	button:SetAttribute("KitColor", fill)
-	button.TextColor3 = if role == "Disabled"
-		then Theme.Colors.DisabledText
-		elseif light then Theme.Colors.Ink
-		else Theme.Colors.OnColor
-	local outline = button:FindFirstChild("TextOutline")
-	if light then
-		if outline and outline:IsA("UIStroke") then
-			outline.Enabled = false
-		end
-	else
-		Kit.outline(button).Enabled = true
-	end
-end
 
 -- A Kit button used as a card (a node, a theme, a perk): a flat fill, no gloss (as Kit.tab does for tabs).
 local function flatCard(button: TextButton, fill: Color3)
@@ -647,12 +655,6 @@ local function frame(props: { [string]: any }): Frame
 	return f
 end
 
-local function rounded(gui: GuiObject): UICorner
-	local corner = Kit.corner(gui)
-	corner.CornerRadius = Theme.Radius.Round
-	return corner
-end
-
 local function hexColor(value: any, fallback: Color3): Color3
 	if type(value) ~= "string" or value == "" then
 		return fallback
@@ -661,23 +663,21 @@ local function hexColor(value: any, fallback: Color3): Color3
 	return if ok then color else fallback
 end
 
-local function borderOf(gui: Instance): UIStroke?
-	for _, child in gui:GetChildren() do
-		if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
-			return child
-		end
-	end
-	return nil
+-- A Soft line that wraps and grows to fit its words (Kit.fact cuts to one line; a row of words may need two).
+local function wrapFact(props: { [string]: any }): TextLabel
+	local label = Kit.fact(props)
+	label.TextWrapped = true
+	label.TextTruncate = Enum.TextTruncate.None
+	label.AutomaticSize = Enum.AutomaticSize.Y
+	return label
 end
 
--- A line of words that wraps and grows to fit them (fixed text at the 18 px floor or more: it never shrinks).
-local function line(props: { [string]: any }): TextLabel
-	props.TextScaled = false
-	props.TextSize = props.TextSize or Theme.TextSize.Caption
-	props.TextWrapped = true
-	props.AutomaticSize = Enum.AutomaticSize.Y
-	props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left
-	return Kit.label(props)
+-- A name or words that shrink to fit a fixed box (a tile's name), never under the 18 px floor.
+local function fitText(label: TextLabel, maxPx: number)
+	label.TextScaled = true
+	label.TextWrapped = true
+	label.TextTruncate = Enum.TextTruncate.None
+	Kit.textLimit(label, maxPx)
 end
 
 local function scrollPage(parent: Instance, name: string): ScrollingFrame
@@ -696,49 +696,31 @@ local function scrollPage(parent: Instance, name: string): ScrollingFrame
 	list.VerticalAlignment = Enum.VerticalAlignment.Top
 	list.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 4)
-	pad.PaddingBottom = UDim.new(0, 12)
-	pad.PaddingLeft = UDim.new(0, 4) -- scrolling frames clip: keep the outlines whole
-	pad.PaddingRight = UDim.new(0, 14)
+	pad.PaddingTop = UDim.new(0, Theme.Space.Tight)
+	pad.PaddingBottom = UDim.new(0, Theme.Space.PadCard)
+	pad.PaddingLeft = UDim.new(0, Theme.Space.Tight)
+	pad.PaddingRight = UDim.new(0, Theme.Space.PadPanel) -- room for the scroll bar
 	pad.Parent = scroll
 	scroll.Parent = parent
 	return scroll
 end
 
--- A card on the paper: Card fill, a 2 px CardLine (AutomaticSize Y unless a height is given).
+-- A card on the paper (Kit.card: the Card fill, no line; AutomaticSize Y unless a height is given).
 local function card(parent: Instance, name: string, order: number, height: number?): Frame
-	local f = frame({
-		Name = name,
-		LayoutOrder = order,
-		BackgroundColor3 = Theme.Colors.Card,
-		Size = UDim2.new(1, 0, 0, height or 0),
-		AutomaticSize = if height then Enum.AutomaticSize.None else Enum.AutomaticSize.Y,
-		Parent = parent,
-	})
-	Kit.corner(f, Theme.Radius.Medium)
-	Kit.stroke(f, Theme.Colors.CardLine, Theme.Stroke.Fine)
+	local f = Kit.card({ Name = name, LayoutOrder = order, Pad = if height then false else nil, Parent = parent })
+	if height then
+		f.AutomaticSize = Enum.AutomaticSize.None
+		f.Size = UDim2.new(1, 0, 0, height)
+	end
 	return f
 end
 
--- A neutral icon tile (the image well).
-local function iconTile(parent: Instance, size: number, icon: string): (Frame, TextLabel)
-	local tile = frame({
-		Name = "Tile",
-		Size = UDim2.fromOffset(size, size),
-		BackgroundColor3 = Theme.Colors.Well,
-		Parent = parent,
-	})
-	Kit.corner(tile, Theme.Radius.Medium)
-	local label = Kit.label({
-		Name = "Icon",
-		Text = icon,
-		TextScaled = true,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.78, 0.78),
-		Parent = tile,
-	})
-	return tile, label
+-- A card's content as a vertical list, Line apart.
+local function stack(parent: Instance): UIListLayout
+	local list = Kit.list(parent, Enum.FillDirection.Vertical, Theme.Space.Line)
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	list.VerticalAlignment = Enum.VerticalAlignment.Top
+	return list
 end
 
 -- Cells as wide as fit (between `minCell` and the width), `maxColumns` at most, `height` tall.
@@ -820,8 +802,15 @@ function BranchPanel.init(ctx: Types.Ctx)
 		modal.Focus = focusOf[id] or tabButton(id)
 	end
 
-	-- THE tab pattern: a left column of square tabs (Modal.tabs paints them with Kit.tab).
-	tabs = Modal.tabs(modal, TABS, function(id: string)
+	-- THE tab pattern, R0: only the tabs with something in them (Pure.visible). Before the first branch that is Open
+	-- alone, so there is no tab column at all.
+	local shown = Pure.visible(ctx.State)
+	tabs = Modal.tabs(modal, {
+		{ Id = "Open", Icon = Icons.Door.Branches, Caption = T.TabOpen, Hidden = not shown.Open },
+		{ Id = "Perks", Icon = Icons.Unit.Cards, Caption = T.TabPerks, Hidden = not shown.Perks },
+		{ Id = "Tree", Icon = Icons.Unit.Tree, Caption = T.TabTree, Hidden = not shown.Tree },
+		{ Id = "Themes", Icon = THEMES_ICON, Caption = T.TabThemes, Hidden = not shown.Themes },
+	}, function(id: string)
 		showPage(id)
 		render(ctx.State)
 	end)
@@ -856,7 +845,8 @@ function BranchPanel.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- 🏢 Open: the keep/reset screen
+	-- Open: the keep/reset screen. A head card (name, what it takes, one hint), three cards with a word heading
+	-- each (You keep · Starts fresh · You get), and the foot: Not now and the one Primary, Open branch (hold).
 	--------------------------------------------------------------------------------------------------------------
 	local openPage = frame({
 		Name = "Open",
@@ -869,44 +859,13 @@ function BranchPanel.init(ctx: Types.Ctx)
 	local openScroll = scrollPage(openPage, "Scroll")
 	openScroll.Size = UDim2.new(1, 0, 1, -(BUTTON + GAP))
 
-	local head = card(openScroll, "Head", 1, 104)
-	local headTile = iconTile(head, 64, "🏢")
-	headTile.AnchorPoint = Vector2.new(0, 0.5)
-	headTile.Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0)
-	local headTitle = Kit.label({
-		Name = "Title",
-		Text = T.OpenHead,
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(88, 8),
-		Size = UDim2.new(1, -98, 0, 30),
-		Parent = head,
-	})
-	Kit.textLimit(headTitle, Theme.TextSize.Button)
-	local headStatus = Kit.label({
-		Name = "Status",
-		Text = "",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(88, 40),
-		Size = UDim2.new(1, -98, 0, 26),
-		Parent = head,
-	})
-	Kit.textLimit(headStatus, Theme.TextSize.Body)
-	local headHint = Kit.label({
-		Name = "Hint",
-		Text = T.HoldHint,
-		TextScaled = true,
-		TextColor3 = Theme.Colors.InkSoft,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(88, 70),
-		Size = UDim2.new(1, -98, 0, 24),
-		Parent = head,
-	})
-	Kit.textLimit(headHint, Theme.TextSize.Caption)
+	local head = card(openScroll, "Head", 1)
+	stack(head)
+	Kit.name({ Name = "Title", Text = T.OpenHead, LayoutOrder = 1, Parent = head })
+	local headStatus = Kit.fact({ Name = "Status", Text = "", LayoutOrder = 2, Parent = head })
+	local headHint = Kit.fact({ Name = "Hint", Text = T.HoldHint, LayoutOrder = 3, Parent = head })
 
-	-- Three columns (stacked on a narrow screen): ✅ keep · 🔄 starts fresh · 🎁 you get.
+	-- Three cards (stacked on a narrow screen): you keep · starts fresh · you get.
 	local columns = frame({
 		Name = "Columns",
 		LayoutOrder = 2,
@@ -922,22 +881,9 @@ function BranchPanel.init(ctx: Types.Ctx)
 	type Column = { Frame: Frame, Rows: Frame }
 	local function newColumn(name: string, order: number, title: string): Column
 		local f = card(columns, name, order)
-		f.Size = UDim2.new(1 / 3, -6, 0, 0)
-		Kit.pad(f, GAP)
-		local list = Kit.list(f, Enum.FillDirection.Vertical, 4)
-		list.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		list.VerticalAlignment = Enum.VerticalAlignment.Top
-		local header = Kit.label({
-			Name = "Head",
-			Text = title,
-			TextScaled = true,
-			Font = Theme.DisplayFont,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			LayoutOrder = 0,
-			Size = UDim2.new(1, 0, 0, 30),
-			Parent = f,
-		})
-		Kit.textLimit(header, Theme.TextSize.Button)
+		f.Size = UDim2.new(1 / 3, -GAP, 0, 0)
+		stack(f)
+		Kit.fact({ Name = "Head", Text = title, LayoutOrder = 0, Parent = f })
 		local rows = frame({
 			Name = "Rows",
 			LayoutOrder = 1,
@@ -946,9 +892,7 @@ function BranchPanel.init(ctx: Types.Ctx)
 			AutomaticSize = Enum.AutomaticSize.Y,
 			Parent = f,
 		})
-		local rowList = Kit.list(rows, Enum.FillDirection.Vertical, 4)
-		rowList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		rowList.VerticalAlignment = Enum.VerticalAlignment.Top
+		stack(rows)
 		return { Frame = f, Rows = rows }
 	end
 	local keepColumn = newColumn("Keep", 1, T.Keep)
@@ -962,33 +906,54 @@ function BranchPanel.init(ctx: Types.Ctx)
 		local wide = width >= 600
 		columnList.FillDirection = if wide then Enum.FillDirection.Horizontal else Enum.FillDirection.Vertical
 		for _, column in { keepColumn, resetColumn, getColumn } do
-			column.Frame.Size = if wide then UDim2.new(1 / 3, -6, 0, 0) else UDim2.fromScale(1, 0)
+			column.Frame.Size = if wide then UDim2.new(1 / 3, -GAP, 0, 0) else UDim2.fromScale(1, 0)
 		end
 	end
 	columns:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitColumns)
 	fitColumns()
 
+	-- A row: its Art in a small column of its own, then its words in Normal ink (the heading above is Soft).
 	local function fillRows(column: Column, rows: { Row })
 		clearGui(column.Rows)
 		for index, r in rows do
-			line({
+			local holder = frame({
 				Name = "Row" .. index,
-				Text = Pure.rowText(r),
 				LayoutOrder = index,
-				Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
+				BackgroundTransparency = 1,
+				Size = UDim2.fromScale(1, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
 				Parent = column.Rows,
 			})
+			local list = Kit.list(holder, Enum.FillDirection.Horizontal, Theme.Space.Tight)
+			list.VerticalAlignment = Enum.VerticalAlignment.Top
+			Kit.label({
+				Name = "Icon",
+				Text = r.Icon,
+				TextSize = Theme.TextSize.Body,
+				TextWrapped = false,
+				LayoutOrder = 1,
+				Size = UDim2.fromOffset(ROW_ICON, Theme.TextSize.Body + Theme.Space.Tight),
+				Parent = holder,
+			})
+			local words = wrapFact({
+				Name = "Text",
+				Text = Pure.rowWords(r),
+				LayoutOrder = 2,
+				Size = UDim2.new(1, -(ROW_ICON + Theme.Space.Tight), 0, 0),
+				Parent = holder,
+			})
+			words.TextColor3 = Theme.Colors.Ink
 		end
 	end
 
-	-- The foot: a big "Not now" (the default focus) and the hold-to-open button (Primary: it never shines or
-	-- breathes; no pressure).
+	-- The foot: a big "Not now" (the default focus) and the hold-to-open button (the view's one Primary: it never
+	-- shines or breathes; no pressure).
 	local foot = frame({
 		Name = "Foot",
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.fromScale(0, 1),
-		Size = UDim2.new(1, -14, 0, BUTTON),
+		Size = UDim2.new(1, -Theme.Space.PadPanel, 0, BUTTON),
 		Parent = openPage,
 	})
 	local notNow = Kit.button({
@@ -1027,7 +992,7 @@ function BranchPanel.init(ctx: Types.Ctx)
 		end
 		justHeld = true
 		if ask(openButton, ctx.Remotes.OpenBranch, true) then
-			modal.close() -- the server's Rebirth celebration comes next, then "Pick a card!"
+			modal.close() -- the server's Rebirth celebration comes next, then "Pick a card"
 		end
 	end)
 	openButton.Activated:Connect(function()
@@ -1045,12 +1010,13 @@ function BranchPanel.init(ctx: Types.Ctx)
 		Hud.shake(openButton)
 	end)
 
-	-- One key per column: the cash row changes with every cure, and only its column needs redrawing then.
+	-- One key per column: the cash row changes with every treatment, and only its column needs redrawing then.
 	local openKeys: { [Column]: string } = {}
 	local function renderOpen(state: Types.Snapshot)
 		local status = Pure.status(state, cfg)
-		headStatus.Text = "🏢 " .. status.Next .. "  ·  " .. status.Line
-		setRole(openButton, if status.Ok then "Primary" else "Disabled")
+		headStatus.Text = status.Line
+		headHint.Text = status.Hint
+		Kit.setRole(openButton, if status.Ok then "Primary" else "Disabled")
 		local columnRows: { { Column: Column, Rows: { Row } } } = {
 			{ Column = keepColumn, Rows = Pure.keepRows() },
 			{ Column = resetColumn, Rows = Pure.resetRows(state, data.Perks, cfg) },
@@ -1070,42 +1036,36 @@ function BranchPanel.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- 🃏 Perks
+	-- Perks: the gift (a nurse waiting), the offer (tap a card, then Take it) and every card (✅ when owned)
 	--------------------------------------------------------------------------------------------------------------
 	local perksPage = scrollPage(pagesArea, "Perks")
 	perksPage.Visible = false
 	pages.Perks = perksPage
 
 	-- The gift row: a rebirth-only nurse waiting for a roster place.
-	local giftRow = card(perksPage, "Gift", 1, 76)
+	local giftRow = card(perksPage, "Gift", 1, 80)
 	giftRow.Visible = false
-	local giftFace = frame({
+	local giftFace = Kit.artTile({
 		Name = "Face",
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 10, 0.5, 0),
-		Size = UDim2.fromOffset(56, 56),
-		BackgroundColor3 = Theme.Colors.Well,
+		Position = UDim2.new(0, Theme.Space.PadCard, 0.5, 0),
 		Parent = giftRow,
 	})
-	Kit.corner(giftFace, Theme.Radius.Medium)
-	local giftText = Kit.label({
+	Kit.name({
 		Name = "Text",
 		Text = T.GiftHead,
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(76, 10),
-		Size = UDim2.new(1, -(76 + 150 + 12), 1, -20),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, Theme.Space.PadCard * 2 + Theme.Calm.ArtTile, 0.5, 0),
+		Size = UDim2.new(1, -(Theme.Space.PadCard * 4 + Theme.Calm.ArtTile + 150), 0, Theme.TextSize.Body + 4),
 		Parent = giftRow,
 	})
-	Kit.textLimit(giftText, Theme.TextSize.Body)
 	local claim = Kit.button({
 		Name = "Claim",
 		Kind = "Collect",
 		Text = T.Claim,
 		TextScaled = true,
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, 0),
+		Position = UDim2.new(1, -Theme.Space.PadCard, 0.5, 0),
 		Size = UDim2.fromOffset(150, BUTTON),
 		Parent = giftRow,
 	})
@@ -1129,37 +1089,10 @@ function BranchPanel.init(ctx: Types.Ctx)
 
 	-- The offer: the cards waiting, the odds in words, Take it.
 	local offerCard = card(perksPage, "Offer", 2)
-	Kit.pad(offerCard, Theme.Space.PadCard)
-	local offerList = Kit.list(offerCard, Enum.FillDirection.Vertical, GAP)
-	offerList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	offerList.VerticalAlignment = Enum.VerticalAlignment.Top
-	local offerTitle = Kit.label({
-		Name = "Title",
-		Text = T.PickCard,
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		LayoutOrder = 1,
-		Size = UDim2.new(1, 0, 0, 32),
-		Parent = offerCard,
-	})
-	Kit.textLimit(offerTitle, Theme.TextSize.Title)
-	local offerRandom = line({
-		Name = "Random",
-		Text = Pure.randomText(cfg),
-		TextSize = Theme.TextSize.Body,
-		LayoutOrder = 2,
-		Size = UDim2.new(1, 0, 0, 26),
-		Parent = offerCard,
-	})
-	local offerOdds = line({
-		Name = "Odds",
-		Text = "",
-		TextColor3 = Theme.Colors.InkSoft,
-		LayoutOrder = 3,
-		Size = UDim2.new(1, 0, 0, 24),
-		Parent = offerCard,
-	})
+	stack(offerCard)
+	local offerTitle = Kit.name({ Name = "Title", Text = T.PickCard, LayoutOrder = 1, Parent = offerCard })
+	local offerRandom = Kit.fact({ Name = "Random", Text = Pure.randomText(cfg), LayoutOrder = 2, Parent = offerCard })
+	local offerOdds = Kit.fact({ Name = "Odds", Text = "", LayoutOrder = 3, Parent = offerCard })
 	local offerCards, offerGrid = grid(offerCard, "Cards", 4, GAP)
 	fitGrid(offerCards, offerGrid, 150, 3, OFFER_HEIGHT)
 	local takeRow = frame({
@@ -1181,17 +1114,7 @@ function BranchPanel.init(ctx: Types.Ctx)
 	})
 	Kit.textLimit(take, Theme.TextSize.Button)
 
-	local allHead = Kit.label({
-		Name = "AllHead",
-		Text = T.AllCards,
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		LayoutOrder = 3,
-		Size = UDim2.new(1, 0, 0, 32),
-		Parent = perksPage,
-	})
-	Kit.textLimit(allHead, Theme.TextSize.Button)
+	Kit.fact({ Name = "AllHead", Text = T.AllCards, LayoutOrder = 3, Parent = perksPage })
 	local allCards, allGrid = grid(perksPage, "All", 4, GAP)
 	fitGrid(allCards, allGrid, 160, 4, PERK_HEIGHT)
 
@@ -1199,57 +1122,53 @@ function BranchPanel.init(ctx: Types.Ctx)
 	local offerKey = ""
 	local offerButtons: { [string]: TextButton } = {}
 
+	-- The chosen card: the Well fill and the ✅ State badge; Take it turns green.
 	local function paintOffer()
 		for perkId, button in offerButtons do
 			local chosen = perkId == selectedPerk
 			flatCard(button, if chosen then Theme.Colors.Well else Theme.Colors.Paper)
-			local border = borderOf(button)
-			if border then
-				border.Color = if chosen then Theme.Colors.Stroke else Theme.Colors.CardLine
-				border.Thickness = if chosen then Theme.Stroke.Panel else Theme.Stroke.Fine
-			end
+			Kit.setState(button, if chosen then Icons.State.Done else nil)
 		end
 		local ready = selectedPerk ~= nil and offerButtons[selectedPerk] ~= nil
 		take.Text = if ready then T.Take else T.TapCard
-		setRole(take, if ready then "Collect" else "Disabled")
+		Kit.setRole(take, if ready then "Collect" else "Disabled")
 	end
 
-	-- A perk face: the icon big, its name and its words.
+	-- A perk face: its Art big, its name (Normal) and its words (Soft).
 	local function perkFace(button: GuiObject, perk: PerkCard, iconShare: number)
-		Kit.label({
+		local icon = Kit.label({
 			Name = "Icon",
 			Text = perk.Icon,
 			TextScaled = true,
 			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.new(0.5, 0, 0, 6),
-			Size = UDim2.new(1, -16, iconShare, -6),
+			Position = UDim2.new(0.5, 0, 0, Theme.Space.Line),
+			Size = UDim2.new(1, -16, iconShare, -Theme.Space.Line),
 			ZIndex = 2,
 			Parent = button,
 		})
-		local name = Kit.label({
+		Kit.textLimit(icon, Theme.Emoji.ArtBig)
+		local name = Kit.name({
 			Name = "PerkName",
 			Text = perk.Name,
-			TextScaled = true,
-			Font = Theme.DisplayFont,
+			TextXAlignment = Enum.TextXAlignment.Center,
 			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.new(0.5, 0, iconShare, 2),
-			Size = UDim2.new(1, -12, 0.2, 0),
+			Position = UDim2.new(0.5, 0, iconShare, Theme.Space.Tight),
+			Size = UDim2.new(1, -Theme.Space.PadCard, 0.2, 0),
 			ZIndex = 2,
 			Parent = button,
 		})
-		Kit.textLimit(name, Theme.TextSize.Body)
-		local words = Kit.label({
+		fitText(name, Theme.TextSize.Body)
+		local words = Kit.fact({
 			Name = "Words",
 			Text = perk.Text,
-			TextScaled = true,
-			TextColor3 = Theme.Colors.InkSoft,
+			TextXAlignment = Enum.TextXAlignment.Center,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -6),
-			Size = UDim2.new(1, -12, 1 - iconShare - 0.2, -10),
+			Position = UDim2.new(0.5, 0, 1, -Theme.Space.Line),
+			Size = UDim2.new(1, -Theme.Space.PadCard, 1 - iconShare - 0.2, -Theme.Space.PadCard),
 			ZIndex = 2,
 			Parent = button,
 		})
-		Kit.textLimit(words, Theme.TextSize.Caption)
+		fitText(words, Theme.TextSize.Caption)
 	end
 
 	take.Activated:Connect(function()
@@ -1273,7 +1192,7 @@ function BranchPanel.init(ctx: Types.Ctx)
 		if gift and gift.NurseId ~= giftShown then
 			giftShown = gift.NurseId
 			giftFace:ClearAllChildren()
-			Kit.corner(giftFace, Theme.Radius.Medium)
+			Kit.corner(giftFace, Theme.Radius.Small)
 			local nurse = rawget(data.Nurses, gift.NurseId)
 			local portrait = Hud.portrait(if nurse then nurse.Look else nil, false)
 			portrait.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1334,27 +1253,13 @@ function BranchPanel.init(ctx: Types.Ctx)
 				local tile = frame({
 					Name = perk.Id,
 					LayoutOrder = index,
-					BackgroundColor3 = if perk.Owned then Theme.Colors.Paper else Theme.Colors.Card,
+					BackgroundColor3 = if perk.Owned then Theme.Colors.Well else Theme.Colors.Card,
 					Parent = allCards,
 				})
 				Kit.corner(tile, Theme.Radius.Medium)
-				Kit.stroke(
-					tile,
-					if perk.Owned then Theme.Colors.Stroke else Theme.Colors.CardLine,
-					if perk.Owned then Theme.Stroke.Bold else Theme.Stroke.Fine
-				)
 				perkFace(tile, perk, 0.36)
 				if perk.Owned then
-					Kit.label({
-						Name = "Owned",
-						Text = "✅",
-						TextScaled = true,
-						AnchorPoint = Vector2.new(1, 0),
-						Position = UDim2.new(1, 4, 0, -4),
-						Size = UDim2.fromOffset(28, 28),
-						ZIndex = 3,
-						Parent = tile,
-					})
+					Kit.setState(tile, Icons.State.Done)
 				else
 					for _, child in tile:GetChildren() do
 						if child:IsA("TextLabel") then
@@ -1367,7 +1272,8 @@ function BranchPanel.init(ctx: Types.Ctx)
 	end
 
 	--------------------------------------------------------------------------------------------------------------
-	-- 🌳 Tree
+	-- Tree: the points to spend, three branch cards (stacked on a phone) of node tiles with a rank bar, the capstone
+	-- note "Needs 🌳 6 in Care", and Reset (free, every point back) behind THE confirm
 	--------------------------------------------------------------------------------------------------------------
 	local treePage = frame({
 		Name = "Tree",
@@ -1380,31 +1286,20 @@ function BranchPanel.init(ctx: Types.Ctx)
 	local treeTop = frame({
 		Name = "Top",
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -14, 0, BUTTON),
+		Size = UDim2.new(1, -Theme.Space.PadPanel, 0, BUTTON),
 		Parent = treePage,
 	})
-	local pointsChip = frame({
+	local pointsText = Kit.name({
 		Name = "Points",
-		BackgroundColor3 = Theme.Colors.Card,
-		Size = UDim2.new(1, -(150 + GAP), 1, 0),
+		Text = Pure.pointsText(0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.new(1, -(150 + GAP), 0, Theme.TextSize.Body + Theme.Space.Tight),
 		Parent = treeTop,
 	})
-	Kit.corner(pointsChip, Theme.Radius.Medium)
-	Kit.stroke(pointsChip, Theme.Colors.CardLine, Theme.Stroke.Fine)
-	local pointsText = Kit.label({
-		Name = "Text",
-		Text = Pure.pointsText(0),
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, -20, 1, -14),
-		Parent = pointsChip,
-	})
-	Kit.textLimit(pointsText, Theme.TextSize.Button)
 	local resetButton = Kit.button({
 		Name = "Reset",
-		Kind = "Destructive",
+		Kind = "Secondary",
 		Text = T.TreeReset,
 		TextScaled = true,
 		AnchorPoint = Vector2.new(1, 0),
@@ -1432,9 +1327,8 @@ function BranchPanel.init(ctx: Types.Ctx)
 
 	type NodeTile = {
 		Button: TextButton,
-		Pips: Frame,
-		Pill: TextLabel,
-		PillFrame: Frame,
+		SetBar: (fraction: number, atMax: boolean?) -> (),
+		State: TextLabel,
 		Tile: Frame,
 		Shown: string,
 	}
@@ -1444,8 +1338,11 @@ function BranchPanel.init(ctx: Types.Ctx)
 		then data.Tree.BranchOrder
 		else {}
 
+	-- A node tile: its Art, its name, its words, its rank as a bar (navy; gold at MAX) and what a tap does now.
 	local function newNodeTile(parent: Instance, order: number, nodeId: string): NodeTile
 		local def = rawget(data.Tree.Nodes, nodeId)
+		local pad = Theme.Space.PadCard
+		local art = 40
 		local button = Kit.button({
 			Name = nodeId,
 			Kind = "Secondary",
@@ -1454,78 +1351,53 @@ function BranchPanel.init(ctx: Types.Ctx)
 			Parent = parent,
 		})
 		flatCard(button, Theme.Colors.Paper)
-		local border = borderOf(button)
-		if border then
-			border.Color = Theme.Colors.CardLine
-			border.Thickness = Theme.Stroke.Fine
-		end
-		local tile = iconTile(button, 40, def.Icon)
-		tile.Position = UDim2.fromOffset(8, 8)
-		tile.ZIndex = 2
-		local name = Kit.label({
+		local tile = Kit.artTile({
+			Icon = def.Icon,
+			Position = UDim2.fromOffset(pad, pad),
+			Size = UDim2.fromOffset(art, art),
+			ZIndex = 2,
+			Parent = button,
+		})
+		local name = Kit.name({
 			Name = "NodeName",
 			Text = def.Name,
-			TextScaled = true,
-			Font = Theme.DisplayFont,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(56, 6),
-			Size = UDim2.new(1, -62, 0, 44),
+			Position = UDim2.fromOffset(pad + art + Theme.Space.Line, pad - Theme.Space.Tight),
+			Size = UDim2.new(1, -(pad * 2 + art + Theme.Space.Line), 0, 48),
 			ZIndex = 2,
 			Parent = button,
 		})
-		Kit.textLimit(name, Theme.TextSize.Body)
-		local words = Kit.label({
+		fitText(name, Theme.TextSize.Body)
+		local words = Kit.fact({
 			Name = "Words",
 			Text = def.Text,
-			TextScaled = true,
-			TextColor3 = Theme.Colors.InkSoft,
-			TextXAlignment = Enum.TextXAlignment.Left,
 			TextYAlignment = Enum.TextYAlignment.Top,
-			Position = UDim2.fromOffset(8, 56),
-			Size = UDim2.new(1, -16, 0, 44),
+			Position = UDim2.fromOffset(pad, pad + art + Theme.Space.Line),
+			Size = UDim2.new(1, -pad * 2, 0, 44),
 			ZIndex = 2,
 			Parent = button,
 		})
-		Kit.textLimit(words, Theme.TextSize.Caption)
-		local pips = frame({
-			Name = "Pips",
-			BackgroundTransparency = 1,
+		fitText(words, Theme.TextSize.Caption)
+		local _, setBar = Kit.bar({
+			Name = "Rank",
 			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, 10, 1, -16),
-			Size = UDim2.fromOffset(0, 16),
-			AutomaticSize = Enum.AutomaticSize.X,
+			Position = UDim2.new(0, pad, 1, -(pad + Theme.TextSize.Caption + Theme.Space.Line * 2)),
+			Size = UDim2.new(1, -pad * 2, 0, Theme.Calm.Bar),
 			ZIndex = 2,
 			Parent = button,
 		})
-		local pipList = Kit.list(pips, Enum.FillDirection.Horizontal, 5)
-		pipList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		local pillFrame = frame({
-			Name = "Pill",
-			AnchorPoint = Vector2.new(1, 1),
-			Position = UDim2.new(1, -8, 1, -8),
-			Size = UDim2.new(0.62, 0, 0, 34),
-			BackgroundColor3 = Theme.Colors.Card,
-			ZIndex = 2,
-			Parent = button,
-		})
-		rounded(pillFrame)
-		Kit.stroke(pillFrame, Theme.Colors.Stroke, Theme.Stroke.Fine)
-		local pill = Kit.label({
-			Name = "Text",
+		local stateLabel = Kit.fact({
+			Name = "State",
 			Text = "",
-			TextScaled = true,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.new(1, -12, 1, -8),
-			ZIndex = 3,
-			Parent = pillFrame,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, pad, 1, -pad),
+			Size = UDim2.new(1, -pad * 2, 0, Theme.TextSize.Caption + Theme.Space.Line),
+			ZIndex = 2,
+			Parent = button,
 		})
-		Kit.textLimit(pill, Theme.TextSize.Caption)
 		local nodeTile: NodeTile = {
 			Button = button,
-			Pips = pips,
-			Pill = pill,
-			PillFrame = pillFrame,
+			SetBar = setBar,
+			State = stateLabel,
 			Tile = tile,
 			Shown = "",
 		}
@@ -1541,31 +1413,22 @@ function BranchPanel.init(ctx: Types.Ctx)
 			end
 			if ask(button, ctx.Remotes.BuyNode, nodeId) then
 				Kit.bump(tile)
-				Hud.sound("Node") -- Feel/Sounds' 🌳 cue (Progression v2 §B9)
+				Hud.sound("Node") -- Feel/Sounds' tree cue (Progression v2 §B9)
 			end
 		end)
 		return nodeTile
 	end
 
 	for index, branchId in branchOrder do
-		local branch = rawget(data.Tree.Branches, branchId)
 		local column = card(treeColumns, branchId, index)
-		column.Size = UDim2.new(1 / 3, -6, 0, 0)
-		Kit.pad(column, GAP)
-		local list = Kit.list(column, Enum.FillDirection.Vertical, GAP)
-		list.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		list.VerticalAlignment = Enum.VerticalAlignment.Top
-		local headLabel = Kit.label({
+		column.Size = UDim2.new(1 / 3, -GAP, 0, 0)
+		stack(column)
+		local headLabel = Kit.name({
 			Name = "Head",
-			Text = if branch then branch.Icon .. " " .. branch.Name else branchId,
-			TextScaled = true,
-			Font = Theme.DisplayFont,
-			TextXAlignment = Enum.TextXAlignment.Left,
+			Text = Pure.branchView(ctx.State, branchId, data.Tree).Head,
 			LayoutOrder = 0,
-			Size = UDim2.new(1, 0, 0, 30),
 			Parent = column,
 		})
-		Kit.textLimit(headLabel, Theme.TextSize.Button)
 		local entry: BranchColumn = { Frame = column, Head = headLabel, Nodes = {} }
 		local view = Pure.branchView(ctx.State, branchId, data.Tree)
 		for order, nodeId in view.Nodes do
@@ -1581,67 +1444,29 @@ function BranchPanel.init(ctx: Types.Ctx)
 		local wide = width >= 540
 		treeColumnList.FillDirection = if wide then Enum.FillDirection.Horizontal else Enum.FillDirection.Vertical
 		for _, column in branchColumns do
-			column.Frame.Size = if wide then UDim2.new(1 / 3, -6, 0, 0) else UDim2.fromScale(1, 0)
+			column.Frame.Size = if wide then UDim2.new(1 / 3, -GAP, 0, 0) else UDim2.fromScale(1, 0)
 		end
 	end
 	treeColumns:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTree)
 	fitTree()
 
-	local function setPips(pips: Frame, rank: number, max: number)
-		if pips:GetAttribute("Shown") == rank .. "/" .. max then
-			return
-		end
-		pips:SetAttribute("Shown", rank .. "/" .. max)
-		clearGui(pips)
-		for i = 1, max do
-			local dot = frame({
-				Name = "Pip" .. i,
-				LayoutOrder = i,
-				Size = UDim2.fromOffset(14, 14),
-				BackgroundColor3 = if i <= rank then Theme.Colors.Star else Theme.Colors.Paper,
-				ZIndex = 2,
-				Parent = pips,
-			})
-			rounded(dot)
-			Kit.stroke(dot, Theme.Colors.Stroke, Theme.Stroke.Fine)
-		end
-	end
-
-	-- The pill under a node says what a tap does now: green while the points can take it, the gated grey while not.
-	local PILL_FILL: { [string]: Color3 } = {
-		Buy = Theme.Colors.Collect,
-		Poor = Theme.Colors.Disabled,
-		Locked = Theme.Colors.Card,
-		Max = Theme.Colors.Cash,
-	}
-
 	local function renderTree(state: Types.Snapshot)
 		local rebirth = (state :: any).Rebirth
 		local points = if type(rebirth) == "table" and type(rebirth.Points) == "number" then rebirth.Points else 0
 		pointsText.Text = Pure.pointsText(points)
-		setRole(resetButton, if Pure.canReset(state, data.Tree) then "Destructive" else "Disabled")
+		Kit.setRole(resetButton, if Pure.canReset(state, data.Tree) then "Secondary" else "Disabled")
 		for branchId, column in branchColumns do
 			column.Head.Text = Pure.branchView(state, branchId, data.Tree).Head
 			for nodeId, tile in column.Nodes do
 				local view = Pure.nodeView(state, nodeId, data.Tree)
 				if view then
-					setPips(tile.Pips, view.Rank, view.Max)
-					tile.Pill.Text = view.Button
-					tile.PillFrame.BackgroundColor3 = PILL_FILL[view.State] or Theme.Colors.Card
-					tile.Pill.TextColor3 = if view.State == "Buy"
-						then Theme.Colors.OnColor
-						elseif view.State == "Poor" then Theme.Colors.DisabledText
-						elseif view.State == "Locked" then Theme.Colors.InkSoft
-						else Theme.Colors.Ink
-					local outline = tile.Pill:FindFirstChild("TextOutline")
-					if view.State == "Buy" then
-						Kit.outline(tile.Pill).Enabled = true
-					elseif outline and outline:IsA("UIStroke") then
-						outline.Enabled = false
-					end
+					tile.SetBar(Kit.Juice.barFraction(view.Rank, view.Max), view.State == "Max")
+					tile.State.Text = view.Button
+					-- What a tap does, in ink while the points can take it, soft while not.
+					tile.State.TextColor3 = if view.State == "Buy" then Theme.Colors.Ink else Theme.Colors.InkSoft
 					flatCard(tile.Button, if view.State == "Max" then Theme.Colors.Well else Theme.Colors.Paper)
 					if tile.Shown ~= "" and tile.Shown ~= view.State .. view.Rank then
-						Kit.bump(tile.PillFrame)
+						Kit.bump(tile.Tile)
 					end
 					tile.Shown = view.State .. view.Rank
 				end
@@ -1649,7 +1474,7 @@ function BranchPanel.init(ctx: Types.Ctx)
 		end
 	end
 
-	-- 🔄 Reset: free and every point comes back, but it undoes your picks, so it asks first (THE confirm: "Not now"
+	-- Reset: free and every point comes back, but it undoes your picks, so it asks first (THE confirm: "Not now"
 	-- is the default focus).
 	resetButton.Activated:Connect(function()
 		if not Pure.canReset(ctx.State, data.Tree) then
@@ -1665,35 +1490,17 @@ function BranchPanel.init(ctx: Types.Ctx)
 	end)
 
 	--------------------------------------------------------------------------------------------------------------
-	-- 🎨 Themes: a theme recolours the trim and the roof band only (the walls stay your plot's colour)
+	-- Themes: a theme recolours the trim and the roof band only (the walls stay your plot's colour)
 	--------------------------------------------------------------------------------------------------------------
 	local themesPage = scrollPage(pagesArea, "Themes")
 	themesPage.Visible = false
 	pages.Themes = themesPage
-	local themesHead = Kit.label({
-		Name = "Head",
-		Text = T.ThemesHead,
-		TextScaled = true,
-		Font = Theme.DisplayFont,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		LayoutOrder = 1,
-		Size = UDim2.new(1, 0, 0, 34),
-		Parent = themesPage,
-	})
-	Kit.textLimit(themesHead, Theme.TextSize.Title)
-	line({
-		Name = "WallsStay",
-		Text = T.WallsStay,
-		TextSize = Theme.TextSize.Body,
-		TextColor3 = Theme.Colors.InkSoft,
-		LayoutOrder = 2,
-		Size = UDim2.new(1, 0, 0, 26),
-		Parent = themesPage,
-	})
+	Kit.name({ Name = "Head", Text = T.ThemesHead, LayoutOrder = 1, Parent = themesPage })
+	Kit.fact({ Name = "WallsStay", Text = T.WallsStay, LayoutOrder = 2, Parent = themesPage })
 	local themeCards, themeGrid = grid(themesPage, "Grid", 3, GAP)
 	fitGrid(themeCards, themeGrid, 140, 4, THEME_HEIGHT)
 
-	type ThemeTile = { Button: TextButton, Pill: TextLabel, PillFrame: Frame }
+	type ThemeTile = { Button: TextButton, State: TextLabel }
 	local themeTiles: { [string]: ThemeTile } = {}
 	for index, themeId in data.Themes.Order :: { string } do
 		local theme = rawget(data.Themes, themeId)
@@ -1704,38 +1511,38 @@ function BranchPanel.init(ctx: Types.Ctx)
 			Parent = themeCards,
 		})
 		flatCard(button, Theme.Colors.Paper)
-		Kit.label({
+		local icon = Kit.label({
 			Name = "Icon",
 			Text = theme.Icon,
 			TextScaled = true,
 			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.new(0.5, 0, 0, 6),
+			Position = UDim2.new(0.5, 0, 0, Theme.Space.Line),
 			Size = UDim2.new(1, -16, 0, 46),
 			ZIndex = 2,
 			Parent = button,
 		})
-		local name = Kit.label({
+		Kit.textLimit(icon, Theme.Emoji.Art)
+		local name = Kit.name({
 			Name = "ThemeName",
 			Text = theme.Name,
-			TextScaled = true,
-			Font = Theme.DisplayFont,
+			TextXAlignment = Enum.TextXAlignment.Center,
 			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.new(0.5, 0, 0, 56),
-			Size = UDim2.new(1, -12, 0, 26),
+			Position = UDim2.new(0.5, 0, 0, 58),
+			Size = UDim2.new(1, -Theme.Space.PadCard, 0, 26),
 			ZIndex = 2,
 			Parent = button,
 		})
-		Kit.textLimit(name, Theme.TextSize.Body)
+		fitText(name, Theme.TextSize.Body)
 		local swatches = frame({
 			Name = "Swatches",
 			BackgroundTransparency = 1,
 			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.new(0.5, 0, 0, 86),
-			Size = UDim2.fromOffset(#Pure.SWATCHES * SWATCH + (#Pure.SWATCHES - 1) * GAP, SWATCH),
+			Position = UDim2.new(0.5, 0, 0, 92),
+			Size = UDim2.fromOffset(#Pure.SWATCHES * SWATCH + (#Pure.SWATCHES - 1) * Theme.Space.Line, SWATCH),
 			ZIndex = 2,
 			Parent = button,
 		})
-		local swatchList = Kit.list(swatches, Enum.FillDirection.Horizontal, GAP)
+		local swatchList = Kit.list(swatches, Enum.FillDirection.Horizontal, Theme.Space.Line)
 		swatchList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 		for i, key in Pure.SWATCHES do
 			local swatch = frame({
@@ -1747,31 +1554,18 @@ function BranchPanel.init(ctx: Types.Ctx)
 				Parent = swatches,
 			})
 			Kit.corner(swatch, Theme.Radius.Small)
-			Kit.stroke(swatch, Theme.Colors.Stroke, Theme.Stroke.Fine)
 		end
-		local pillFrame = frame({
-			Name = "Pill",
+		local stateLabel = Kit.fact({
+			Name = "State",
+			Text = "",
+			TextXAlignment = Enum.TextXAlignment.Center,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -8),
-			Size = UDim2.new(1, -20, 0, 34),
-			BackgroundColor3 = Theme.Colors.Card,
+			Position = UDim2.new(0.5, 0, 1, -Theme.Space.PadCard),
+			Size = UDim2.new(1, -Theme.Space.PadCard, 0, Theme.TextSize.Caption + Theme.Space.Line),
 			ZIndex = 2,
 			Parent = button,
 		})
-		rounded(pillFrame)
-		Kit.stroke(pillFrame, Theme.Colors.Stroke, Theme.Stroke.Fine)
-		local pill = Kit.label({
-			Name = "Text",
-			Text = "",
-			TextScaled = true,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.new(1, -12, 1, -8),
-			ZIndex = 3,
-			Parent = pillFrame,
-		})
-		Kit.textLimit(pill, Theme.TextSize.Caption)
-		themeTiles[themeId] = { Button = button, Pill = pill, PillFrame = pillFrame }
+		themeTiles[themeId] = { Button = button, State = stateLabel }
 		button.Activated:Connect(function()
 			for _, view in Pure.themeCards(ctx.State, data.Themes) do
 				if view.Id == themeId then
@@ -1789,23 +1583,15 @@ function BranchPanel.init(ctx: Types.Ctx)
 		end)
 	end
 
+	-- On: the Well fill and the ✅ State badge · Pick: ink · Locked: soft ("From branch 3").
 	local function renderThemes(state: Types.Snapshot)
 		for _, view in Pure.themeCards(state, data.Themes) do
 			local tile = themeTiles[view.Id]
 			if tile then
-				tile.Pill.Text = view.Text
-				tile.PillFrame.BackgroundColor3 = if view.State == "On"
-					then Theme.Colors.Well
-					elseif view.State == "Pick" then Theme.Colors.Secondary
-					else Theme.Colors.Card
-				tile.Pill.TextColor3 = if view.State == "Locked" then Theme.Colors.InkSoft else Theme.Colors.Ink
+				tile.State.Text = view.Text
+				tile.State.TextColor3 = if view.State == "Locked" then Theme.Colors.InkSoft else Theme.Colors.Ink
 				flatCard(tile.Button, if view.State == "On" then Theme.Colors.Well else Theme.Colors.Paper)
-				local border = borderOf(tile.Button)
-				if border then
-					border.Color = if view.State == "On" then Theme.Colors.Stroke else Theme.Colors.CardLine
-					border.Thickness = if view.State == "On" then Theme.Stroke.Bold else Theme.Stroke.Fine
-					border.Transparency = if view.State == "Locked" then 0.5 else 0
-				end
+				Kit.setState(tile.Button, if view.State == "On" then Icons.State.Done else nil)
 			end
 		end
 	end
@@ -1816,6 +1602,11 @@ function BranchPanel.init(ctx: Types.Ctx)
 	render = function(state: Types.Snapshot)
 		if not modal.isOpen() then
 			return
+		end
+		-- R0: a tab appears the moment it has something in it.
+		local visible = Pure.visible(state)
+		for _, id in Pure.TABS do
+			tabs.setVisible(id, visible[id] == true)
 		end
 		-- The Perks and Tree tabs dot only for a reward waiting; the Open tab never does (no rebirth pressure).
 		local perksTab, treeTab = tabButton("Perks"), tabButton("Tree")
@@ -1844,6 +1635,10 @@ function BranchPanel.init(ctx: Types.Ctx)
 	ctx.on("Open", function(name: any, tab: any)
 		if name ~= "Branch" then
 			return
+		end
+		local visible = Pure.visible(ctx.State)
+		for _, id in Pure.TABS do
+			tabs.setVisible(id, visible[id] == true)
 		end
 		tabs.select(Pure.firstTab(tab, ctx.State, data.Tree))
 		modal.open()

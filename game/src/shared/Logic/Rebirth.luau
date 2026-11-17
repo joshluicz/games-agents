@@ -7,9 +7,10 @@
 --
 --   Rebirth.cost(count, cfg): number         the NEXT rebirth's cost after `count` done: cfg.Rebirth.Cost[count + 1];
 --                                            past the table x Growth a rebirth, rounded to 2 significant figures
---   Rebirth.canRebirth(data, cfg): (ok, message)   hospital Lv >= MinLevel ("Need 🏙️ Lv 5"), cash >= cost ("Need
---                                            💰50,000"); "" when ok. (The server also checks the tutorial, saving, an
---                                            open treat session and its cooldown: §B3 OpenBranch)
+--   Rebirth.canRebirth(data, cfg): (ok, message)   hospital Lv >= MinLevel ("Needs 🏥 Lv 5": UI/Icons.needs's
+--                                            words), cash >= cost ("Need 💰50,000"); "" when ok. (The server
+--                                            also checks the tutorial, saving, an open treat session and its
+--                                            cooldown: §B3 OpenBranch)
 --   Rebirth.multiplier(count, cfg, kind?): number   1 + CashPerRebirth (StarsPerRebirth for kind "Stars") x
 --                                            min(count, MaxBonusRebirths): added, not compounded (§E12: R4 x2, R20 x6)
 --   Rebirth.apply(data, cfg, offer, content): ApplyResult
@@ -111,7 +112,7 @@ local OOPS = "Oops! Try again."
 Rebirth.KEEP = table.freeze({
 	table.freeze({ Icon = "📖", Text = "Patient Book" }),
 	table.freeze({ Icon = "👩‍⚕️", Text = "Your nurses" }),
-	table.freeze({ Icon = "📔", Text = "Nurse Journal" }),
+	table.freeze({ Icon = "📖", Text = "Nurse Journal" }),
 	table.freeze({ Icon = "⭐", Text = "Your stars" }),
 	table.freeze({ Icon = "🏅", Text = "Badges and rank" }),
 	table.freeze({ Icon = "🌸", Text = "Your decor" }),
@@ -250,7 +251,7 @@ function Rebirth.canRebirth(data: any, cfg: any): (boolean, string)
 	end
 	local minLevel = math.max(1, math.floor(num(settings(cfg).MinLevel, 5)))
 	if num(data.Level, 1) < minLevel then
-		return false, "Need 🏙️ Lv " .. minLevel
+		return false, "Needs 🏥 Lv " .. minLevel
 	end
 	local cost = Rebirth.cost(countOf(data), cfg)
 	if num(data.Cash, 0) < cost then

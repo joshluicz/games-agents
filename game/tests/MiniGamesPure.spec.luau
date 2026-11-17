@@ -598,8 +598,9 @@ T.describe("The Real Clinic: every game's look", function()
 			end
 		end
 		-- The dispensary's words (Joshua's playtest 2026-11-17)
-		expect(Pure.WORDS.SlipHint).toBe("👀 Tap the same bottle!")
-		expect(Pure.WORDS.SlipWrong).toBe("❌ Not that one. Look at the slip!")
+		-- (UI direction §2: hints are plain words, no emoji bullet in front)
+		expect(Pure.WORDS.SlipHint).toBe("Tap the same bottle!")
+		expect(Pure.WORDS.SlipWrong).toBe("Not that one. Look at the slip!")
 		expect(Pure.WORDS.SlipMark).toBe("📋")
 		local scary = { CURE, "[Nn]eedle", "[Bb]lood", "[Ss]urgery", "[Hh]urt" }
 		local function clean(text: string, where: string)

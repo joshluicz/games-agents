@@ -1,49 +1,52 @@
 --!strict
 -- NursePanel (depth-update design §2, build plan §B9; memory-20261116-012/-013; Progression v2 build plan §B3/§B9,
--- §C T5, memory-20261116-017/-019). OWNER: T5.
--- The 👩‍⚕️ Nurses panel: the Nurse Journal (a bestiary of every nurse, by rarity) and your Team (the roster).
---   init(ctx)   opens on ctx.fire("Open", "Nurses", "Team" | "Branch" | rarity?) (the Hud's 👩‍⚕️ button, anyone);
---               listens for "NurseNews" and "MarketNews" (🏷️ on your listed nurses); fires "NursesNew" (count) for
---               the button's dot, "Open" ("NurseOdds") for UI/BeltView's odds popup, "Open" ("Agency") / "Open"
---               ("Market") from the Team page's links, "Sell" (nurseId) / "List" (nurseId) from a Team card
---               (UI/AgencyPanel's sell confirm, UI/MarketPanel's list flow), and "Sound" (Sparkle, Click; Hire and Job
---               cues come with NurseNews in Feel/Sounds). Asks SetJob(nurseId, job), ClaimBranchNurse() and, once,
---               GetMarket().
---   NursePanel.Pure   the pure helpers below (tests/NurseUI.spec loads the block on its own)
+-- §C T5, memory-20261116-017/-019; the calm UI: docs/plan/2026-11-17-ui-direction.md §4 row 4, memory-20261117-006
+-- and -007). OWNER: T1 (the calm UI build).
+-- The Nurses panel: your Team (the roster) and the Nurse Journal (a bestiary of every nurse, by rarity).
+--   init(ctx)   opens on ctx.fire("Open", "Nurses", "Team" | "Branch" | rarity?) (the Hud's Nurses door, anyone);
+--               listens for "NurseNews", "MarketNews" (your listed nurses) and "Open" (to note the Agency was opened);
+--               fires "NursesNew" (count) for the door's dot, "Open" ("NurseOdds") for UI/BeltView's odds popup,
+--               "Open" ("Agency") / "Open" ("Market") from the Team page's links, "Sell" (nurseId) / "List" (nurseId)
+--               from a Team card's More menu (UI/AgencyPanel's sell confirm, UI/MarketPanel's list flow), and "Sound"
+--               (Sparkle, Click). Asks SetJob(nurseId, job), ClaimBranchNurse() and, once, GetMarket().
+--   NursePanel.Pure   the pure helpers below (tests/NurseUI.spec and tests/T1Ratchet.spec load the block on its own)
 --
--- Inside (a Hud.modal Panel on the one template: the navy header, Modal.tabs down the left, neutral cards, buttons by
--- role; look build plan §B8, §D T7):
---   header    "👩‍⚕️ Journal" / "👩‍⚕️ Team" and its one meta chip "📔 n%" (hired out of all, Logic/Nurse.journal;
---             rebirth-only nurses are left out of it)
---   tabs      ONE column (Modal.tabs; it scrolls when a phone is too short for all eight): 👩‍⚕️ Team ("n/cap"), then
---             the Journal's rarities, then 🏢. The old strip's 🏢 Agency and 🏷️ Market links head the Team page
---   Journal   one tab per rarity (Data/Rarities.Order, its colour as the tab's stripe) with hired/total (✅ when the
---             group is done) and a dot for news inside, plus a 🏢 tab for rebirth-only nurses (FounderFennec):
---               a rarity page: its header (icon, "Night Rush only" / "Golden Hour only", a progress bar, the group
---               reward 💰 + decor with ✅ and a gold badge once JournalSets has it, a 🎲 link with the odds right now
---               that opens THE belt odds popup (UI/BeltView's, on Hud.oddsPopup)) and a
---               card per nurse: unseen (a silhouette, "???", where to find it) · seen (greyed, its name, job, belt
---               price) · hired (full colour with a cap in the rarity's colour, level and stat, 👩‍⚕️ Team; ✅ while it
---               works, 💤 while it rests)
---               the 🏢 page: a card per rebirth-only nurse: "🏢 R5" until then, 🎁 Claim while it waits for a roster
---               place (Rebirth.Pending), then hired
---   Team      the Team row (🏢 Agency · 🏷️ Market), the roster "👩‍⚕️ n/cap" (Logic/Nurse.rosterCap: 3, +1 a rebirth,
---             at most 8), "💤 n resting" for an over-cap save, the team chips ("🛎️ ×2 +10% 💰", Logic/Jobs.teams /
---             Data/Departments) or a hint, the 🎁 gift
---             row, then one big card per nurse (working first, then resting): its face and level, an XP bar (⭐ MAX at
---             the level cap), its specialty, its ability with a Kit.ring that fills as it recharges (from the plot
---             nurse's AbilityReadyAt / AbilityCooldown; never seconds), the job button (opens the job picker), and
---             💰 Sell → "Sell" · 🏷️ List → "List" (🏷️ Listed opens the Market; both Secondary: the Agency's and the
---             Market's own confirms ask first); a rebirth-only nurse "🏢 Stays with you". Cards with news wear NEW! / ⬆️.
+-- The calm rules (R0 to R7, "candy on the verbs, calm on the nouns"): the title is words ("Team", "Journal"), the meta
+-- is plain text ("3/3" on the Team, "18%" in the Journal), cards are Kit.cards with no line, facts are Kit.fact
+-- lines (never pills), progress is a navy Kit.bar, and emoji come from shared/Data (Art) or UI/Icons (the rest).
+-- R0, only what the player can use now (Pure.visible): a fresh save sees the Team tab alone. A rarity's Journal tab
+-- shows once a SECOND rarity has been seen (then every rarity seen gets one), 🏢 once a branch has been opened, the
+-- Agency link once the roster has been full (or a nurse has left, or a branch opened), the Market link once the
+-- Agency was opened this session (or a nurse has left, or one is listed).
+--
+-- Inside (a Hud.modal Panel, Modal.tabs down the left once two tabs show):
+--   Team      the Agency and Market links (Quiet), one Soft line "3/3 working · 1 resting", a Soft team line when two
+--             or more working specialists make a team ("Reception ×2: 💰 +10%"), the gift card (a rebirth-only nurse
+--             waits for a place: Claim), then one card per nurse (working first, then resting). THE TEAM CARD
+--             (Pure.teamCard; the doc's "Before and after"):
+--               [portrait in its rarity frame]  Name                         Lv 1
+--                                               ▬▬▬▬░░░░ (Kit.bar, once the first XP is earned)
+--                                               Bath Room · Quick Soap    (Soft; each part once it can differ)
+--               [ 🩺 Healer ]  <- the ONE button (Secondary)                  More
+--             The job button opens the job picker; a resting nurse wears 💤 (Kit.setState) and its button reads
+--             "Pick a job". More (Kit.more, a Quiet text button) holds Sell and List and shows once you own 2 nurses
+--             (memory-20261117-007), so a stray tap never sells a nurse; each still asks through the Agency's and the
+--             Market's own confirms. The ability ring sits on the portrait's corner only while it recharges.
+--   Journal   one tab per rarity (Data/Rarities.Order) with hired/total (✅ when the group is done) and a dot for news,
+--             plus 🏢 for rebirth-only nurses: a page header (the rarity's tile, its name, "Night Rush only", a navy bar,
+--             the group reward "💰 300 + Plaster Rug" with ✅ once JournalSets has it, an "Odds 20%" link to THE belt
+--             odds popup) and a card per nurse: unseen (a silhouette, "???", where to find it) · seen (greyed, its
+--             job, belt price) · hired (full colour with a cap, "Lv 2 · Healer", ✅ while it works, 💤 while it rests,
+--             a Team link). The 🏢 page: "Branch 5" until then, Claim while it waits for a roster place.
 --   job picker  a Popup over the panel: every job (Data/Jobs) with its icon, name and words, ✅ on the one it works,
---             "🏥 Lv 2" for one not open yet, 💤 for a resting nurse while the roster is full, ⭐ where its specialty
---             gives +40%. Tapping an open job asks SetJob.
--- NEW! moments: a nurse seen for the first time, a copy that levels one up and a level from XP pop a little stamp card
--- above the 👩‍⚕️ button that flies into it (fades with reduced motion; none during the first-session tutorial or while
+--             "🏥 Lv 2" for one not open yet, 💤 for a resting nurse while the roster is full, "+40%" where its
+--             specialty helps. Tapping an open job asks SetJob.
+-- NEW moments: a nurse seen for the first time, a copy that levels one up and a level from XP pop a little stamp card
+-- above the Nurses door that flies into it (fades with reduced motion; none during the first-session tutorial or while
 -- the panel is open, where the card pops instead). A first hire's big moment is UI/Celebrate's (the server's
 -- "Celebrate" NewNurse). NursesNew counts Seen, Hired and Level news until the panel closes.
--- Reads only the Snapshot (NurseIndex, Nurses, JournalSets, Level, Cash, Rebirth), MarketNews, the plot nurses'
--- ability attributes, and Workspace's GoldenHour / NightRush (for the 🎲 chips). The server decides everything; this
+-- Reads only the Snapshot (NurseIndex, Nurses, JournalSets, Level, Rooms, Rebirth), MarketNews, the plot nurses'
+-- ability attributes, and Workspace's GoldenHour / NightRush (for the odds links). The server decides everything; this
 -- panel only asks. The ring loop runs only while the Team view is open (4 updates a second) and sleeps otherwise.
 
 local Players = game:GetService("Players")
@@ -61,6 +64,7 @@ local AbilitiesLogic = require(Logic:WaitForChild("Abilities"))
 local TutorialLogic = require(Logic:WaitForChild("Tutorial"))
 local BeltView = require(script.Parent.BeltView)
 local Hud = require(script.Parent.Hud)
+local Icons = require(script.Parent.Icons)
 local Kit = require(script.Parent.Kit)
 local Modal = require(script.Parent.Modal)
 local Theme = require(script.Parent.Theme)
@@ -70,70 +74,68 @@ local BeltPure = BeltView.Pure
 local NursePanel = {}
 
 local SLOT = Theme.Size.ButtonHeight
-local GAP = Theme.Space.Gap
-local LINK_WIDTH = 170
+local LINE = Theme.Space.Line -- 8: between the lines of a group
+local CARD = Theme.Space.PadCard -- 12: card padding and between cards
 local MIN_CARD = 112
-local CARD_GAP = 10
 local NAME_HEIGHT = 22
-local INFO_HEIGHT = 40 -- two lines: a narrow card's "🧪 Lv 3  ⚡ 11s" at the 18 px floor
--- Under each card's face: 4 gap + name + info + 4 gap + the button + 6, plus the face's 6 on top.
-local CARD_FIXED = 6 + 4 + NAME_HEIGHT + INFO_HEIGHT + 4 + SLOT + 6
-local HEADER_HEIGHT = 8 + 44 + 6 + 14 + 8 + SLOT + 8
-local BRANCH_HEADER_HEIGHT = 8 + 44 + 6 + 14 + 8
-local ODDS_WIDTH = 120
+local INFO_HEIGHT = 40 -- two lines at the 18 px floor
+-- A Journal card under its face: 4 + name + info + 4 + the button + 8, plus the face's 8 on top.
+local CARD_FIXED = LINE + 4 + NAME_HEIGHT + INFO_HEIGHT + 4 + SLOT + LINE
+local HEADER_HEIGHT = LINE + 44 + LINE + Theme.Calm.Bar + LINE + SLOT + LINE
+local BRANCH_HEADER_HEIGHT = LINE + 44 + LINE + Theme.Calm.Bar + LINE
+local ODDS_WIDTH = 140
 local STAMP_SIZE = Vector2.new(132, 156)
 local STAMP_SECONDS = 1.7
 local STAMP_QUEUE_MAX = 4
 local RESTING_FILL = Kit.lighten(Theme.Colors.Disabled, 0.62) -- a resting nurse's card: muted
--- The Team card: a face on the left, name / XP / chips beside it, the ability ring top right, buttons along the foot.
-local FACE = 76
-local LEFT = 8 + FACE + 10
-local RING = 56
-local RING_COLOR = Theme.Colors.Collect -- the ability ring's beads (full = ready)
-local ACTION_WIDTH = 110
-local TEAM_CARD_HEIGHT = 8 + FACE + 8 + SLOT + 8
-local TEAM_TWO_UP = 680 -- two cards a row from this width
+-- The Team card: the portrait on the left, the name / bar / facts beside it, the one button and More along the foot.
+local FACE = 64
+local RING = 30 -- the ability ring on the portrait's corner (only while it recharges)
+local RING_COLOR = Theme.Colors.Progress -- R6: progress is navy (green means "go here")
+local LEVEL_WIDTH = 92
+local JOB_SHARE = 0.62 -- the job button's share of the card's foot (More sits at the right)
 local RING_STEP = 0.25
 local JOB_ROW_HEIGHT = 68
 
 ------------------------------------------------------------------------------------------------------------------
--- Pure helpers: no Roblox services or types, only BeltPure (UI/BeltView's pure block) and the shared Logic modules
--- NurseLogic, JobsLogic and AbilitiesLogic. tests/NurseUI.spec loads the block between the PURE markers on its own,
--- so keep it that way.
+-- Pure helpers: no Roblox services or types, only BeltPure (UI/BeltView's pure block), Icons (UI/Icons, a library)
+-- and the shared Logic modules NurseLogic, JobsLogic and AbilitiesLogic. tests/NurseUI.spec loads the block between
+-- the PURE markers on its own, so keep it that way.
 ------------------------------------------------------------------------------------------------------------------
 -- PURE-BEGIN
 local Pure = {}
 
 Pure.ROLE_NAMES = { Maker = "Maker", Healer = "Healer", Cheerer = "Cheerer" } :: { [string]: string }
 
--- Every fixed label on the panel (NurseUI.spec checks each is ≤ 6 words).
+-- Every fixed label on the panel, in words (NurseUI.spec checks each is ≤ 6 words and has at most one emoji; the
+-- calm rules: no emoji as a bullet, none typed in, a title is words only).
 Pure.TEXT = {
-	TitleJournal = "👩‍⚕️ Journal",
-	TitleTeam = "👩‍⚕️ Team",
-	Journal = "📔 Journal",
-	Agency = "🏢 Agency",
-	Market = "🏷️ Market",
-	Sell = "💰 Sell",
-	List = "🏷️ List",
-	Listed = "🏷️ Listed",
-	UnlistFirst = "🏷️ Unlist it first",
-	Stays = "🏢 Stays with you",
-	Resting = "💤 Resting",
-	PickJob = "💼 Pick a job",
-	TeamHint = "🤝 Pair specialties for team bonuses",
-	Empty = "🎠 Hire nurses on the belt!",
-	GiftHead = "🎁 A nurse waits!",
-	Claim = "🎁 Claim",
+	TitleJournal = "Journal",
+	TitleTeam = "Team",
+	Agency = "Agency",
+	Market = "Market",
+	Sell = "Sell",
+	List = "List",
+	Listed = "See listing",
+	OnMarket = "On the Market",
+	UnlistFirst = "Unlist it first",
+	Stays = "Stays with you",
+	PickJob = "Pick a job",
+	Empty = "Hire nurses on the belt",
+	GiftHead = "A nurse waits for you",
+	Claim = "Claim",
 	RosterFull = "Roster full: sell or list one",
-	SeeTeam = "👩‍⚕️ Team",
+	SeeTeam = "Team",
 	BranchName = "Branch nurses",
-	BranchNote = "🏢 From new branches",
-	BranchTab = "🏢",
-	Max = "⭐ MAX",
-	New = "NEW!",
-	LevelUp = "⬆️",
+	BranchNote = "From new branches",
+	OnBelt = "On the belt",
+	NightRush = "Night Rush",
+	GoldenHour = "Golden Hour",
+	Odds = "Odds",
+	Working = "working",
+	Resting = "resting",
+	New = "NEW",
 	Oops = "Oops! Try again.",
-	Busy = "⏳",
 }
 
 export type RosterView = {
@@ -158,6 +160,26 @@ export type JobOption = {
 }
 export type Actions = { Sell: boolean, List: boolean, Listed: boolean, Stays: boolean }
 export type Gift = { NurseId: string, Room: boolean }
+export type MenuItem = { Id: string, Text: string }
+export type CardButton = { Id: string, Kind: string }
+-- What a Team card draws (Pure.teamCard): the builder reads it and draws nothing else.
+export type TeamCardView = {
+	Name: string,
+	Level: string,
+	Job: string, -- the one button's words
+	Resting: boolean,
+	State: string?, -- the portrait's State badge (💤) or nil
+	Bar: boolean, -- the XP bar shows (the first XP is earned)
+	Fraction: number,
+	Max: boolean,
+	Facts: { string }, -- at most 2 Soft lines
+	More: boolean, -- the More control shows
+	Items: { MenuItem }, -- what More offers
+	Ring: boolean, -- the ability ring may show (it draws only while it recharges)
+	Buttons: { CardButton }, -- every button on the card with its role (the spec: exactly one filled)
+}
+-- What the panel shows at all (R0; Pure.visible).
+export type Visible = { Tabs: { [string]: boolean }, Agency: boolean, Market: boolean }
 
 local function num(value: any, fallback: number): number
 	if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
@@ -247,63 +269,77 @@ function Pure.levelText(entry: any, cap: number): string
 	return "Lv " .. level
 end
 
--- A group's reward line: "💰300 + 🩹" (in-game cash, then the decor's icon).
-function Pure.rewardText(rarity: any, decorIcon: string?): string
+-- A group's reward line: "💰 300 + Plaster Rug" (in-game cash, then the decor's name; its icon is on the tile).
+function Pure.rewardText(rarity: any, decorName: string?): string
 	local journal = if type(rarity) == "table" and type(rarity.Journal) == "table" then rarity.Journal else {}
 	local cash = if type(journal.Cash) == "number" then journal.Cash else 0
-	local text = "💰" .. BeltPure.short(cash)
-	if type(decorIcon) == "string" and decorIcon ~= "" then
-		text ..= " + " .. decorIcon
+	local text = Icons.unit("Cash", BeltPure.short(cash))
+	if type(decorName) == "string" and decorName ~= "" then
+		text ..= " + " .. decorName
 	end
 	return text
 end
 
 -- Under a card with no button: where to find an unseen nurse (an event rarity names its event), or your belt price
--- for a seen one.
+-- for a seen one. Words, no bullet.
 function Pure.hint(mark: string, rarity: any, price: number): string
 	if mark == "Unseen" then
 		local event = if type(rarity) == "table" then rarity.Event else nil
 		if event == "NightRush" then
-			return "🌙 Night Rush"
+			return Pure.TEXT.NightRush
 		elseif event == "GoldenHour" then
-			return "👑 Golden Hour"
+			return Pure.TEXT.GoldenHour
 		end
-		return "👀 On the belt"
+		return Pure.TEXT.OnBelt
 	end
-	return "💰" .. BeltPure.short(price)
+	return Icons.unit("Cash", BeltPure.short(price))
 end
 
 -- A page's note under its name: Mythic and Secret only come during their event.
 function Pure.eventNote(rarity: any): string
 	local event = if type(rarity) == "table" then rarity.Event else nil
 	if event == "NightRush" then
-		return "🌙 Night Rush only"
+		return Pure.TEXT.NightRush .. " only"
 	elseif event == "GoldenHour" then
-		return "👑 Golden Hour only"
+		return Pure.TEXT.GoldenHour .. " only"
 	end
 	return ""
 end
 
 -- Which view opens: the one asked for ("Team", "Branch" or a rarity), else the lowest rarity page with journal
--- news, else the 🏢 page with news, else the Team page with level news, else where you were, else the first page.
-function Pure.openView(tab: any, fresh: { [string]: string }, roster: any, order: { string }, current: string?): string
-	if tab == "Team" or tab == "Branch" then
+-- news, else the 🏢 page with news, else the Team page with level news, else where you were, else the Team page.
+-- `shown` (Pure.visible's Tabs; nil = every tab) leaves out the tabs that aren't showing: they fall to "Team".
+function Pure.openView(
+	tab: any,
+	fresh: { [string]: string },
+	roster: any,
+	order: { string },
+	current: string?,
+	shown: { [string]: boolean }?
+): string
+	local function ok(id: string): boolean
+		return shown == nil or shown[id] == true
+	end
+	if tab == "Team" then
 		return tab
 	end
-	if type(tab) == "string" and table.find(order, tab) then
+	if (tab == "Branch" or (type(tab) == "string" and table.find(order, tab))) and ok(tab) then
 		return tab
+	end
+	if tab ~= nil and tab ~= "" then
+		return "Team" -- asked for a page that isn't showing yet
 	end
 	for _, rarity in order do
 		for nurseId, kind in fresh do
 			local nurse = row(roster, nurseId)
-			if kind ~= "Level" and nurse and nurse.Source == nil and nurse.Rarity == rarity then
+			if kind ~= "Level" and nurse and nurse.Source == nil and nurse.Rarity == rarity and ok(rarity) then
 				return rarity
 			end
 		end
 	end
 	for nurseId, kind in fresh do
 		local nurse = row(roster, nurseId)
-		if kind ~= "Level" and nurse and nurse.Source ~= nil then
+		if kind ~= "Level" and nurse and nurse.Source ~= nil and ok("Branch") then
 			return "Branch"
 		end
 	end
@@ -312,14 +348,14 @@ function Pure.openView(tab: any, fresh: { [string]: string }, roster: any, order
 			return "Team"
 		end
 	end
-	if current == "Team" or current == "Branch" or (current ~= nil and table.find(order, current) ~= nil) then
-		return current :: string
+	if current == "Branch" or (current ~= nil and table.find(order, current) ~= nil) then
+		return if ok(current :: string) then current :: string else "Team"
 	end
-	return order[1]
+	return "Team"
 end
 
--- The roster: who works (Logic/Nurse.working: the cap's first, by NurseId), who rests (the rest, by NurseId), and
--- "👩‍⚕️ owned/cap" (resting nurses count: Logic/Nurse.canAdd says the same).
+-- The roster: who works (Logic/Nurse.working: the cap's first, by NurseId), who rests (the rest, by NurseId),
+-- "2/3 working" (working out of the cap) and "1 resting" (an over-cap save).
 function Pure.roster(nurses: any, rebirths: number, cfg: any, roster: any): RosterView
 	local function isKnown(id: string): boolean
 		return row(roster, id) ~= nil
@@ -343,47 +379,39 @@ function Pure.roster(nurses: any, rebirths: number, cfg: any, roster: any): Rost
 		Cap = cap,
 		Working = working,
 		Resting = resting,
-		Text = "👩‍⚕️ " .. owned .. "/" .. cap,
-		RestText = if #resting > 0 then "💤 " .. #resting .. " resting" else "",
+		Text = #working .. "/" .. cap .. " " .. Pure.TEXT.Working,
+		RestText = if #resting > 0 then #resting .. " " .. Pure.TEXT.Resting else "",
 		Full = owned >= cap,
 	}
 end
 
--- A team bonus in a few words: "+10% 💰" · "🚑 wait +25%" · "rest 25% faster" · "🛁 40% faster" · "📦 20% faster"
--- (a team that speeds more than 2 stations shows 📦, the supplies, so the line stays short).
-function Pure.effectText(effect: any, stationIcons: { [string]: string }?): string
+-- The Team page's one Soft summary line: "3/3 working · 1 resting".
+function Pure.summaryText(view: RosterView): string
+	return if view.RestText ~= "" then view.Text .. " · " .. view.RestText else view.Text
+end
+
+-- A team bonus in a few words, one emoji at most: "💰 +10%" · "ambulance wait +25%" · "rest 25% faster" ·
+-- "making 40% faster".
+function Pure.effectText(effect: any): string
 	if type(effect) ~= "table" then
 		return ""
 	end
 	local percent = math.floor(num(effect.Value, 0) * 100 + 0.5)
 	if effect.Kind == "Cash" then
-		return "+" .. percent .. "% 💰"
+		return Icons.unit("Cash", "+" .. percent .. "%")
 	elseif effect.Kind == "Urgent" then
-		return "🚑 wait +" .. percent .. "%"
+		return "ambulance wait +" .. percent .. "%"
 	elseif effect.Kind == "Recover" then
 		return "rest " .. percent .. "% faster"
 	elseif effect.Kind == "Make" then
-		local icons = ""
-		local stations = if type(effect.Stations) == "table" then effect.Stations else {}
-		for _, stationId in stations do
-			icons ..= if stationIcons and stationIcons[stationId] then stationIcons[stationId] else ""
-		end
-		if #stations > 2 then
-			icons = "📦"
-		end
-		return (if icons ~= "" then icons .. " " else "") .. percent .. "% faster"
+		return "making " .. percent .. "% faster"
 	end
 	return ""
 end
 
--- The team chips: each department with 2 or more WORKING specialists (Logic/Jobs.teams; "Any" counts for every
--- one), with the bonus it gives now (2 = Team2, 3+ = Team3).
-function Pure.teamChips(
-	working: { string },
-	roster: any,
-	departments: any,
-	stationIcons: { [string]: string }?
-): { TeamChip }
+-- The teams: each department with 2 or more WORKING specialists (Logic/Jobs.teams; "Any" counts for every one), with
+-- the bonus it gives now (2 = Team2, 3+ = Team3): "Reception ×2: 💰 +10%".
+function Pure.teamChips(working: { string }, roster: any, departments: any): { TeamChip }
 	local specialties: { string } = {}
 	for _, nurseId in working do
 		local nurse = row(roster, nurseId)
@@ -401,26 +429,55 @@ function Pure.teamChips(
 			table.insert(out, {
 				Dept = deptId,
 				Count = n,
-				Text = dept.Icon .. " ×" .. n .. "  " .. Pure.effectText(effect, stationIcons),
+				Text = dept.Name .. " ×" .. n .. ": " .. Pure.effectText(effect),
 			})
 		end
 	end
 	return out
 end
 
--- "🛎️ Reception" · "🌟 Any" · "" (unknown).
-function Pure.specialtyText(specialty: any, departments: any): string
-	if specialty == "Any" then
-		return "🌟 Any"
+-- The Team page's team line: every team's words, " · " between ("" = no team: the line isn't drawn).
+function Pure.teamLine(chips: { TeamChip }): string
+	local parts: { string } = {}
+	for _, chip in chips do
+		table.insert(parts, chip.Text)
 	end
-	local dept = row(departments, specialty)
-	return if dept then dept.Icon .. " " .. dept.Name else ""
+	return table.concat(parts, " · ")
 end
 
--- "⭐ +40% at its specialty" (Config.Nurses.SpecialtyBoost).
-function Pure.boostText(cfg: any): string
+-- "Reception" · "Any department" · "" (unknown). Words: the department's icon is the lift's and the patient's.
+function Pure.specialtyText(specialty: any, departments: any): string
+	if specialty == "Any" then
+		return "Any department"
+	end
+	local dept = row(departments, specialty)
+	return if dept then dept.Name else ""
+end
+
+-- The departments open in this hospital (Data/Departments: Opens <= level, or its Room bought).
+function Pure.openDepartments(level: any, rooms: any, departments: any): number
+	local n = 0
+	for _, deptId in ordered(departments) do
+		local dept = row(departments, deptId)
+		local open = if type(dept.Room) == "string"
+			then type(rooms) == "table" and rooms[dept.Room] == true
+			else whole(dept.Opens) <= math.max(1, whole(level))
+		if open then
+			n += 1
+		end
+	end
+	return n
+end
+
+-- "+40%" (Config.Nurses.SpecialtyBoost): on a job row its specialty helps.
+function Pure.boostTag(cfg: any): string
 	local s = if type(cfg) == "table" and type(cfg.Nurses) == "table" then cfg.Nurses else {}
-	return "⭐ +" .. math.floor(num(s.SpecialtyBoost, 0) * 100 + 0.5) .. "% at its specialty"
+	return "+" .. math.floor(num(s.SpecialtyBoost, 0) * 100 + 0.5) .. "%"
+end
+
+-- "+40% at its specialty": the job picker's note.
+function Pure.boostText(cfg: any): string
+	return Pure.boostTag(cfg) .. " at its specialty"
 end
 
 -- The XP bar: how full it is toward the next level; full and Max at the level cap.
@@ -435,19 +492,20 @@ function Pure.xp(entry: any, cap: number): Xp
 	return { Level = level, XP = xp, Need = need, Fraction = xp / need, Max = false }
 end
 
--- On the bar: "12/70", or "⭐ MAX".
+-- The XP count (a Soft fact, never inside the bar): "12/70 XP", or "MAX".
 function Pure.xpText(xp: Xp): string
-	return if xp.Max then Pure.TEXT.Max else xp.XP .. "/" .. xp.Need
+	return if xp.Max then "MAX" else xp.XP .. "/" .. xp.Need .. " XP"
 end
 
--- "🎵 Calm Song" · "🎵 Calm Song ★★" once Lv 5 / Lv 10 made it stronger (Logic/Abilities.tier).
+-- "Calm Song" · "Calm Song+" · "Calm Song++" once Lv 5 / Lv 10 made it stronger (Logic/Abilities.tier). Words: the
+-- ability's icon is the ring's.
 function Pure.abilityText(abilityId: any, level: number, abilities: any, cfg: any): string
 	local def = row(abilities, abilityId)
 	if not def then
 		return ""
 	end
 	local tier = AbilitiesLogic.tier(level, cfg)
-	return def.Icon .. " " .. def.Name .. (if tier > 0 then " " .. string.rep("★", tier) else "")
+	return def.Name .. (if tier > 0 then string.rep("+", tier) else "")
 end
 
 -- The ability ring: 1 = ready (no times known counts as ready: abilities fire by themselves), else how much of
@@ -510,11 +568,11 @@ function Pure.jobOptions(
 		local job = row(jobs, jobId)
 		local kind, caption = "Open", ""
 		if not resting and effective == jobId then
-			kind, caption = "Current", "✅"
+			kind, caption = "Current", Icons.State.Done
 		elseif not JobsLogic.open(jobId, level, jobs) then
-			kind, caption = "Closed", "🏥 Lv " .. math.max(1, whole(job.Opens))
+			kind, caption = "Closed", Icons.level(math.max(1, whole(job.Opens)))
 		elseif resting and working >= cap then
-			kind, caption = "Full", "💤"
+			kind, caption = "Full", Icons.State.Resting
 		end
 		table.insert(out, {
 			Id = jobId,
@@ -539,33 +597,117 @@ function Pure.jobMessage(option: JobOption): string?
 	return nil
 end
 
--- The job button on a Team card: the job it works now, and the job it was given when that isn't open yet
--- ("🧪 Maker (↕️ at 🏥 Lv 2)"); "💤 Resting" for a resting nurse.
+-- The job button on a Team card: the job it works now, as its one Art emoji and its name ("🩺 Healer"); "Pick a
+-- job" for a resting nurse. One emoji at most: the job it waits for is Pure.jobNote's Soft line.
 function Pure.jobButton(entry: any, nurse: any, level: number, jobs: any, resting: boolean): string
 	if resting then
-		return Pure.TEXT.Resting
+		return Pure.TEXT.PickJob
 	end
 	local role = if type(nurse) == "table" and type(nurse.Role) == "string" then nurse.Role else "Maker"
 	local saved = if type(entry) == "table" then entry.Job else ""
 	local effective = JobsLogic.effective(saved, role, level, jobs)
 	local job = row(jobs, effective)
-	local text = if job then job.Icon .. " " .. job.Name else effective
+	return if job then job.Icon .. " " .. job.Name else effective
+end
+
+-- The job a nurse was given that isn't open yet, as a Soft line: "Porter opens at 🏥 Lv 2" ("" = none).
+function Pure.jobNote(entry: any, nurse: any, level: number, jobs: any): string
+	local role = if type(nurse) == "table" and type(nurse.Role) == "string" then nurse.Role else "Maker"
+	local saved = if type(entry) == "table" then entry.Job else ""
+	local effective = JobsLogic.effective(saved, role, level, jobs)
 	if type(saved) == "string" and saved ~= "" and saved ~= effective then
 		local waiting = row(jobs, saved)
 		if waiting then
-			text ..= " (" .. waiting.Icon .. " at 🏥 Lv " .. math.max(1, whole(waiting.Opens)) .. ")"
+			return waiting.Name .. " opens at " .. Icons.level(math.max(1, whole(waiting.Opens)))
 		end
 	end
-	return text
+	return ""
 end
 
--- A Team card's buttons: Sell and List (🏷️ Listed while it's on the Market); a rebirth-only nurse has neither
--- ("🏢 Stays with you").
+-- A Team card's actions: Sell and List (See listing while it's on the Market); a rebirth-only nurse has neither
+-- ("Stays with you").
 function Pure.actions(nurseId: string, roster: any, listed: { [string]: boolean }?): Actions
 	if NurseLogic.isRebirthOnly(roster, nurseId) then
 		return { Sell = false, List = false, Listed = false, Stays = true }
 	end
 	return { Sell = true, List = true, Listed = listed ~= nil and listed[nurseId] == true, Stays = false }
+end
+
+-- THE TEAM CARD (UI direction "Before and after: the Team card"; memory-20261117-007): what one card draws.
+--   info = { Level (hospital), Jobs, Departments, Abilities, Cfg, Roster (Data/Nurses), LevelCap, Resting, Owned
+--            (nurses you own), Listed (this one is on the Market), Depts (departments open: Pure.openDepartments), Fired (its ability
+--            has fired), News ("Hired" | "Level" | nil) }
+-- One button (the job, Secondary). More (Sell, List) once you own 2 nurses, never for a rebirth-only nurse. The bar
+-- once the first XP is earned (or a level). The facts, each only once it can differ: the specialty (a second
+-- department is open), the ability (it has fired, or the nurse has levelled), the XP count (a new card); then one note
+-- (the job it waits for, "On the Market", "Stays with you"). At most 2 facts.
+function Pure.teamCard(nurseId: string, entry: any, nurse: any, info: any): TeamCardView
+	local i = if type(info) == "table" then info else {}
+	local e = if type(entry) == "table" then entry else {}
+	local n = if type(nurse) == "table" then nurse else {}
+	local level = math.max(1, whole(i.Level))
+	local resting = i.Resting == true
+	local cap = math.max(1, whole(i.LevelCap))
+	local xp = Pure.xp(e, cap)
+	local bar = xp.Level > 1 or whole(e.XP) > 0
+	local actions = Pure.actions(nurseId, i.Roster, if i.Listed == true then { [nurseId] = true } else nil)
+
+	local parts: { string } = {}
+	if whole(i.Depts) >= 2 then
+		local specialty = Pure.specialtyText(n.Specialty, i.Departments)
+		if specialty ~= "" then
+			table.insert(parts, specialty)
+		end
+	end
+	local abilityShown = i.Fired == true or xp.Level > 1
+	if abilityShown then
+		local ability = Pure.abilityText(n.Ability, xp.Level, i.Abilities, i.Cfg)
+		if ability ~= "" then
+			table.insert(parts, ability)
+		end
+	end
+	if bar and (i.News == "Hired" or i.News == "Level") then
+		table.insert(parts, Pure.xpText(xp))
+	end
+	local facts: { string } = {}
+	if #parts > 0 then
+		table.insert(facts, table.concat(parts, " · "))
+	end
+	local note = if resting then "" else Pure.jobNote(e, n, level, i.Jobs)
+	if note == "" and actions.Listed then
+		note = Pure.TEXT.OnMarket
+	elseif note == "" and actions.Stays then
+		note = Pure.TEXT.Stays
+	end
+	if note ~= "" then
+		table.insert(facts, note)
+	end
+
+	local more = (actions.Sell or actions.List) and (whole(i.Owned) >= 2 or actions.Listed)
+	local items: { MenuItem } = {}
+	if more then
+		table.insert(items, { Id = "Sell", Text = Pure.TEXT.Sell })
+		table.insert(items, { Id = "List", Text = if actions.Listed then Pure.TEXT.Listed else Pure.TEXT.List })
+	end
+	local buttons: { CardButton } = { { Id = "Job", Kind = "Secondary" } }
+	if more then
+		table.insert(buttons, { Id = "More", Kind = "Quiet" })
+	end
+	return {
+		Name = if type(n.Name) == "string" then n.Name else nurseId,
+		Level = Pure.levelText(e, cap),
+		Job = Pure.jobButton(e, n, level, i.Jobs, resting),
+		Resting = resting,
+		State = if resting then Icons.State.Resting else nil,
+		Bar = bar,
+		Fraction = xp.Fraction,
+		Max = xp.Max,
+		Facts = facts,
+		More = more,
+		Items = items,
+		Ring = abilityShown and not resting,
+		Buttons = buttons,
+	}
 end
 
 -- Your nurses on the Market (MarketView.Listings with you as the Seller).
@@ -595,7 +737,7 @@ function Pure.gift(state: any, roster: any, cfg: any): Gift?
 	return nil
 end
 
--- A rebirth-only nurse's card on the 🏢 page: "Owned" · "Pending" (🎁 Claim) · "Locked" ("🏢 R5").
+-- A rebirth-only nurse's card on the 🏢 page: "Owned" · "Pending" (Claim) · "Locked" ("Branch 5").
 function Pure.branchCard(nurseId: string, state: any): string
 	local nurses = if type(state) == "table" then state.Nurses else nil
 	if type(nurses) == "table" and type(nurses[nurseId]) == "table" then
@@ -606,6 +748,11 @@ function Pure.branchCard(nurseId: string, state: any): string
 		return "Pending"
 	end
 	return "Locked"
+end
+
+-- A locked rebirth-only nurse's hint: the branch that brings it ("Branch 5").
+function Pure.branchHint(rebirths: any): string
+	return "Branch " .. tostring(math.max(1, whole(rebirths)))
 end
 
 -- The tab column's ids, top first (Modal.tabs): the Team page, the Journal's rarities, then 🏢 when there are
@@ -621,9 +768,13 @@ function Pure.tabIds(order: { string }, hasBranch: boolean): { string }
 	return ids
 end
 
--- The header's meta chip: the Journal's completion, "📔 n%".
+-- The header's meta (plain text, no box, no emoji): the Team's "3/3" (owned out of the cap) or the Journal's "18%".
 function Pure.metaText(percent: any): string
-	return "📔 " .. tostring(whole(percent)) .. "%"
+	return tostring(whole(percent)) .. "%"
+end
+
+function Pure.teamMeta(view: RosterView): string
+	return view.Owned .. "/" .. view.Cap
 end
 
 -- The rebirth-only nurses, in Data order.
@@ -636,14 +787,79 @@ function Pure.branchNurses(roster: any): { string }
 	end
 	return out
 end
+
+-- R0, what the panel shows at all (UI direction "What a Lv 1 player sees"; the triggers are proposals, kept here as
+-- data so they can move). flags = { Agency: boolean? (the link showed this session), AgencyOpened: boolean? (the
+-- Agency was opened this session), Listed: boolean? (a nurse of yours is on the Market) }.
+--   Tabs.Team     always
+--   Tabs[rarity]  once TWO rarities have been seen (owned, hired or seen on the belt), each rarity seen
+--   Tabs.Branch   a branch has been opened, or a rebirth-only nurse waits or works for you
+--   Agency        the roster is full, a nurse has left you (hired more than you own), a branch was opened, or it
+--                 showed already this session
+--   Market        the Agency was opened this session, a nurse has left you, or one is listed
+Pure.REVEAL = { RaritiesForJournal = 2 }
+function Pure.visible(state: any, roster: any, order: { string }, cfg: any, flags: any): Visible
+	local s = if type(state) == "table" then state else {}
+	local f = if type(flags) == "table" then flags else {}
+	local index = if type(s.NurseIndex) == "table" then s.NurseIndex else {}
+	local nurses = if type(s.Nurses) == "table" then s.Nurses else {}
+	local seen: { [string]: boolean } = {}
+	local seenCount, hiredEver, branchOwned = 0, 0, false
+	local function see(nurseId: any)
+		local nurse = row(roster, nurseId)
+		if nurse and nurse.Source == nil and type(nurse.Rarity) == "string" and not seen[nurse.Rarity] then
+			seen[nurse.Rarity] = true
+			seenCount += 1
+		end
+	end
+	for nurseId, mark in index do
+		if mark == "Seen" or mark == "Hired" then
+			see(nurseId)
+		end
+		if mark == "Hired" and row(roster, nurseId) and row(roster, nurseId).Source == nil then
+			hiredEver += 1
+		end
+	end
+	for nurseId, entry in nurses do
+		if type(entry) == "table" then
+			see(nurseId)
+			local nurse = row(roster, nurseId)
+			if nurse and nurse.Source ~= nil then
+				branchOwned = true
+			end
+		end
+	end
+	local rebirth = if type(s.Rebirth) == "table" then s.Rebirth else {}
+	local rebirths = whole(rebirth.Count)
+	local pending = type(rebirth.Pending) == "table" and #rebirth.Pending > 0
+	local view = Pure.roster(nurses, rebirths, cfg, roster)
+	local ownedNormal = 0
+	for nurseId, entry in nurses do
+		local nurse = row(roster, nurseId)
+		if type(entry) == "table" and nurse and nurse.Source == nil then
+			ownedNormal += 1
+		end
+	end
+	local left = hiredEver > ownedNormal
+
+	local tabs: { [string]: boolean } = { Team = true }
+	for _, rarity in order do
+		tabs[rarity] = seenCount >= Pure.REVEAL.RaritiesForJournal and seen[rarity] == true
+	end
+	tabs.Branch = rebirths > 0 or pending or branchOwned
+	return {
+		Tabs = tabs,
+		Agency = view.Full or left or rebirths > 0 or f.Agency == true,
+		Market = left or f.AgencyOpened == true or f.Listed == true,
+	}
+end
 -- PURE-END
 
 NursePanel.Pure = Pure -- for tests/NurseUI.spec
 
 ------------------------------------------------------------------------------------------------------------------
--- Look helpers: the one template (look build plan §B8). Neutral cards on white paper, the rarity frame on the face
--- tile only, a rarity's colour only as its tab's stripe and its page's own tile, buttons by role, radii, strokes
--- and text sizes from Theme.
+-- Look helpers: the calm template (UI direction R2/R3): Kit.cards on white paper with no line, the rarity frame on
+-- the portrait only, a rarity's colour only on its page's own tile, buttons by role, spacing from Theme.Space.
 ------------------------------------------------------------------------------------------------------------------
 
 local function hexColor(value: any, fallback: Color3): Color3
@@ -664,59 +880,6 @@ local function frame(props: { [string]: any }): Frame
 	end
 	f.Parent = props.Parent
 	return f
-end
-
-local function rounded(gui: GuiObject): UICorner
-	local corner = Kit.corner(gui)
-	corner.CornerRadius = Theme.Radius.Round
-	return corner
-end
-
--- The shape outline Kit draws round a button (not the Contextual one round its text).
-local function borderOf(gui: Instance): UIStroke?
-	for _, child in gui:GetChildren() do
-		if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
-			return child
-		end
-	end
-	return nil
-end
-
-local function padButton(button: GuiObject, x: number, y: number)
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, x)
-	pad.PaddingRight = UDim.new(0, x)
-	pad.PaddingTop = UDim.new(0, y)
-	pad.PaddingBottom = UDim.new(0, y)
-	pad.Parent = button
-end
-
--- A button's role after it was made (Kit.button reads its Kind once): the role's fill, and white outlined text on a
--- strong fill or ink on a light one. "Disabled" is the gated grey; it stays tappable, so a tap can still say why.
-local ROLE_FILL: { [string]: Color3 } = {
-	Primary = Theme.Colors.Primary,
-	Collect = Theme.Colors.Collect,
-	Destructive = Theme.Colors.Destructive,
-	Secondary = Theme.Colors.Secondary,
-	Disabled = Theme.Colors.Disabled,
-}
-local function setRole(button: TextButton, role: string)
-	local fill = ROLE_FILL[role] or Theme.Colors.Secondary
-	local light = role == "Secondary" or role == "Disabled"
-	button.BackgroundColor3 = fill
-	button:SetAttribute("KitColor", fill)
-	button.TextColor3 = if role == "Disabled"
-		then Theme.Colors.DisabledText
-		elseif light then Theme.Colors.Ink
-		else Theme.Colors.OnColor
-	local outline = button:FindFirstChild("TextOutline")
-	if light then
-		if outline and outline:IsA("UIStroke") then
-			outline.Enabled = false
-		end
-	else
-		Kit.outline(button).Enabled = true
-	end
 end
 
 -- A Kit button used as a card (a job row): a flat fill, no gloss (as Kit.tab does for tabs).
@@ -746,7 +909,7 @@ local function addCap(portrait: Frame, color: Color3)
 	cap.BorderSizePixel = 0
 	cap.ZIndex = 7
 	Kit.corner(cap, Theme.Radius.Small)
-	Kit.stroke(cap, Theme.Colors.Stroke, Theme.Stroke.Fine)
+	Kit.stroke(cap, Theme.Colors.Stroke, Theme.Stroke.Fine) -- uirules: allow StrokeBudget (a candy shape: the cap)
 	local mark = Kit.label({
 		Name = "Mark",
 		Text = "♥",
@@ -762,32 +925,37 @@ local function addCap(portrait: Frame, color: Color3)
 	cap.Parent = portrait
 end
 
--- A chip of text ("🛎️ ×2 +10% 💰"), sized to its words.
-local function chip(parent: Instance, order: number, text: string, color: Color3): Frame
-	local pill = frame({
-		Name = "Chip" .. order,
-		LayoutOrder = order,
-		BackgroundColor3 = color,
-		Size = UDim2.fromOffset(0, 36),
-		AutomaticSize = Enum.AutomaticSize.X,
-		Parent = parent,
-	})
-	rounded(pill)
-	Kit.stroke(pill, Theme.Colors.CardLine, Theme.Stroke.Fine)
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, Theme.Space.PadCard)
-	pad.PaddingRight = UDim.new(0, Theme.Space.PadCard)
-	pad.Parent = pill
-	Kit.label({
-		Name = "Text",
-		Text = text,
+-- A portrait (Hud.portrait) filling a well, with its cap.
+local function fillPortrait(well: GuiObject, look: any, dark: boolean, color: Color3?): Frame
+	local portrait = Hud.portrait(look, dark)
+	portrait.AnchorPoint = Vector2.new(0.5, 0.5)
+	portrait.Position = UDim2.fromScale(0.5, 0.5)
+	portrait.Size = UDim2.fromScale(0.95, 0.95)
+	portrait.Parent = well
+	if color then
+		addCap(portrait, color)
+	end
+	return portrait
+end
+
+-- A flat news badge ("NEW", "Lv 3"): white words on red (or green for a level), no tilt, no line.
+local function newsBadge(parent: Instance, zIndex: number): TextLabel
+	local badge = Kit.label({
+		Name = "New",
+		Text = Pure.TEXT.New,
 		TextSize = Theme.TextSize.Caption,
 		TextWrapped = false,
-		AutomaticSize = Enum.AutomaticSize.X,
-		Size = UDim2.fromOffset(0, 36),
-		Parent = pill,
+		Outlined = true,
+		BackgroundColor3 = Theme.Colors.Dot,
+		BackgroundTransparency = 0,
+		Position = UDim2.fromOffset(Theme.Space.Tight, Theme.Space.Tight),
+		Size = UDim2.fromOffset(64, 24),
+		Visible = false,
+		ZIndex = zIndex,
+		Parent = parent,
 	})
-	return pill
+	Kit.corner(badge, Theme.Radius.Round)
+	return badge
 end
 
 local function clearGui(parent: Instance)

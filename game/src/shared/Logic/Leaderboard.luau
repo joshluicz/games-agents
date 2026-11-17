@@ -88,7 +88,7 @@ Leaderboard.BOARDS = table.freeze({
 	Week = board("Week", "🏆", "Treated This Week", "Week", "Purple", true),
 	-- The depth update (docs/plan/2026-11-16-depth-update-design.md): add to Config.Leaderboards when it lands.
 	Level = board("Level", "🏨", "Top Hospitals", "Level", "Cyan", false),
-	Journal = board("Journal", "📔", "Nurse Journal", "Journal", "Lime", false),
+	Journal = board("Journal", "📖", "Nurse Journal", "Journal", "Lime", false),
 	-- Progression v2 (build plan §B7): rebirths done ("branches opened"); admins are kept off it like every board.
 	Rebirths = board("Rebirths", "🏢", "Most Rebirths", "Branches", "Purple", false),
 }) :: { [string]: Board }

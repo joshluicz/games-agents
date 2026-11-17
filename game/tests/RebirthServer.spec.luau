@@ -397,7 +397,7 @@ T.describe("Rebirth.Pure check", function()
 		expect(why).toBe(P.MSG.PickCard)
 		data.Rebirth.Offer = {}
 		_, why = P.check(data, Config, { Free = false, CanSave = true, Treating = true })
-		expect(why).toBe("Need 🏙️ Lv 5")
+		expect(why).toBe("Needs 🏥 Lv 5")
 		data.Level = 5
 		data.Cash = 49999
 		_, why = P.check(data, Config, { Free = false, CanSave = true, Treating = true })
@@ -745,7 +745,7 @@ T.describe("Server/Rebirth OpenBranch", function()
 		saves[p].Tutorial = TutorialLogic.DONE
 		saves[p].Level = 4
 		before = deepCopy(saves[p])
-		refused("Need 🏙️ Lv 5", true)
+		refused("Needs 🏥 Lv 5", true)
 		saves[p].Level = 5
 		saves[p].Cash = 100
 		before = deepCopy(saves[p])
