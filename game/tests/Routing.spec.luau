@@ -192,6 +192,7 @@ T.describe("Routing: one press, or the two-button card", function()
 	test("every word the player sees is short and kind; the title has no emoji, each choice has one", function()
 		expect(Routing.TEXT.Action).toBe("Send")
 		expect(Routing.TEXT.Busy).toBe("All bays are busy!")
+		expect(Routing.TEXT.NoPlace).toBe("No place for it today!")
 		expect(Routing.TEXT.Exam).toBe("🩺 Exam bay")
 		expect(Routing.TEXT.XRay).toBe("📸 X-ray")
 		for key, text in Routing.TEXT do
@@ -222,6 +223,30 @@ T.describe("Routing: which bay", function()
 		expect(Routing.pickBay(places(3, nil, { X = true }), "XRay", from)).toBe(nil) -- exam bays never take it
 		expect(Routing.pickBay(places(2), "XRay", from)).toBe(nil) -- no X-ray bay before Lv 3
 		expect(Routing.pickBay({}, "Exam", from)).toBe(nil)
+	end)
+
+	test("hasKind: the clinic has a place of that kind at all, free or taken (busy is not the same as none)", function()
+		expect(Routing.hasKind(places(1), "Exam")).toBe(true)
+		expect(Routing.hasKind(places(1, nil, { ["1"] = true, ["2"] = true }), "Exam")).toBe(true) -- all busy: still there
+		expect(Routing.hasKind(places(2), "XRay")).toBe(false) -- no X-ray bay before Lv 3
+		expect(Routing.hasKind(places(3), "XRay")).toBe(true)
+		expect(Routing.hasKind(places(3, nil, { X = true }), "XRay")).toBe(true)
+		-- the X-ray bay stopped being usable: U.places leaves it out
+		local without = {}
+		for _, bay in places(3) do
+			if bay.Kind ~= "XRay" then
+				table.insert(without, bay)
+			end
+		end
+		expect(Routing.hasKind(without, "XRay")).toBe(false)
+		expect(Routing.hasKind(without, "Exam")).toBe(true)
+		for _, junk in { 5, "x", true } do
+			expect(Routing.hasKind(junk, "Exam")).toBe(false)
+			expect(Routing.hasKind(places(3), junk)).toBe(false)
+			expect(Routing.hasKind({ junk, { Kind = "Exam" } }, "Exam")).toBe(true)
+		end
+		expect(Routing.hasKind(nil, "Exam")).toBe(false)
+		expect(Routing.hasKind({}, "Exam")).toBe(false)
 	end)
 
 	test("an exam case never lands in the X-ray bay, and an X-ray case never in an exam bay", function()
@@ -356,6 +381,24 @@ T.describe("Server/Patients: the bay tick no longer sends walk-ins", function()
 		expect(has(refresh, "K.Routing.needsChoice(state.Level, U.places(state))")).toBe(true)
 	end)
 
+	test("UI/PromptFilter gates the Send prompt by name too (the fallback a bay prompt has), cheaply", function()
+		local filter = code("src/client/UI/PromptFilter.luau")
+		expect(has(filter, 'local SEND_NAME = "SendPrompt"')).toBe(true)
+		expect(has(body(text, "function U.sendPrompt("), 'prompt.Name = "SendPrompt"')).toBe(true)
+		-- it counts as work whatever its tag says ...
+		local names = string.match(filter, "local WORK_NAMES = (%b{})")
+		expect(names ~= nil and has(names, "[SEND_NAME] = true") and has(names, "[BAY_NAME] = true")).toBe(true)
+		-- ... and an untagged one is found as its patient's model arrives in the plot's Patients folder: one event
+		-- per patient, never a listener on every part of every creature
+		expect(has(filter, 'local PATIENTS_NAME = "Patients"')).toBe(true)
+		expect(has(text, 'model.Parent = state.Plot.Model:FindFirstChild("Patients")')).toBe(true)
+		expect(has(code("src/server/PlotBuilder.luau"), '{ "Rooms", "Patients", "Decor" }')).toBe(true)
+		expect(has(filter, "patient:FindFirstChild(SEND_NAME, true)")).toBe(true)
+		expect(has(filter, "holder.ChildAdded:Connect(trackSend)")).toBe(true)
+		local holders = string.match(filter, "local HOLDER_NAMES = (%b{})")
+		expect(holders ~= nil and not has(holders, "Patients")).toBe(true) -- (those get DescendantAdded)
+	end)
+
 	test("one press sends it (Lv 1-2); with two kinds of place the press waits for the card's pick", function()
 		local fn = body(text, "function U.onSendPrompt(")
 		expect(has(fn, "K.Routing.needsChoice(state.Level, U.places(state))")).toBe(true)
@@ -369,7 +412,8 @@ T.describe("Server/Patients: the bay tick no longer sends walk-ins", function()
 		expect(has(fn, "K.Routing.waiting(p.Phase, p.Bay, p.Urgent)")).toBe(true)
 		expect(has(fn, "K.Routing.kindFor(p.Case.Tool)")).toBe(true)
 		expect(has(fn, "K.Routing.check(choice, kind)")).toBe(true)
-		expect(has(fn, "K.Routing.pickBay(U.places(state), kind, from)")).toBe(true)
+		expect(has(fn, "local places = U.places(state)")).toBe(true)
+		expect(has(fn, "K.Routing.pickBay(places, kind, from)")).toBe(true)
 		expect(has(fn, "return false, K.Routing.TEXT.Busy")).toBe(true)
 		-- through the tutorial's one-at-a-time steps there is no `from`: bay 1
 		expect(has(fn, 'U.tutorialAsk("queueCap", nil, state.Owner) == nil')).toBe(true)
@@ -377,6 +421,37 @@ T.describe("Server/Patients: the bay tick no longer sends walk-ins", function()
 		for _, touched in { "p.Patience", "makeSad", "p.Phase =", "freeSeat" } do
 			expect(has(fn, touched)).toBe(false)
 		end
+	end)
+end)
+
+T.describe("Server/Patients: a patient with no place of its kind at all goes home kindly", function()
+	local text = code("src/server/Patients.luau")
+
+	test("U.send: no usable place of that kind -> goHome and a true toast, never 'All bays are busy!'", function()
+		local fn = body(text, "function U.send(")
+		local none = string.find(fn, "if not K.Routing.hasKind(places, kind) then", 1, true)
+		local home = string.find(fn, "goHome(state, p)", 1, true)
+		local toast = string.find(fn, "return false, K.Routing.TEXT.NoPlace", 1, true)
+		local pick = string.find(fn, "K.Routing.check(choice, kind)", 1, true)
+		local busy = string.find(fn, "return false, K.Routing.TEXT.Busy", 1, true)
+		expect(none ~= nil and home ~= nil and toast ~= nil and pick ~= nil and busy ~= nil).toBe(true)
+		-- before the pick is judged (whatever was pressed, it can't be treated) and before "busy"
+		expect(none < home and home < toast and toast < pick and pick < busy).toBe(true)
+		-- only a patient still waiting to be sent gets that far
+		expect(string.find(fn, "K.Routing.waiting(p.Phase, p.Bay, p.Urgent)", 1, true) < none).toBe(true)
+	end)
+
+	test("goHome is home, never sad: no penalty, the game dropped, a regular comes back another time", function()
+		local fn = body(text, "local function goHome(")
+		expect(has(fn, 'p.Phase = "GoHome"')).toBe(true)
+		expect(has(fn, "dropSession(p, true)")).toBe(true)
+		expect(has(fn, "storyLeft, state.Owner, regular")).toBe(true)
+		for _, never in { "Economy", "PlayerData", "makeSad", "p.Patience", '"Sad"' } do
+			expect(has(fn, never)).toBe(false)
+		end
+		-- the visit's own thread walks it out (leave), and a seated one gets up first
+		expect(has(body(text, "local function waitSeated("), 'p.Phase == "Seated"')).toBe(true)
+		expect(has(body(text, "local function leave("), "getUp(p)")).toBe(true)
 	end)
 end)
 
@@ -414,6 +489,30 @@ T.describe("The SendPatient remote is validated on the server", function()
 		expect(has(fn, "K.PROMPT_DISTANCE + K.DISTANCE_SLACK")).toBe(true)
 		-- canWork comes before anything about the patient is answered
 		expect(string.find(fn, "Plots.canWork", 1, true) < string.find(fn, "state.ById[visitId]", 1, true)).toBe(true)
+	end)
+
+	test("only a press that passes every check spends the cooldown (two patients side by side, quickly)", function()
+		local fn = body(text, "function U.mayPress(")
+		local limit = string.find(fn, "now - (U.lastSend[player] or 0) < K.SEND_COOLDOWN", 1, true)
+		local spend = string.find(fn, "U.lastSend[player] = now", 1, true)
+		local reach = string.find(fn, "K.PROMPT_DISTANCE + K.DISTANCE_SLACK", 1, true)
+		local waiting = string.find(fn, "K.Routing.waiting(p.Phase, p.Bay, p.Urgent)", 1, true)
+		expect(limit ~= nil and spend ~= nil).toBe(true)
+		-- the limit is still asked first; it is spent once, after the last check, just before the patient is returned
+		expect(limit < string.find(fn, "Plots.canWork", 1, true)).toBe(true)
+		expect(spend > reach and spend > waiting).toBe(true)
+		local _, spends = string.gsub(fn, "U%.lastSend%[player%] = now", "")
+		expect(spends).toBe(1)
+		expect(
+			has(fn, "U.lastSend[player] = now -- a real press: the next one waits SEND_COOLDOWN\n\treturn p")
+				or has(fn, "U.lastSend[player] = now\n\treturn p")
+		).toBe(true)
+		-- the locked-out toast has a limit of its own, and the remote keeps Remotes.allow in front of it all
+		expect(has(fn, "now - (U.lastDenied[player] or 0) >= K.DENIED_COOLDOWN")).toBe(true)
+		expect(has(text, "K.DENIED_COOLDOWN = 2")).toBe(true)
+		expect(has(text, "K.SEND_COOLDOWN = 0.3")).toBe(true)
+		expect(has(body(text, "function U.onSendRemote("), "Remotes.allow(player, K.SEND_REMOTE)")).toBe(true)
+		expect(has(text, "U.lastDenied[player] = nil")).toBe(true) -- forgotten when they leave
 	end)
 
 	test("the client only asks: it fires the remote with the id and the pick, and decides nothing", function()

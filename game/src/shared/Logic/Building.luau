@@ -75,6 +75,7 @@
 --                                                wall is in the way
 --   Building.NURSE_STATION, NURSE_PLACES         where nurses stand (see "Where nurses stand" below): the nurses'
 --                                                station (its Desk is solid) and the places a job has of its own
+--                                                (NURSE_SHARES: a job that takes what another leaves of its place)
 --   Building.nurseSlot(job, k, counts?): NurseSpot   where nurse number k of a job waits; counts = nurses per job
 --                                                at the plot, so jobs sharing the station never share a slot
 --   Building.stationRank(job, k, counts?): number?   its slot at the station (nil: at its own place)
@@ -487,9 +488,17 @@ end
 -- look like theyre in the middle of nowhere". Every hired nurse now has a place that means something, all of it
 -- derived from the rooms, doors, seats and stations above (so a bigger building moves them with it):
 --   the nurses' station  a small desk at corridor A's far (+x) end, past the X-ray door, its back to the dispensary
---                        wall: Healers wait there, and so does anyone idle (Porters, Medics, any job without a place
---                        of its own, and the nurses past their own place's last slot). Its slots: two columns behind
---                        the desk looking down the corridor at the bays, then a row along the dispensary wall
+--                        wall: the idle place, for any job without a place of its own and the nurses past their own
+--                        place's last slot. Its slots: two columns behind the desk looking down the corridor at the
+--                        bays, then a row along the dispensary wall
+--   Healers, Medics      at the bays' end: against the -x wall between the A&E door and the waiting room's last
+--                        seat, a few hops from bays 1-3 (the bays every clinic has; from the station at the far end
+--                        each heal was a 50-stud walk: the Phase 0 review). Healers first, Medics take what is left
+--                        (a Medic's patients come in through the A&E door beside it). No spot along the bays' mouths
+--                        is off the patients' walks in this building, so two is all there is; the rest wait at the
+--                        station
+--   Porters              beside the lift's ground landing: against the stairwell, across the hall from the lift
+--                        door, one straight walk from where its patient waits
 --   Makers               beside the supply shelf: either end of the Bandage shelf, in the alcove
 --   Cheerers             between the waiting seats, at their backs (among the patients they cheer)
 --   Receptionists        behind the reception desk: RECEPTION.Staff first, then either side of it
@@ -538,8 +547,33 @@ local function nurseStation()
 end
 Building.NURSE_STATION = nurseStation()
 
--- The places a job has of its own (Makers, Cheerers, Receptionists), each a list of slots in order.
+-- The places a job has of its own (Healers and Medics, Porters, Makers, Cheerers, Receptionists), each a list of
+-- slots in order.
 local function nursePlaces()
+	-- Healers and Medics: against the -x wall, from just clear of the A&E door's jamb toward the waiting room, as
+	-- many as fit before the seat on that wall. Looking along the bays' mouths, into the hall.
+	local wall = -Building.HALF_X + Building.WALL
+	local jamb = Building.DOORS.AE.Z0 :: number
+	local healers = {}
+	local last = -math.huge -- the far edge of whatever stands on that wall before the door (the waiting seat)
+	for _, seat in Building.SEATS do
+		local r = Building.seatRect(seat)
+		if r.X0 < wall + Building.NURSE_EDGE + Building.NURSE_FOOT and r.Z1 < jamb then
+			last = math.max(last, r.Z1)
+		end
+	end
+	local z = jamb - Building.NURSE_FOOT - 0.1
+	while z - Building.NURSE_FOOT >= last and #healers < 4 do
+		table.insert(healers, nurseSpot(wall + Building.NURSE_EDGE, z, 270))
+		z -= Building.NURSE_GAP
+	end
+	-- Porters: against the stairwell's corridor side, level with the lift's landing and one more toward the stairs
+	local landing = Building.LANDING
+	local porterZ = Building.STAIRWELL.Z0 - Building.NURSE_EDGE
+	local porters = {
+		nurseSpot(landing.X, porterZ, 0),
+		nurseSpot(landing.X - Building.NURSE_GAP, porterZ, 0),
+	}
 	-- Makers: either end of the Bandage shelf, against the alcove's +x wall, looking across at the other shelves
 	local shelf = Building.stationRect("Bandage") :: Rect
 	local reach = Building.NURSE_EDGE + 0.1
@@ -565,7 +599,11 @@ local function nursePlaces()
 			table.insert(receptionists, nurseSpot(at, staff.Z, 0))
 		end
 	end
+	local bays = table.freeze(healers)
 	return table.freeze({
+		Healer = bays,
+		Medic = bays, -- the same spots: NURSE_SHARES
+		Porter = table.freeze(porters),
 		Maker = table.freeze(makers),
 		Cheerer = table.freeze(cheerers),
 		Receptionist = table.freeze(receptionists),
@@ -573,8 +611,11 @@ local function nursePlaces()
 end
 Building.NURSE_PLACES = nursePlaces() :: { [string]: { NurseSpot } }
 
--- The jobs that wait at the nurses' station, in the order they take its slots; any other job without a place of its
--- own comes next (by name), then the nurses past their own place's last slot (Makers, Cheerers, Receptionists).
+-- A job that shares another's place: it takes the slots that job's nurses leave (Medics after the Healers).
+Building.NURSE_SHARES = table.freeze({ Medic = "Healer" }) :: { [string]: string }
+
+-- The order the jobs take the nurses' station's slots (only the nurses past their own place's last slot wait
+-- there); a job without a place of its own comes after these three (by name), then Makers, Cheerers, Receptionists.
 Building.NURSE_STATION_ORDER = table.freeze({ "Healer", "Medic", "Porter" })
 local OVERFLOW_ORDER = { "Maker", "Cheerer", "Receptionist" }
 
@@ -593,7 +634,7 @@ local function stationOrder(counts: { [string]: number }): { string }
 		if
 			type(job) == "string"
 			and not table.find(Building.NURSE_STATION_ORDER, job)
-			and not Building.NURSE_PLACES[job]
+			and not table.find(OVERFLOW_ORDER, job)
 		then
 			table.insert(others, job)
 		end
@@ -608,13 +649,25 @@ local function stationOrder(counts: { [string]: number }): { string }
 	return order
 end
 
+-- How many of its place's slots a job's nurses get, and how many of that place's slots come before them (taken by
+-- the job it shares the place with: NURSE_SHARES). 0, 0 for a job without a place.
+local function ownSlots(job: string, counts: { [string]: number }?): (number, number)
+	local place = Building.NURSE_PLACES[job]
+	if not place then
+		return 0, 0
+	end
+	local first = Building.NURSE_SHARES[job]
+	local taken = if first and counts then math.min(#place, whole(counts[first], 0)) else 0
+	return #place - taken, taken
+end
+
 -- Which of the station's slots nurse number `k` of `job` takes (1 = the first), or nil when it stands at its job's
 -- own place. `counts` = nurses per job at this plot (the jobs earlier in the station's order take the first slots;
 -- without it, as if no other job were there). Past the last slot it starts again from the first.
 function Building.stationRank(job: string, k: number, counts: { [string]: number }?): number?
 	local index = whole(k, 1)
-	local own = Building.NURSE_PLACES[job]
-	if own and index <= #own then
+	local own = ownSlots(job, counts)
+	if index <= own then
 		return nil
 	end
 	local before = 0
@@ -623,19 +676,23 @@ function Building.stationRank(job: string, k: number, counts: { [string]: number
 			if other == job then
 				break
 			end
-			local n = whole(counts[other], 0)
-			local place = Building.NURSE_PLACES[other]
-			before += if place then math.max(0, n - #place) else n
+			before += math.max(0, whole(counts[other], 0) - (ownSlots(other, counts)))
 		end
 	end
 	local slots = #Building.NURSE_STATION.Slots
-	return (before + index - (if own then #own else 0) - 1) % slots + 1
+	return (before + index - own - 1) % slots + 1
 end
 
 -- Where nurse number `k` of `job` waits: its job's own place, else the nurses' station (Building.stationRank).
 function Building.nurseSlot(job: string, k: number, counts: { [string]: number }?): NurseSpot
 	local rank = Building.stationRank(job, k, counts)
-	local slot = if rank then Building.NURSE_STATION.Slots[rank] else Building.NURSE_PLACES[job][whole(k, 1)]
+	local slot
+	if rank then
+		slot = Building.NURSE_STATION.Slots[rank]
+	else
+		local _, taken = ownSlots(job, counts)
+		slot = Building.NURSE_PLACES[job][taken + whole(k, 1)]
+	end
 	return { X = slot.X, Z = slot.Z, Face = slot.Face }
 end
 

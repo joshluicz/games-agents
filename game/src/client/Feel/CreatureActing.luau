@@ -107,6 +107,8 @@ type Creature = {
 	ArmR: Motor6D?,
 	ArmL: Motor6D?,
 	Tail: Motor6D?,
+	Ring: BasePart?, -- a night creature's GlowRing pad (Server/CreatureBuilder): hidden while it sits
+	RingHidden: number, -- the pad's LocalTransparencyModifier now
 	Unit: number,
 	Acting: Acting,
 	Seconds: number, -- how long one beat of its motion lasts
@@ -408,6 +410,16 @@ local function between(range: { number }, scale: number): number
 	return rng:NextNumber(range[1], range[2]) * scale
 end
 
+-- A night creature's glow pad is under its feet; on a seat it would be a neon slab round the chair, so it fades out
+-- as the creature sits down (`hidden` 0..1) and back in as it gets up. Local only: the server's part is untouched.
+local function showRing(c: Creature, hidden: number)
+	local ring = c.Ring
+	if ring and math.abs(c.RingHidden - hidden) > 1e-3 then
+		c.RingHidden = hidden
+		ring.LocalTransparencyModifier = hidden
+	end
+end
+
 local function act(c: Creature, now: number, quiet: boolean)
 	local k = if quiet then CALM else 1
 	local grown = math.clamp(c.Root.Size.X / ROOT_SIZE, 0.02, 1.5) -- small while it pops in or out
@@ -505,6 +517,8 @@ local function act(c: Creature, now: number, quiet: boolean)
 		p.Tail = CFrame.Angles(-CreatureSize.SIT.TailCurl * ease, 0, 0) * p.Tail
 	end
 
+	showRing(c, smooth(sit))
+
 	c.Pose.Transform = p.Body
 	if c.ArmR then
 		c.ArmR.Transform = p.R
@@ -523,6 +537,8 @@ local function still(c: Creature)
 		return
 	end
 	c.Still = true
+	c.Sit = if c.Model:GetAttribute("Seated") == true then 1 else 0
+	showRing(c, c.Sit)
 	c.Pose.Transform = IDENTITY
 	for _, motor in { c.ArmR, c.ArmL, c.Tail } do
 		if motor then
@@ -667,6 +683,11 @@ local function track(instance: Instance)
 		ArmR = motor("ArmRJoint"),
 		ArmL = motor("ArmLJoint"),
 		Tail = motor("TailJoint"),
+		Ring = (function(): BasePart?
+			local ring = model:FindFirstChild("GlowRing")
+			return if ring and ring:IsA("BasePart") then ring else nil
+		end)(),
+		RingHidden = 0,
 		Unit = if type(unit) == "number" and unit > 0 then unit else 1.6,
 		Acting = acting,
 		Seconds = BEAT_SECONDS[acting.Motion] or 1,

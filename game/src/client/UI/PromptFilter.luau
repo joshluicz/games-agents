@@ -12,6 +12,8 @@
 --   stations and the dispensary's Dispense)  friends, or anyone while the plot's OpenHelpers is on.
 --   and each exam bay's BayPrompt (Patients:
 --   "Examine" / "Treat", tag TreatPrompt)
+--   and each waiting patient's SendPrompt
+--   (Patients: "Send", tag TreatPrompt)
 --   Progression v2: the lift landings'        the same: "Ride with patient" is work at that clinic (build plan §C
 --   EscortPrompt (PlotBuilder, Patients)     T8). The LiftPrompt stays for everyone (anyone may ride a lift).
 -- Friend status comes from LocalPlayer:IsFriendsWith, cached per owner. Until it's known (or if it can't be
@@ -22,7 +24,9 @@
 -- escort prompt that isn't tagged yet is found by name in each plot's Building and Rooms (rebuilt only on a
 -- level-up, a theme change or a purchase, so that's a handful of events). Nothing listens to every part added to
 -- Workspace.Clinics (each creature, nurse and building floor used to wake it). The Real Clinic removed the
--- Counter's Treat prompt and the hot tub's SoakPrompt: treating happens at the bays.
+-- Counter's Treat prompt and the hot tub's SoakPrompt: treating happens at the bays. A patient's Send prompt has the
+-- same fallback as a bay's: one that isn't tagged yet is found by name, once, as its patient's model arrives in the
+-- plot's Patients folder (one event per patient, never one per part).
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -44,8 +48,16 @@ local ESCORT_NAME = "EscortPrompt"
 local ESCORT_TAG = "EscortPrompt" -- its tag, once PlotBuilder/Patients add it (until then: the name watch below)
 -- Where an untagged bay or escort prompt is looked for: the plot's Building and its Rooms (the Cozy Ward's bays).
 local HOLDER_NAMES = { Building = true, Rooms = true }
+local SEND_NAME = "SendPrompt" -- Patients: the "Send" prompt on each waiting patient (simple start: you send them)
+local PATIENTS_NAME = "Patients" -- the plot's folder of patient models (Server/Patients)
 local WATCHED_NAMES = { [BAY_NAME] = true, [ESCORT_NAME] = true }
-local WORK_NAMES = { [BAY_NAME] = true, [TREAT_NAME] = true, [MAKE_NAME] = true, [ESCORT_NAME] = true }
+local WORK_NAMES = {
+	[BAY_NAME] = true,
+	[TREAT_NAME] = true,
+	[MAKE_NAME] = true,
+	[ESCORT_NAME] = true,
+	[SEND_NAME] = true,
+}
 
 type Kind = "Sign" | "Work"
 
@@ -242,12 +254,25 @@ function PromptFilter.init(ctx: Types.Ctx)
 			task.defer(track, descendant)
 		end
 	end
+	-- A patient's Send prompt without its tag: looked for by name once, as the patient's model arrives.
+	local function trackSend(patient: Instance)
+		task.defer(function()
+			local prompt = patient:FindFirstChild(SEND_NAME, true)
+			if prompt then
+				track(prompt)
+			end
+		end)
+	end
 	local watchedHolders: { [Instance]: RBXScriptConnection } = {}
 	local function watchHolder(holder: Instance)
-		if not HOLDER_NAMES[holder.Name] or watchedHolders[holder] then
+		if watchedHolders[holder] or not (HOLDER_NAMES[holder.Name] or holder.Name == PATIENTS_NAME) then
 			return
 		end
-		watchedHolders[holder] = holder.DescendantAdded:Connect(trackByName)
+		if holder.Name == PATIENTS_NAME then
+			watchedHolders[holder] = holder.ChildAdded:Connect(trackSend)
+		else
+			watchedHolders[holder] = holder.DescendantAdded:Connect(trackByName)
+		end
 		holder.AncestryChanged:Connect(function()
 			if not holder:IsDescendantOf(Workspace) then
 				local connection = watchedHolders[holder]
@@ -257,6 +282,12 @@ function PromptFilter.init(ctx: Types.Ctx)
 				end
 			end
 		end)
+		if holder.Name == PATIENTS_NAME then
+			for _, patient in holder:GetChildren() do
+				trackSend(patient)
+			end
+			return
+		end
 		for _, descendant in holder:GetDescendants() do
 			trackByName(descendant)
 		end
@@ -268,7 +299,7 @@ function PromptFilter.init(ctx: Types.Ctx)
 			return
 		end
 		watchedPlotModels[plot] = true
-		plot.ChildAdded:Connect(watchHolder) -- a new Building (level-up, theme) or Rooms folder
+		plot.ChildAdded:Connect(watchHolder) -- a new Building (level-up, theme), Rooms or Patients folder
 		for _, child in plot:GetChildren() do
 			watchHolder(child)
 		end

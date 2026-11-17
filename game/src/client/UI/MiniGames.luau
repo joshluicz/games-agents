@@ -1007,7 +1007,7 @@ end
 -- `levels`, Data/Levels, as Logic/Visit.plan cuts it), in `pool` order (pool = { { Id, Icon } }: Data/Items'
 -- medicines), the answer always among them, topped up from the pool to SLIP.ShelfMin. Returns that pool for
 -- Pure.bottles and how many bottles to show: all of them, ShelfMin to `max` (Config.Dispensary.Bottles, at most
--- CHOICES_MAX). A Lv 1 clinic sees 3 (cough syrup, fever medicine, ear drops), never 4 strangers.
+-- CHOICES_MAX). A Lv 1 clinic sees 2 (cough syrup, fever medicine), never 4 strangers.
 function Pure.shelf(
 	answer: string,
 	pool: any,

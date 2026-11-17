@@ -104,6 +104,62 @@ end
 
 T.describe("Patients.Pure: which case comes (Review Focus 1)", function()
 	test(
+		"regularCase: a regular comes only once its own case can be treated (Dizzy Comet: Bumped head, Lv 2)",
+		function()
+			local Regulars = require("../src/shared/Data/Regulars")
+			local StoryLogic = require("../src/shared/Logic/Story")
+			expect(Regulars.DizzyComet.Case).toBe("BumpedHead")
+			expect(P.regularCase(Regulars.DizzyComet, clinic(1), 0)).toBeNil()
+			expect(P.regularCase(Regulars.DizzyComet, clinic(2), 0)).toBe("BumpedHead")
+			expect(P.regularCase(Regulars.ShySprout, clinic(1), 0.7)).toBe(Regulars.ShySprout.Case) -- its own, any roll
+			-- a row without a case of its own: one from its wing's pool that the clinic can treat
+			expect(P.regularCase({ Wing = "Starter" }, clinic(1), 0)).toBe(P.pickCase("Starter", clinic(1), 0))
+			expect(P.regularCase({ Wing = "Starter" }, clinic(1, nil, { Bays = { Exam = false } }), 0)).toBeNil()
+			expect(P.regularCase(nil, clinic(5), 0)).toBeNil()
+			-- with it as Story.nextDue's `can` (as Server/Patients asks Server/Story): at Lv 1 Dizzy Comet isn't due
+			local story = {
+				ShySprout = { Beat = 2, LastBeatDay = 100 },
+				GrumpyTeapot = { Beat = 1, LastBeatDay = 100 },
+			}
+			local function can(level: number)
+				return function(regularId: string): boolean
+					return P.regularCase(Regulars[regularId], clinic(level), 0) ~= nil
+				end
+			end
+			expect(StoryLogic.nextDue(Regulars, story, 120, 100, true, can(1))).toBeNil()
+			expect(StoryLogic.nextDue(Regulars, story, 120, 100, true, can(2))).toBe("DizzyComet")
+			-- every regular can come at some level
+			for _, regularId in Regulars.Order do
+				expect(P.regularCase(Regulars[regularId], clinic(5, { BathRoom = true, WinterWing = true }), 0) ~= nil).toBe(
+					true
+				)
+			end
+		end
+	)
+
+	test("Server/Patients asks Story with that rule, and Server/Story hands it to Logic/Story.nextDue", function()
+		local fs = require("@lune/fs")
+		local World = require("./worldmock")
+		local patients = fs.readFile(World.find("src/server/Patients.luau"))
+		local story = fs.readFile(World.find("src/server/Story.luau"))
+		expect(
+			string.find(patients, "pcall(Story.dueRegular, owner, function(regularId: string): boolean", 1, true) ~= nil
+		).toBe(true)
+		expect(
+			string.find(patients, "Pure.regularCase(rawget(RegularsData :: any, regularId), view, 0) ~= nil", 1, true)
+				~= nil
+		).toBe(true)
+		expect(
+			string.find(
+				story,
+				"StoryLogic.nextDue(Regulars, data.Story, data.Stars, Story.today(), isNight, allowed)",
+				1,
+				true
+			) ~= nil
+		).toBe(true)
+	end)
+
+	test(
 		"eligible: no Sprain at Lv 1, no Broken arm without the X-ray, no Sore muscles without the Bath Room",
 		function()
 			expect(P.eligible(Cases.Sprain, clinic(1))).toBe(false) -- Lv 2, and no bandages at Lv 1

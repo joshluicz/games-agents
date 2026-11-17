@@ -28,7 +28,8 @@
 --      itself; anyone who may work the clinic, Plots.canWork). One press sends it to the nearest free bay that fits
 --      it (Logic/Routing.pickBay: an X-ray case only the X-ray bay, every other case only an exam bay; a usable bay
 --      is an ExamBay_<id> under the Building or Rooms whose Logic/Building.bayOpen holds) through U.callToBay; no
---      free bay: the toast "All bays are busy!". From Lv 3, with the X-ray bay open (Logic/Routing.needsChoice), the
+--      free bay: the toast "All bays are busy!"; no usable place of its kind at all (Logic/Routing.hasKind): it goes
+--      home kindly, "No place for it today!", no penalty. From Lv 3, with the X-ray bay open (Logic/Routing.needsChoice), the
 --      prompt opens a two-button card on the client instead ("🩺 Exam bay" / "📸 X-ray": UI/SendCard) and the pick
 --      comes by the SendPatient RemoteEvent (U.onSendRemote checks everything); a wrong pick is a gentle toast and
 --      the patient stays seated, no penalty. The tick sends nobody by itself, except (U.autoCall): a 🚑/🚁 patient
@@ -264,6 +265,7 @@ K.RECEPTION_SECONDS = math.max(
 )
 K.RECEPTION_GAP = math.max(tonumber(Config.Visit and (Config.Visit :: any).ReceptionGap) or K.Routing.RECEPTION_GAP, 0)
 K.SEND_COOLDOWN = 0.3 -- per player, the Send prompt and the SendPatient remote alike
+K.DENIED_COOLDOWN = 2 -- per player: the "ask the owner" toast for a press at a clinic they may not work
 K.SEND_REMOTE = "SendPatient" -- its name for the rate limit (Remotes.allow)
 K.URGENT_HEAD = 1e6 -- seconds an urgent patient counts as having waited already: it takes the next free bay
 K.LAYOUT_SECONDS = 3 -- the bays, stations and ward beds are looked up again at least this often
@@ -772,6 +774,20 @@ function Pure.eligible(case: any, plotState: any): boolean
 	end
 	local kind = if case.Tool == Visit.XRAY then "XRay" else "Exam"
 	return type(plotState.Bays) == "table" and plotState.Bays[kind] == true
+end
+
+-- The case a regular (a Data/Regulars row) brings to this clinic: its own fixed Case when the clinic can treat it,
+-- or one from its wing's pool for a row without a case. nil = it can't be treated here, so the regular isn't due
+-- yet (Logic/Story.nextDue's `can`): Dizzy Comet's Bumped head is a Lv 2 case.
+function Pure.regularCase(regular: any, plotState: any, roll: number): string?
+	if type(regular) ~= "table" then
+		return nil
+	end
+	local caseId = regular.Case
+	if type(caseId) ~= "string" then
+		return Pure.pickCase(regular.Wing, plotState, roll)
+	end
+	return if Pure.eligible(rawget(Cases :: any, caseId), plotState) then caseId else nil
 end
 
 -- A wing's case pool (Data/Cases.POOLS; a wing without one uses the Starter pool).
@@ -1462,15 +1478,28 @@ end
 
 -- How this creature sits (Logic/CreatureSize.seatFit's fit, in studs from its pivot at its size now): Hip = its
 -- Body's bottom, Body = how far its Body and Head reach back, Reach = how far any part but its tail reaches back (the
--- client curls the tail up). A kit model with no Body: its whole box, sitting on its bottom.
-function U.sitFit(p: Patient): { Hip: number, Body: number, Reach: number }
-	local fit = { Hip = 0, Body = 0, Reach = 0 }
+-- client curls the tail up). A kit model with no Body: its whole box, sitting on its bottom. Its effects are not its
+-- body: a night creature's GlowRing pad (wider than the creature) pushed it forward off the chair (the Phase 0
+-- review); Feel/CreatureActing hides the pad while it sits.
+function U.sitFit(p: Patient): { Hip: number, Body: number, Reach: number, Tail: number? }
+	local fit: { Hip: number, Body: number, Reach: number, Tail: number? } = { Hip = 0, Body = 0, Reach = 0 }
 	local root = p.Root
 	local found = false
 	local core = p.Model:FindFirstChild("Core")
-	local curls = core ~= nil and core:FindFirstChild("TailJoint") ~= nil -- a tail on its joint: the client curls it
+	local tailJoint = if core then core:FindFirstChild("TailJoint") else nil
+	local curls = tailJoint ~= nil and tailJoint:IsA("Motor6D") -- a tail on its joint: the client curls it
+	-- the joint's pivot, from Root (CreatureBuilder: Core.TailJoint.C0 is the tail's root on Core)
+	local pivot = if curls
+		then root.CFrame:ToObjectSpace((core :: any).CFrame * (tailJoint :: any).C0).Position
+		else nil
 	for _, part in p.Model:GetDescendants() do
-		if not part:IsA("BasePart") or part == root or part.Name == "Core" or part.Transparency >= 1 then
+		if
+			not part:IsA("BasePart")
+			or part == root
+			or part.Name == "Core"
+			or part.Name == "GlowRing"
+			or part.Transparency >= 1
+		then
 			continue
 		end
 		local rel = root.CFrame:ToObjectSpace(part.CFrame)
@@ -1484,7 +1513,12 @@ function U.sitFit(p: Patient): { Hip: number, Body: number, Reach: number }
 				found = true
 			end
 		end
-		if not (curls and (part.Name == "Tail" or part.Name == "TailTip")) then
+		if pivot and (part.Name == "Tail" or part.Name == "TailTip") then
+			-- curled up over its back: how far back it still reaches (it stops short of the chair back too)
+			local halfY = (math.abs(r10) * size.X + math.abs(r11) * size.Y + math.abs(r12) * size.Z) / 2
+			local curled = pivot.Z + K.CreatureSize.curlBack(y - pivot.Y, z - pivot.Z, halfY, back - z)
+			fit.Tail = math.max(fit.Tail or -math.huge, curled)
+		else
 			fit.Reach = math.max(fit.Reach, back)
 		end
 	end
@@ -1514,6 +1548,16 @@ end
 function U.setSeated(p: Patient, on: boolean)
 	p.OnSeat = on
 	p.Model:SetAttribute("Seated", if on then true else nil)
+end
+
+-- Its seat is free for the next patient, but it still sits there (OnSeat and Seated stay: a sad patient droops on
+-- its chair until it puffs away; removePatient's freeSeat clears them with the model).
+function U.vacateSeat(p: Patient)
+	local seat = p.Seat
+	if seat and p.Plot.Seats[seat] == p then
+		p.Plot.Seats[seat] = nil
+	end
+	p.Seat = nil
 end
 
 -- On a bay bed (the Bed's top), facing its foot (the DoctorSpot).
@@ -3762,25 +3806,19 @@ local function trySpawn(state: PlotState, plan: string)
 	-- 1. A regular whose story beat is due (never the very first patient: that one teaches the loop). Story reserves
 	--    whoever it names, so it's only asked when there's room, and whoever it names comes. Their own case.
 	if guests and state.Spawned >= 1 then
-		local ok, regular = pcall(Story.dueRegular, owner)
+		-- Story only names a regular whose case this clinic can treat (Pure.regularCase): the others aren't due yet.
+		local ok, regular = pcall(Story.dueRegular, owner, function(regularId: string): boolean
+			return Pure.regularCase(rawget(RegularsData :: any, regularId), view, 0) ~= nil
+		end)
 		if not ok then
 			report("Story.dueRegular", regular)
 		elseif type(regular) == "string" then
 			local entry: any = rawget(RegularsData :: any, regular)
-			local caseId = if type(entry) == "table" then entry.Case else nil
-			if type(entry) == "table" and type(caseId) ~= "string" then
-				caseId = Pure.pickCase(entry.Wing, view, rng:NextNumber()) -- (a regular row without its own case)
-			end
-			if
-				not (
-					type(entry) == "table"
-					and type(caseId) == "string"
-					and Pure.eligible(rawget(Cases :: any, caseId), view)
-				)
-			then
+			local caseId = Pure.regularCase(entry, view, rng:NextNumber())
+			if not caseId then
 				report("regular " .. regular, "named by Story but its case can't be treated here")
 			elseif not U.hasGuest(state, regular, false) then -- (Story never names one who's already here)
-				spawnPatient(state, entry.Patient, regular, false, nil, cap, caseId :: string)
+				spawnPatient(state, entry.Patient, regular, false, nil, cap, caseId)
 				return
 			end
 		end
@@ -4128,12 +4166,20 @@ end
 -- Sends waiting patient `p` to the nearest free place that fits it (Logic/Routing.pickBay, from where it sits; through
 -- the tutorial's one-at-a-time steps the first in order, so the first patient takes bay 1). `choice`: the player's
 -- pick on the two-button card ("Exam" | "XRay"), nil for a plain press or a Receptionist. Returns (sent, toast?): a
--- wrong pick or no free place sends nobody and changes nothing (no penalty: it stays seated).
+-- wrong pick or no free place sends nobody and changes nothing (no penalty: it stays seated). When the clinic has
+-- no usable place of its kind at all (an X-ray case seated as the X-ray bay stopped being usable), "All bays are
+-- busy!" would be untrue and it would sit until its patience ran out: it goes home kindly instead (goHome: no
+-- penalty, a regular comes back another time), with a toast that says so.
 function U.send(state: PlotState, p: Patient, choice: string?): (boolean, string?)
 	if not K.Routing.waiting(p.Phase, p.Bay, p.Urgent) then
 		return false, nil
 	end
 	local kind = K.Routing.kindFor(p.Case.Tool)
+	local places = U.places(state)
+	if not K.Routing.hasKind(places, kind) then
+		goHome(state, p)
+		return false, K.Routing.TEXT.NoPlace
+	end
 	if choice ~= nil then
 		local right, correction = K.Routing.check(choice, kind)
 		if not right then
@@ -4144,7 +4190,7 @@ function U.send(state: PlotState, p: Patient, choice: string?): (boolean, string
 	if U.tutorialAsk("queueCap", nil, state.Owner) == nil then
 		from = U.localOf(state, p.Pivot.Position)
 	end
-	local bayId = K.Routing.pickBay(U.places(state), kind, from)
+	local bayId = K.Routing.pickBay(places, kind, from)
 	if not bayId or not U.callToBay(state, p, bayId) then
 		return false, K.Routing.TEXT.Busy
 	end
@@ -4153,9 +4199,14 @@ end
 
 U.lastSend = {} :: { [Player]: number } -- os.clock() of each player's last press (cleared when they leave)
 
+U.lastDenied = {} :: { [Player]: number } -- os.clock() of each player's last "ask the owner" toast
+
 -- A worker's press, from the Send prompt or the SendPatient remote: one every SEND_COOLDOWN per player; the player may
 -- work this clinic (Plots.canWork: the owner, a friend, or anyone with OpenHelpers), the patient is this clinic's and
 -- still waiting to be sent, and the player stands by it. Returns the patient, or nil (with a toast where it helps).
+-- Only a press that passes all of that spends the cooldown: a press that was never going to send anyone (a patient
+-- just sent, one out of reach) no longer swallows the next press on the patient beside it. The checks before the
+-- cooldown are cheap and change nothing; the locked-out toast has its own limit, and the remote has Remotes.allow.
 function U.mayPress(player: Player, state: PlotState?, visitId: any): Patient?
 	if not state or not state.Active or type(visitId) ~= "number" then
 		return nil
@@ -4164,9 +4215,11 @@ function U.mayPress(player: Player, state: PlotState?, visitId: any): Patient?
 	if now - (U.lastSend[player] or 0) < K.SEND_COOLDOWN then
 		return nil
 	end
-	U.lastSend[player] = now
 	if not Plots.canWork(player, state.Plot) then
-		Remotes.toast(player, "🔒 Ask the owner to open up!")
+		if now - (U.lastDenied[player] or 0) >= K.DENIED_COOLDOWN then
+			U.lastDenied[player] = now
+			Remotes.toast(player, "🔒 Ask the owner to open up!")
+		end
 		return nil
 	end
 	local p = state.ById[visitId]
@@ -4181,6 +4234,7 @@ function U.mayPress(player: Player, state: PlotState?, visitId: any): Patient?
 	if (root.Position - p.Pivot.Position).Magnitude > K.PROMPT_DISTANCE + K.DISTANCE_SLACK then
 		return nil
 	end
+	U.lastSend[player] = now -- a real press: the next one waits SEND_COOLDOWN
 	return p
 end
 
@@ -4294,7 +4348,7 @@ local function makeSad(state: PlotState, p: Patient)
 		return
 	end
 	p.Phase = "Sad"
-	freeSeat(p) -- the seat and the bay are free for the next one at once; it puffs away where it sits
+	U.vacateSeat(p) -- the seat and the bay are free for the next one at once; it puffs away where it sits (Seated)
 	freeBay(p)
 	local regular = p.Regular
 	local storyLeft = (Story :: any).left -- a regular who leaves untreated comes back later (Story's extra)
@@ -4765,6 +4819,7 @@ function Patients.start()
 	Players.PlayerRemoving:Connect(function(player)
 		lastTreat[player] = nil
 		U.lastSend[player] = nil
+		U.lastDenied[player] = nil
 	end)
 	for _, plot in Plots.all() do
 		local owner = plot.Owner

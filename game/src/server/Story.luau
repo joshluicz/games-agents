@@ -2,9 +2,10 @@
 -- Regulars with stories: three returning patients, five beats each (build plan §B5, design §5.7). Server only;
 -- the rules are in Shared/Logic/Story (Lune-tested).
 --
---   Story.dueRegular(owner): RegularId?
+--   Story.dueRegular(owner, can?): RegularId?
 --       Patients asks this when choosing whom to spawn on the owner's plot. A non-nil answer reserves that
---       regular for this visit, so ask only when you'll spawn the answer.
+--       regular for this visit, so ask only when you'll spawn the answer. `can(regularId)` (optional): false for a
+--       regular the clinic can't treat yet (its case's level): it is not named, nor reserved, until it can be.
 --   Story.onCure(owner, regularId?)
 --       Cure.resolve calls it (nil = not a regular). One beat per regular per UTC day; the last beat grants the
 --       Reward (decor owned and put on show, or a room unlocked free via Plots.unlockRoom) with a toast.
@@ -262,7 +263,7 @@ end
 -- Public API
 ------------------------------------------------------------------------------------------------------------------
 
-function Story.dueRegular(owner: Player): string?
+function Story.dueRegular(owner: Player, can: ((regularId: string) -> boolean)?): string?
 	if not isPlayer(owner) then
 		return nil
 	end
@@ -288,7 +289,8 @@ function Story.dueRegular(owner: Player): string?
 	end
 
 	local isNight = Workspace:GetAttribute("IsNight") == true
-	local regularId = StoryLogic.nextDue(Regulars, data.Story, data.Stars, Story.today(), isNight)
+	local allowed = if type(can) == "function" then can else nil
+	local regularId = StoryLogic.nextDue(Regulars, data.Story, data.Stars, Story.today(), isNight, allowed)
 	if regularId then
 		visits[owner] = { Id = regularId, Until = now + VISIT_HOLD_SECONDS, Seen = false }
 	else

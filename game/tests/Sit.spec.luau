@@ -100,18 +100,20 @@ local function measure(look, scale: number): any
 			end
 		end
 		if isTail(part) and pivot then
-			-- Turned by -TailCurl about the joint's pivot (x): its centre's z, plus a turned cube's half-depth.
+			-- Turned by -TailCurl about the joint's pivot (x), as U.sitFit measures it (CreatureSize.curlBack).
 			local y, z = part.Pos.Y - pivot.Y, part.Pos.Z - pivot.Z
-			local a = -SIT.TailCurl
-			local zTurned = y * math.sin(a) + z * math.cos(a)
-			local half = (math.abs(math.cos(a)) * part.Size.Z + math.abs(math.sin(a)) * part.Size.Y) / 2
-			tailBack = math.max(tailBack, pivot.Z + zTurned + half)
+			tailBack = math.max(tailBack, pivot.Z + CreatureSize.curlBack(y, z, hy, hz))
 		else
 			fit.Reach = math.max(fit.Reach, back)
 		end
 	end
 	return {
-		Fit = { Hip = fit.Hip * scale, Body = fit.Body * scale, Reach = fit.Reach * scale },
+		Fit = {
+			Hip = fit.Hip * scale,
+			Body = fit.Body * scale,
+			Reach = fit.Reach * scale,
+			Tail = if tailBack > -math.huge then tailBack * scale else nil,
+		},
 		Top = top * scale,
 		TailBack = if tailBack > -math.huge then tailBack * scale else nil,
 		Front = (function()
@@ -152,6 +154,26 @@ T.describe("CreatureSize.seatFit", function()
 	test("something reaching further back keeps Gap off the wall", function()
 		local forward = CreatureSize.seatFit({ Hip = 0.5, Body = 0.5, Reach = 2.5 }, SEAT)
 		expect(forward).toBeCloseTo(2.5 + SIT.Gap - SEAT.Wall)
+	end)
+
+	test("a curled tail that reaches past the body keeps TailGap off the chair back", function()
+		local fit = { Hip = 0.5, Body = 0.8, Reach = 0.8, Tail = 1.6 }
+		expect(CreatureSize.seatFit(fit, SEAT)).toBeCloseTo(1.6 + SIT.TailGap - SEAT.Cushion)
+		fit.Tail = 0.5 -- a tail that curls clear of the back changes nothing; nor does no tail, or junk
+		expect(CreatureSize.seatFit(fit, SEAT)).toBeCloseTo(0.8 + SIT.Gap - SEAT.Cushion)
+		fit.Tail = nil
+		expect(CreatureSize.seatFit(fit, SEAT)).toBeCloseTo(0.8 + SIT.Gap - SEAT.Cushion)
+		fit.Tail = 0 / 0
+		expect(CreatureSize.seatFit(fit, SEAT)).toBeCloseTo(0.8 + SIT.Gap - SEAT.Cushion)
+	end)
+
+	test("curlBack: a tail part turned TailCurl up about its pivot reaches less far back", function()
+		-- straight back of the pivot: cos(TailCurl) of the way, plus the turned box's half-depth
+		local c, s = math.cos(SIT.TailCurl), math.sin(SIT.TailCurl)
+		expect(CreatureSize.curlBack(0, 1, 0.2, 0.2)).toBeCloseTo(c + 0.2 * (c + s))
+		-- up from the pivot: it swings forward
+		expect(CreatureSize.curlBack(1, 0, 0.2, 0.2)).toBeCloseTo(-s + 0.2 * (c + s))
+		expect(CreatureSize.curlBack(0 / 0, 0, 0, 0)).toBe(0)
 	end)
 
 	test("never past MaxForward, never sunk past MaxHip, junk is zero", function()
@@ -203,6 +225,11 @@ T.describe("every species on a seat", function()
 				check(m.Fit.Reach - forward <= SEAT.Wall - SIT.Gap + 1e-6, label .. " pokes through the wall")
 				if m.TailBack then
 					check(m.TailBack - forward <= SEAT.Wall + 1e-6, label .. ": its curled tail pokes through the wall")
+					-- ... nor into the chair back (ToastPup, SlimeCat and CometKite did, by 0.3-0.4: the Phase 0 review)
+					check(
+						m.TailBack - forward <= SEAT.Cushion - SIT.TailGap + 1e-6,
+						label .. ": its curled tail pokes into the chair back"
+					)
 				end
 				check(m.Top <= SIT.MaxHeight, label .. " is taller than SIT.MaxHeight (" .. m.Top .. ")")
 				-- Over the cushion: from the chair back's face to the seat's front edge, at least 1.5 studs of body.
@@ -259,6 +286,44 @@ T.describe("the shipped code", function()
 				error("OnSeat set outside U.setSeated: " .. line)
 			end
 		end
+	end)
+
+	test("a sad patient keeps sitting (Seated) while it droops: only its seat's place is freed", function()
+		local sad = body(patients, "local function makeSad(")
+		check(string.find(sad, "U.vacateSeat(p)", 1, true), "makeSad doesn't vacate the seat")
+		check(
+			not string.find(sad, "freeSeat(p)", 1, true),
+			"makeSad stands the patient up (freeSeat) before it is gone"
+		)
+		check(not string.find(sad, "setSeated", 1, true), "makeSad clears Seated before the model is gone")
+		local vacate = body(patients, "function U.vacateSeat(")
+		check(string.find(vacate, "Seats[seat] = nil", 1, true), "U.vacateSeat doesn't free the seat")
+		check(string.find(vacate, "p.Seat = nil", 1, true), "U.vacateSeat keeps p.Seat")
+		check(not string.find(vacate, "setSeated", 1, true), "U.vacateSeat clears Seated")
+		-- the droop itself never moves it off the chair, and the model's end clears the rest
+		local leave = body(patients, "local function sadLeave(")
+		check(
+			not string.find(leave, "getUp(", 1, true) and not string.find(leave, "walkTo(", 1, true),
+			"sadLeave moves"
+		)
+		check(string.find(leave, "removePatient(p)", 1, true), "sadLeave doesn't remove the patient")
+	end)
+
+	test("a night creature's glow pad is not part of how it sits, and hides while it sits", function()
+		local fit = body(patients, "function U.sitFit(")
+		check(string.find(fit, 'part.Name == "GlowRing"', 1, true), "U.sitFit measures the GlowRing")
+		local builder = read("src/server/CreatureBuilder.luau")
+		check(string.find(builder, 'ring.Name = "GlowRing"', 1, true), "CreatureBuilder's pad is not GlowRing any more")
+		-- every other part CreatureBuilder parents straight to the model is body (the PURE layout this spec measures)
+		check(string.find(acting, 'FindFirstChild("GlowRing")', 1, true), "CreatureActing doesn't find the pad")
+		check(string.find(acting, "LocalTransparencyModifier", 1, true), "CreatureActing doesn't hide the pad")
+		check(string.find(acting, "showRing(c, smooth(sit))", 1, true), "the pad doesn't follow the sit")
+	end)
+
+	test("U.sitFit measures the curled tail for the chair back", function()
+		local fit = body(patients, "function U.sitFit(")
+		check(string.find(fit, "K.CreatureSize.curlBack(", 1, true), "U.sitFit doesn't measure the curled tail")
+		check(string.find(fit, "fit.Tail", 1, true), "U.sitFit doesn't hand the tail to seatFit")
 	end)
 
 	test("getting up, freeing a seat and sitting down all go through U.setSeated", function()

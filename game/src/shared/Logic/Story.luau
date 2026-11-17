@@ -9,7 +9,9 @@
 -- Extras:
 --   Story.beat(entry?, today, beats): number                which beat this visit tells (1..#beats)
 --   Story.nightOnly(regular): boolean                       Night-wing regulars only visit at night
---   Story.nextDue(regulars, story, stars, today, isNight)   the first regular who should visit now, or nil
+--   Story.nextDue(regulars, story, stars, today, isNight, can?)   the first regular who should visit now, or nil
+--                                                           (`can(regularId)` false: not due yet, e.g. a case the
+--                                                           clinic can't treat at its level)
 --   Story.unrewarded(regulars, story, ownedDecor, ownedRooms)   finished stories whose reward is missing
 --
 -- A story day is a real UTC calendar day number (os.time() // 86400), not the 10-minute clinic day.
@@ -97,12 +99,16 @@ function Story.nightOnly(regular: any): boolean
 end
 
 -- The first regular, in Regulars.Order, who is unlocked, not finished, due today and right for the time of day.
+-- `can` (optional) is asked last, about that regular only: false means it simply isn't due yet and the next one is
+-- looked at. Server/Patients passes whether the clinic can treat the regular's case (Dizzy Comet's Bumped head is a
+-- Lv 2 case: named at Lv 1 it was turned away at the door, and held every other regular back for minutes).
 function Story.nextDue(
 	regulars: any,
 	story: { [string]: Entry }?,
 	stars: number,
 	today: number,
-	isNight: boolean
+	isNight: boolean,
+	can: ((regularId: string) -> boolean)?
 ): string?
 	local entries = story or {}
 	for _, regularId in Story.unlocked(regulars, stars) do
@@ -112,6 +118,7 @@ function Story.nextDue(
 			not Story.finished(entry, regular.Beats or 0)
 			and Story.due(entry, today)
 			and (isNight or not Story.nightOnly(regular))
+			and (can == nil or can(regularId) == true)
 		then
 			return regularId
 		end

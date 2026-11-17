@@ -91,7 +91,7 @@ export type Beat = { Emote: string, Bubble: string }
 export type Regular = {
 	Name: string,
 	Patient: PatientId,
-	Case: CaseId, -- their one fixed case (a Lv 1 case, so every clinic can treat it)
+	Case: CaseId, -- their one fixed case (a case with no Room; Dizzy Comet's is Lv 2)
 	Wing: WingId,
 	UnlockStars: number,
 	Beats: { Beat },

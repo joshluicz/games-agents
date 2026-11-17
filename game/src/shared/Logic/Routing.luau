@@ -28,6 +28,10 @@
 --                                                a tie, or no `from`, goes to the first in the list's order (so the
 --                                                tutorial's patient takes bay 1). bays = { { Id, Kind, X, Z, Free } }.
 --                                                nil = no free bay fits
+--   Routing.hasKind(bays, kind): boolean         the clinic has a place of that kind at all (free or taken; bays as
+--                                                pickBay's). false: a patient that needs it can't be treated now
+--                                                (the X-ray bay stopped being usable under an X-ray case), so it
+--                                                goes home kindly instead of waiting for a bay that never comes
 --   Routing.check(choice, kind): (boolean, string?)   true when the pick is right; a wrong pick is (false, the gentle
 --                                                correction); junk is (false, nil)
 --   Routing.receptionistReady(seatedSince, now, lastSent, wait?, gap?): boolean
@@ -50,6 +54,7 @@ Routing.TEXT = table.freeze({
 	Exam = "🩺 Exam bay",
 	XRay = "📸 X-ray",
 	Busy = "All bays are busy!",
+	NoPlace = "No place for it today!", -- no usable place of its kind at all: it goes home, no penalty
 	NeedsXRay = "That one needs the X-ray!",
 	NeedsExam = "That one needs an exam bay!",
 })
@@ -113,6 +118,18 @@ function Routing.pickBay(bays: any, kind: any, from: any): string?
 		end
 	end
 	return best
+end
+
+function Routing.hasKind(bays: any, kind: any): boolean
+	if type(bays) ~= "table" or not Routing.isChoice(kind) then
+		return false
+	end
+	for _, bay in bays do
+		if type(bay) == "table" and bay.Kind == kind then
+			return true
+		end
+	end
+	return false
 end
 
 function Routing.check(choice: any, kind: any): (boolean, string?)

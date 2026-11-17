@@ -92,7 +92,7 @@
 --                Station_<id> (Open ~= false) under the Building (Plaster, Ice, Bandage, Cast) or the Rooms (Bath in
 --                the Bath Room, Cocoa in the Winter Wing). Never the dispensary (Remedy): medicines are the player's
 --                job. It walks to that station, works for its Every seconds, and puts the item in the tray
---   Healer       waits at the nurses' station; at most every Every seconds, when the front bay patient (or, with 👯
+--   Healer       waits at the bays' end (Pure.home); at most every Every seconds, when the front bay patient (or, with 👯
 --                Twin Counters, the next one when the front can't be helped) needs its exam
 --                (a nurse examines: no game, no tip) or a supply the tray holds, walks to that bay's side and fires Heal
 --                (target "Front"). A front patient whose only missing steps are medicines gets nothing from a nurse.
@@ -103,10 +103,10 @@
 --                on duty, Server/Patients sends each seated walk-in to the right kind of bay by itself after a short
 --                wait, one at a time (it reads Nurses.reception(plot).Triage: U.receptionSend); with none on duty
 --                only the player sends
---   Medic        waits at the nurses' station; while a 🚑/🚁 patient waits for the doctor in a bay it goes to that bay
+--   Medic        waits at the bays' end with the Healers; while a 🚑/🚁 patient waits for the doctor in a bay it goes to that bay
 --                ("Treating") and fires Heal (target "Urgent") when it needs its exam or a supply the tray holds
 --                (MedicPatience: they wait longer)
---   Porter       idles at the nurses' station until Patients claims it to ride a Stay patient upstairs ("Escorting")
+--   Porter       idles beside the lift's ground landing until Patients claims it to ride a Stay patient upstairs ("Escorting")
 -- Nurses work only while the owner is in the server (their plot is released when they leave): no offline income.
 -- Never requires Treatment, Abilities, Agency, Market or Rebirth (some of them require this). Patients requires this
 -- module too, so it is required LAZILY (at call time, from a worker, never while loading) for Patients.bayView, and
@@ -480,9 +480,11 @@ end
 --   Maker         beside the supply shelf (either end of the Bandage shelf)
 --   Cheerer       between the waiting seats, facing the room
 --   Receptionist  behind the reception desk (RECEPTION.Staff first), facing the lobby
---   Healer, Medic, Porter (and any other job, and those past their own place's slots)
+--   Healer, Medic the bays' end: the -x wall beside the A&E door, a few hops from bays 1-3 (Healers first)
+--   Porter        beside the lift's ground landing, against the stairwell
+--   any other job, and those past their own place's slots
 --                 the nurses' station at corridor A's far end, looking down it at the bays
--- `counts` (nurses per job at this plot) keeps the jobs that share the station off each other's slots.
+-- `counts` (nurses per job at this plot) keeps the jobs that share a place or the station off each other's slots.
 function Pure.home(job: string, index: number, counts: { [string]: number }?): Spot
 	return BuildingLogic.nurseSlot(job, index, counts)
 end
@@ -1142,7 +1144,7 @@ local function at(work: Work, spot: Spot): CFrame
 	return CFrame.lookAt(ground, ground + flat(origin:VectorToWorldSpace(Vector3.new(dx, 0, dz))))
 end
 
--- Nurses per job at this plot, so the jobs that wait at the nurses' station take distinct slots (Pure.home).
+-- Nurses per job at this plot, so the jobs that share a place or the nurses' station take distinct slots (Pure.home).
 local function headCount(work: Work): { [string]: number }
 	local counts: { [string]: number } = {}
 	for _, w in work.Workers do
@@ -1151,8 +1153,13 @@ local function headCount(work: Work): { [string]: number }
 	return counts
 end
 
-local function homeFor(work: Work, job: string, index: number): CFrame
-	return at(work, Pure.home(job, index, headCount(work)))
+-- `joining` true: for a nurse not in work.Workers yet (addWorker), counted in so its slot is the one it keeps.
+local function homeFor(work: Work, job: string, index: number, joining: boolean?): CFrame
+	local counts = headCount(work)
+	if joining then
+		counts[job] = (counts[job] or 0) + 1
+	end
+	return at(work, Pure.home(job, index, counts))
 end
 
 -- Beside a bay's DoctorSpot (Pure.bedside), facing the bed; nil for an unknown bay.
@@ -1605,7 +1612,7 @@ local function receptionistLoop(work: Work, w: Worker)
 end
 
 -- A Medic goes to the 🚑/🚁 bay patient waiting for the doctor (Pure.urgentRow) and helps it when it can (its exam, or
--- a supply the tray holds); with none, it waits at the nurses' station.
+-- a supply the tray holds); with none, it waits at the bays' end.
 local function medicLoop(work: Work, w: Worker)
 	local nextAt = os.clock() + everyFor(work, w) * rng:NextNumber(0.25, 0.6)
 	local nextIdle = os.clock() + rng:NextNumber(3, 6)
@@ -1827,7 +1834,7 @@ local function addWorker(work: Work, nurseId: string, job: string, level: number
 		report("NurseBuilder.build " .. nurseId, model)
 		return
 	end
-	local start = homeFor(work, job, index)
+	local start = homeFor(work, job, index, true)
 	model:PivotTo(start)
 	model:SetAttribute("Specialty", if type(nurse.Specialty) == "string" then nurse.Specialty else "")
 	dressModel(model, job, level)
@@ -2570,8 +2577,17 @@ function Nurses.escort(plotArg: any, nurseId: string, to: CFrame): boolean
 	resync(w)
 	NurseBuilder.setTask(w.Model, "Escorting")
 	-- Patients may give up waiting (a timeout) and release it mid-walk: the walk then stops at its next hop.
-	local walked, arrived = pcall(walkTo, work, w, to, true, function(): boolean
+	local function still(): boolean
 		return w.Claimed and w.Escort == token
+	end
+	-- On the ground it goes round the walls like any other walk (route: {} upstairs, or when the way is straight).
+	local walked, arrived = pcall(function(): boolean
+		for _, waypoint in route(work, w.Pivot.Position, to.Position) do
+			if not walkTo(work, w, waypoint, false, still) then
+				return false
+			end
+		end
+		return walkTo(work, w, to, true, still)
 	end)
 	if w.Escort == token then
 		w.Busy = false
