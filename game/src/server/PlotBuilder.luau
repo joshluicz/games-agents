@@ -31,11 +31,12 @@
 -- Every plot Model carries the attribute `Accent` (a Color3: its Palette.PlotColors entry), which HospitalBuilder
 -- reads, beside PlotIndex, OwnerUserId, OpenHelpers and Hearts.
 --
--- THE PLOT (Real Clinic design §8; Shared/Logic/Building, contract C1). A 110 x 110 plot (Config.Town.PlotSize) round
--- the 64 x 44 clinic (x -32..32, z -24..20): the front garden and path (z -55..-24), the ambulance bay's yard on -x
--- (Building.BAY_AMBULANCE.Area, kept clear), a side yard on +x and the Sunny Garden's yard behind (z 20..55).
---   Ground       a Model: the plot's dark studded `Pad` (107 x 107: odd, so its studs fall whole at its edges) framed
---                by 4 Slate `Edge` parts out to the plot's 110 x 110. Patients and Nurses stand creatures on it by the
+-- THE PLOT (Real Clinic design §8; Shared/Logic/Building, contract C1; the bigger, open clinic of the simple-start
+-- design §4). A 140 x 140 plot (Config.Town.PlotSize) round the 96 x 66 clinic (x -48..48, z -36..30): the front
+-- garden and path (z -70..-36, 34 deep), the ambulance bay's yard on -x (Building.BAY_AMBULANCE.Area, kept clear; the
+-- side yards are 22 wide), a side yard on +x and the Sunny Garden's yard behind (z 30..70, 40 deep).
+--   Ground       a Model: the plot's dark studded `Pad` (137 x 137: odd, so its studs fall whole at its edges) framed
+--                by 4 Slate `Edge` parts out to the plot's 140 x 140. Patients and Nurses stand creatures on it by the
 --                name Ground (their rays include its descendants)
 --   Scenery      the plank path from the gate to the Stand's forecourt at the front doors (Building.DOORS.Front), the
 --                fence (Props.fence: posts every 14 studs) and the gate (warm-white posts, a studded arch in the
@@ -59,10 +60,12 @@
 -- nothing tall in the middle, the doorway and the 3 studs inside it clear; every sign upright and flat on a wall; no
 -- part buried in another and no two faces in one plane (nothing z-fights). Each has its name over its door on the
 -- corridor side (NameSign: navy, the Data/Rooms icon and name, on the lintel between the door's Height and the
--- ceiling). Plot-local, the Building's numbers (Logic/Building ROOMS, DOORS, BAYS):
+-- ceiling). The bigger building made each bought room about 1.5x as big (about 19-23 x 15 inside its walls, was about
+-- 14 x 11.5): the furniture keeps its size and stands against the walls, so the floor between is open, and every
+-- decor slot is a full FULL_DECOR square. Plot-local, the Building's numbers (Logic/Building ROOMS, DOORS, BAYS):
 --   Stand       the forecourt in front of the doors (tiles, the plot's colour nowhere loud) with its 2 decor slots
 --               either side of the canopy. Data/Rooms still lists Remedy, Plaster and a bed for it: those are the
---               Building's now (Station_Remedy in the dispensary, Station_Plaster on the supply shelf), so the
+--               Building's now (Station_Remedy and Station_Plaster on the supply wall), so the
 --               Stand's fit-out builds neither
 --   BathRoom    (Cyan) the Tub (decor now: bath foam is taken at the Building's pantry, Station_Bath) on the back wall
 --               opposite the door, against a tiled panel (light cyan CeramicTiles), its water and two bubbles ON it;
@@ -79,9 +82,10 @@
 --               room exists only while the room is owned), made like bays 1-6: the Bed is the couch the patient sits
 --               on (one block, its top Pure.COUCH over the floor, its LookVector toward the foot and the DoctorSpot),
 --               a Pillow, the Curtain drawn back by the side wall, the Tray and the navy Sign on the back wall over
---               the head; a rug down the aisle and 2 small decor slots in the aisle's corners
---   Garden      the Sunny Garden behind the Garden door: a studded lawn, studded hedges (back and the back half of the
---               sides) and an arbor with its name. Outdoors
+--               the head; a rug down the aisle and 2 decor slots in the aisle's corners, against the side walls (off
+--               the walk from the door to the DoctorSpots)
+--   Garden      the Sunny Garden behind the Garden door: a studded lawn (GARDEN_SIZE, 36 x 26: was 24 x 18), studded
+--               hedges (back and the back half of the sides) and an arbor with its name. Outdoors
 -- NO STATION stands in a room (memory-20261117-006: patients walk as little as possible, supplies come from the
 -- main building): Data/Rooms Stations are the stations a room OPENS, and every one of them is the Building's
 -- (Logic/Building.STATIONS: the pantry's Station_Cocoa and Station_Bath, open while their room is owned). The bought
@@ -90,13 +94,13 @@
 -- No Texture or Decal anywhere. Studded parts go through World/Studs with whole-stud X and Z.
 --
 -- Parts budget (Config.Look; docs/plan/2026-11-16-perf-budget.md): a Lv 5 plot with every room is at most PlotBudget
--- (640) parts without creatures and decor: the Building's share (HospitalBuilder), every room together at most
--- RoomParts (70), and the plot's own share (everything here but the Building and the rooms) at most PlotParts (130).
+-- (660) parts without creatures and decor: the Building's share (HospitalBuilder), every room together at most
+-- RoomParts (70), and the plot's own share (everything here but the Building and the rooms) at most PlotParts (135).
 -- tests/PlotWorld.spec holds the rooms' and the plot's shares; tests/PartBudget.spec the total.
 --
 -- Coordinates. Each plot has a CFrame at the centre of its ground's TOP face, LookVector pointing at the street
 -- (that CFrame is also the plot Model's WorldPivot). In plot-local space +X is right as you face the street, -Z is
--- the street side (front edge z = -55) and +Z the back: Shared/Logic/Building's space. Markers are 2x1x2 invisible
+-- the street side (front edge z = -70) and +Z the back: Shared/Logic/Building's space. Markers are 2x1x2 invisible
 -- Parts resting on the ground. Rooms face the street too. Inside a room Model the Floor's centre is the origin, so
 -- y = ROOM_FLOOR / 2 is the top of the Floor.
 --
@@ -182,7 +186,7 @@ local FORECOURT_HALF = 16
 local FORECOURT_DEPTH = 7
 -- The Sunny Garden: behind the Garden door (Building.DOORS.Garden), from the back wall out GARDEN_SIZE.Y. Whole studs
 -- (its lawn is studded).
-local GARDEN_SIZE = Vector2.new(24, 18)
+local GARDEN_SIZE = Vector2.new(36, 26)
 local GARDEN_X = (Building.DOORS.Garden.X0 :: number + Building.DOORS.Garden.X1 :: number) / 2
 
 local function slotOf(r: Rect)
@@ -303,7 +307,7 @@ type Layout = {
 }
 
 -- The Building builds these rooms' stations and beds itself (Data/Rooms still lists them for the Stand: the free
--- clinic's Remedy and Plaster, now Station_Remedy in the dispensary and Station_Plaster on the supply shelf).
+-- clinic's Remedy and Plaster, now Station_Remedy and Station_Plaster on the supply wall).
 local BUILDING_OWNS: { [string]: boolean } = { Stand = true }
 
 -- A room's own exam bays (Building.BAYS whose Room is that room: the Cozy Ward's W1 and W2).
@@ -380,6 +384,7 @@ local function roomBox(
 end
 
 local FULL_DECOR = 4 -- a decor model fits a 4 x 4 footprint (Server/DecorBuilder's contract)
+local DECOR_IN = FULL_DECOR / 2 + 0.3 -- a full decor slot's centre from the walls of the corner it stands in
 -- A recovery bed, as the ward beds upstairs: a Frame in the room's colour as long as the mattress, a studded Headboard
 -- (whole studs) at the pillow end, against the back wall, and Bed_<n>, the warm-white mattress. Bed_<n>'s size is
 -- unchanged, so a patient lies exactly as before (Server/Patients: the pillow end +z, the foot spot 1.6 past -z).
@@ -498,7 +503,7 @@ local function bathLayout(): Layout
 		Beds = {},
 		Bays = {},
 		-- the front corner on the +x side (the foam shelf hangs further back)
-		Decor = { { At = roomLocal("BathRoom", r.X1 - 2, r.Z0 + 1.7), Size = 3.2 } },
+		Decor = { { At = roomLocal("BathRoom", r.X1 - DECOR_IN, r.Z0 + DECOR_IN), Size = FULL_DECOR } },
 		Mats = {
 			{ Name = "BathMat", At = roomLocal("BathRoom", tubX, tubZ - TUB.Z / 2 - 1.1), Size = Vector2.new(3, 1.8) },
 		},
@@ -521,8 +526,8 @@ local function winterLayout(): Layout
 		Beds = { roomLocal("WinterWing", r.X0 + BED_FRAME.X / 2, r.Z1 - HEADBOARD.Z - BED_FRAME.Z / 2) },
 		Bays = {},
 		Decor = {
-			{ At = roomLocal("WinterWing", r.X1 - 1.8, r.Z0 + 1.7), Size = 3.2 },
-			{ At = roomLocal("WinterWing", r.X1 - 1.5, r.Z0 + 5.4), Size = 2.8 },
+			{ At = roomLocal("WinterWing", r.X1 - DECOR_IN, r.Z0 + DECOR_IN), Size = FULL_DECOR },
+			{ At = roomLocal("WinterWing", r.X1 - DECOR_IN, r.Z0 + DECOR_IN + FULL_DECOR + 0.6), Size = FULL_DECOR },
 		},
 		Mats = { { Name = "Rug", At = roomLocal("WinterWing", fireX, r.Z1 - 3.8), Size = Vector2.new(4, 4) } },
 		Dress = function(model: Model)
@@ -559,10 +564,18 @@ local function wardLayout(): Layout
 			aisle = math.min(aisle, Building.bayBed(bay).Z0)
 		end
 		local z = (r.Z0 + aisle) / 2
+		-- a full slot against the side wall when there is room (there is in the bigger ward), else halfway to the
+		-- DoctorSpot nearest that wall: off the walk from the door to the DoctorSpots either way
 		local leftSize = math.min(FULL_DECOR, left - r.X0 - 0.2)
 		local rightSize = math.min(FULL_DECOR, r.X1 - right - 0.2)
-		table.insert(spots, { At = roomLocal("Ward", (r.X0 + left) / 2, z), Size = leftSize })
-		table.insert(spots, { At = roomLocal("Ward", (right + r.X1) / 2, z), Size = rightSize })
+		local leftX = if leftSize >= FULL_DECOR and r.X0 + DECOR_IN + FULL_DECOR / 2 <= left
+			then r.X0 + DECOR_IN
+			else (r.X0 + left) / 2
+		local rightX = if rightSize >= FULL_DECOR and r.X1 - DECOR_IN - FULL_DECOR / 2 >= right
+			then r.X1 - DECOR_IN
+			else (right + r.X1) / 2
+		table.insert(spots, { At = roomLocal("Ward", leftX, z), Size = leftSize })
+		table.insert(spots, { At = roomLocal("Ward", rightX, z), Size = rightSize })
 		local z0, z1 = r.Z0 + 0.5, aisle - 0.4
 		table.insert(mats, {
 			Name = "Rug",
@@ -594,10 +607,11 @@ local function gardenLayout(): Layout
 		Stations = {},
 		Beds = {},
 		Bays = {},
+		-- garden-local (its lawn's centre is the origin): two either side of the way in, one before the arbor
 		Decor = {
-			{ At = Vector3.new(-7.5, 0, -2), Size = FULL_DECOR },
-			{ At = Vector3.new(7.5, 0, -2), Size = FULL_DECOR },
-			{ At = Vector3.new(0, 0, 3), Size = FULL_DECOR },
+			{ At = Vector3.new(-10, 0, -3), Size = FULL_DECOR },
+			{ At = Vector3.new(10, 0, -3), Size = FULL_DECOR },
+			{ At = Vector3.new(0, 0, 4), Size = FULL_DECOR },
 		},
 		Mats = {},
 	}
@@ -1117,7 +1131,7 @@ end
 -- odd (PAD x PAD) and centred on the plot, so its studs fall whole at its edges in both studs modes; the edging fills
 -- the rest of the plot's square ((PlotSize - PAD) / 2 wide) and stands EDGE_RAISE proud of the pad, so it reads as a
 -- stone frame.
-local PAD = 107
+local PAD = Config.Town.PlotSize - 3 -- 137: odd while PlotSize is even
 local EDGE_RAISE = 0.1
 
 local function buildGround(model: Model, cf: CFrame, half: number): BasePart
@@ -1330,19 +1344,20 @@ end
 -- the gate, the room slots and the ambulance bay's yard (Building.BAY_AMBULANCE.Area; tests/PlotWorld.spec checks
 -- them all). The big tree stands in the +x side yard; the others in the corners. The bushes stand by the fence: three
 -- along the front either side of the gate, one on the +x side, one at the back.
+-- Plot-local, for the 140-stud plot (the building x -48..48, z -36..30; the fence 0.4 inside the plot's edge, +-69.6).
 local TREES = {
-	{ X = 44, Z = -10, Scale = 1.35 },
-	{ X = -46, Z = -45, Scale = 1 },
-	{ X = 45, Z = -44, Scale = 1.1 },
-	{ X = -45, Z = 45, Scale = 1.2 },
-	{ X = 45, Z = 45, Scale = 1 },
+	{ X = 59, Z = -10, Scale = 1.35 },
+	{ X = -60, Z = -58, Scale = 1 },
+	{ X = 59, Z = -57, Scale = 1.1 },
+	{ X = -59, Z = 59, Scale = 1.2 },
+	{ X = 59, Z = 59, Scale = 1 },
 }
 local BUSHES = {
-	Vector3.new(-26, 0, -52.6),
-	Vector3.new(20, 0, -52.6),
-	Vector3.new(26, 0, -52.6),
-	Vector3.new(52.6, 0, 24),
-	Vector3.new(-20, 0, 52.6),
+	Vector3.new(-30, 0, -67.6),
+	Vector3.new(22, 0, -67.6),
+	Vector3.new(30, 0, -67.6),
+	Vector3.new(67.6, 0, 24),
+	Vector3.new(-24, 0, 67.6),
 }
 
 -- Where patients come in and leave: just inside the gate, either side of the path's middle.

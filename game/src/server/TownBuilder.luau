@@ -3,20 +3,21 @@
 -- from PlotBuilder by the look overhaul's Foundation and rebuilt to the studs look:
 --   · the Lawn: one studded GrassA slab with GrassB checker tiles (LawnTile: thin studded parts, 0.2 tall, their tops
 --     0.05 above the lawn, on whole studs) wherever the lawn shows: Config.Look.CheckerStuds (4) cells within 20 studs
---     of the street, CheckerFarStuds (8) elsewhere, the plot gaps' far parts too (the Real Clinic's 110-stud plots made
---     those gaps 90 studs deep: 4-stud cells there would cost ~70 more parts). When Config.Look.CheckerTexture is set,
---     ONE checker Texture on the lawn's top replaces the tiles (§B2);
+--     of the street, CheckerFarStuds (10) elsewhere, the plot gaps' far parts too (the 140-stud plots make those gaps
+--     120 studs deep: 4-stud cells there would cost hundreds more parts; with 8-stud ones the town built 626 parts,
+--     with 10-stud ones 510). When Config.Look.CheckerTexture is set, ONE checker Texture on the lawn's top replaces
+--     the tiles (§B2);
 --   · the Street: dark (World.Road) and smooth, with warm RoadLine edge lines and zebra crossings at the outer gate
 --     pairs; NO centre dashes (the road's centre line belongs to the Nurse Belt, memory-20261117-001 #3); Slate curbs;
 --   · the plaza on the street's row-2 half (Config.Town.Plaza): a plank pad with benches, planters and lamps inside
 --     its rectangle, clear of the spawn, the kiosks, the odds sign and the row-2 middle gate's mouth (no pink ring);
 --   · voxel trees (World/Props.tree) in the plot gaps, the ends and behind the plots, in three greens, at most one
---     blossom tree in six; dark street lamps between the plots (x +-59, +-177; z +-16.4);
---   · the welcome arches at both ends (x +-192): wooden posts, a dark beam, the motto in floating outlined letters.
--- With 110-stud plots (Config.Town.PlotSize; the Real Clinic, design §8.1) 8 apart, the plot columns stand at
--- x -118 / 0 / 118, the rows at |z| 18..128 and the street runs x -197..197. Everything here is laid out from
--- Config.Town.PlotSize, so those numbers follow it.
--- Nothing solid stands in the belt's lane (|z| <= Config.Town.BeltClear, x -181.5..181.5): only flat road paint
+--     blossom tree in six; dark street lamps between the plots (x +-74, +-222; z +-16.4);
+--   · the welcome arches at both ends (x +-237): wooden posts, a dark beam, the motto in floating outlined letters.
+-- With 140-stud plots (Config.Town.PlotSize; the bigger, open clinic, simple-start design §4) 8 apart, the plot
+-- columns stand at x -148 / 0 / 148, the rows at |z| 18..158 and the street runs x -242..242. Everything here is laid
+-- out from Config.Town.PlotSize, so those numbers follow it.
+-- Nothing solid stands in the belt's lane (|z| <= Config.Town.BeltClear, x -221.5..221.5): only flat road paint
 -- (tests/TownWorld.spec builds the real town and checks it, with the parts budget Config.Look.TownParts).
 --   TownBuilder.build(count): Model        Workspace.ClinicTown for `count` plots (NOT parented: PlotBuilder does)
 --   TownBuilder.spawn(): SpawnLocation     TownSpawn at Config.Town.Origin + Config.Town.SpawnOffset, studded, facing -z
@@ -374,7 +375,7 @@ function TownBuilder.build(count: number): Model
 
 	buildPlaza(town, ground, streetTop)
 
-	-- Street lamps between the plots (x +-59 and +-177 with 6 plots of 110), on the road by each curb.
+	-- Street lamps between the plots (x +-74 and +-222 with 6 plots of 140), on the road by each curb.
 	for column = 0, perRow do
 		local x = (column - perRow / 2) * (size + PLOT_GAP)
 		if math.abs(x) > 1 then

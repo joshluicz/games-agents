@@ -5,7 +5,7 @@
 --     Lv 5 with every room. The plot's trees, bushes and fences are World/Props' pieces: this spec counts each of
 --     them at its CONTRACT maximum (tree 7, bush 1, fence 2 + floor(length / 14) + 1), so the share holds whatever
 --     Props builds, and prints the measured share beside it
---   · the 110 x 110 plot (pad 107), the Counter on Building.RECEPTION.Desk, PatientSpawn and PatientExit at the gate,
+--   · the 140 x 140 plot (pad 137), the Counter on Building.RECEPTION.Desk, PatientSpawn and PatientExit at the gate,
 --     no queue (no QueueStart, no QueueLane, no queueSpot), the floating sign
 --   · the plank path from the gate to the Stand's forecourt and on to the front doors; nothing of the plot's own in
 --     the building's footprint but the Counter; the patients' walks, the ambulance yard and the Garden door clear
@@ -32,7 +32,7 @@ local roblox = World.roblox
 local Vector3, CFrame, Enum = roblox.Vector3, roblox.CFrame, roblox.Enum
 
 local EPS = 0.01
-local PLOT_HALF = Config.Town.PlotSize / 2 -- 55: the plot's front edge is z -55, its front fence z -54.6
+local PLOT_HALF = Config.Town.PlotSize / 2 -- 70: the plot's front edge is z -70, its front fence z -69.6
 local GATE = 5.6 -- PlotBuilder: the gate posts' inner faces at x = ±5.6 (posts at ±6.2)
 
 -- "Plot_1.Scenery.Tree.Leaves" (the mock has no GetFullName).
@@ -298,9 +298,9 @@ end)
 ------------------------------------------------------------------------------------------------------------------
 T.describe("Plot: the ground, the Counter, the markers and the sign", function()
 	test(
-		"the plot is 110 x 110: a dark studded Pad 107 x 107 (whole odd studs), four Slate Edges to its edge",
+		"the plot is 140 x 140: a dark studded Pad 137 x 137 (whole odd studs), four Slate Edges to its edge",
 		function()
-			expect(Config.Town.PlotSize).toBe(110)
+			expect(Config.Town.PlotSize).toBe(140)
 			local ground = plot.Ground
 			expect(ground.ClassName).toBe("Model")
 			local pad = ground.Pad
@@ -308,8 +308,8 @@ T.describe("Plot: the ground, the Counter, the markers and the sign", function()
 			expect(pad:GetAttribute("Studded")).toBe(true)
 			expect(pad.Material).toBe(Enum.Material.Plastic)
 			expect(pad.TopSurface).toBe(Enum.SurfaceType.Studs) -- Surface mode: no CureStuds variant in this world
-			expect(pad.Size.X).toBe(107)
-			expect(pad.Size.Z).toBe(107)
+			expect(pad.Size.X).toBe(137)
+			expect(pad.Size.Z).toBe(137)
 			local _, _, v = Look.hsv(pad.Color)
 			expect(Look.round(v) <= 0.32).toBe(true)
 			local padLo, padHi = localBox(pad)
@@ -1109,6 +1109,42 @@ T.describe("Rooms: interior fit-outs inside the Building", function()
 			end
 			expect(room:FindFirstChild("DecorSlot_" .. RoomsData[roomId].DecorSlots + 1)).toBeNil()
 		end
+	end)
+
+	-- The bigger, open building (simple-start design §4): the bought rooms are about 1.5x as big, their furniture the
+	-- same size against the walls, so every decor slot is a full Server/DecorBuilder square (4 x 4) and none stands
+	-- on the walk from the door to a DoctorSpot or a bed's foot.
+	test("the bigger rooms: >= 18 x 14 inside, every decor slot a full 4 x 4 off the patients' ways", function()
+		for roomId, info in INTERIOR do
+			local room = plot.Rooms["Room_" .. roomId]
+			local fLo, fHi = localBox(room.Floor)
+			expect(fHi.X - fLo.X >= 18 and fHi.Z - fLo.Z >= 14).toBe(true)
+			local inner = Building.doorPoints(info.Door)
+			local targets = {}
+			for _, d in room:GetDescendants() do
+				if d.Name == "DoctorSpot" then
+					table.insert(targets, pivot:PointToObjectSpace(d.Position))
+				elseif string.match(d.Name, "^Bed_%d+$") then
+					table.insert(
+						targets,
+						pivot:PointToObjectSpace((d.CFrame * CFrame.new(0, 0, -d.Size.Z / 2 - 1.6)).Position)
+					)
+				end
+			end
+			for n = 1, RoomsData[roomId].DecorSlots do
+				local slot = room["DecorSlot_" .. n]
+				expect(near(slot.Size.X, 4) and near(slot.Size.Z, 4)).toBe(true)
+				local lo, hi = localBox(slot)
+				for _, target in targets do
+					if crosses(point(inner), Vector3.new(target.X, 0, target.Z), lo, hi, 0.3) then
+						error(string.format("%s.DecorSlot_%d is on the way in", room.Name, n))
+					end
+				end
+			end
+		end
+		local garden = plot.Rooms.Room_Garden.Floor
+		local gLo, gHi = localBox(garden)
+		expect(gHi.X - gLo.X >= 36 - EPS and gHi.Z - gLo.Z >= 26 - EPS).toBe(true)
 	end)
 
 	test(

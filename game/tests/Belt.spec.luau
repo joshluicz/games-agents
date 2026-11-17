@@ -325,7 +325,7 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 	local perRow = math.ceil(count / 2)
 	local half = plotBuilderNumber("STREET_HALF_WIDTH") -- 18
 	local gap = plotBuilderNumber("PLOT_GAP") -- 8
-	local streetEnd = (perRow * (size + gap) + 40) / 2 -- 197: the street (and the Hall of Fame past x < -197)
+	local streetEnd = (perRow * (size + gap) + 40) / 2 -- 242: the street (and the Hall of Fame past x < -242)
 	local archInner = streetEnd - 5 - 0.8 -- the welcome arches' posts (1.6 wide) at x = ±(end - 5)
 	local curb = half - 0.8 -- the curbs' inner edge
 	local beltHalf = 3.4 -- NurseBelt: the bed (BELT_WIDTH 5 + 1.6) and the rollers, either side of the line
@@ -340,7 +340,7 @@ T.describe("Belt: where it stands in town (on the main road)", function()
 		local westReach = if sx > ex then cloudReach else houseReach
 		expect(east + eastReach <= archInner - 2).toBe(true)
 		expect(west - westReach >= -archInner + 2).toBe(true)
-		expect(west - westReach > -streetEnd).toBe(true) -- the Hall of Fame garden (x < -197) stays clear
+		expect(west - westReach > -streetEnd).toBe(true) -- the Hall of Fame garden (x < -242) stays clear
 	end)
 
 	test("down the road's centre line, alone in its lane, clear of the spawn pad (memory-20261117-001 #3)", function()
