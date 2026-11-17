@@ -47,6 +47,8 @@
 --                                                (rooms = { [RoomId]: boolean })
 --   Building.openBays(level, rooms?): { Bay }    in BAYS order
 --   Building.stationRect(id): Rect? · Building.stationStand(id): Point?
+--   Building.stationPromptAt(id): Point?         where the station's E prompt hangs: just off its front face
+--                                                (PROMPT_REACH studs reach; Server/Stations)
 --                                                a station's body, and where the player stands to use it
 --   Building.stationOpen(id, level): boolean
 --   Building.wardBeds(level, floor?): { WardBed }   the bed spots on that floor (default F1) at that level, each
@@ -218,6 +220,11 @@ Building.BAYS = table.freeze({
 -- Station_Bath and Station_Cocoa belong to their rooms' fit-outs (PlotBuilder).
 Building.STATION_SIZE = table.freeze({ Width = 4, Depth = 2.4 })
 Building.STATION_STAND = 2.8
+-- A Building station's prompt hangs PROMPT_OUT off its front face and reaches PROMPT_REACH. On the station's centre
+-- with 10 studs' reach, the Bandage shelf's prompt (through the X-ray room's wall) beat the Cast Table's at its own
+-- stand, and a cast could not be taken (Studio test 2026-11-17). Roblox shows one prompt per key.
+Building.PROMPT_OUT = 0.2
+Building.PROMPT_REACH = 5
 Building.STATIONS = table.freeze({
 	Plaster = table.freeze({ X = 9.2, Z = -2.7, Face = 270, Opens = 1 }),
 	Ice = table.freeze({ X = 9.2, Z = 1.5, Face = 270, Opens = 1 }),
@@ -430,6 +437,14 @@ function Building.stationStand(id: string): Point?
 		return nil
 	end
 	return ahead(station.X, station.Z, station.Face, Building.STATION_STAND)
+end
+
+function Building.stationPromptAt(id: string): Point?
+	local station = Building.STATIONS[id]
+	if not station then
+		return nil
+	end
+	return ahead(station.X, station.Z, station.Face, Building.STATION_SIZE.Depth / 2 + Building.PROMPT_OUT)
 end
 
 function Building.stationOpen(id: string, level: number): boolean

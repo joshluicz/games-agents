@@ -66,6 +66,7 @@ local StationData = require(Shared.Data.Stations)
 local Prices = require(Shared.Logic.Prices)
 local Recipe = require(Shared.Logic.Recipe)
 local RebirthLogic = require(Shared.Logic.Rebirth)
+local Building = require(Shared.Logic.Building) -- where a Building station's prompt hangs
 local Carry = require(script.Parent.Carry)
 local Daily = require(script.Parent.Daily)
 local Plots = require(script.Parent.Plots)
@@ -711,6 +712,29 @@ local function refresh(w: Wired, open: boolean?)
 	w.Prompt.Enabled = on and isOpen(w)
 end
 
+-- Where a station's prompt hangs. A Building station's: on an Attachment just off its front face, reaching
+-- Building.PROMPT_REACH, so a neighbour's prompt through a wall never beats it at its own stand (Logic/Building).
+-- Anything else (a room's station, a kit's, a part not where Logic/Building puts it): the part, as before.
+local function promptHolder(plot: Plot, holder: Instance, part: BasePart, stationId: string, prompt: ProximityPrompt)
+	local at = Building.stationPromptAt(stationId)
+	if not at or holder.Name ~= BUILDING_NAME or not plot.Model then
+		return part
+	end
+	local pivot = plot.Model:GetPivot()
+	local here = pivot:PointToObjectSpace(part.Position)
+	local offset = part.CFrame:PointToObjectSpace(pivot:PointToWorldSpace(Vector3.new(at.X, here.Y, at.Z)))
+	local half = part.Size / 2
+	if math.abs(offset.X) > half.X + 1 or math.abs(offset.Z) > half.Z + 1 then
+		return part -- this part isn't the one Logic/Building describes
+	end
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "PromptAt"
+	attachment.Position = offset
+	attachment.Parent = part
+	prompt.MaxActivationDistance = Building.PROMPT_REACH
+	return attachment
+end
+
 local function wireStation(plot: Plot, holder: Instance, part: BasePart, stationId: string)
 	local station = StationData[stationId]
 	if not station or wired[part] then
@@ -803,7 +827,7 @@ local function wireStation(plot: Plot, holder: Instance, part: BasePart, station
 		wired[part] = nil
 	end)
 	prompts[prompt] = w
-	prompt.Parent = part -- parent last: it replicates once, fully set up
+	prompt.Parent = promptHolder(plot, holder, part, stationId, prompt) -- last: it replicates once, fully set up
 end
 
 -- One Station_<id> (a Building's Part, a room's Part, or a kit's Model).

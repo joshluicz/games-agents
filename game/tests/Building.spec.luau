@@ -350,6 +350,44 @@ T.describe("Building: seats, bays and stations", function()
 		end
 	)
 
+	test(
+		"from each station's stand its own prompt is in reach, and no other station's is (through walls too)",
+		function()
+			-- Roblox shows one prompt per key. At the Cast Table the Bandage shelf's prompt (on the other side of the
+			-- X-ray room's wall, centre to centre 4.3 vs 3.1) kept showing instead (Studio test 2026-11-17).
+			for id in Building.STATIONS do
+				local stand = Building.stationStand(id)
+				local own = Building.stationPromptAt(id)
+				local d = math.sqrt((stand.X - own.X) ^ 2 + (stand.Z - own.Z) ^ 2)
+				expect(d < Building.PROMPT_REACH - 2).toBe(true)
+				expect(Building.clear({ X0 = own.X - 0.1, X1 = own.X + 0.1, Z0 = own.Z - 0.1, Z1 = own.Z + 0.1 }, 5)).toBe(
+					true
+				)
+				for other in Building.STATIONS do
+					if other ~= id then
+						local at = Building.stationPromptAt(other)
+						local e = math.sqrt((stand.X - at.X) ^ 2 + (stand.Z - at.Z) ^ 2)
+						if e < d + 2 or e < 2 * d then -- the alcove: 1.4 vs 3.6 across it; the old Cast case: 3.1 vs 4.3
+							error(
+								string.format(
+									"at %s's stand, %s's prompt is %.1f away vs its own %.1f",
+									id,
+									other,
+									e,
+									d
+								)
+							)
+						end
+					end
+				end
+			end
+			-- the case that was broken
+			local stand = Building.stationStand("Cast")
+			local bandage = Building.stationPromptAt("Bandage")
+			expect(math.sqrt((stand.X - bandage.X) ^ 2 + (stand.Z - bandage.Z) ^ 2) > Building.PROMPT_REACH).toBe(true)
+		end
+	)
+
 	test("each DoctorSpot is on open floor at the bed's foot (bay X: its side), with room for the doctor", function()
 		for _, bay in Building.BAYS do
 			local spot = Building.doctorSpot(bay)
