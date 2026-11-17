@@ -18,7 +18,7 @@
 -- Palette.PlotColors entry when missing). It never requires PlotBuilder (PlotBuilder requires this).
 --
 -- THE BUILDING (memory-20261117-001 #2, -002 #1, -003; Joshua: "i want an actual hospital"). A studded podium clinic
--- from Lv 1 that grows a storey per level, one bold plot colour, warm trim, dark roofs, plank floors, glass bands.
+-- from Lv 1 that grows a storey per level, one bold plot colour, warm trim, dark roofs, tiled floors, glass bands.
 -- The wide hospital (Joshua, 2026-11-17: "cramped ... wider ... a little taller per storey"): 32 wide (x ±16), the
 -- ground storey 12 tall and every upper storey 11 (slab tops 12, 23, 34, 45; 10.4 clear upstairs), so a big creature
 -- sitting on a bed keeps its headroom; the extra width is space between the beds, stations and stairs:
@@ -140,11 +140,11 @@ Pure.CAR = 7.5 -- the lift car's height: a 6.5-stud creature rides inside with r
 Pure.CLEAR = 0.5 -- Lv 5: the shaft's glass reaches this far over the car standing at the roof
 Pure.HEAD = 4.5 -- Lv 5: the lift tower's head over the shaft (the neon paw-heart's wall)
 Pure.LIFT_HEAD = 2.5 -- Lv 2-4: the lift's head box on the top roof
-Pure.PAINT = 0.05 -- the hall's painted plank floor (walk-through: Landing_0 and the patients stand at 0)
+Pure.PAINT = 0.05 -- the hall's painted tile floor (walk-through: Landing_0 and the patients stand at 0)
 Pure.STAND_TOP = 0.6 -- the Stand room's floor top when the plot has no Room_Stand to measure (PlotBuilder.SLOTS)
 Pure.STAND_BACK = 1 -- the Stand room's back edge (PlotBuilder.SLOTS.Stand): the hall's floor starts there
 Pure.STAND_HALF = 15 -- the Stand room's floor is x ±15 (PlotBuilder.SLOTS.Stand): FloorSide fills on to the walls
--- The street face under the fascia stands this far proud of the façade's plane: the Stand's plank floor runs under
+-- The street face under the fascia stands this far proud of the façade's plane: the Stand's tile floor runs under
 -- it to z = FRONT, and coplanar faces flicker.
 Pure.PROUD = 0.05
 Pure.DECOR_HALF = 2 -- a decor slot is 4 x 4 (PlotBuilder's DecorSlot markers): the Lv 1 bed stays off slot 1
@@ -864,8 +864,8 @@ local function buildPodium(model: Model, style: Style, standTop: number, name: s
 			standTop,
 			f + w,
 			Pure.STAND_BACK,
-			WORLD.FloorA,
-			Enum.Material.WoodPlanks
+			WORLD.FloorTile,
+			Enum.Material.CeramicTiles
 		)
 	end
 end
@@ -900,8 +900,8 @@ local function buildPodiumShell(model: Model, style: Style, standTop: number)
 			Pure.PAINT,
 			Pure.STAND_BACK,
 			back - w,
-			WORLD.FloorA,
-			Enum.Material.WoodPlanks
+			WORLD.FloorTile,
+			Enum.Material.CeramicTiles
 		)
 	)
 	-- The made-up bed along the -x wall, its pillow toward +z, clear of the side door, decor slot 1 and Remedy.
@@ -986,8 +986,8 @@ local function buildHall(model: Model, style: Style, floors: number)
 			Pure.PAINT,
 			Pure.STAND_BACK,
 			back - w,
-			WORLD.FloorA,
-			Enum.Material.WoodPlanks
+			WORLD.FloorTile,
+			Enum.Material.CeramicTiles
 		)
 	)
 	roomLight(floorHall, Vector3.new(0, top - 1, (Pure.STAND_BACK + back - w) / 2))
@@ -1103,9 +1103,9 @@ local function buildStairs(model: Model, floors: number)
 			"Flight_" .. k,
 			Vector3.new(fl.Z1 - fl.Z0, rise, run),
 			CFrame.new((fl.XLow + fl.XHigh) / 2, fl.YLow + rise / 2, (fl.Z0 + fl.Z1) / 2) * CFrame.Angles(0, turn, 0),
-			WORLD.PlankAlt
+			WORLD.FloorTile
 		)
-		flight.Material = Enum.Material.WoodPlanks
+		flight.Material = Enum.Material.CeramicTiles
 		flight:SetAttribute("Since", sinceFloor(k + 1))
 		flight:SetAttribute("Storey", k)
 	end
@@ -1127,8 +1127,8 @@ local function buildFloor(model: Model, style: Style, k: number, hasPharmacy: bo
 			y,
 			r.Z0,
 			r.Z1,
-			if deck then WORLD.Roof else WORLD.FloorA,
-			if deck then Enum.Material.SmoothPlastic else Enum.Material.WoodPlanks
+			if deck then WORLD.Roof else WORLD.FloorTile,
+			if deck then Enum.Material.SmoothPlastic else Enum.Material.CeramicTiles
 		)
 		slab.CanCollide = true
 	end

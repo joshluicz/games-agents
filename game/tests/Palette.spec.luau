@@ -57,6 +57,7 @@ T.describe("Palette.World (art-direction §4.1)", function()
 		CheckerCream = "#EBDEC0",
 		Water = "#38A7D6",
 		FloorA = "#AD8053",
+		FloorTile = "#D3DBD4",
 		FloorB = "#996B45",
 		WallUpper = "#EBE4D8",
 		Window = "#2F3B57",

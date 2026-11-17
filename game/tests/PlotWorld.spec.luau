@@ -703,8 +703,8 @@ T.describe("Rooms: the annexes, the Garden and the beds", function()
 			for roomId, colour in ROOM_COLOUR do
 				local room = plot.Rooms["Room_" .. roomId]
 				local floor = room.Floor
-				expect(floor.Material).toBe(Enum.Material.WoodPlanks)
-				expect(floor.Color).toBe(WORLD.FloorA)
+				expect(floor.Material).toBe(Enum.Material.CeramicTiles)
+				expect(floor.Color).toBe(WORLD.FloorTile)
 				local roomPivot = floor.CFrame
 				local walls, snow = 0, 0
 				for _, d in room:GetChildren() do

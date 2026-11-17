@@ -51,9 +51,9 @@
 --   QueueLane    6 tiles in the mid-tone pavement (World.Pavement / PavementAlt), an edge in the plot's colour on
 --                each side, and a disc in the plot's colour at each place in line with its number floating on it
 --   Rooms        no awnings, walls in pale tints or plaques. The Stand has NO shell (the hospital podium is its
---                building, HospitalBuilder's): a plank floor, the stations, Bed_1 and the decor slots at
+--                building, HospitalBuilder's): a tiled floor, the stations, Bed_1 and the decor slots at
 --                Shared/Logic/Building's spots (decor slot 2 sits on the pad, out front). The Bath Room (Cyan),
---                Cozy Ward (Purple) and Winter Wing (Blue) are single-storey ANNEXES: a plank floor, three studded
+--                Cozy Ward (Purple) and Winter Wing (Blue) are single-storey ANNEXES: a tiled floor, three studded
 --                walls in the room colour (inside: the colour as a dado band, warm upper walls above a wood rail,
 --                drawn on), a dark flat roof with a warm-white trim edge and the room's name floating on it, and the
 --                same open front as before, so stations and patients work unchanged. The Winter Wing keeps one snow
@@ -142,7 +142,7 @@ local COLORS = {
 	Fence = WORLD.Fence, -- the gate posts (the fence itself is Props')
 	Trim = WORLD.Trim, -- warm white: the CounterTop, station tops, mattresses, trim edges, decor spots
 	Roof = WORLD.Roof, -- the annexes' flat roofs: a dark anchor
-	Floor = WORLD.FloorA, -- room floors: WoodPlanks
+	Floor = WORLD.FloorTile, -- room floors: CeramicTiles (Joshua 2026-11-17: "floor texture shouldnt be wood")
 	WallUpper = WORLD.WallUpper, -- the warm upper wall inside an annex (drawn above the dado)
 	Rail = WORLD.Beam, -- the wood rail between the dado and the upper wall (drawn)
 	Wood = WORLD.Beam, -- the arbor's posts
@@ -465,7 +465,7 @@ local function placeholderRoom(roomId: string, accent: Color3?): Model
 		floor = part(model, "Floor", size, CFrame.identity, COLORS.Lawn)
 		Studs.apply(floor)
 	else
-		floor = part(model, "Floor", size, CFrame.identity, COLORS.Floor, Enum.Material.WoodPlanks)
+		floor = part(model, "Floor", size, CFrame.identity, COLORS.Floor, Enum.Material.CeramicTiles)
 	end
 	model.PrimaryPart = floor
 

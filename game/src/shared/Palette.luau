@@ -104,6 +104,7 @@ Palette.World = table.freeze({
 	Water = hex("#38A7D6"), -- Glass 0.3
 	FloorA = FLOOR_A, -- WoodPlanks (interior floors, slabs)
 	FloorB = hex("#996B45"),
+	FloorTile = hex("#D3DBD4"), -- CeramicTiles: the clinic's indoor floors, slabs and stairs (never wood indoors)
 	WallUpper = WALL_UPPER, -- SmoothPlastic (the interior upper wall)
 	Window = hex("#2F3B57"), -- SmoothPlastic (the opaque ribbon windows)
 	Glass = hex("#CDE8F5"), -- Glass at Transparency 0.55: the see-through bands (the navy Window read as black)
