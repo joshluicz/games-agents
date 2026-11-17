@@ -82,7 +82,7 @@ local ENTRIES: { [DeptId]: Department } = {
 		Team2 = { Kind = "Recover", Value = 0.25 },
 		Team3 = { Kind = "Recover", Value = 0.5 },
 	},
-	Imaging = { Name = "X-ray", Icon = "🩻", Opens = 3, Floor = 0 },
+	Imaging = { Name = "X-ray", Icon = "📸", Opens = 3, Floor = 0 },
 	Rest = { Name = "Rest Ward", Icon = "😴", Opens = 3, Floor = 2 },
 	Roof = { Name = "Roof", Icon = "🚁", Opens = 5, Floor = 4 },
 }

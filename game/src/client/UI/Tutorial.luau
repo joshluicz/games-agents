@@ -62,7 +62,7 @@
 --   home" · "🔁 Replay" · "Not now" (the default). Then the TutorialReplay remote. A replay has no sweep, no gift and
 --   the full HUD (Snapshot.TutorialReplay), and can be skipped again.
 -- THE IDLE NUDGE: after Config.Tutorial.NudgeSeconds without progress on a walking step (Logic.nudge), the nurse says
---   "Psst! Follow the arrows ➜" and the beam brightens once (Wayfinder.flash). Once per step, never a number, and no
+--   "Psst! Follow the arrows →" and the beam brightens once (Wayfinder.flash). Once per step, never a number, and no
 --   time counts while a panel is open.
 -- For every owner (done players too): whenever your character arrives at your clinic (joining or respawning), the
 -- camera turns to look the way the character faces, at the clinic (first-session design §A1).
@@ -133,7 +133,7 @@ Pure.SAY = {
 	OneMore = "One more!",
 	Super = "Super job!",
 	Upgrade = "Wow, an upgrade!",
-	Nudge = "Psst! Follow the arrows ➜",
+	Nudge = "Psst! Follow the arrows →",
 }
 -- Card 7's pips live on this card's bar segment (Logic.MORE_CURES of them).
 Pure.PIPS_CARD = 7
@@ -152,7 +152,7 @@ Pure.GAMES = {
 	Temp = { Title = "TAKE ITS TEMPERATURE!", Sub = "Hold… let go in the green!", Icon = "🌡️" },
 	Light = { Title = "CHECK WITH THE LIGHT!", Sub = "Tap when the ring lines up!", Icon = "🔦" },
 	Look = { Title = "LOOK CLOSELY!", Sub = "Tap the sore spots!", Icon = "🔍" },
-	XRay = { Title = "X-RAY TIME!", Sub = "Tap as it passes the bone!", Icon = "🩻" },
+	XRay = { Title = "X-RAY TIME!", Sub = "Tap as it passes the bone!", Icon = "📸" },
 	Plaster = { Title = "PUT ON THE PLASTER!", Sub = "Tap the sore spots!", Icon = "🩹" },
 	Ice = { Title = "COOL IT DOWN!", Sub = "Hold… let go on ⭐", Icon = "🧊" },
 	Bandage = { Title = "WRAP IT UP!", Sub = "Tap on each beat!", Icon = "🧻" },

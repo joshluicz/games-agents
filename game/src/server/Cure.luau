@@ -159,7 +159,7 @@ local function sanitize(ctx: any): Types.CureCtx?
 		Plot = if type(plot) == "table" and typeof(plot.Model) == "Instance" then plot else nil,
 		Dept = shortId(ctx.Dept),
 		Wing = shortId(ctx.Wing),
-		-- Already paid inside Extra; carried on so the Cured payload's 🛗 bonus line shows. (The old hot tub's bonus
+		-- Already paid inside Extra; carried on so the Cured payload's ↕️ bonus line shows. (The old hot tub's bonus
 		-- flag is gone: the Bath Room's bath is a plan step now.)
 		Escorted = ctx.Escorted == true,
 	}

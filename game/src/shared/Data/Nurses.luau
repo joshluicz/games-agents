@@ -155,7 +155,7 @@ local ENTRIES: { [NurseId]: Nurse } = {
 	},
 	JamJelly = {
 		Name = "Jam Jelly",
-		Icon = "🪼",
+		Icon = "🍓",
 		Rarity = "Epic",
 		Role = "Maker",
 		Specialty = "Hydro",

@@ -22,7 +22,7 @@
 -- banner shine, and holds the rays still.
 --
 -- Progression v2 (build plan §C T8): the cure pop grows a line per bonus that paid: "🌟 Golden!" (a Golden patient,
--- with gold sparkles and the Golden chime), "🚑 ×3" / "🚁 ×4" (an ambulance or helicopter patient), "+20% 🛗" (you
+-- with gold sparkles and the Golden chime), "🚑 ×3" / "🚁 ×4" (an ambulance or helicopter patient), "+20% ↕️" (you
 -- or a Porter rode it up to its bed). The numbers come from Config, the facts from the Cured payload (Urgent,
 -- Escorted) or, when the server sends none, the patient model's own attributes. The rules are the pure BONUS block (tests/Juice).
 --
@@ -121,7 +121,7 @@ function Bonus.lines(info: any, attrs: any, cfg: any): { BonusLine }
 		end
 	end
 	if fact("Escorted") == true then
-		percent("Escort", "CashBonus", "🛗", "Escort")
+		percent("Escort", "CashBonus", "↕️", "Escort")
 	end
 	return out
 end
@@ -646,7 +646,7 @@ local function onCured(info: any)
 		table.insert(lines, { Text = "⭐ +" .. stars .. helped, Color = Theme.Colors.Star })
 	end
 
-	-- Progression v2: a line for each bonus that paid (Golden, 🚑/🚁, 🛗), for whoever saw the money.
+	-- Progression v2: a line for each bonus that paid (Golden, 🚑/🚁, ↕️), for whoever saw the money.
 	if (iHelped or ownClinic) and position then
 		local facts = if info.Urgent == nil or info.Escorted == nil then patientFacts(position, patientId) else {}
 		for index, line in Bonus.lines(info, facts, ctx.Config) do

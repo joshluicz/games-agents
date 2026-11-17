@@ -11,7 +11,7 @@
 --                                                (0..its Floors) and isn't the one they're on · they aren't riding
 --                                                already · Config.Lift.Cooldown (1 s) per player. Then it answers at
 --                                                once ({ Seconds, From, To }), sets the ride attributes below and, after
---                                                Config.Lift.RideSeconds x the rider's 🛗 Express Lift factor
+--                                                Config.Lift.RideSeconds x the rider's ↕️ Express Lift factor
 --                                                (Logic/Rebirth.effects .Lift), PivotTo's the character to that landing
 --                                                (re-found then: a rebuilt building still works; gone = they stay put)
 --   Lift.carry(plot, models, floor): boolean     Patients and porters: yields the ride (RideSeconds x the plot
@@ -73,11 +73,11 @@ Pure.MAX_WAIT = 30 -- Lift.waitEscort waits at most this long
 Pure.SPREAD = 2.8 -- studs between riders set down side by side
 
 Pure.MSG = table.freeze({
-	Pick = "🛗 Pick a floor!",
-	Near = "🛗 Stand by the lift!",
-	NoFloor = "🛗 No such floor!",
+	Pick = "↕️ Pick a floor!",
+	Near = "↕️ Stand by the lift!",
+	NoFloor = "↕️ No such floor!",
 	Here = "📍 You're here!",
-	Riding = "🛗 Riding!",
+	Riding = "↕️ Riding!",
 })
 
 -- A whole, finite number, or nil.
@@ -207,7 +207,7 @@ function Lift.landing(plot: any, floor: any): CFrame?
 	return landing.CFrame * CFrame.new(0, -landing.Size.Y / 2, 0)
 end
 
--- The 🛗 Express Lift factor in someone's save (1 = none).
+-- The ↕️ Express Lift factor in someone's save (1 = none).
 local function liftFactor(player: Player?): number
 	local data = if player then PlayerData.get(player) else nil
 	if not data then

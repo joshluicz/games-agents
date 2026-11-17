@@ -70,7 +70,7 @@ local NODES: { [NodeId]: Node } = {
 	-- ⚡ Speed
 	NimbleFingers = rank("Speed", "Nimble Fingers", "⚡", "Make 10% faster", "MakeSpeed", 10),
 	QuickFeet = rank("Speed", "Quick Feet", "👟", "Walk a little faster", "Walk", 1),
-	ExpressLift = rank("Speed", "Express Lift", "🛗", "Lift rides 20% shorter", "Lift", 0.2),
+	ExpressLift = rank("Speed", "Express Lift", "↕️", "Lift rides 20% shorter", "Lift", 0.2),
 	DoubleShift = capstone("Speed", "Double Shift", "⏩", "Nurses work 25% faster", "DoubleShift", 1.25),
 	-- 🍀 Fortune
 	LuckyCoins = rank("Fortune", "Lucky Coins", "💰", "Cash +10%", "Cash", 10),

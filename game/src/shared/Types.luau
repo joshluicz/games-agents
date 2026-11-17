@@ -350,7 +350,7 @@ export type CuredInfo = {
 	Helper: number, -- UserId of the player who treated the patient
 	-- Progression v2 (Feel/CureFX's bonus lines; Server/Cure always sends them, "" / false = no):
 	Urgent: string?, -- "" | "AE" | "VIP": an ambulance (🚑 x3) or helicopter (🚁 x4) patient
-	Escorted: boolean?, -- it rode the lift with a Porter or a player (+20% 🛗)
+	Escorted: boolean?, -- it rode the lift with a Porter or a player (+20% ↕️)
 }
 
 export type NextGoal = { Kind: string, Id: string, Icon: string }

@@ -19,7 +19,7 @@
 --                      seconds), in T1's BillboardGui "AbilityRing" when the nurse has one (a "RingFX" frame is added
 --                      inside it), else in this module's own "AbilityRingFX". Rings update 4 times a second, and only
 --                      while a nurse is that close; past it they go.
---   🛗 the lift        Someone else's ride (the Lift model's RideAt, with Rider = their UserId; T6) dings at that lift
+--   ↕️ the lift        Someone else's ride (the Lift model's RideAt, with Rider = their UserId; T6) dings at that lift
 --                      when you're within earshot. Your own ride's ding is UI/LiftPanel's.
 --   🏗️ the grow-in     A Building rebuilt with a fresh GrewAt (a level-up) fades its new pieces in from the ground up;
 --                      one rebuilt in a new Theme (a rebirth, or a theme picked in the Branch panel) fades all of it in
@@ -499,7 +499,7 @@ local function flyHeli(spot: BasePart, arriveAt: number)
 end
 
 ------------------------------------------------------------------------------------------------------------------
--- 🛗 The lift: someone else's ride dings
+-- ↕️ The lift: someone else's ride dings
 ------------------------------------------------------------------------------------------------------------------
 
 local function onRide(lift: Instance)

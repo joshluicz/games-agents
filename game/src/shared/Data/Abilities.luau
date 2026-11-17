@@ -50,7 +50,7 @@ local ENTRIES: { [AbilityId]: Ability } = {
 	},
 	QuickSoap = {
 		Name = "Quick Soap",
-		Icon = "🫧",
+		Icon = "🧼",
 		Kind = "AutoPerfect",
 		Cooldown = 60,
 		Values = { 1, 2, 3 },

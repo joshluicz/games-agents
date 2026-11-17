@@ -489,7 +489,7 @@ T.describe("Data", function()
 			Thermometer = { "🌡️", "Temp" },
 			Light = { "🔦", "Light" },
 			Magnifier = { "🔍", "Look" },
-			XRay = { "🩻", "XRay" },
+			XRay = { "📸", "XRay" },
 		})
 		expect(Tools.XRay.Level).toBe(Departments.Imaging.Opens)
 	end)
@@ -803,7 +803,7 @@ T.describe("Data", function()
 			Healer = { "🩺", "Reception", 1 },
 			Cheerer = { "🎉", "Reception", 1 },
 			Receptionist = { "🛎️", "Reception", 1 },
-			Porter = { "🛗", "Wards", 2 },
+			Porter = { "↕️", "Wards", 2 },
 			Medic = { "🚑", "AE", 2 },
 		})
 		expect(rawget(Jobs :: any, "Rest")).toBeNil() -- "Rest" is never a job

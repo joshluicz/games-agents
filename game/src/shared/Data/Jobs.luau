@@ -35,7 +35,7 @@ local ENTRIES: { [JobId]: Job } = {
 		Opens = 1,
 		Text = "Patients come sooner",
 	},
-	Porter = { Name = "Porter", Icon = "🛗", Dept = "Wards", Opens = 2, Text = "Rides patients upstairs" },
+	Porter = { Name = "Porter", Icon = "↕️", Dept = "Wards", Opens = 2, Text = "Rides patients upstairs" },
 	Medic = { Name = "Medic", Icon = "🚑", Dept = "AE", Opens = 2, Text = "Helps ambulance patients" },
 }
 

@@ -44,7 +44,7 @@
 -- shortens its own copy (the Snapshot's MakeSeconds per station, UI/Guide).
 --
 -- A full tray never blocks the clinic. Supplies are free, so taking something with a full tray swaps out the oldest
--- item that's different ("🔄 🩹 ➜ 🧊"), first one nobody at this clinic needs (the bay patients' needs from
+-- item that's different ("🔄 🩹 → 🧊"), first one nobody at this clinic needs (the bay patients' needs from
 -- Patients.bayView, else the plot's QueueNeeds attribute). Only a tray already full of this very item refuses ("Tray
 -- full!"), since a swap would change nothing.
 --
@@ -100,7 +100,7 @@ local HOLD_LONGER = "✋ Hold a little longer!"
 local NOT_OPEN = "🔒 Not open yet!"
 local FINISH_GAME = "🎮 Finish your game first!"
 local SWAP_ICON = "🔄"
-local SWAP_ARROW = "➜"
+local SWAP_ARROW = "→"
 
 -- Told: the refusal already toasted when this hold began (not repeated when it completes). Needed: the hold time
 -- when it began (a rush that ends mid-hold doesn't make it longer).

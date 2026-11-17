@@ -540,7 +540,7 @@ function Pure.jobMessage(option: JobOption): string?
 end
 
 -- The job button on a Team card: the job it works now, and the job it was given when that isn't open yet
--- ("🧪 Maker (🛗 at 🏥 Lv 2)"); "💤 Resting" for a resting nurse.
+-- ("🧪 Maker (↕️ at 🏥 Lv 2)"); "💤 Resting" for a resting nurse.
 function Pure.jobButton(entry: any, nurse: any, level: number, jobs: any, resting: boolean): string
 	if resting then
 		return Pure.TEXT.Resting

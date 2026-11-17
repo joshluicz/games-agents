@@ -530,11 +530,11 @@ T.describe("NursePanel (pure): the job picker's states", function()
 	test("a Porter after a rebirth works its role until Lv 2 (nothing is lost)", function()
 		local porter = { Level = 4, XP = 0, Copies = 1, Job = "Porter" }
 		eq(states(PanelPure.jobOptions(porter, puff, 1, Jobs, false, 1, 3, stations))[1], "Maker:Current:✅")
-		eq(PanelPure.jobButton(porter, puff, 1, Jobs, false), "🧪 Maker (🛗 at 🏥 Lv 2)")
+		eq(PanelPure.jobButton(porter, puff, 1, Jobs, false), "🧪 Maker (↕️ at 🏥 Lv 2)")
 		local atTwo = states(PanelPure.jobOptions(porter, puff, 2, Jobs, false, 1, 3, stations))
 		eq(atTwo[1], "Maker:Open:")
 		eq(atTwo[5], "Porter:Current:✅")
-		eq(PanelPure.jobButton(porter, puff, 2, Jobs, false), "🛗 Porter")
+		eq(PanelPure.jobButton(porter, puff, 2, Jobs, false), "↕️ Porter")
 	end)
 	test("a resting nurse: 💤 while the roster is full, open jobs when it has room, never a ✅", function()
 		local entry = { Level = 3, XP = 0, Copies = 3, Job = "Rest" }

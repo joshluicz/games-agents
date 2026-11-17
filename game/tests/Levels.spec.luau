@@ -83,7 +83,7 @@ T.describe("Levels", function()
 			"📋 2-step plans",
 		})
 		expect(LevelsData[3].Unlocks).toEqual({
-			"🩻 X-ray room",
+			"📸 X-ray room",
 			"😴 Rest Ward",
 			"🔀 Pick the ward",
 			"📋 3-step plans",

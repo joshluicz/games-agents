@@ -697,7 +697,7 @@ local DOOR_SPECS: { DoorSpec } = {
 		Slide = -1,
 		Face = Enum.NormalId.Front,
 		Color = IMAGING_COLOR,
-		Title = "🩻 X-ray",
+		Title = "📸 X-ray",
 	},
 	{ Key = "BathRoom", Name = "Door_BathRoom", Slide = -1, Face = Enum.NormalId.Front, Color = HYDRO_COLOR },
 	{ Key = "WinterWing", Name = "Door_WinterWing", Slide = -1, Face = Enum.NormalId.Front, Color = ACCENT.Blue },
@@ -1097,7 +1097,7 @@ local function buildBay(model: Model, bay: any, level: number, signAt: Vector3)
 	local gui = surface(signPart, "SignGui", Enum.NormalId.Front, 30, 60, 0)
 	local text = if not open
 		then "🔒 Lv " .. tostring(bay.Opens)
-		elseif bay.Kind == "XRay" then "🩻 X-ray"
+		elseif bay.Kind == "XRay" then "📸 X-ray"
 		else bay.Id
 	floatText(gui, text, { Size = UDim2.fromScale(0.86, 0.72), Position = UDim2.fromScale(0.07, 0.14) })
 	-- Where the doctor stands, at the foot, looking at the bed.
@@ -1205,7 +1205,7 @@ local function liftPrompts(landing: BasePart, ground: boolean?)
 	local lift = Instance.new("ProximityPrompt")
 	lift.Name = "LiftPrompt"
 	lift.ActionText = "Lift"
-	lift.ObjectText = "🛗"
+	lift.ObjectText = "↕️"
 	lift.HoldDuration = 0
 	lift.MaxActivationDistance = reach
 	lift.RequiresLineOfSight = false
@@ -1214,7 +1214,7 @@ local function liftPrompts(landing: BasePart, ground: boolean?)
 	local escort = Instance.new("ProximityPrompt")
 	escort.Name = "EscortPrompt"
 	escort.ActionText = "Ride with patient"
-	escort.ObjectText = "🛗"
+	escort.ObjectText = "↕️"
 	escort.HoldDuration = 0
 	escort.MaxActivationDistance = reach
 	escort.RequiresLineOfSight = false

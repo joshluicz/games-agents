@@ -133,7 +133,7 @@ Palette.Departments = table.freeze({
 	Hydro = Palette.Accent.Cyan,
 	Pharmacy = Palette.Accent.Blue,
 	Rest = Palette.Accent.Blue, -- 😴 the Rest Ward (the colour HospitalBuilder stood in with)
-	Imaging = Palette.Accent.Blue, -- 🩻 the X-ray room
+	Imaging = Palette.Accent.Blue, -- 📸 the X-ray room
 	Roof = LEAVES_A,
 	AE = Palette.Accent.Red,
 }) :: { [string]: Color3 }

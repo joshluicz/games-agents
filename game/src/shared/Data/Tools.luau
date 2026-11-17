@@ -22,7 +22,7 @@ local ENTRIES: { [ToolId]: Tool } = {
 	Thermometer = { Name = "Thermometer", Icon = "🌡️", Game = "Temp" }, -- take a temperature
 	Light = { Name = "Light", Icon = "🔦", Game = "Light" }, -- an ear or throat check
 	Magnifier = { Name = "Magnifier", Icon = "🔍", Game = "Look" }, -- look at the sore spots
-	XRay = { Name = "X-ray", Icon = "🩻", Game = "XRay", Machine = true, Level = 3 },
+	XRay = { Name = "X-ray", Icon = "📸", Game = "XRay", Machine = true, Level = 3 },
 }
 
 local ORDER = { "Stethoscope", "Thermometer", "Light", "Magnifier", "XRay" }

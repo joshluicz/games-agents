@@ -1986,7 +1986,7 @@ local function payVisit(p: Patient)
 		Plot = state.Plot, -- Cure asks Abilities (Double Dose, Star Burst) about this plot
 		Dept = p.RecoverIn, -- nurse XP specialty
 		Wing = p.Wing,
-		Escorted = if p.Escorted then true else nil, -- for the Cured payload (Feel/CureFX's "+20% 🛗")
+		Escorted = if p.Escorted then true else nil, -- for the Cured payload (Feel/CureFX's "+20% ↕️")
 	}
 	-- Its own thread: a patient thread cancelled mid-visit can never cut a reward in half.
 	task.spawn(function()

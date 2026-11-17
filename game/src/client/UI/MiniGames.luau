@@ -33,7 +33,7 @@
 --   Scrub  bubbles pop up round the creature       score = bubbles popped in time (🛁 Bath)
 --   Cool   tap on the beat, Blows times            score = good beats (a beat is good within Window seconds of
 --          its middle, halfway through PulseSeconds; it glows lime then). Skins: "Ring" (a ring is biggest then:
---          ☕ Cocoa's steam, 🔦 Light's ring over the patient) and "Sweep" (a bar passes the middle: 🩻 XRay's
+--          ☕ Cocoa's steam, 🔦 Light's ring over the patient) and "Sweep" (a bar passes the middle: 📸 XRay's
 --          scanner over the bone, 🧻 Bandage and 🦴 Cast wrapping)
 --   Pick   tap the right one                       score = WRONG taps before the right one. A wrong tap shakes
 --          its head ("Hmm, not that one!"), greys out and costs nothing but the tip: never a fail
@@ -603,14 +603,14 @@ Pure.LOOKS = {
 		Spot = "Sore",
 	},
 	XRay = {
-		Icon = "🩻",
+		Icon = "📸",
 		Title = "X-ray!",
 		Hint = "Tap on the bone!",
 		Sound = "Scan",
 		Tint = "Cyan",
 		Style = "Sweep",
 		Target = "🦴",
-		Good = "🩻",
+		Good = "📸",
 		Miss = "〰️",
 	},
 	-- the supplies (Data/Items Game)
@@ -2118,8 +2118,12 @@ local function playPatch(env: Env): number
 	local spots = math.clamp(math.floor(num(cfg.Spots, 3)), 1, 6)
 	local seconds = math.max(num(cfg.Seconds, 4.5), 1)
 	local holder = creature(env, 0.96, 0.5)
-	local points = Pure.scatter(spots, { 0.27, 0.4, 0.73, 0.82 }, 0.3, env.r01)
 	local SPOT = 0.26 -- of the creature
+	-- A spot never draws smaller than MIN_TAP (small fingers), and on a short stage that is more than SPOT of the
+	-- creature: keep the spots that far apart, over most of the face, so they never overlap (Studio test 2026-11-17).
+	local across = holder.AbsoluteSize.X
+	local drawn = if across > 0 then math.max(SPOT, MIN_TAP / across) else SPOT
+	local points = Pure.scatter(spots, { 0.18, 0.3, 0.82, 0.86 }, math.max(0.3, drawn * 1.1), env.r01)
 	local glowing = look.Spot == "Glow"
 	local spotColor = if glowing then GLOW else SORE
 	local coreColor = if glowing then GLOW_CORE else SORE_CORE
@@ -2581,7 +2585,7 @@ local function ringScene(env: Env, pulse: number, _window: number): Scene
 end
 
 -- "Sweep": a bar crosses the stage and is in the middle halfway; the green zone round the middle is where a tap is
--- good (Pure.sweepZone: the same rule as the ring). 🩻 the X-ray's scanner over the bone; 🧻 🦴 a wrap going round.
+-- good (Pure.sweepZone: the same rule as the ring). 📸 the X-ray's scanner over the bone; 🧻 🦴 a wrap going round.
 local function sweepScene(env: Env, pulse: number, window: number): Scene
 	local layer = env.Layer
 	local look = env.Look
@@ -3744,7 +3748,7 @@ local function runTriage(ctx: Types.Ctx, v: View, run: Run, card: TriageCard, si
 	local look = if answer then Pure.TRIAGE_TEXT[answer] else nil
 	if look then
 		setHeader(v, look.Icon, look.Text, if answer == "Right" then Theme.Colors.Collect else CALM_BLUE)
-		setHint(v, if answer == "Right" then "💰 +bonus!" else "🛗 Off it goes!")
+		setHint(v, if answer == "Right" then "💰 +bonus!" else "↕️ Off it goes!")
 		if answer == "Right" then
 			burst(layer, UDim2.fromScale(0.5, 0.48), "✨", 10, 0.2)
 			sound("Sparkle")

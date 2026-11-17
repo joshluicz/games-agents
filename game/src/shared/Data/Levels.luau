@@ -77,7 +77,7 @@ local LEVELS: { Level } = {
 		SpawnSeconds = 10,
 		Floors = 2,
 		Departments = { "Reception", "Pharmacy", "AE", "Wards", "Imaging", "Rest" },
-		Unlocks = { "🩻 X-ray room", "😴 Rest Ward", "🔀 Pick the ward", "📋 3-step plans", "🌻 Garden" },
+		Unlocks = { "📸 X-ray room", "😴 Rest Ward", "🔀 Pick the ward", "📋 3-step plans", "🌻 Garden" },
 	},
 	{
 		Name = "General Hospital",

@@ -551,7 +551,7 @@ T.describe("Shop (pure): the 🏥 tab's branch card, gates and levels", function
 		eq(ShopPure.levelLine(Levels[2], Departments), "🛎️ 💊 🚑 🛏️   🩺 3   🛏️ 3   📋 2")
 		eq(
 			ShopPure.levelLine(Levels[5], Departments),
-			"🛎️ 💊 🚑 🛏️ 🩻 😴 🚁   🩺 6   🛏️ 7   📋 3"
+			"🛎️ 💊 🚑 🛏️ 📸 😴 🚁   🩺 6   🛏️ 7   📋 3"
 		)
 		eq(ShopPure.levelLine(nil, Departments), "   🩺 0   🛏️ 0   📋 0")
 		for level = 1, #Levels do

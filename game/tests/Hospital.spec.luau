@@ -503,7 +503,7 @@ T.describe("Hospital (lift rules)", function()
 			table.insert(texts, button.Text)
 		end
 		-- F3 (the staff room) has no department of its own, so it shows the lift
-		expect(texts).toEqual({ "🚁 R", "🛗 3", "😴 2", "🛏️ 1", "🛎️ G" })
+		expect(texts).toEqual({ "🚁 R", "↕️ 3", "😴 2", "🛏️ 1", "🛎️ G" })
 		local lv2 = Panel.buttons(LevelsData[2].Floors, 1, Departments)
 		expect(#lv2).toBe(2)
 		expect(lv2[1].Here).toBe(true)
@@ -1250,7 +1250,7 @@ T.describe("Hospital (the built world)", function()
 					end
 					local said = texts(model.Sign)
 					if open then
-						expect(said).toBe(if bay.Kind == "XRay" then "🩻 X-ray" else bay.Id)
+						expect(said).toBe(if bay.Kind == "XRay" then "📸 X-ray" else bay.Id)
 					else
 						expect(said).toBe("🔒 Lv " .. bay.Opens)
 					end

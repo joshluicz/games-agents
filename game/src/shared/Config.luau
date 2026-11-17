@@ -173,7 +173,7 @@ Config.MiniGame = {
 		Temp = { FillSeconds = 2.4, BandMin = 0.68, BandMax = 0.86, GoodSlack = 0.12, MinSeconds = 1.2 }, -- 🌡️
 		Light = { Blows = 3, Good = 2, PulseSeconds = 1.1, Window = 0.3, MinSeconds = 1.5 }, -- 🔦 ear or throat check
 		Look = { Spots = 2, Seconds = 4, Good = 1, MinSeconds = 1 }, -- 🔍 find the 2 sore spots
-		XRay = { Blows = 3, Good = 2, PulseSeconds = 1.2, Window = 0.3, MinSeconds = 1.5 }, -- 🩻 the scanner bar
+		XRay = { Blows = 3, Good = 2, PulseSeconds = 1.2, Window = 0.3, MinSeconds = 1.5 }, -- 📸 the scanner bar
 		-- supplies
 		Plaster = { Spots = 3, Seconds = 4.5, Good = 2, MinSeconds = 1 }, -- 🩹 today's Patch
 		Ice = { FillSeconds = 2.4, BandMin = 0.7, BandMax = 0.86, GoodSlack = 0.12, MinSeconds = 1.2 }, -- 🧊 hold till cool

@@ -519,7 +519,7 @@ end)
 
 T.describe("CureFX: bonus pops (Progression v2)", function()
 	test(
-		"Golden, 🚑 ×3 and +20% 🛗 from the payload (the hot tub's 🛁 line is gone), numbers from Config",
+		"Golden, 🚑 ×3 and +20% ↕️ from the payload (the hot tub's 🛁 line is gone), numbers from Config",
 		function()
 			local lines = Bonus.lines({ Variant = "Golden", Urgent = "AE", Escorted = true, Soaked = true }, {}, Config)
 			local texts = {}
@@ -529,10 +529,10 @@ T.describe("CureFX: bonus pops (Progression v2)", function()
 			expect(texts).toEqual({
 				"🌟 Golden!",
 				"🚑 ×" .. Config.AE.CashMultiplier,
-				"+" .. math.floor(Config.Escort.CashBonus * 100 + 0.5) .. "% 🛗",
+				"+" .. math.floor(Config.Escort.CashBonus * 100 + 0.5) .. "% ↕️",
 			})
 			expect(texts[2]).toBe("🚑 ×3")
-			expect(texts[3]).toBe("+20% 🛗")
+			expect(texts[3]).toBe("+20% ↕️")
 			expect(texts[4]).toBeNil()
 		end
 	)

@@ -1,5 +1,5 @@
 --!strict
--- The 🛗 lift's floor picker and the ride on this client (Progression v2 build plan §B3/§B4/§B9, §C T6). OWNER: T6;
+-- The ↕️ lift's floor picker and the ride on this client (Progression v2 build plan §B3/§B4/§B9, §C T6). OWNER: T6;
 -- the look overhaul's T7 put the picker on the one modal template (look build plan §D T7; its PURE block is unchanged:
 -- tests/Hospital.spec loads it).
 --   init(ctx)
@@ -82,7 +82,7 @@ end
 -- A floor's button: the icon of the department on that floor (Data/Departments, the first in Order), then "G" for the
 -- ground, "R" for the roof (the Roof department's floor), else its number.
 function Pure.label(floor: number, departments: any): string
-	local icon, roof = "🛗", false
+	local icon, roof = "↕️", false
 	if type(departments) == "table" and type(departments.Order) == "table" then
 		for _, id in departments.Order do
 			local dept = rawget(departments, id)
@@ -418,7 +418,7 @@ end
 function LiftPanel.init(ctx: Types.Ctx)
 	local modal = Hud.modal(ctx, {
 		Name = "Lift",
-		Title = "🛗 Lift",
+		Title = "↕️ Lift",
 		Layer = "Popup",
 		MaxSize = Vector2.new(420, 500),
 	})

@@ -173,7 +173,7 @@ local ENTRIES: { [DecorId]: Decor } = {
 	},
 	ResidentFern = {
 		Name = "Resident Fern",
-		Icon = "🪴",
+		Icon = "🌳",
 		EarnedBy = "Playtime",
 		Look = { Kind = "Plant", Color = "#62C98A", Accent = "#8FB8FF" },
 	},
